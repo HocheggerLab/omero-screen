@@ -1,0 +1,5 @@
+USERNAME=root
+PASSWORD=omero
+HOST=localhost
+PROJECT_ID=151
+DATA_PATH = 'omero-napari-data_tests'

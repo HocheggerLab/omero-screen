@@ -1,0 +1,40 @@
+# template/.pre-commit-config.yaml
+repos:
+- repo: https://github.com/astral-sh/uv-pre-commit
+  rev: 0.4.27
+  hooks:
+    - id: pip-compile
+      args: [requirements.in, -o, requirements.txt]
+-   repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.0.0
+    hooks:
+    -   id: commitizen-branch
+        stages: [pre-push]
+        # This only checks if commits follow the conventional commits format
+        # without doing any version bumping
+
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+    -   id: trailing-whitespace
+    -   id: end-of-file-fixer
+    -   id: check-yaml
+    -   id: check-toml
+    -   id: check-added-large-files
+    -   id: debug-statements
+    -   id: check-case-conflict
+    -   id: check-merge-conflict
+
+-   repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: v0.3.0
+    hooks:
+    -   id: ruff
+        args: [--fix]
+    -   id: ruff-format
+
+-   repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+    -   id: mypy
+        exclude: ^tests/
+        args: ["--config-file=pyproject.toml"]

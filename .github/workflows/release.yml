@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  version-bump:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install commitizen
+
+      - name: Get commit message
+        run: |
+          echo "COMMIT_MSG=$(git log -1 --pretty=%B)" >> $GITHUB_ENV
+
+      - name: Determine package and bump version
+        run: |
+          # Get the commit message
+          COMMIT_MSG="${{ env.COMMIT_MSG }}"
+
+          # Extract package name using grep instead of bash regex
+          if echo "$COMMIT_MSG" | grep -q "^[a-z]\+(\([^)]\+\))"; then
+            PACKAGE=$(echo "$COMMIT_MSG" | sed -n 's/^[a-z]\+(\([^)]\+\)).*/\1/p')
+            if [ -d "packages/$PACKAGE" ]; then
+              echo "Bumping version for package: $PACKAGE"
+              cd "packages/$PACKAGE"
+              cz bump --yes
+            else
+              echo "Bumping version for root package"
+              cz bump --yes
+            fi
+          else
+            echo "No package scope found, bumping root package"
+            cz bump --yes
+          fi
+
+      - name: Push changes
+        run: git push --follow-tags
