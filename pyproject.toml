@@ -1,0 +1,27 @@
+[project]
+name = "omero-screen"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "hh65", email = "hh65@sussex.ac.uk" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "omero-screen-napari",
+    "omero-utils",
+]
+
+[project.scripts]
+omero-screen = "omero_screen:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.workspace]
+members = ["packages/omero-utils", "packages/omero-screen-napari"]
+
+[tool.uv.sources]
+omero-utils = { workspace = true }
+omero-screen-napari = { workspace = true }

@@ -1,0 +1,34 @@
+version = 1
+requires-python = ">=3.12"
+
+[manifest]
+members = [
+    "omero-screen",
+    "omero-screen-napari",
+    "omero-utils",
+]
+
+[[package]]
+name = "omero-screen"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "omero-screen-napari" },
+    { name = "omero-utils" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "omero-screen-napari", editable = "packages/omero-screen-napari" },
+    { name = "omero-utils", editable = "packages/omero-utils" },
+]
+
+[[package]]
+name = "omero-screen-napari"
+version = "0.1.0"
+source = { editable = "packages/omero-screen-napari" }
+
+[[package]]
+name = "omero-utils"
+version = "0.1.0"
+source = { editable = "packages/omero-utils" }
