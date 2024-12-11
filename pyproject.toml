@@ -8,8 +8,11 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "omero-py>=5.19.5",
     "omero-screen-napari",
     "omero-utils",
+    "python-dotenv>=1.0.1",
+    "zeroc-ice",
 ]
 
 [project.scripts]
@@ -25,6 +28,7 @@ members = ["packages/omero-utils", "packages/omero-screen-napari"]
 [tool.uv.sources]
 omero-utils = { workspace = true }
 omero-screen-napari = { workspace = true }
+zeroc-ice = { url = "https://github.com/glencoesoftware/zeroc-ice-py-macos-universal2/releases/download/20240131/zeroc_ice-3.6.5-cp312-cp312-macosx_11_0_universal2.whl" }
 
 [dependency-groups]
 dev = [
@@ -54,7 +58,7 @@ exclude = [
 
 incremental = true
 cache_dir = ".mypy_cache"
-ignore_missing_imports = false
+ignore_missing_imports = true
 #follow_imports = "silent"
 pretty = true
 warn_unused_configs = true
