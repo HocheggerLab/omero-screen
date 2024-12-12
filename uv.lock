@@ -1,5 +1,12 @@
 version = 1
 requires-python = ">=3.12"
+resolution-markers = [
+    "sys_platform == 'darwin'",
+    "platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform != 'darwin'",
+    "(platform_machine == 'aarch64' and sys_platform != 'darwin' and sys_platform != 'linux') or (platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux')",
+]
 
 [manifest]
 members = [
@@ -297,7 +304,10 @@ dependencies = [
     { name = "pyyaml" },
     { name = "requests" },
     { name = "urllib3" },
-    { name = "zeroc-ice" },
+    { name = "zeroc-ice", version = "3.6.5", source = { registry = "https://pypi.org/simple" }, marker = "(platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform != 'darwin') or (platform_machine == 'aarch64' and sys_platform != 'darwin' and sys_platform != 'linux') or (platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux')" },
+    { name = "zeroc-ice", version = "3.6.5", source = { url = "https://github.com/glencoesoftware/zeroc-ice-py-linux-aarch64/releases/download/20240620/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_aarch64.whl" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
+    { name = "zeroc-ice", version = "3.6.5", source = { url = "https://github.com/glencoesoftware/zeroc-ice-py-linux-x86_64/releases/download/20240202/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_x86_64.whl" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "zeroc-ice", version = "3.6.5", source = { url = "https://github.com/glencoesoftware/zeroc-ice-py-macos-universal2/releases/download/20240131/zeroc_ice-3.6.5-cp312-cp312-macosx_11_0_universal2.whl" }, marker = "sys_platform == 'darwin'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/62/ec/b447bd913552395cc808366fef8c0fb1c22c7980a4b39faa30ee033f341d/omero_py-5.19.5.tar.gz", hash = "sha256:b1ba9e3dbd8281d7bdb00b3b48d70fbec3bc967f25f4b19f713c9cbbc8b83375", size = 2340619 }
 wheels = [
@@ -313,7 +323,10 @@ dependencies = [
     { name = "omero-screen-napari" },
     { name = "omero-utils" },
     { name = "python-dotenv" },
-    { name = "zeroc-ice" },
+    { name = "zeroc-ice", version = "3.6.5", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform != 'darwin'" },
+    { name = "zeroc-ice", version = "3.6.5", source = { url = "https://github.com/glencoesoftware/zeroc-ice-py-linux-aarch64/releases/download/20240620/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_aarch64.whl" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
+    { name = "zeroc-ice", version = "3.6.5", source = { url = "https://github.com/glencoesoftware/zeroc-ice-py-linux-x86_64/releases/download/20240202/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_x86_64.whl" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "zeroc-ice", version = "3.6.5", source = { url = "https://github.com/glencoesoftware/zeroc-ice-py-macos-universal2/releases/download/20240131/zeroc_ice-3.6.5-cp312-cp312-macosx_11_0_universal2.whl" }, marker = "sys_platform == 'darwin'" },
 ]
 
 [package.dev-dependencies]
@@ -331,7 +344,10 @@ requires-dist = [
     { name = "omero-screen-napari", editable = "packages/omero-screen-napari" },
     { name = "omero-utils", editable = "packages/omero-utils" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
-    { name = "zeroc-ice", url = "https://github.com/glencoesoftware/zeroc-ice-py-macos-universal2/releases/download/20240131/zeroc_ice-3.6.5-cp312-cp312-macosx_11_0_universal2.whl" },
+    { name = "zeroc-ice", marker = "platform_machine == 'aarch64' and sys_platform == 'linux'", url = "https://github.com/glencoesoftware/zeroc-ice-py-linux-aarch64/releases/download/20240620/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_aarch64.whl" },
+    { name = "zeroc-ice", marker = "platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform != 'darwin'" },
+    { name = "zeroc-ice", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", url = "https://github.com/glencoesoftware/zeroc-ice-py-linux-x86_64/releases/download/20240202/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_x86_64.whl" },
+    { name = "zeroc-ice", marker = "sys_platform == 'darwin'", url = "https://github.com/glencoesoftware/zeroc-ice-py-macos-universal2/releases/download/20240131/zeroc_ice-3.6.5-cp312-cp312-macosx_11_0_universal2.whl" },
 ]
 
 [package.metadata.requires-dev]
@@ -635,7 +651,42 @@ wheels = [
 [[package]]
 name = "zeroc-ice"
 version = "3.6.5"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "platform_machine != 'aarch64' and platform_machine != 'x86_64' and sys_platform != 'darwin'",
+    "(platform_machine == 'aarch64' and sys_platform != 'darwin' and sys_platform != 'linux') or (platform_machine == 'x86_64' and sys_platform != 'darwin' and sys_platform != 'linux')",
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1e/65/43c3ad2412467c731ee3c23bce03fad7e2b79df31301e27cc7b1b454554b/zeroc-ice-3.6.5.tar.gz", hash = "sha256:4235ffeb605bcd4e22e716577f7d61e4aa1bc82f65276bb542701a81b7933356", size = 1150200 }
+
+[[package]]
+name = "zeroc-ice"
+version = "3.6.5"
+source = { url = "https://github.com/glencoesoftware/zeroc-ice-py-linux-aarch64/releases/download/20240620/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_aarch64.whl" }
+resolution-markers = [
+    "platform_machine == 'aarch64' and sys_platform == 'linux'",
+]
+wheels = [
+    { url = "https://github.com/glencoesoftware/zeroc-ice-py-linux-aarch64/releases/download/20240620/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:c6573b773c791a982357bfcda09248873c3eec18189698edca6800417bea4703" },
+]
+
+[[package]]
+name = "zeroc-ice"
+version = "3.6.5"
+source = { url = "https://github.com/glencoesoftware/zeroc-ice-py-linux-x86_64/releases/download/20240202/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_x86_64.whl" }
+resolution-markers = [
+    "platform_machine == 'x86_64' and sys_platform == 'linux'",
+]
+wheels = [
+    { url = "https://github.com/glencoesoftware/zeroc-ice-py-linux-x86_64/releases/download/20240202/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:96fb9066912c52f2503e9f9207f98d51de79c475d19ebd3157aae7bc522b5826" },
+]
+
+[[package]]
+name = "zeroc-ice"
+version = "3.6.5"
 source = { url = "https://github.com/glencoesoftware/zeroc-ice-py-macos-universal2/releases/download/20240131/zeroc_ice-3.6.5-cp312-cp312-macosx_11_0_universal2.whl" }
+resolution-markers = [
+    "sys_platform == 'darwin'",
+]
 wheels = [
     { url = "https://github.com/glencoesoftware/zeroc-ice-py-macos-universal2/releases/download/20240131/zeroc_ice-3.6.5-cp312-cp312-macosx_11_0_universal2.whl", hash = "sha256:7b387fefd15acf05192464fccda4d5a5c37fddd15e8fb5cc509d787950b66e8a" },
 ]
