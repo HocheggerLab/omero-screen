@@ -32,6 +32,10 @@ omero-screen = "omero_screen:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
+
 [tool.uv.workspace]
 members = ["packages/omero-utils", "packages/omero-screen-napari"]
 
