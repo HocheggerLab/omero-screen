@@ -22,7 +22,7 @@ dependencies = [
     'zeroc-ice @ https://github.com/glencoesoftware/zeroc-ice-py-linux-x86_64/releases/download/20240202/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_x86_64.whl ; sys_platform == "linux" and platform_machine == "x86_64"',
 
     # Default zeroc-ice for other platforms or architectures
-    'zeroc-ice ; sys_platform != "darwin" and platform_machine not in ["aarch64", "x86_64"]',
+    'zeroc-ice ; sys_platform != "darwin" and platform_machine != "aarch64" and platform_machine != "x86_64"',
 ]
 
 [project.scripts]
