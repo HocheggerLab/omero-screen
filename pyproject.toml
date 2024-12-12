@@ -8,11 +8,17 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "omero-py>=5.19.5",
     "omero-screen-napari",
     "omero-utils",
     "python-dotenv>=1.0.1",
-    "zeroc-ice",
+    # macOS-specific zeroc-ice wheel
+    "https://github.com/glencoesoftware/zeroc-ice-py-macos-universal2/releases/download/20240131/zeroc_ice-3.6.5-cp312-cp312-macosx_11_0_universal2.whl",
+    # Linux aarch64-specific zeroc-ice wheel (Optional)
+    "https://github.com/glencoesoftware/zeroc-ice-py-linux-aarch64/releases/download/20240620/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_aarch64.whl",
+    # Linux x86_64-specific zeroc-ice wheel
+    "https://github.com/glencoesoftware/zeroc-ice-py-linux-x86_64/releases/download/20240202/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_x86_64.whl",
+    # Default zeroc-ice for other platforms or architectures
+    "zeroc-ice ; sys_platform != 'darwin' and (platform_machine != 'aarch64' and platform_machine != 'x86_64')"
 ]
 
 [project.scripts]
@@ -28,7 +34,7 @@ members = ["packages/omero-utils", "packages/omero-screen-napari"]
 [tool.uv.sources]
 omero-utils = { workspace = true }
 omero-screen-napari = { workspace = true }
-zeroc-ice = { url = "https://github.com/glencoesoftware/zeroc-ice-py-macos-universal2/releases/download/20240131/zeroc_ice-3.6.5-cp312-cp312-macosx_11_0_universal2.whl" }
+
 
 [dependency-groups]
 dev = [
