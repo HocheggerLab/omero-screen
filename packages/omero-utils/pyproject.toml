@@ -116,7 +116,7 @@ name = "cz_conventional_commits"
 version = "0.1.0"
 tag_format = "omero-utils-v$version"
 version_files = [
-    "src/omero-utils/__init__.py:__version__",
+    "src/omero_utils/__init__.py:__version__",
     "pyproject.toml:version",
     "README.md:version-[0-9]+\\.[0-9]+\\.[0-9]+"
 ]
