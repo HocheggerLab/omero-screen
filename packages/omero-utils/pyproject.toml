@@ -1,6 +1,6 @@
 [project]
 name = "omero-utils"
-version = "0.1.0"
+version = "0.1.1"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -113,7 +113,7 @@ python_files = ["test_*.py"]
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.1.0"
+version = "0.1.1"
 tag_format = "omero-utils-v$version"
 version_files = [
     "src/omero_utils/__init__.py:__version__",
