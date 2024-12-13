@@ -9,10 +9,6 @@ from omero_screen.logging_config import setup_logging
 logger = setup_logging("omero_utils")
 
 
-def send_message() -> None:
-    print("The message from omero_connect was sent")
-
-
 def omero_connect(func: Callable[..., Any]) -> Callable[..., Any]:
     """
     Decorator that handles OMERO connection lifecycle management.
@@ -65,7 +61,7 @@ def omero_connect(func: Callable[..., Any]) -> Callable[..., Any]:
             raise
         finally:
             # No side effects if called without a connection
-            if conn:
+            if conn and conn.isConnected():
                 conn.close()
                 logger.info("Closing connection to Omero")
                 print(f"Closing connection to Omero at host: {host}")
