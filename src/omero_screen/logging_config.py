@@ -39,7 +39,7 @@ def setup_logging(logger_name: str = "omero_screen") -> logging.Logger:
     logging.basicConfig(level=logging.WARNING)
 
     # Create and configure your application's main logger
-    app_logger_name = "omero_utils"
+    app_logger_name = logger_name
     app_logger = logging.getLogger(app_logger_name)
     app_logger.setLevel(
         getattr(logging, LOG_LEVEL, logging.DEBUG)

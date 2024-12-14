@@ -8,34 +8,45 @@ logger = setup_logging("omero_screen")
 
 
 @pytest.fixture
-def clean_env():
-    """Fixture to clean environment variables and logger handlers before each test"""
-    # Store original environment variables
-    original_env = {
-        key: value
-        for key, value in os.environ.items()
-        if key in ["LOG_LEVEL", "LOG_FILE_PATH"]
-    }
-
-    # Clean up environment variables
-    for key in ["LOG_LEVEL", "LOG_FILE_PATH"]:
-        if key in os.environ:
-            del os.environ[key]
-
-    # Clean up existing handlers
-    logger = logging.getLogger("omero_utils")
+def clean_logger():
+    """Fixture to clean logger handlers before and after tests"""
+    logger = logging.getLogger("omero_screen")
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
-
     yield
-
-    # Restore original environment variables
-    for key, value in original_env.items():
-        os.environ[key] = value
-
-    # Clean up handlers after test
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
+
+
+# @pytest.fixture
+# def clean_env():
+#     """Fixture to clean environment variables and logger handlers before each test"""
+#     # Store original environment variables
+#     original_env = {
+#         key: value
+#         for key, value in os.environ.items()
+#         if key in ["LOG_LEVEL", "LOG_FILE_PATH"]
+#     }
+
+#     # Clean up environment variables
+#     for key in ["LOG_LEVEL", "LOG_FILE_PATH"]:
+#         if key in os.environ:
+#             del os.environ[key]
+
+#     # Clean up existing handlers
+#     logger = logging.getLogger("omero_utils")
+#     for handler in logger.handlers[:]:
+#         logger.removeHandler(handler)
+
+#     yield
+
+#     # Restore original environment variables
+#     for key, value in original_env.items():
+#         os.environ[key] = value
+
+#     # Clean up handlers after test
+#     for handler in logger.handlers[:]:
+#         logger.removeHandler(handler)
 
 
 def test_validate_env_vars_all_present(clean_env):
@@ -76,7 +87,7 @@ def test_validate_env_vars_all_missing(clean_env):
 # --------------------------------test logger--------------------------------
 
 
-def test_setup_logging_default_config(clean_env, tmp_path):
+def test_setup_logging_default_config(clean_env, clean_logger, tmp_path):
     """Test setup_logging with default configuration"""
     # Set required env vars and explicitly disable handlers
     os.environ["LOG_LEVEL"] = "INFO"
@@ -87,7 +98,7 @@ def test_setup_logging_default_config(clean_env, tmp_path):
     logger = setup_logging()
 
     # Check logger configuration
-    assert logger.name == "omero_utils"
+    assert logger.name == "omero_screen"
     assert logger.level == logging.INFO
     assert not logger.propagate  # Should not propagate to root logger
 
@@ -134,7 +145,7 @@ def test_setup_logging_with_file(clean_env, tmp_path):
     assert file_handlers[0].baseFilename == str(log_file)
 
 
-def test_setup_logging_with_custom_format(clean_env):
+def test_setup_logging_with_custom_format(clean_env, clean_logger):
     """Test setup_logging with custom log format"""
     os.environ["LOG_LEVEL"] = "INFO"
     os.environ["LOG_FILE_PATH"] = "test.log"
@@ -149,7 +160,7 @@ def test_setup_logging_with_custom_format(clean_env):
     assert handler.formatter._fmt == custom_format
 
 
-def test_setup_logging_invalid_level(clean_env):
+def test_setup_logging_invalid_level(clean_env, clean_logger):
     """Test setup_logging with invalid log level defaults to DEBUG"""
     os.environ["LOG_LEVEL"] = "INVALID_LEVEL"
     os.environ["LOG_FILE_PATH"] = "test.log"
@@ -159,7 +170,7 @@ def test_setup_logging_invalid_level(clean_env):
     assert logger.level == logging.DEBUG
 
 
-def test_setup_logging_file_rotation_config(clean_env, tmp_path):
+def test_setup_logging_file_rotation_config(clean_env, clean_logger, tmp_path):
     """Test file rotation settings"""
     log_file = tmp_path / "test.log"
     os.environ["LOG_LEVEL"] = "INFO"

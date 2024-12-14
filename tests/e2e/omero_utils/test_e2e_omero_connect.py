@@ -5,11 +5,6 @@ from dotenv import load_dotenv
 from omero_screen import set_env_vars
 from omero_utils.omero_connect import omero_connect
 
-# os.environ.pop("USERNAME", None)
-# os.environ.pop("PASSWORD", None)
-# os.environ.pop("HOST", None)
-# os.environ["ENV"] = "development"
-
 
 def test_set_env_vars_local():
     dotenv_path = set_env_vars()
