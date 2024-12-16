@@ -2,7 +2,7 @@ import logging
 import os
 
 import pytest
-from omero_screen.logging_config import setup_logging, validate_env_vars
+from omero_screen.config import setup_logging, validate_env_vars
 
 logger = setup_logging("omero_screen")
 

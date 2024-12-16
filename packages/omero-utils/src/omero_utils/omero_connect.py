@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import Any
 
 from omero.gateway import BlitzGateway
-from omero_screen.logging_config import setup_logging
+from omero_screen.config import setup_logging
 
 logger = setup_logging("omero_utils")
 

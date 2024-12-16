@@ -1,7 +1,7 @@
 import os
 
 import pytest
-from omero_screen import set_env_vars
+from omero_screen.config import set_env_vars
 
 
 @pytest.mark.parametrize(

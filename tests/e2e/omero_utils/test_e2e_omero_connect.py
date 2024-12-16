@@ -2,7 +2,7 @@ import os
 
 import pytest
 from dotenv import load_dotenv
-from omero_screen import set_env_vars
+from omero_screen.config import set_env_vars
 from omero_utils.omero_connect import omero_connect
 
 
