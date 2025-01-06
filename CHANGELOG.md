@@ -1,3 +1,10 @@
+## omero-screen-v0.1.2 (2025-01-06)
+
+### Fix
+
+- finalise omero-connect update README.md
+- **omero-utils**: set up and test omero_connect decorator
+
 ## omero-screen-v0.1.1 (2024-12-12)
 
 ### Fix
