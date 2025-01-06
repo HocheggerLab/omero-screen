@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from omero.gateway import BlitzGateway
 
 
 @pytest.fixture
@@ -81,3 +82,15 @@ def mock_blitzgateway(mocker):
     mock_instance.connect.return_value = True
     mock_blitz.return_value = mock_instance
     return mock_instance
+
+
+@pytest.fixture
+def omero_conn():
+    # Setup connection
+    conn = BlitzGateway("root", "omero", host="localhost")
+    conn.connect()
+
+    yield conn  # Provide the connection to the test
+
+    # Cleanup after test
+    conn.close()

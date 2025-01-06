@@ -1,9 +1,7 @@
 # omero-screen
 
-Brief Description of project
 
 ## Status
-
 
 Version: ![version](https://img.shields.io/badge/version-0.1.1-blue)
 
@@ -13,42 +11,97 @@ Version: ![version](https://img.shields.io/badge/version-0.1.1-blue)
 
 ## Features
 
-- [Feature 1]
-- [Feature 2]
-- [Feature 3]
+- omero-screen: an end to end high content image analysis pipeline
+- omero-utils: helper functions to work with the omero-py API
+- omero-screen-napari: Napari plugins to interact with the data
 
 ## Installation
 
 ```bash
+# Install uv
+# On macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# On Windows
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
 # Clone the repository
-git clone repo_adress
+git clone https://github.com/Helfrid/omero-screen.git
 # Change into the project directory
 cd omero-screen
 # Create and activate virtual environment
-uv venv
+uv sync --dev
 source .venv/bin/activate
-# Install the package
-uv pip install -e .
+
 ```
 
 ## Project Structure
-omero-screen/
-├── src/
-│ └── omero-screen/
-├── tests/
-├── docs/
-└── examples/
+
+```
+.
+├── .env.development
+├── .env.production
+├── .github
+│   └── workflows
+│       ├── ci.yml
+│       └── release.yml
+├── .gitignore
+├── .python-version
+├── CHANGELOG.md
+├── LICENSE
+├── README.md
+├── logs
+│   └── app.log
+├── packages
+│   ├── omero-screen-napari
+│   │   ├── README.md
+│   │   ├── pyproject.toml
+│   │   └── src
+│   └── omero-utils
+│       ├── CHANGELOG.md
+│       ├── README.md
+│       ├── pyproject.toml
+│       └── src
+├── pyproject.toml
+├── src
+│   └── omero_screen
+│       ├── __init__.py
+│       └── __pycache__
+├── test.log
+├── tests
+│   ├── __pycache__
+│   │   ├── __init__.cpython-312.pyc
+│   │   └── conftest.cpython-312-pytest-8.3.4.pyc
+│   ├── conftest.py
+│   ├── e2e
+│   │   └── omero_utils
+│   └── unit
+│       ├── omero_screen
+│       └── omero_utils
+└── uv.lock
+```
 
 ## Versioning
 
 This project uses [Semantic Versioning](https://semver.org/) and [Conventional Commits](https://www.conventionalcommits.org/).
 
-To bump the version use commitizen:
-https://commitizen-tools.github.io/commitizen/
+Version bumping occurs via CI when pushing the commits.
 
-```bash
-cz bump
-```
+Major: Incremented for breaking changes, indicated by BREAKING CHANGE: or ! in commit messages.
+
+- Example: feat!: update API endpoint to v2 or fix: remove legacy support BREAKING CHANGE: old endpoint removed
+
+Minor: Incremented for new features, indicated by feat in the commit message.
+
+- Example: feat: add support for OAuth2 authentication
+
+Patch: Incremented for bug fixes, indicated by fix in the commit message.
+
+- Example: fix: correct typo in login validation
+
+By default only the root package omero-screen is updated. To bump the version of the other packages indicate the scope in the commit message
+
+- Example: feat(omero-utils): new feature
+
 ## Contributing
 
 1. Fork the repository
@@ -59,10 +112,8 @@ cz bump
 
 ## Authors
 
-
 Created by Helfrid Hochegger
 Email: hh65@sussex.ac.uk
-
 
 ## Dependencies
 
