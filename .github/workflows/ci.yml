@@ -55,6 +55,21 @@ jobs:
         HOST=localhost
         USERNAME=helfrid
         LOG_FILE_PATH=/tmp/omero_screen.log
+        EOL
+
+        # Create .env.production
+        cat > .env.production << EOL
+        LOG_LEVEL=WARNING
+        HOST=ome2.hpc.sussex.ac.uk
+        USERNAME=prod-user
+        LOG_FILE_PATH=/var/log/omero_screen.log
+        EOL
+
+        # Create minimal .env file
+        if [[ ${{ github.ref }} == 'refs/heads/main' ]]; then
+          echo "ENV=production" > .env
+        else
+          echo "ENV=development" > .env
         fi
 
     - name: Run tests
