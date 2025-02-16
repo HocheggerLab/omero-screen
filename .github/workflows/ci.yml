@@ -1,72 +1,52 @@
-name: Release
+name: CI
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types:
-      - completed
-    branches: [main]
-
-permissions:
-  contents: write
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
-  release:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+  quality:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+    - uses: actions/checkout@v4
 
-      - name: Configure Git
-        run: |
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        enable-cache: true
+        cache-dependency-glob: "uv.lock"
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.12'
+    - name: Set up Python ${{ matrix.python-version }}
+      run: uv python install ${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: pip install commitizen
+    - name: Install dependencies
+      run: |
+        uv sync --all-extras --dev
 
-      - name: Get commit message
-        run: echo "COMMIT_MSG=$(git log -1 --pretty=%B)" >> $GITHUB_ENV
+    - name: Lint with Ruff
+      run: uv run ruff check .
 
-      - name: Log commit message format check
-        run: |
-          if echo "${{ env.COMMIT_MSG }}" | grep -qE "^[a-z]+(\([^)]+\))?: "; then
-            echo "Conventional commit detected – a version bump will be applied."
-          else
-            echo "Non-conventional commit detected – no version bump will be applied."
-          fi
+    - name: Format with Ruff
+      run: uv run ruff format --check .
 
-      - name: Attempt version bump (if applicable)
-        run: |
-          set -e
-          COMMIT_MSG="${{ env.COMMIT_MSG }}"
-          # Only perform a bump if the commit message is conventional.
-          if echo "$COMMIT_MSG" | grep -qE "^[a-z]+(\([^)]+\))?: "; then
-            PACKAGE=""
-            # Check for a package scope in the commit message (e.g., "fix(package): ...")
-            if echo "$COMMIT_MSG" | grep -qE "^[a-z]+\([^)]+\)"; then
-              PACKAGE=$(echo "$COMMIT_MSG" | sed -n 's/^[a-z]\+(\([^)]\+\)).*/\1/p')
-            fi
-            # Use the package if it exists, otherwise bump the root package.
-            if [ -n "$PACKAGE" ] && [ -d "packages/$PACKAGE" ]; then
-              echo "Bumping version for package: $PACKAGE"
-              cd "packages/$PACKAGE"
-            else
-              echo "No package scope found or package directory does not exist. Using root package."
-            fi
-            cz bump --yes || echo "No version bump occurred."
-          else
-            echo "Skipping version bump because commit message is not conventional."
-          fi
+    - name: Type check with mypy
+      run: uv run mypy src
 
-      - name: Push changes
-        run: git push --follow-tags
+    - name: Check if tests exist
+      id: check_tests
+      run: |
+        if [ -d "tests" ] && [ -n "$(ls -A tests 2>/dev/null)" ]; then
+          echo "has_tests=true" >> $GITHUB_OUTPUT
+        else
+          echo "has_tests=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Run tests
+      if: steps.check_tests.outputs.has_tests == 'true'
+      run: uv run pytest tests/ -v
