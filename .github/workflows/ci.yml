@@ -47,6 +47,31 @@ jobs:
           echo "has_tests=false" >> $GITHUB_OUTPUT
         fi
 
+    - name: Create environment files for testing
+      run: |
+        # Create .env.development
+        cat > .env.development << EOL
+        LOG_LEVEL=DEBUG
+        HOST=localhost
+        USERNAME=helfrid
+        LOG_FILE_PATH=/tmp/omero_screen.log
+        EOL
+
+        # Create .env.production
+        cat > .env.production << EOL
+        LOG_LEVEL=WARNING
+        HOST=ome2.hpc.sussex.ac.uk
+        USERNAME=prod-user
+        LOG_FILE_PATH=/var/log/omero_screen.log
+        EOL
+
+        # Create minimal .env file
+        if [[ ${{ github.ref }} == 'refs/heads/main' ]]; then
+          echo "ENV=production" > .env
+        else
+          echo "ENV=development" > .env
+        fi
+
     - name: Run tests
       if: steps.check_tests.outputs.has_tests == 'true'
       run: uv run pytest tests/ -v --ignore=tests/e2e
