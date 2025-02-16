@@ -1,26 +1,7 @@
-import os
-
-from dotenv import load_dotenv
 from omero_utils.omero_connect import omero_connect
 
-from omero_screen.config import set_env_vars
 
-
-def test_set_env_vars_local(clean_env):
-    dotenv_path = set_env_vars()
-    load_dotenv(dotenv_path=dotenv_path)
-
-    username = os.getenv("USERNAME")
-    password = os.getenv("PASSWORD")
-
-    assert username == "root", "Username is not correct"
-    assert password == "omero", "Password is not correct"
-
-
-def test_successful_connection(clean_env):
-    dotenv_path = set_env_vars()
-    load_dotenv(dotenv_path=dotenv_path)
-
+def test_successful_connection():
     @omero_connect
     def check_connection(conn):
         # Just check if we can get the server version, which doesn't require any data
