@@ -255,3 +255,8 @@ docker-compose.override.yml
 # Scratch
 # =========================
 scratch/
+
+# =========================
+# Ignore all cache files/directories
+**/*cache*
+**/.cache*
