@@ -5,6 +5,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+# Define project_root at module level
+project_root = Path(__file__).parent.parent.parent.resolve()
+
 
 def set_env_vars() -> None:
     """
