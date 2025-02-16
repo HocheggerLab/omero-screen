@@ -4,9 +4,9 @@ from omero_utils.attachments import get_named_file_attachment, parse_excel_data
 def test_get_named_file_attachment(test_project):
     file_ann = get_named_file_attachment(test_project, "metadata.xlsx")
     assert file_ann is not None, "failed test because no file attachment found"
-    assert (
-        file_ann.getFile().getName() == "metadata.xlsx"
-    ), "failed test because file name does not match"
+    assert file_ann.getFile().getName() == "metadata.xlsx", (
+        "failed test because file name does not match"
+    )
 
 
 def test_parse_excel_data(test_project):
