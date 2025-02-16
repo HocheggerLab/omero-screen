@@ -22,6 +22,8 @@ def clean_env() -> Generator[None, None, None]:
     for key in env_vars:
         if key in os.environ:
             del os.environ[key]
+    # Set development environment explicitly for tests
+    os.environ["ENV"] = "development"
 
     yield
 

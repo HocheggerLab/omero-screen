@@ -15,6 +15,11 @@ def set_env_vars() -> None:
     """
     # Determine the project root (adjust as necessary)
     project_root = Path(__file__).parent.parent.parent.resolve()
+    # Set default environment variables if .env doesn't exist
+    os.environ.setdefault("LOG_LEVEL", "INFO")
+    os.environ.setdefault("LOG_FILE_PATH", "logs/app.log")
+    os.environ.setdefault("ENABLE_CONSOLE_LOGGING", "True")
+    os.environ.setdefault("ENABLE_FILE_LOGGING", "True")
 
     # Path to the minimal .env file (optional)
     minimal_env_path = project_root / ".env"

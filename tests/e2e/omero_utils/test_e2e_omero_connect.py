@@ -2,11 +2,12 @@ import os
 
 import pytest
 from dotenv import load_dotenv
-from omero_screen.config import set_env_vars
 from omero_utils.omero_connect import omero_connect
 
+from omero_screen.config import set_env_vars
 
-def test_set_env_vars_local():
+
+def test_set_env_vars_local(clean_env):
     dotenv_path = set_env_vars()
     load_dotenv(dotenv_path=dotenv_path)
 
@@ -46,6 +47,6 @@ def test_connection_failure(capsys, clean_env):
 
     # Capture the stdout and stderr
     captured = capsys.readouterr()
-    assert (
-        "Failed to connect to Omero" in captured.out
-    ), "Expected error message not found in stdout"
+    assert "Failed to connect to Omero" in captured.out, (
+        "Expected error message not found in stdout"
+    )

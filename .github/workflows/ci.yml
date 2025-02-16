@@ -28,6 +28,12 @@ jobs:
     - name: Install dependencies
       run: |
         uv sync --all-extras --dev
+    - name: Set Environment Variables
+      run: |
+        echo "LOG_LEVEL=DEBUG" >> $GITHUB_ENV
+        echo "LOG_FILE_PATH=/tmp/omero_screen.log" >> $GITHUB_ENV
+        echo "HOST=omeroserver" >> $GITHUB_ENV
+        echo "USERNAME=helfrid" >> $GITHUB_ENV
 
     - name: Lint with Ruff
       run: uv run ruff check .
@@ -71,7 +77,18 @@ jobs:
         else
           echo "ENV=development" > .env
         fi
+# Docker steps
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
-    - name: Run tests
-      if: steps.check_tests.outputs.has_tests == 'true'
-      run: uv run pytest tests/ -v --ignore=tests/e2e
+    - name: Start OMERO server and run tests
+      run: |
+        docker compose up -d database
+        sleep 30  # Wait for database
+        docker compose up -d omeroserver
+        docker compose logs omeroserver  # Let's see the logs
+        sleep 240  # Wait for OMERO
+        docker compose run --rm test pytest --ignore=e2e/
+
+    - name: Cleanup
+      run: docker compose down -v

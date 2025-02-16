@@ -2,12 +2,13 @@ from io import StringIO
 
 import pandas as pd
 import pytest
+from rich.console import Console
+
 from omero_screen.metadata_parser import (
     MetadataParser,
     MetadataValidationError,
     PlateNotFoundError,
 )
-from rich.console import Console
 
 
 def test_plate_check_failure(omero_conn):

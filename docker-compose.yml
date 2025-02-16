@@ -1,0 +1,47 @@
+services:
+  database:
+    image: "postgres:14"
+    environment:
+      POSTGRES_USER: omero
+      POSTGRES_DB: omero
+      POSTGRES_PASSWORD: omero
+    networks:
+      - omero
+    volumes:
+      - "database:/var/lib/postgresql/data"
+
+  omeroserver:
+    image: "openmicroscopy/omero-server:5"
+    environment:
+      CONFIG_omero_db_host: database
+      CONFIG_omero_db_user: omero
+      CONFIG_omero_db_pass: omero
+      CONFIG_omero_db_name: omero
+      ROOTPASS: omero
+    networks:
+      - omero
+    ports:
+      - "4063:4063"
+      - "4064:4064"
+    volumes:
+      - "omero:/OMERO"
+    ulimits:
+      nofile:
+        soft: 8192
+        hard: 65536
+
+  test:
+    build: .
+    networks:
+      - omero
+    depends_on:
+      - omeroserver
+    environment:
+      - HOST=omeroserver
+
+networks:
+  omero:
+
+volumes:
+  database:
+  omero:
