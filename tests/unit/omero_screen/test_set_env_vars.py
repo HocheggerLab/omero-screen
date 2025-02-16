@@ -13,11 +13,20 @@ from omero_screen.config import set_env_vars
     ],
 )
 def test_set_env_vars_local(
-    env, expected_host, expected_loglevel, test_env_files, monkeypatch
+    env,
+    expected_host,
+    expected_loglevel,
+    test_env_files,
+    monkeypatch,
+    clean_env,
 ):
     os.environ["ENV"] = env
-    # Patch the project root to point to our temporary directory
-    monkeypatch.setattr("omero_screen.config.project_root", test_env_files)
+
+    # Patch the Path class's parent.parent.parent.resolve() chain
+    def mock_resolve(self):
+        return test_env_files
+
+    monkeypatch.setattr("pathlib.Path.resolve", mock_resolve)
 
     set_env_vars()
     host = os.getenv("HOST")
