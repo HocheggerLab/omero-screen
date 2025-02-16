@@ -1,10 +1,14 @@
 import os
+import tempfile
 from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pandas as pd
 import pytest
 from omero.gateway import BlitzGateway
+from omero.model import ProjectI
+from omero.rtypes import rstring
 
 
 @pytest.fixture
@@ -94,3 +98,52 @@ def omero_conn():
 
     # Cleanup after test
     conn.close()
+
+
+@pytest.fixture
+def test_project(omero_conn):
+    """
+    Fixture to create a temporary test project and attach an Excel file to it.
+    Returns the project object.
+    Deletes the project after the test.
+    """
+    # Setup project
+    update_service = omero_conn.getUpdateService()
+    project = ProjectI()
+    project.setName(rstring("Test Project"))
+    project = omero_conn.getObject(
+        "Project",
+        update_service.saveAndReturnObject(project).getId().getValue(),
+    )
+
+    # Create temp directory
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = os.path.join(temp_dir, "metadata.xlsx")
+
+        # Create Excel file with two sheets
+        with pd.ExcelWriter(temp_path, engine="openpyxl") as writer:
+            # Sheet1 - Channels
+            df1 = pd.DataFrame({"Channels": ["DAPI", "Tub", "EdU"]})
+            df1.to_excel(writer, sheet_name="Sheet1", index=False)
+
+            # Sheet2 - Experimental conditions
+            df2 = pd.DataFrame(
+                {
+                    "Well": ["C2", "C5"],
+                    "cell_line": ["RPE-1", "RPE-1"],
+                    "condition": ["ctr", "CDK4"],
+                }
+            )
+            df2.to_excel(writer, sheet_name="Sheet2", index=False)
+
+        # Attach Excel file to project
+        file_ann = omero_conn.createFileAnnfromLocalFile(
+            temp_path,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        project.linkAnnotation(file_ann)
+
+    yield project
+
+    # Cleanup
+    update_service.deleteObject(project._obj)

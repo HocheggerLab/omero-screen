@@ -7,7 +7,10 @@ from typing import Optional
 import pandas as pd
 from omero.gateway import BlitzObjectWrapper, FileAnnotationWrapper
 from omero.model import OriginalFileI
+from omero_screen.config import setup_logging
 from pandas import DataFrame
+
+logger = setup_logging("omero_utils")
 
 
 def get_named_file_attachment(
@@ -36,7 +39,7 @@ def get_named_file_attachment(
 
 def parse_excel_data(
     file_ann: FileAnnotationWrapper,
-) -> dict[str, DataFrame]:
+) -> dict[str, DataFrame] | None:
     """
     Parse Excel data from a file attachment.
 
@@ -45,16 +48,16 @@ def parse_excel_data(
 
     Returns:
         dict[str, DataFrame]: Dictionary mapping sheet names to pandas DataFrames
+        or None if no Excel file is found
     """
     original_file: OriginalFileI = file_ann.getFile()
-    if original_file is None or not original_file.getName().endswith(".xlsx"):
-        raise ValueError("File is not an Excel file")
     try:
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
             tmp_path = tmp.name
             for chunk in original_file.asFileObj():
                 tmp.write(chunk)
             tmp.flush()
+        logger.info("Parsing Excel Metadata File")
         return pd.read_excel(tmp_path, sheet_name=None)  # type: ignore[no-any-return]
     finally:
         if tmp_path:

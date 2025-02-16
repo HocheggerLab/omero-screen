@@ -22,6 +22,7 @@ dependencies = [
     "omero-py>=5.19.5",
     "pandas>=2.2.3",
     "openpyxl>=3.1.5",
+    "rich>=13.9.4",
 ]
 
 [project.scripts]
@@ -144,6 +145,7 @@ minversion = "6.0"
 addopts = "-ra -q"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+
 
 
 # ===========================
