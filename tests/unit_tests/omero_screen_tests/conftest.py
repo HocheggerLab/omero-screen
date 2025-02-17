@@ -5,19 +5,25 @@ import omero.callbacks
 import pandas as pd
 import pytest
 from omero.cmd import Delete2  # noqa
+from omero.rtypes import rstring
 
 
 @pytest.fixture
 def test_plate_with_excel(omero_conn):
     """
-    Fixture to attach an Excel file to an empty test plate.
-    Returns the project object.
-    Deletes the project after the test.
+    Fixture to create a test plate and attach an Excel file to it.
+    Returns the plate object.
+    Deletes the plate after the test.
     """
     file_ann = None
+    plate = None
     try:
-        # Setup project
-        plate = omero_conn.getObject("Plate", 2)
+        # Create a new plate
+        update_service = omero_conn.getUpdateService()
+        plate = omero.model.PlateI()
+        plate.name = rstring("Test Plate")
+        plate = update_service.saveAndReturnObject(plate)
+        plate = omero_conn.getObject("Plate", plate.getId().getValue())
 
         # Create temp directory
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -44,29 +50,26 @@ def test_plate_with_excel(omero_conn):
                 )
                 df2.to_excel(writer, sheet_name="Sheet2", index=False)
 
-            # Attach Excel file to project
+            # Attach Excel file to plate
             file_ann = omero_conn.createFileAnnfromLocalFile(
                 temp_path,
                 mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
             plate.linkAnnotation(file_ann)
 
-        yield plate
+        return plate
 
     finally:
-        # Cleanup will run even if test fails
-        if file_ann is not None:
-            # Create Delete2 command targeting the file annotation
-
-            delete = omero.cmd.Delete2(
-                targetObjects={"FileAnnotation": [file_ann.getId()]}
-            )
-
-            # Submit the delete command
-            handle = omero_conn.c.sf.submit(delete)
-            cb = omero.callbacks.CmdCallbackI(omero_conn.c, handle)
-
-            # Wait for deletion to complete
-            cb.loop(10, 500)  # Loop 10 times, 500ms between each try
-
-            print(f"Attempted to delete file annotation: {file_ann.getId()}")
+        # Cleanup
+        if file_ann:
+            try:
+                file_ann.delete()
+                print(f"Deleted file annotation: {file_ann.getId()}")
+            except Exception as e:  # noqa: BLE001
+                print(f"Failed to delete file annotation: {e}")
+        if plate:
+            try:
+                plate.delete()
+                print(f"Deleted plate: {plate.getId()}")
+            except Exception as e:  # noqa: BLE001
+                print(f"Failed to delete plate: {e}")
