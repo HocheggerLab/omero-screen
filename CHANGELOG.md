@@ -1,3 +1,12 @@
+## omero-screen-v0.1.3 (2025-02-17)
+
+### Fix
+
+- finalise testsetup with session scope connection and plates
+- setup unit tests with omero-server with plate setup in test_metadata
+- setup unit tests with omero-server
+- setup unit tests with omero-server
+
 ## omero-screen-v0.1.2 (2025-01-06)
 
 ### Fix
