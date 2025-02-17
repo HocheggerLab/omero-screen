@@ -8,12 +8,12 @@ from omero.cmd import Delete2  # noqa
 from omero.rtypes import rstring
 
 
-@pytest.fixture
-def test_plate_with_excel(omero_conn):
+@pytest.fixture(scope="session")
+def test_plate_with_excel(omero_conn, request: pytest.FixtureRequest):
     """
-    Fixture to create a test plate and attach an Excel file to it.
+    Session-scoped fixture to create a test plate and attach an Excel file to it.
+    Creates the plate once for all tests and cleans up after all tests are complete.
     Returns the plate object.
-    Deletes the plate after the test.
     """
     file_ann = None
     plate = None
@@ -60,16 +60,51 @@ def test_plate_with_excel(omero_conn):
         return plate
 
     finally:
-        # Cleanup
-        if file_ann:
-            try:
-                file_ann.delete()
-                print(f"Deleted file annotation: {file_ann.getId()}")
-            except Exception as e:  # noqa: BLE001
-                print(f"Failed to delete file annotation: {e}")
-        if plate:
-            try:
-                plate.delete()
-                print(f"Deleted plate: {plate.getId()}")
-            except Exception as e:  # noqa: BLE001
-                print(f"Failed to delete plate: {e}")
+        # Move cleanup to session teardown
+        def cleanup():
+            if file_ann:
+                try:
+                    file_ann.delete()
+                    print(f"Deleted file annotation: {file_ann.getId()}")
+                except Exception as e:  # noqa: BLE001
+                    print(f"Failed to delete file annotation: {e}")
+            if plate:
+                try:
+                    plate.delete()
+                    print(f"Deleted plate: {plate.getId()}")
+                except Exception as e:  # noqa: BLE001
+                    print(f"Failed to delete plate: {e}")
+
+        # Register cleanup to run at the end of the session
+        request.addfinalizer(cleanup)
+
+
+@pytest.fixture(scope="session")
+def test_plate(omero_conn, request: pytest.FixtureRequest):
+    """
+    Session-scoped fixture to create a test plate.
+    Creates the plate once for all tests and cleans up after all tests are complete.
+    Returns the plate object.
+    """
+    plate = None
+    try:
+        # Create a new plate
+        update_service = omero_conn.getUpdateService()
+        plate = omero.model.PlateI()
+        plate.name = rstring("Test Plate")
+        plate = update_service.saveAndReturnObject(plate)
+        plate = omero_conn.getObject("Plate", plate.getId().getValue())
+
+        return plate
+
+    finally:
+
+        def cleanup():
+            if plate:
+                try:
+                    plate.delete()
+                    print(f"Deleted plate: {plate.getId()}")
+                except Exception as e:  # noqa: BLE001
+                    print(f"Failed to delete plate: {e}")
+
+        request.addfinalizer(cleanup)

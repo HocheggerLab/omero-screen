@@ -76,8 +76,8 @@ def mock_env(mocker):
     )
 
 
-@pytest.fixture
-def omero_conn():
+@pytest.fixture(scope="session")
+def omero_conn(request: pytest.FixtureRequest):
     """Fixture to provide and cleanup OMERO connection"""
     # Setup connection using environment variables
     conn = BlitzGateway(
@@ -96,6 +96,8 @@ def omero_conn():
         conn.close(hard=True)
     except Exception as e:  # noqa: BLE001
         print(f"OMERO/Ice cleanup error: {e}")
+
+    request.addfinalizer(conn.close)
 
 
 @pytest.fixture(scope="session", autouse=True)

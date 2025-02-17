@@ -35,13 +35,17 @@ def test_plate_check_failure(omero_conn):
     assert "5000" in output  # Check for plate ID in message
 
 
-def test_plate_check_success(omero_conn):
-    parser = MetadataParser(omero_conn, 2)
+def test_plate_check_success(test_plate):
+    plate_id = test_plate.getId()
+    conn = test_plate._conn
+    parser = MetadataParser(conn, plate_id)
     assert parser._check_plate()
 
 
-def test_excel_file_check_failure(omero_conn):
-    parser = MetadataParser(omero_conn, 2)
+def test_excel_file_check_failure(test_plate):
+    plate_id = test_plate.getId()
+    conn = test_plate._conn
+    parser = MetadataParser(conn, plate_id)
     assert parser._check_excel_file() is None
 
 
@@ -81,9 +85,9 @@ def test_validate_excel_data_success(test_plate_with_excel):
     assert parser._validate_excel_data(excel_file)
 
 
-def test_validate_excel_data_missing_sheets(test_plate_with_excel):
-    plate_id = test_plate_with_excel.getId()
-    conn = test_plate_with_excel._conn
+def test_validate_excel_data_missing_sheets(test_plate):
+    plate_id = test_plate.getId()
+    conn = test_plate._conn
     parser = MetadataParser(conn, plate_id)
 
     # Test with empty dict
@@ -93,9 +97,9 @@ def test_validate_excel_data_missing_sheets(test_plate_with_excel):
     assert "Missing required sheets" in str(exc_info.value)
 
 
-def test_validate_excel_data_missing_sheet1_columns(test_plate_with_excel):
-    plate_id = test_plate_with_excel.getId()
-    conn = test_plate_with_excel._conn
+def test_validate_excel_data_missing_sheet1_columns(test_plate):
+    plate_id = test_plate.getId()
+    conn = test_plate._conn
     parser = MetadataParser(conn, plate_id)
     # Missing required columns in Sheet1
     invalid_data = {
@@ -107,9 +111,9 @@ def test_validate_excel_data_missing_sheet1_columns(test_plate_with_excel):
     assert "Sheet1 missing required columns" in str(exc_info.value)
 
 
-def test_validate_excel_data_missing_nuclei_channel(test_plate_with_excel):
-    plate_id = test_plate_with_excel.getId()
-    conn = test_plate_with_excel._conn
+def test_validate_excel_data_missing_nuclei_channel(test_plate):
+    plate_id = test_plate.getId()
+    conn = test_plate._conn
     parser = MetadataParser(conn, plate_id)
 
     # Data without DAPI/Hoechst/RFP channel
@@ -125,9 +129,9 @@ def test_validate_excel_data_missing_nuclei_channel(test_plate_with_excel):
     )
 
 
-def test_validate_excel_data_missing_sheet2_columns(test_plate_with_excel):
-    plate_id = test_plate_with_excel.getId()
-    conn = test_plate_with_excel._conn
+def test_validate_excel_data_missing_sheet2_columns(test_plate):
+    plate_id = test_plate.getId()
+    conn = test_plate._conn
     parser = MetadataParser(conn, plate_id)
 
     # Missing required column in Sheet2
