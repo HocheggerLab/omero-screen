@@ -76,21 +76,17 @@ def mock_env(mocker):
     )
 
 
-@pytest.fixture(scope="session", autouse=True)
-def ice_cleanup():
-    """Session-scoped fixture to cleanup Ice communicator"""
-    yield
-    try:
-        ic = Ice.initialize()
-        ic.destroy()
-    except Exception as e:  # noqa: BLE001
-        print(f"Ice cleanup error: {e}")
-
-
 @pytest.fixture
 def omero_conn():
-    # Setup connection
-    conn = BlitzGateway("root", "omero", host="localhost")
+    """Fixture to provide and cleanup OMERO connection"""
+    # Setup connection using environment variables
+    conn = BlitzGateway(
+        os.getenv("USERNAME"),  # Will be 'helfrid' in CI, 'root' locally
+        os.getenv("PASSWORD", "omero"),
+        host=os.getenv(
+            "HOST"
+        ),  # Will be 'omeroserver' in CI, 'localhost' locally
+    )
     conn.connect()
 
     yield conn  # Provide the connection to the test
@@ -100,3 +96,14 @@ def omero_conn():
         conn.close(hard=True)
     except Exception as e:  # noqa: BLE001
         print(f"OMERO/Ice cleanup error: {e}")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def ice_cleanup():
+    """Session-scoped fixture to cleanup Ice communicator"""
+    yield
+    try:
+        ic = Ice.initialize()
+        ic.destroy()
+    except Exception as e:  # noqa: BLE001
+        print(f"Ice cleanup error: {e}")
