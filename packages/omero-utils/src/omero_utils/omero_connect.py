@@ -62,7 +62,7 @@ def omero_connect(func: Callable[..., Any]) -> Callable[..., Any]:
         finally:
             # No side effects if called without a connection
             if conn and conn.isConnected():
-                conn.close()
+                conn.close(hard=True)
                 logger.info("Closing connection to Omero")
                 print(f"Closing connection to Omero at host: {host}")
 
