@@ -2,10 +2,12 @@ from io import StringIO
 
 import pandas as pd
 import pytest
+from omero_utils.attachments import parse_excel_data
 from rich.console import Console
 
 from omero_screen.metadata_parser import (
     MetadataParser,
+    MetadataParsingError,
     MetadataValidationError,
     PlateNotFoundError,
 )
@@ -49,39 +51,45 @@ def test_excel_file_check_failure(test_plate):
     assert parser._check_excel_file() is None
 
 
-def test_excel_file_check_success(test_plate_with_excel):
+def test_excel_file_check_success(test_plate_with_excel, request):
+    """Test successful Excel file check with single file"""
+    if request.node.callspec.params["test_plate_with_excel"] == "multiple":
+        pytest.skip("This test is for single file only")
+
     plate_id = test_plate_with_excel.getId()
     conn = test_plate_with_excel._conn
     parser = MetadataParser(conn, plate_id)
     assert parser._check_excel_file() is not None
 
 
-def test_parse_excel_file(test_plate_with_excel):
+def test_excel_file_check_multiple_files_error(test_plate_with_excel, request):
+    """Test that error is raised when multiple Excel files are present"""
+    if request.node.callspec.params["test_plate_with_excel"] == "single":
+        pytest.skip("This test is for multiple files only")
+
     plate_id = test_plate_with_excel.getId()
     conn = test_plate_with_excel._conn
     parser = MetadataParser(conn, plate_id)
-    file_annotation = parser._check_excel_file()
-    if file_annotation:
-        excel_file = parser._parse_excel_file(file_annotation)
-    assert excel_file["Sheet1"].Channels.unique().tolist() == [
-        "DAPI",
-        "Tub",
-        "p21",
-        "EdU",
-    ]
-    assert excel_file["Sheet2"].condition.unique().tolist() == ["ctr", "CDK4"]
+
+    with pytest.raises(MetadataParsingError) as exc_info:
+        parser._check_excel_file()
+    assert str(exc_info.value) == "Multiple Excel files found on plate"
 
 
 # --------------------TEST Validate Excel Data--------------------
 
 
-def test_validate_excel_data_success(test_plate_with_excel):
+def test_validate_excel_data_success(test_plate_with_excel, request):
+    """Test successful validation of Excel data"""
+    if request.node.callspec.params["test_plate_with_excel"] == "multiple":
+        pytest.skip("This test is for single file only")
+
     plate_id = test_plate_with_excel.getId()
     conn = test_plate_with_excel._conn
     parser = MetadataParser(conn, plate_id)
     file_annotation = parser._check_excel_file()
     if file_annotation:
-        excel_file = parser._parse_excel_file(file_annotation)
+        excel_file = parse_excel_data(file_annotation)
     assert parser._validate_excel_data(excel_file)
 
 
@@ -94,7 +102,7 @@ def test_validate_excel_data_missing_sheets(test_plate):
     invalid_data = {}
     with pytest.raises(MetadataValidationError) as exc_info:
         parser._validate_excel_data(invalid_data)
-    assert "Missing required sheets" in str(exc_info.value)
+    assert "Missing required sheet: 'Sheet1'" in str(exc_info.value)
 
 
 def test_validate_excel_data_missing_sheet1_columns(test_plate):
@@ -104,11 +112,13 @@ def test_validate_excel_data_missing_sheet1_columns(test_plate):
     # Missing required columns in Sheet1
     invalid_data = {
         "Sheet1": pd.DataFrame({"WrongColumn": [1, 2, 3]}),
-        "Sheet2": pd.DataFrame({"cell_line": ["A", "B"]}),
+        "Sheet2": pd.DataFrame(
+            {"Well": ["A1", "B1"], "cell_line": ["A", "B"]}
+        ),
     }
     with pytest.raises(MetadataValidationError) as exc_info:
         parser._validate_excel_data(invalid_data)
-    assert "Sheet1 missing required columns" in str(exc_info.value)
+    assert "Validation error: 2 validation errors" in str(exc_info.value)
 
 
 def test_validate_excel_data_missing_nuclei_channel(test_plate):
@@ -119,12 +129,14 @@ def test_validate_excel_data_missing_nuclei_channel(test_plate):
     # Data without DAPI/Hoechst/RFP channel
     invalid_data = {
         "Sheet1": pd.DataFrame({"Channels": ["GFP", "YFP"], "Index": [0, 1]}),
-        "Sheet2": pd.DataFrame({"cell_line": ["A", "B"]}),
+        "Sheet2": pd.DataFrame(
+            {"Well": ["A1", "B1"], "cell_line": ["A", "B"]}
+        ),
     }
 
     with pytest.raises(MetadataValidationError) as exc_info:
         parser._validate_excel_data(invalid_data)
-    assert "Sheet1 missing required columns:missing nuclei channel" in str(
+    assert "At least one nuclei channel (DAPI/HOECHST/RFP) is required" in str(
         exc_info.value
     )
 
@@ -141,19 +153,23 @@ def test_validate_excel_data_missing_sheet2_columns(test_plate):
     }
     with pytest.raises(MetadataValidationError) as exc_info:
         parser._validate_excel_data(invalid_data)
-    assert "Sheet2 missing required column" in str(exc_info.value)
+    assert "Missing required sheet: 'Well'" in str(exc_info.value)
 
 
 # --------------------excel data formatting--------------------
 
 
-def test_format_channel_data(test_plate_with_excel):
+def test_format_channel_data(test_plate_with_excel, request):
+    """Test formatting of channel data from Excel"""
+    if request.node.callspec.params["test_plate_with_excel"] == "multiple":
+        pytest.skip("This test is for single file only")
+
     plate_id = test_plate_with_excel.getId()
     conn = test_plate_with_excel._conn
     parser = MetadataParser(conn, plate_id)
     file_annotation = parser._check_excel_file()
     if file_annotation:
-        excel_file = parser._parse_excel_file(file_annotation)
+        excel_file = parse_excel_data(file_annotation)
     assert parser._format_channel_data(excel_file) == {
         "DAPI": 0,
         "Tub": 1,
@@ -162,13 +178,17 @@ def test_format_channel_data(test_plate_with_excel):
     }
 
 
-def test_format_well_data(test_plate_with_excel):
+def test_format_well_data(test_plate_with_excel, request):
+    """Test formatting of well data from Excel"""
+    if request.node.callspec.params["test_plate_with_excel"] == "multiple":
+        pytest.skip("This test is for single file only")
+
     plate_id = test_plate_with_excel.getId()
     conn = test_plate_with_excel._conn
     parser = MetadataParser(conn, plate_id)
     file_annotation = parser._check_excel_file()
     if file_annotation:
-        excel_file = parser._parse_excel_file(file_annotation)
+        excel_file = parse_excel_data(file_annotation)
     assert parser._format_well_data(excel_file) == {
         "C2": {"cell_line": "RPE-1", "condition": "ctr"},
         "C5": {"cell_line": "RPE-1", "condition": "CDK4"},

@@ -9,11 +9,13 @@ if metadata is not found, the program extists with an error.
 """
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Union
 
 import pandas as pd
 from omero.gateway import BlitzGateway, FileAnnotationWrapper, PlateWrapper
-from omero_utils.attachments import get_named_file_attachment, parse_excel_data
+from omero_utils.attachments import get_file_attachments, parse_excel_data
+from pydantic.v1 import BaseModel as PydanticBaseModel
+from pydantic.v1 import Field, validator
 from rich.console import Console
 from rich.panel import Panel
 
@@ -23,6 +25,7 @@ logger = setup_logging("omero_screen")
 console = Console()
 
 
+# --------------------Dataclass to store metadata--------------------
 @dataclass
 class PlateMetadata:
     """Data class to store plate metadata."""
@@ -32,6 +35,83 @@ class PlateMetadata:
     pixel_size: float
 
 
+# --------------------Pydantic Models--------------------
+
+
+class ChannelData(PydanticBaseModel):  # type: ignore
+    """Model for validating channel data from Sheet1"""
+
+    Channels: str
+    Index: int
+
+    @validator("Channels")  # type: ignore[misc]
+    def validate_channel_name(cls, v: str) -> str:
+        """Ensure channel name is valid and standardize format"""
+        v = v.upper().strip()
+        return v
+
+    @classmethod
+    def from_row(cls, row: dict[str, Any]) -> "ChannelData":
+        """Create ChannelData from a row of the DataFrame"""
+        return cls(**row)
+
+
+class WellData(PydanticBaseModel):  # type: ignore
+    """Model for validating well data from Sheet2"""
+
+    Well: str
+    metadata: dict[str, Union[str, int, float, bool]] = Field(
+        default_factory=dict
+    )
+
+    @validator("Well")  # type: ignore[misc]
+    def validate_well_format(cls, v: str) -> str:
+        """Ensure well follows format like 'A1', 'B12', etc."""
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError("Well must be a non-empty string")
+        if not (len(v) >= 2 and v[0].isalpha() and v[1:].isdigit()):
+            raise ValueError("Well must be in format like 'A1', 'B12', etc.")
+        return v.strip()
+
+    @classmethod
+    def from_row(cls, row: dict[str, Any]) -> "WellData":
+        """Create WellData from a row of the DataFrame"""
+        well = row.pop("Well")  # Extract Well field
+        return cls(
+            Well=well, metadata=row
+        )  # All other fields go into metadata
+
+
+class ExcelMetadata(PydanticBaseModel):  # type: ignore
+    """Model for complete Excel metadata validation"""
+
+    sheet1: list[ChannelData]
+    sheet2: list[WellData]
+
+    @validator("sheet1")  # type: ignore[misc]
+    def validate_required_channels(
+        cls, channels: list[ChannelData]
+    ) -> list[ChannelData]:
+        """Ensure at least one nuclei channel (DAPI/HOECHST/RFP) exists"""
+        nuclei_channels = {"DAPI", "HOECHST", "RFP"}
+        if not any(ch.Channels.upper() in nuclei_channels for ch in channels):
+            raise ValueError(
+                "At least one nuclei channel (DAPI/HOECHST/RFP) is required"
+            )
+        return channels
+
+    @validator("sheet1")  # type: ignore[misc]
+    def validate_unique_indices(
+        cls, channels: list[ChannelData]
+    ) -> list[ChannelData]:
+        """Ensure channel indices are unique"""
+        indices = [ch.Index for ch in channels]
+        if len(indices) != len(set(indices)):
+            raise ValueError("Channel indices must be unique")
+        return channels
+
+
+# --------------------Metadata Parser--------------------
 class MetadataParser:
     """Class to parse channel and well metadata from a plate.
     and store the data in a dataclass.
@@ -51,10 +131,11 @@ class MetadataParser:
         """Parse the metadata from the plate."""
         self._check_plate()
         if file_annotations := self._check_excel_file():
-            excel_data = self._parse_excel_file(file_annotations)
-            if self._validate_excel_data(excel_data):
-                channel_data = self._format_channel_data(excel_data)  # noqa: F841
-                well_data = self._format_well_data(excel_data)  # noqa: F841
+            excel_data = parse_excel_data(file_annotations)
+        validated_data = self._validate_excel_data(excel_data)
+        channel_data = self._format_channel_data(validated_data)  # type: ignore[unused-ignore] # noqa: F841
+        well_data = self._format_well_data(validated_data)  # type: ignore[unused-ignore] # noqa: F841
+
         # if self._check_plate_annotations() and self._check_well_annotations():
         #     channel_data = self._parse_plate_data()
         #     well_data = self._parse_well_data()
@@ -72,75 +153,42 @@ class MetadataParser:
 
     def _check_excel_file(self) -> FileAnnotationWrapper | None:
         """Check if the plate has an Excel file attachment."""
-        if self.plate:
-            return get_named_file_attachment(self.plate, "metadata.xlsx")
-        return None
-
-    def _parse_excel_file(
-        self, file_annotation: FileAnnotationWrapper
-    ) -> dict[str, pd.DataFrame]:
-        """Parse the metadata from the Excel file.
-        returns a dictionary exceldata with keys Sheet1 and Sheet2, with the dataframes
-        of the respective sheets.
-        """
-        exel_data: dict[str, pd.DataFrame] | None = parse_excel_data(
-            file_annotation
-        )
-        if exel_data is None:
-            raise MetadataParsingError(
-                "No data could be parsed from the Excel file"
-            )
-        return exel_data
+        assert self.plate is not None
+        file_annotations = get_file_attachments(self.plate, ".xlsx")
+        if file_annotations and len(file_annotations) == 1:
+            return file_annotations[0]
+        elif file_annotations and len(file_annotations) > 1:
+            raise MetadataParsingError("Multiple Excel files found on plate")
+        else:
+            return None
 
     def _validate_excel_data(
-        self, excel_data: dict[str, pd.DataFrame]
-    ) -> bool:
-        """
-        Validate Excel metadata structure and content.
-
-        Requirements:
-        - Must have Sheet1 and Sheet2
-        - Sheet1 must have 'Channels' and 'Index' columns
-        - Sheet1 'Channels' must contain at least one of: DAPI, HOECHST, RFP (case insensitive)
-        - Sheet2 must have 'cell_line' column
-        """
-        if (
-            not excel_data
-            or "Sheet1" not in excel_data
-            or "Sheet2" not in excel_data
-        ):
-            logger.debug("excel_data keys check %s", excel_data.keys())
+        self, excel_data: dict[str, pd.DataFrame] | None
+    ) -> ExcelMetadata:
+        """Validate Excel metadata structure and content using Pydantic models"""
+        if excel_data is None:
             raise MetadataValidationError(
-                "Missing required sheets: Sheet1 and Sheet2"
+                "No data could be parsed from the Excel file"
             )
 
-        sheet1, sheet2 = excel_data["Sheet1"], excel_data["Sheet2"]
+        try:
+            # Convert DataFrames to list of dicts for Pydantic validation
+            sheet1_data = excel_data["Sheet1"].to_dict("records")
+            sheet2_data = excel_data["Sheet2"].to_dict("records")
 
-        # Check Sheet1 requirements Channels and Index
-        if not {"Channels", "Index"}.issubset(sheet1.columns):
-            logger.debug("Sheet1 columns check %s", sheet1.head())
-            raise MetadataValidationError(
-                "Sheet1 missing required columns: Channels and/or Index"
+            # Validate using our Pydantic model
+            validated_data = ExcelMetadata(
+                sheet1=[ChannelData.from_row(row) for row in sheet1_data],
+                sheet2=[WellData.from_row(row) for row in sheet2_data],
             )
-        # Check Sheet1 requirements chanel for nuclei segmentation
-        if (
-            not sheet1["Channels"]
-            .str.contains(r"DAPI|Hoechst|RFP", case=False)
-            .any()
-        ):
-            logger.debug("Sheet1 columns check %s", sheet1.head())
-            raise MetadataValidationError(
-                "Sheet1 missing required columns:missing nuclei channel"
-            )
+            return validated_data
 
-        # Check Sheet2 requirements
-        if "cell_line" not in sheet2.columns:
-            logger.debug("Sheet2 columns check %s", sheet2.head())
+        except KeyError as e:
             raise MetadataValidationError(
-                "Sheet2 missing required column: cell_line"
-            )
-
-        return True
+                f"Missing required sheet: {e}"
+            ) from e
+        except ValueError as e:
+            raise MetadataValidationError(f"Validation error: {e}") from e
 
     def _format_channel_data(
         self, excel_data: dict[str, pd.DataFrame]

@@ -1,19 +1,19 @@
-from omero_utils.attachments import get_named_file_attachment, parse_excel_data
+from omero_utils.attachments import get_file_attachments, parse_excel_data
 
 
-def test_get_named_file_attachment(test_project):
-    file_ann = get_named_file_attachment(test_project, "metadata.xlsx")
+def test_get_file_attachments(test_project):
+    file_ann = get_file_attachments(test_project, ".xlsx")
     assert file_ann is not None, "failed test because no file attachment found"
-    assert file_ann.getFile().getName() == "metadata.xlsx", (
+    assert file_ann[0].getFile().getName() == "metadata.xlsx", (
         "failed test because file name does not match"
     )
 
 
 def test_parse_excel_data(test_project):
-    file_ann = get_named_file_attachment(test_project, "metadata.xlsx")
+    file_ann = get_file_attachments(test_project, ".xlsx")
     assert file_ann is not None, "failed test because no file attachment found"
 
-    data = parse_excel_data(file_ann)
+    data = parse_excel_data(file_ann[0])
 
     # Verify sheets exist
     assert "Sheet1" in data, "Sheet1 not found in parsed data"

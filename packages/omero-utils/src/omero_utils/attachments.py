@@ -13,28 +13,34 @@ from pandas import DataFrame
 logger = setup_logging("omero_utils")
 
 
-def get_named_file_attachment(
+def get_file_attachments(
     obj: BlitzObjectWrapper,
-    file_name: str,
-) -> Optional[FileAnnotationWrapper]:
+    extension: str,
+) -> Optional[list[FileAnnotationWrapper]]:
     """
-    Retrieve FileAnnotationWrappers for files with a specific name from an OMERO object.
+    Retrieve FileAnnotationWrappers for files with a specific extension from an OMERO object.
+
+    Args:
+        obj: The OMERO object to search for attachments
+        extension: File extension to match (e.g., '.xlsx', '.pdf'). Case-insensitive.
+            Should include the dot.
+
+    Returns:
+        List of matching FileAnnotationWrappers or None if no matches found
     """
+    if not extension.startswith("."):
+        extension = f".{extension}"
+    extension = extension.lower()
 
     matching_files = []
     for ann in obj.listAnnotations():
         if isinstance(ann, FileAnnotationWrapper):
             original_file = ann.getFile()
+            file_name = original_file.getName()
+            if file_name and file_name.lower().endswith(extension):
+                matching_files.append(ann)
 
-            # Skip if filename doesn't match (when specified)
-            if original_file.getName() != file_name:
-                continue
-            matching_files.append(ann)
-
-    if len(matching_files) > 1:
-        raise ValueError(f"Multiple files found with name='{file_name}'")
-
-    return matching_files[0] if matching_files else None
+    return matching_files if matching_files else None
 
 
 def parse_excel_data(
