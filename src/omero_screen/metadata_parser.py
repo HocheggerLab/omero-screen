@@ -14,6 +14,7 @@ from typing import Any, Union
 import pandas as pd
 from omero.gateway import BlitzGateway, FileAnnotationWrapper, PlateWrapper
 from omero_utils.attachments import get_file_attachments, parse_excel_data
+from omero_utils.map_anns import parse_annotations
 from pydantic.v1 import BaseModel as PydanticBaseModel
 from pydantic.v1 import Field, validator
 from rich.console import Console
@@ -132,9 +133,9 @@ class MetadataParser:
         self._check_plate()
         if file_annotations := self._check_excel_file():
             excel_data = parse_excel_data(file_annotations)
-        validated_data = self._validate_excel_data(excel_data)
-        channel_data = self._format_channel_data(validated_data)  # type: ignore[unused-ignore] # noqa: F841
-        well_data = self._format_well_data(validated_data)  # type: ignore[unused-ignore] # noqa: F841
+            validated_data = self._validate_excel_data(excel_data)
+            channel_data = self._format_channel_data(validated_data)  # type: ignore[unused-ignore] # noqa: F841
+            well_data = self._format_well_data(validated_data)  # type: ignore[unused-ignore] # noqa: F841
 
         # if self._check_plate_annotations() and self._check_well_annotations():
         #     channel_data = self._parse_plate_data()
@@ -218,17 +219,48 @@ class MetadataParser:
 
     # --------------------Plate and Well Annotation Parsing--------------------
 
-    def _check_plate_annotations(self) -> bool:
-        """Check if the plate has annotations."""
-        if self.plate is None or not hasattr(self.plate, "getAnnotations"):
-            return False
-        return self.plate.getAnnotations() is not None
+    def _parse_plate_annotations(self) -> dict[str, Any]:
+        """Parse channel annotations from the plate.
 
-    def _check_well_annotations(self) -> bool:
+        Returns:
+            dict[str, Any]: Dictionary of channel annotations with integer indices
+
+        Raises:
+            MetadataValidationError: If channel indices cannot be converted to integers
+            MetadataValidationError: If no nuclei channel (DAPI/HOECHST/RFP) is found
+        """
+        assert self.plate
+        annotations = parse_annotations(self.plate)
+
+        # Check for required nuclei channels
+        nuclei_channels = {"DAPI", "HOECHST", "RFP"}
+        if not any(
+            channel.upper() in nuclei_channels for channel in annotations
+        ):
+            raise MetadataValidationError(
+                "At least one nuclei channel (DAPI/HOECHST/RFP) is required"
+            )
+
+        # Convert channel indices to integers
+        channel_data = {}
+        for channel, index in annotations.items():
+            try:
+                channel_data[channel] = int(index)
+            except (ValueError, TypeError) as e:
+                raise MetadataValidationError(
+                    f"Channel index for {channel} must be an integer. Got: {index}"
+                ) from e
+
+        return channel_data
+
+    def _parse_well_annotations(self) -> dict[str, str]:
         """Check if the well has annotations."""
-        if self.plate is None or not hasattr(self.plate, "getWellAnnotations"):
-            return False
-        return self.plate.getWellAnnotations() is not None
+        assert self.plate
+        well_annotations = {}
+        for well in self.plate.listChildren():
+            well_name = well.getWellPos()
+            well_annotations[well_name] = well.getAnnotation()
+        return well_annotations
 
 
 # --------------------Custom Exception Classes--------------------
