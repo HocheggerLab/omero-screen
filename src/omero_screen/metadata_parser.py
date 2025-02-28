@@ -9,14 +9,13 @@ if metadata is not found, the program extists with an error.
 """
 
 from dataclasses import dataclass
-from typing import Any, Union
+from typing import Any, TypeVar, Union
 
 import pandas as pd
 from omero.gateway import BlitzGateway, FileAnnotationWrapper, PlateWrapper
 from omero_utils.attachments import get_file_attachments, parse_excel_data
 from omero_utils.map_anns import parse_annotations
-from pydantic.v1 import BaseModel as PydanticBaseModel
-from pydantic.v1 import Field, validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from rich.console import Console
 from rich.panel import Panel
 
@@ -24,6 +23,8 @@ from omero_screen.config import setup_logging
 
 logger = setup_logging("omero_screen")
 console = Console()
+
+T = TypeVar("T")
 
 
 # --------------------Dataclass to store metadata--------------------
@@ -39,13 +40,16 @@ class PlateMetadata:
 # --------------------Pydantic Models--------------------
 
 
-class ChannelData(PydanticBaseModel):  # type: ignore
+class ChannelData(BaseModel):
     """Model for validating channel data from Sheet1"""
+
+    model_config = ConfigDict(frozen=True)
 
     Channels: str
     Index: int
 
-    @validator("Channels")  # type: ignore[misc]
+    @field_validator("Channels")
+    @classmethod
     def validate_channel_name(cls, v: str) -> str:
         """Ensure channel name is valid and standardize format"""
         v = v.upper().strip()
@@ -54,18 +58,23 @@ class ChannelData(PydanticBaseModel):  # type: ignore
     @classmethod
     def from_row(cls, row: dict[str, Any]) -> "ChannelData":
         """Create ChannelData from a row of the DataFrame"""
-        return cls(**row)
+        validated = cls.model_validate(row)
+        assert isinstance(validated, cls)  # Help mypy understand the type
+        return validated
 
 
-class WellData(PydanticBaseModel):  # type: ignore
+class WellData(BaseModel):
     """Model for validating well data from Sheet2"""
+
+    model_config = ConfigDict(frozen=True)
 
     Well: str
     metadata: dict[str, Union[str, int, float, bool]] = Field(
         default_factory=dict
     )
 
-    @validator("Well")  # type: ignore[misc]
+    @field_validator("Well")
+    @classmethod
     def validate_well_format(cls, v: str) -> str:
         """Ensure well follows format like 'A1', 'B12', etc."""
         if not isinstance(v, str) or not v.strip():
@@ -78,18 +87,21 @@ class WellData(PydanticBaseModel):  # type: ignore
     def from_row(cls, row: dict[str, Any]) -> "WellData":
         """Create WellData from a row of the DataFrame"""
         well = row.pop("Well")  # Extract Well field
-        return cls(
-            Well=well, metadata=row
-        )  # All other fields go into metadata
+        validated = cls.model_validate({"Well": well, "metadata": row})
+        assert isinstance(validated, cls)  # Help mypy understand the type
+        return validated
 
 
-class ExcelMetadata(PydanticBaseModel):  # type: ignore
+class ExcelMetadata(BaseModel):
     """Model for complete Excel metadata validation"""
+
+    model_config = ConfigDict(frozen=True)
 
     sheet1: list[ChannelData]
     sheet2: list[WellData]
 
-    @validator("sheet1")  # type: ignore[misc]
+    @field_validator("sheet1")
+    @classmethod
     def validate_required_channels(
         cls, channels: list[ChannelData]
     ) -> list[ChannelData]:
@@ -101,7 +113,8 @@ class ExcelMetadata(PydanticBaseModel):  # type: ignore
             )
         return channels
 
-    @validator("sheet1")  # type: ignore[misc]
+    @field_validator("sheet1")
+    @classmethod
     def validate_unique_indices(
         cls, channels: list[ChannelData]
     ) -> list[ChannelData]:
@@ -128,18 +141,29 @@ class MetadataParser:
         )
         self.console: Console = console
 
-    def parse_metadata(self) -> None:
-        """Parse the metadata from the plate."""
+    def parse_metadata(self) -> PlateMetadata:
+        """Parse the metadata from the plate.
+
+        Returns:
+            PlateMetadata: A dataclass containing the parsed metadata
+        """
         self._check_plate()
         if file_annotations := self._check_excel_file():
             excel_data = parse_excel_data(file_annotations)
             validated_data = self._validate_excel_data(excel_data)
-            channel_data = self._format_channel_data(validated_data)  # type: ignore[unused-ignore] # noqa: F841
-            well_data = self._format_well_data(validated_data)  # type: ignore[unused-ignore] # noqa: F841
+            channel_data = self._format_channel_data(validated_data)
+            well_data = self._format_well_data(validated_data)
+            # TODO: Add pixel size parsing
+            return PlateMetadata(
+                channels=channel_data,
+                well_inputs=well_data,
+                pixel_size=0.0,  # Default value for now
+            )
 
         # if self._check_plate_annotations() and self._check_well_annotations():
         #     channel_data = self._parse_plate_data()
         #     well_data = self._parse_well_data()
+        raise MetadataParsingError("No metadata found on plate")
 
     def _check_plate(self) -> bool:
         """Check if the plate exists."""
@@ -174,8 +198,19 @@ class MetadataParser:
 
         try:
             # Convert DataFrames to list of dicts for Pydantic validation
-            sheet1_data = excel_data["Sheet1"].to_dict("records")
-            sheet2_data = excel_data["Sheet2"].to_dict("records")
+            # Use pandas astype to ensure string column names
+            sheet1 = excel_data["Sheet1"].copy()
+            sheet2 = excel_data["Sheet2"].copy()
+
+            # Convert to records and explicitly cast to dict[str, Any]
+            sheet1_data = [
+                {str(k): v for k, v in record.items()}
+                for record in sheet1.to_dict("records")
+            ]
+            sheet2_data = [
+                {str(k): v for k, v in record.items()}
+                for record in sheet2.to_dict("records")
+            ]
 
             # Validate using our Pydantic model
             validated_data = ExcelMetadata(
@@ -192,30 +227,20 @@ class MetadataParser:
             raise MetadataValidationError(f"Validation error: {e}") from e
 
     def _format_channel_data(
-        self, excel_data: dict[str, pd.DataFrame]
+        self, excel_data: ExcelMetadata
     ) -> dict[str, int]:
-        """Format the excel data for the plate.
-        the channel dataframe is turned into a dict[str, int],
+        """Format the validated excel data for the plate.
+        Converts the validated channel data into a dict[str, int],
         e.g. {DAPI: 0}
         """
-        return dict[str, int](
-            excel_data["Sheet1"].set_index("Channels")["Index"].to_dict()
-        )
+        return {ch.Channels: ch.Index for ch in excel_data.sheet1}
 
-    def _format_well_data(
-        self, excel_data: dict[str, pd.DataFrame]
-    ) -> dict[str, Any]:
-        """Format the excel data for the plate.
-        the well dataframe is turned into a dict[str, Any],
+    def _format_well_data(self, excel_data: ExcelMetadata) -> dict[str, Any]:
+        """Format the validated excel data for the plate.
+        Converts the validated well data into a dict[str, Any],
         e.g. {A1: {cell_line: "RPE-1", condition: "ctr"}}
         """
-        return {
-            str(k): v
-            for k, v in excel_data["Sheet2"]
-            .set_index("Well")
-            .to_dict(orient="index")
-            .items()
-        }
+        return {well.Well: well.metadata for well in excel_data.sheet2}
 
     # --------------------Plate and Well Annotation Parsing--------------------
 

@@ -48,7 +48,10 @@ omero-screen-napari = { workspace = true }
 [dependency-groups]
 dev = [
     "commitizen>=4.1.0",
-    "mypy>=1.13.0",
+    "mypy>=1.15.0",
+    "pandas-stubs",
+    "pydantic[mypy]>=2.10.6",
+    "typing-extensions>=4.9.0",
     "pre-commit>=4.0.1",
     "pytest-mock>=3.14.0",
     "pytest>=8.3.4",
@@ -62,6 +65,8 @@ dev = [
 [tool.mypy]
 strict = true
 python_version = 3.12
+plugins = ["pydantic.mypy"]
+allow_untyped_decorators = true
 exclude = [
     "tests/.*",
     ".venv/.*",
@@ -75,16 +80,8 @@ exclude = [
 incremental = true
 cache_dir = ".mypy_cache"
 ignore_missing_imports = true
-#follow_imports = "silent"
 pretty = true
 warn_unused_configs = true
-
-["tool.mypy.some_untyped_package.*"]
-ignore_missing_imports = true
-
-["tool.mypy.another_untyped_package.*"]
-ignore_missing_imports = true
-
 
 # ===========================
 # Ruff Configuration Section
