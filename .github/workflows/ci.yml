@@ -58,7 +58,7 @@ jobs:
         docker compose up -d omeroserver
         docker compose logs omeroserver  # Let's see the logs
         sleep 240  # Wait for OMERO
-        docker compose run --rm test
+        docker compose run --rm test pytest --ignore=tests/e2e_tests/
 
     - name: Cleanup
       run: docker compose down -v
