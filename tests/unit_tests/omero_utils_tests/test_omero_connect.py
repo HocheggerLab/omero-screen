@@ -1,6 +1,7 @@
 import os
 
 import pytest
+
 from omero_utils.omero_connect import omero_connect
 
 
@@ -17,7 +18,8 @@ def test_successful_connection():
     )
 
 
-def test_connection_failure(capsys):
+def test_connection_failure(caplog):
+    """Test that connection failures are properly logged"""
     # Set wrong credentials
     os.environ["USERNAME"] = "wrong_user"
     os.environ["PASSWORD"] = "wrong_password"
@@ -30,8 +32,8 @@ def test_connection_failure(capsys):
     with pytest.raises(Exception):  # noqa: B017
         connect_plate()
 
-    # Capture the stdout and stderr
-    captured = capsys.readouterr()
-    assert "Failed to connect to Omero" in captured.out, (
-        "Expected error message not found in stdout"
-    )
+    # Check the log records
+    assert any(
+        "Failed to connect to Omero" in record.message
+        for record in caplog.records
+    ), "Expected error message not found in logs"

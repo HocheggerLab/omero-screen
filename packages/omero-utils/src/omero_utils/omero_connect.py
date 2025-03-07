@@ -4,9 +4,10 @@ from collections.abc import Callable
 from typing import Any
 
 from omero.gateway import BlitzGateway
-from omero_screen.config import setup_logging
+from omero_screen.config import get_logger
 
-logger = setup_logging("omero_utils")
+# Initialize logger with the module's name
+logger = get_logger(__name__)
 
 
 def omero_connect(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -44,27 +45,20 @@ def omero_connect(func: Callable[..., Any]) -> Callable[..., Any]:
         value = None
         try:
             logger.debug(
-                "Connecting to Omero at at host: %s, username: %s, password: %s",
+                "Connecting to Omero at host: %s, username: %s",
                 host,
                 username,
-                password,
             )
-            print(f"Connecting to Omero at at host: {host}")
             conn = BlitzGateway(username, password, host=host)
             conn.connect()
             value = func(*args, **kwargs, conn=conn)
         except Exception as e:
-            print(
-                f"Failed to connect to Omero with the following error message: {e}"
-            )
             logger.error("Failed to connect to Omero: %s", str(e))
             raise
         finally:
-            # No side effects if called without a connection
             if conn and conn.isConnected():
                 conn.close(hard=True)
-                logger.info("Closing connection to Omero")
-                print(f"Closing connection to Omero at host: {host}")
+                logger.info("Closing connection to Omero at host: %s", host)
 
         return value
 

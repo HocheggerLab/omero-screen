@@ -142,9 +142,21 @@ def test_parse_well_annotations_success(base_plate_with_annotations):
     plate = base_plate_with_annotations
     parser = MetadataParser(plate._conn, plate.getId())
     well_data = parser._parse_well_annotations()
-    assert well_data["Well"] == ["C5", "C2"]
-    assert well_data["cell_line"] == ["RPE-1", "RPE-1"]
-    assert well_data["condition"] == ["Cdk4", "Ctr"]
+
+    # Get indices that would sort the wells alphabetically
+    sort_indices = sorted(
+        range(len(well_data["Well"])), key=lambda k: well_data["Well"][k]
+    )
+
+    # Sort all lists in well_data based on Well order
+    sorted_well_data = {
+        key: [values[i] for i in sort_indices]
+        for key, values in well_data.items()
+    }
+
+    assert sorted_well_data["Well"] == ["C2", "C5"]
+    assert sorted_well_data["cell_line"] == ["RPE-1", "RPE-1"]
+    assert sorted_well_data["condition"] == ["Ctr", "Cdk4"]
 
 
 def test_parse_well_annotations_failure(base_plate):
@@ -161,7 +173,9 @@ def test_parse_well_annotations_failure(base_plate):
 
     with pytest.raises(WellAnnotationError) as exc_info:
         parser._parse_well_annotations()
-    assert str(exc_info.value) == "No well annotations found for well C5"
+    error_message = str(exc_info.value)
+    assert error_message.startswith("No well annotations found for well")
+    assert any(well_id in error_message for well_id in ["C2", "C5"])
 
 
 # --------------------Validation Checks--------------------

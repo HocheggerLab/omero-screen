@@ -15,7 +15,7 @@ from omero.gateway import BlitzGateway, FileAnnotationWrapper, PlateWrapper
 from rich.console import Console
 from rich.panel import Panel
 
-from omero_screen.config import setup_logging
+from omero_screen.config import get_logger
 from omero_utils.attachments import (
     delete_excel_attachment,
     get_file_attachments,
@@ -27,7 +27,7 @@ from omero_utils.map_anns import (
     parse_annotations,
 )
 
-logger = setup_logging("omero_screen")
+logger = get_logger(__name__)
 console = Console()
 
 T = TypeVar("T")

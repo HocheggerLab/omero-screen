@@ -11,10 +11,10 @@ from omero.gateway import (
     FileAnnotationWrapper,
 )
 from omero.model import OriginalFileI
-from omero_screen.config import setup_logging
+from omero_screen.config import get_logger
 from pandas import DataFrame
 
-logger = setup_logging("omero_utils")
+logger = get_logger(__name__)
 
 
 def get_file_attachments(
