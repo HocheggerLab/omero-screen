@@ -28,6 +28,7 @@ dependencies = [
 
 [project.scripts]
 omero-screen = "omero_screen:main"
+omero-integration-test = "tests.e2e_tests.meta_data_integration:main"
 
 [build-system]
 requires = ["hatchling"]

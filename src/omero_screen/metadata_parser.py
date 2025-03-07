@@ -8,6 +8,8 @@ If no Excel file is found, the metadata is parsed from the plate data.
 if metadata is not found, the program extists with an error.
 """
 
+import sys
+import traceback
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
@@ -31,6 +33,10 @@ logger = get_logger(__name__)
 console = Console()
 
 T = TypeVar("T")
+
+
+# Define consistent styling
+SUCCESS_STYLE = "bold cyan"
 
 
 # --------------------Dataclass to store metadata--------------------
@@ -67,10 +73,15 @@ class MetadataParser:
         """
         plate = self.conn.getObject("Plate", self.plate_id)
         if plate is None:
+            logger.error("A plate with id %s was not found!", self.plate_id)
             raise PlateNotFoundError(
                 f"A plate with id {self.plate_id} was not found!"
             )
         assert isinstance(plate, PlateWrapper)
+        logger.info("Found plate with id %s", self.plate_id)
+        console.print(
+            f"[{SUCCESS_STYLE}]✓ Found plate with id {self.plate_id}"
+        )
         return plate
 
     def manage_metadata(self) -> None:
@@ -312,85 +323,75 @@ class MetadataParser:
 # --------------------Custom Exception Classes--------------------
 
 
-class PlateNotFoundError(Exception):
+class OmeroScreenError(Exception):
+    """Base class for all OMERO Screen exceptions"""
+
+    def __init__(self, message: str, error_type: str):
+        super().__init__(message)
+        # Get the current exception info
+        exc_type, exc_value, exc_traceback = sys.exc_info()
+
+        # If we're handling an exception, start from its traceback
+        if exc_traceback:
+            # Skip the last frame (this __init__ call)
+            trace_str = "".join(
+                traceback.format_tb(
+                    exc_traceback.tb_next
+                    if exc_traceback.tb_next
+                    else exc_traceback
+                )
+            )
+        else:
+            # If no current exception, get the call stack
+            stack = traceback.extract_stack()[:-1]  # Exclude current frame
+            trace_str = "".join(traceback.format_list(stack))
+
+        console.print(
+            Panel.fit(
+                f"[red]{error_type}:[/red]\n{message}\n\n[dim]Location:[/dim]\n{trace_str}",
+                title="Error",
+                border_style="red",
+            )
+        )
+
+
+class PlateNotFoundError(OmeroScreenError):
     """Raised when a plate is not found"""
 
     def __init__(self, message: str):
-        super().__init__(message)
-        console.print(
-            Panel.fit(
-                f"[red]Plate Not Found:[/red]\n{message}",
-                title="Error",
-                border_style="red",
-            )
-        )
+        super().__init__(message, "Plate Not Found Error")
 
 
-class ExcelParsingError(Exception):
+class ExcelParsingError(OmeroScreenError):
     """Raised when there are issues parsing the Excel file"""
 
     def __init__(self, message: str):
-        super().__init__(message)
-        console.print(
-            Panel.fit(
-                f"[red]Excel Parsing Error:[/red]\n{message}",
-                title="Error",
-                border_style="red",
-            )
-        )
+        super().__init__(message, "Excel Parsing Error")
 
 
-class ChannelAnnotationError(Exception):
+class ChannelAnnotationError(OmeroScreenError):
     """Raised when there are issues with channel annotations"""
 
     def __init__(self, message: str):
-        super().__init__(message)
-        console.print(
-            Panel.fit(
-                f"[red]Channel Annotation Error:[/red]\n{message}",
-                title="Error",
-                border_style="red",
-            )
-        )
+        super().__init__(message, "Channel Annotation Error")
 
 
-class WellAnnotationError(Exception):
+class WellAnnotationError(OmeroScreenError):
     """Raised when there are issues with well annotations"""
 
     def __init__(self, message: str):
-        super().__init__(message)
-        console.print(
-            Panel.fit(
-                f"[red]Well Annotation Error:[/red]\n{message}",
-                title="Error",
-                border_style="red",
-            )
-        )
+        super().__init__(message, "Well Annotation Error")
 
 
-class MetadataValidationError(Exception):
+class MetadataValidationError(OmeroScreenError):
     """Raised when parsed data doesn't meet requirements"""
 
     def __init__(self, message: str):
-        super().__init__(message)
-        console.print(
-            Panel.fit(
-                f"[red]Metadata Validation Error:[/red]\n{message}",
-                title="Error",
-                border_style="red",
-            )
-        )
+        super().__init__(message, "Metadata Validation Error")
 
 
-class MetadataParsingError(Exception):
+class MetadataParsingError(OmeroScreenError):
     """Raised when no data could be parsed from the Excel file"""
 
     def __init__(self, message: str):
-        super().__init__(message)
-        console.print(
-            Panel.fit(
-                f"[red]Metadata Parsing Error:[/red]\n{message}",
-                title="Error",
-                border_style="red",
-            )
-        )
+        super().__init__(message, "Metadata Parsing Error")
