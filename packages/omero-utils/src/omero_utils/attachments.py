@@ -5,7 +5,11 @@ import tempfile
 from typing import Optional
 
 import pandas as pd
-from omero.gateway import BlitzObjectWrapper, FileAnnotationWrapper
+from omero.gateway import (
+    BlitzGateway,
+    BlitzObjectWrapper,
+    FileAnnotationWrapper,
+)
 from omero.model import OriginalFileI
 from omero_screen.config import setup_logging
 from pandas import DataFrame
@@ -68,3 +72,21 @@ def parse_excel_data(
     finally:
         if tmp_path:
             os.unlink(tmp_path)  # Delete the temporary file
+
+
+def delete_excel_attachment(
+    conn: BlitzGateway, omero_obj: BlitzObjectWrapper
+) -> None:
+    """Delete the excel attachment from the plate."""
+    file_annotations = [
+        ann
+        for ann in omero_obj.listAnnotations()
+        if isinstance(ann, FileAnnotationWrapper)
+    ]
+
+    for file_ann in file_annotations:
+        # Get the link first
+        links = list(file_ann.getParentLinks(omero_obj.OMERO_CLASS))
+        for link in links:
+            conn.deleteObject(link._obj)  # Delete the link
+        conn.deleteObject(file_ann._obj)  # Then delete the annotation

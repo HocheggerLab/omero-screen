@@ -1,6 +1,5 @@
-from omero_utils.omero_connect import omero_connect
-
 from omero_screen.metadata_parser import MetadataParser
+from omero_utils.omero_connect import omero_connect
 
 
 def test_e2e_metadata():
