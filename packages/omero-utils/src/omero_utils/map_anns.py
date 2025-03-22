@@ -51,5 +51,5 @@ def add_map_annotations(
     """
     for key, value in map_annotations.items():
         ann = MapAnnotationWrapper(conn)
-        ann.setValue([(key, value)])
+        ann.setValue([(key, str(value))])
         omero_object.linkAnnotation(ann)

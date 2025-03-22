@@ -11,36 +11,43 @@ project_root = Path(__file__).parent.parent.parent.resolve()
 
 def set_env_vars() -> None:
     """
-    Load environment variables based on the ENV variable.
+    Load environment variables from configuration files.
+    If ENV is not set, defaults to 'development'.
+    Tries to load from .env.{ENV} first, then falls back to .env if needed.
+
+    Raises:
+        OSError: If no configuration file exists.
     """
     # Determine the project root (adjust as necessary)
     project_root = Path(__file__).parent.parent.parent.resolve()
-    # Set default environment variables if .env doesn't exist
-    os.environ.setdefault("LOG_LEVEL", "INFO")
-    os.environ.setdefault("LOG_FILE_PATH", "logs/app.log")
-    os.environ.setdefault("ENABLE_CONSOLE_LOGGING", "True")
-    os.environ.setdefault("ENABLE_FILE_LOGGING", "True")
 
-    # Path to the minimal .env file (optional)
-    minimal_env_path = project_root / ".env"
-    print(minimal_env_path)
-    # Load the minimal .env file to get the ENV variable (if exists)
-    if minimal_env_path.exists():
-        load_dotenv(minimal_env_path)
+    # Get environment, defaulting to development
+    env = os.getenv("ENV", "development").lower()
 
-    # Retrieve the ENV variable, default to 'development' if not set
-    ENV = os.getenv("ENV", "development").lower()
-
-    # Path to the environment-specific .env file
-    env_specific_path = project_root / f".env.{ENV}"
-
-    # Load the environment-specific .env file if it exists
+    # Try environment-specific file first
+    env_specific_path = project_root / f".env.{env}"
     if env_specific_path.exists():
-        load_dotenv(env_specific_path, override=True)
-    else:
-        print(
-            f"Warning: {env_specific_path} not found. Using default configurations."
-        )
+        load_dotenv(env_specific_path)
+        return
+
+    # Fall back to default .env file
+    default_env_path = project_root / ".env"
+    if default_env_path.exists():
+        load_dotenv(default_env_path)
+        return
+
+    # If we get here, no configuration file was found
+    error_msg = "\n".join(
+        [
+            "No configuration file found!",
+            f"Current environment: {env}",
+            "Tried looking for:",
+            f"  - {env_specific_path}",
+            f"  - {default_env_path}",
+            "\nPlease create either a .env.{ENV} file or a .env file with the required configuration.",
+        ]
+    )
+    raise OSError(error_msg)
 
 
 def validate_env_vars() -> None:
@@ -85,11 +92,27 @@ def get_logger(name: str) -> logging.Logger:
     Returns:
         logging.Logger: A configured logger instance
     """
+    # Handle the case when module is run directly (__main__)
+    if name == "__main__":
+        # Get the caller's file path
+        import inspect
+
+        frame = inspect.stack()[1]
+        module_path = Path(frame.filename)
+        try:
+            # Get relative path from project root to the module
+            rel_path = module_path.relative_to(project_root / "src")
+            # Convert path to module notation (my_app.submodule.file)
+            module_name = str(rel_path.with_suffix("")).replace(os.sep, ".")
+            name = module_name
+        except ValueError:
+            # Fallback if file is not in src directory
+            name = module_path.stem
     # Get or create the logger
     logger = logging.getLogger(name)
 
     # If the root logger isn't configured yet, configure it
-    root_logger = logging.getLogger("omero")
+    root_logger = logging.getLogger()
     if not root_logger.handlers:
         validate_env_vars()
 
@@ -125,8 +148,9 @@ def get_logger(name: str) -> logging.Logger:
 
         # File Handler
         if ENABLE_FILE_LOGGING:
-            if log_dir := os.path.dirname(LOG_FILE_PATH):
-                os.makedirs(log_dir, exist_ok=True)
+            log_path = Path(LOG_FILE_PATH)
+            if log_dir := log_path.parent:
+                log_dir.mkdir(parents=True, exist_ok=True)
 
             fh = RotatingFileHandler(
                 LOG_FILE_PATH,

@@ -16,10 +16,12 @@ import pytest
 from omero.gateway import BlitzGateway
 
 # Finally import model classes
-from omero.model import ImageI, PlateAcquisitionI, PlateI, WellI, WellSampleI
-
 # Then import rtypes which doesn't depend on model classes
-from omero.rtypes import rint, rstring
+from omero_utils.omero_plate import (
+    cleanup_plate,
+    create_basic_plate,
+    create_well_with_image,
+)
 
 
 @pytest.fixture
@@ -60,6 +62,11 @@ def test_env_files(tmp_path) -> Generator[Path, None, None]:
     USERNAME=root
     PASSWORD=omero
     LOG_FILE_PATH=/tmp/omero_screen.log
+    ENABLE_CONSOLE_LOGGING=true
+    ENABLE_FILE_LOGGING=true
+    LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(message)s
+    LOG_MAX_BYTES=1048576
+    LOG_BACKUP_COUNT=5
     """.strip()
     )
 
@@ -70,10 +77,25 @@ def test_env_files(tmp_path) -> Generator[Path, None, None]:
     USERNAME=prod-user
     PASSWORD=prod-pass
     LOG_FILE_PATH=/var/log/omero_screen.log
+    ENABLE_CONSOLE_LOGGING=false
+    ENABLE_FILE_LOGGING=true
+    LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(message)s
+    LOG_MAX_BYTES=5242880
+    LOG_BACKUP_COUNT=10
     """.strip()
     )
 
-    env_base.write_text("ENV=development")
+    env_base.write_text(
+        """
+    LOG_LEVEL=INFO
+    HOST=localhost
+    USERNAME=default-user
+    PASSWORD=default-pass
+    LOG_FILE_PATH=/tmp/omero_screen_default.log
+    ENABLE_CONSOLE_LOGGING=true
+    ENABLE_FILE_LOGGING=false
+    """.strip()
+    )
 
     yield tmp_path
 
@@ -125,93 +147,6 @@ def ice_cleanup():
         ic.destroy()
     except Exception as e:  # noqa: BLE001
         print(f"Ice cleanup error: {e}")
-
-
-def create_basic_plate(conn, name="Test Plate"):
-    """Create and save a basic plate with a plate acquisition.
-
-    Args:
-        conn: OMERO gateway connection
-        name: Name for the plate
-
-    Returns:
-        tuple: (plate, plate_acquisition)
-    """
-    update_service = conn.getUpdateService()
-
-    # Create and save plate
-    plate = PlateI()
-    plate.name = rstring(name)
-    plate = update_service.saveAndReturnObject(plate)
-
-    # Create and save plate acquisition
-    plate_acq = PlateAcquisitionI()
-    plate_acq.plate = plate
-    plate_acq = update_service.saveAndReturnObject(plate_acq)
-
-    return plate, plate_acq
-
-
-def create_well_with_image(conn, plate, plate_acq, position):
-    """Create a well at the specified position with a basic image.
-
-    Args:
-        conn: OMERO gateway connection
-        plate: The parent plate object
-        plate_acq: The plate acquisition object
-        position: Well position (e.g., 'C2')
-
-    Returns:
-        The saved well object
-    """
-    update_service = conn.getUpdateService()
-
-    # Convert position to row/column
-    row = ord(position[0]) - ord("A")
-    col = int(position[1]) - 1
-
-    # Create basic image
-    image = ImageI()
-    image.name = rstring(f"Placeholder Image for {position}")
-    image = update_service.saveAndReturnObject(image)
-
-    # Create well
-    well = WellI()
-    well.row = rint(row)
-    well.column = rint(col)
-    well.plate = plate
-
-    # Create well sample and link everything
-    well_sample = WellSampleI()
-    well_sample.setImage(image)
-    well_sample.plateAcquisition = plate_acq
-    well_sample.well = well
-    well.addWellSample(well_sample)
-
-    # Save the well which will cascade save the well sample
-    return update_service.saveAndReturnObject(well)
-
-
-def cleanup_plate(conn, plate):
-    """Delete a plate and all its contents.
-
-    Args:
-        conn: The BlitzGateway connection
-        plate: The plate to delete
-    """
-    try:
-        # Use the deleteObjects method which is part of the BlitzGateway API
-        # wait=True ensures the deletion completes before returning
-        conn.deleteObjects(
-            "Plate",
-            [plate.getId()],
-            deleteAnns=True,
-            deleteChildren=True,
-            wait=True,
-        )
-        print(f"Successfully deleted plate {plate.getId()}")
-    except Exception as e:  # noqa: BLE001
-        print(f"Failed to delete plate: {e}")
 
 
 @pytest.fixture(scope="session")

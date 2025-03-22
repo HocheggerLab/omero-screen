@@ -14,10 +14,6 @@ from dataclasses import dataclass
 from typing import Any, TypeVar
 
 from omero.gateway import BlitzGateway, FileAnnotationWrapper, PlateWrapper
-from rich.console import Console
-from rich.panel import Panel
-
-from omero_screen.config import get_logger
 from omero_utils.attachments import (
     delete_excel_attachment,
     get_file_attachments,
@@ -28,6 +24,10 @@ from omero_utils.map_anns import (
     delete_map_annotations,
     parse_annotations,
 )
+from rich.console import Console
+from rich.panel import Panel
+
+from omero_screen.config import get_logger
 
 logger = get_logger(__name__)
 console = Console()
@@ -59,7 +59,8 @@ class MetadataParser:
         self.conn: BlitzGateway = conn
         self.plate_id: int = plate_id
         self.plate: PlateWrapper = self._check_plate()
-        self.channel_data: dict[str, int] = {}
+        self.excel_file: bool = False
+        self.channel_data: dict[str, str] = {}
         self.well_data: dict[str, Any] = {}
 
     def _check_plate(self) -> PlateWrapper:
@@ -88,6 +89,17 @@ class MetadataParser:
         """Manage the metadata for the plate."""
         self._parse_metadata()
         self._validate_metadata()
+        if self.excel_file:
+            self._add_channel_annotations(self.channel_data)
+            self._add_well_annotations(self.well_data)
+            delete_excel_attachment(self.conn, self.plate)
+            console.print(
+                f"[{SUCCESS_STYLE}]✓ Metadata parsed from Excel file and transferred to plate {self.plate_id}"
+            )
+        else:
+            console.print(
+                f"[{SUCCESS_STYLE}]✓ Metadata parsed from plate {self.plate_id}"
+            )
 
     # --------------------Metadata Parsing--------------------
 
@@ -104,14 +116,14 @@ class MetadataParser:
         """
         assert self.plate
         if file_annotations := self._check_excel_file():
+            console.print(
+                f"[{SUCCESS_STYLE}]✓ Found Excel file attachment on plate {self.plate_id}"
+            )
             try:
                 self.channel_data, self.well_data = self._load_data_from_excel(
                     file_annotations
                 )
-                self._add_channel_annotations(self.channel_data)
-                self._add_well_annotations(self.well_data)
-                delete_excel_attachment(self.conn, self.plate)
-            except ExcelParsingError as e:
+            except Exception as e:
                 raise ExcelParsingError(
                     f"Failed to parse Excel file: {str(e)}"
                 ) from e
@@ -134,6 +146,7 @@ class MetadataParser:
         # Plate is already validated in __init__
         file_annotations = get_file_attachments(self.plate, ".xlsx")
         if file_annotations and len(file_annotations) == 1:
+            self.excel_file = True
             return file_annotations[0]
         elif file_annotations and len(file_annotations) > 1:
             raise ExcelParsingError("Multiple Excel files found on plate")
@@ -142,25 +155,30 @@ class MetadataParser:
 
     def _load_data_from_excel(
         self, file_annotations: FileAnnotationWrapper
-    ) -> tuple[dict[str, int], dict[str, Any]]:
+    ) -> tuple[dict[str, str], dict[str, Any]]:
         """Load the data from the Excel file."""
+
         meta_data = parse_excel_data(file_annotations)
-        if meta_data and list(meta_data.keys()) == ["Sheet1", "Sheet2"]:
-            channel_data = {
-                str(k): v
-                for k, v in meta_data["Sheet1"].to_dict(orient="list").items()
-            }
-            well_data = {
-                str(k): v
-                for k, v in meta_data["Sheet2"].to_dict(orient="list").items()
-            }
-            return channel_data, well_data
-        else:
+        if not meta_data or list(meta_data.keys()) != ["Sheet1", "Sheet2"]:
             raise ExcelParsingError(
                 "Invalid excel file format - expected Sheet1 and Sheet2"
             )
 
-    def _add_channel_annotations(self, channel_data: dict[str, int]) -> None:
+        channel_data = {
+            meta_data["Sheet1"]["Channels"][i]: str(
+                meta_data["Sheet1"]["Index"][i]
+            )
+            for i in range(len(meta_data["Sheet1"]["Channels"]))
+        }
+
+        well_data = {
+            str(k): v
+            for k, v in meta_data["Sheet2"].to_dict(orient="list").items()
+        }
+
+        return channel_data, well_data
+
+    def _add_channel_annotations(self, channel_data: dict[str, str]) -> None:
         """Delete preexisting annotations and add the channel annotations to the plate."""
         delete_map_annotations(self.conn, self.plate)
         add_map_annotations(self.conn, self.plate, channel_data)
@@ -178,20 +196,22 @@ class MetadataParser:
             }
             add_map_annotations(self.conn, well, well_meta_data)
 
-    def _parse_channel_annotations(self) -> dict[str, int]:
+    def _parse_channel_annotations(self) -> dict[str, str]:
         """Parse the channel annotations from the plate.
 
         Returns:
             dict[str, int]: Dictionary mapping channel names to their indices
 
         Raises:
-            ChannelAnnotationError: If no channel annotations are found
+            ChannelAnnotationError: If no channel annotations are found or if values are not integers
         """
         annotations = parse_annotations(self.plate)
         if not annotations:
             raise ChannelAnnotationError(
                 "No channel annotations found on plate"
             )
+
+        # Validate and convert values to integers
         return annotations
 
     def _parse_well_annotations(self) -> dict[str, Any]:
@@ -233,6 +253,11 @@ class MetadataParser:
         # Check for nuclei channel and normalize to DAPI
         self._validate_channel_data()
         self._validate_well_data()
+        console.print(
+            f"[{SUCCESS_STYLE}]✓ Metadata validation passed for plate {self.plate_id}\n\n"
+            f"Channel data: {self.channel_data}\n\n"
+            f"Well data: {self.well_data}"
+        )
 
     def _validate_metadata_structure(self) -> None:
         """Validate the basic structure and types of the metadata."""
@@ -247,9 +272,9 @@ class MetadataParser:
             raise MetadataValidationError(
                 "Channel data must be a dictionary with string keys"
             )
-        if not all(isinstance(v, int) for v in self.channel_data.values()):
+        if not all(isinstance(v, str) for v in self.channel_data.values()):
             raise MetadataValidationError(
-                "Channel data must be a dictionary with integer values"
+                "Channel data must be a dictionary with string values"
             )
 
     def _validate_channel_data(self) -> None:

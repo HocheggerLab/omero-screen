@@ -10,7 +10,7 @@ from omero.gateway import (
     BlitzObjectWrapper,
     FileAnnotationWrapper,
 )
-from omero.model import OriginalFileI
+from omero.model import OriginalFileI, PlateI
 from omero_screen.config import get_logger
 from pandas import DataFrame
 
@@ -72,6 +72,39 @@ def parse_excel_data(
     finally:
         if tmp_path:
             os.unlink(tmp_path)  # Delete the temporary file
+
+
+def attach_excel_to_plate(
+    conn: BlitzGateway,
+    plate: PlateI,
+    dataframes: dict[str, pd.DataFrame],
+    filename: str = "metadata.xlsx",
+) -> None:
+    """Attach an Excel file with given dataframes to a plate.
+
+    Args:
+        conn: OMERO gateway connection
+        plate: The plate to attach the file to
+        dataframes: Dictionary of sheet_name -> dataframe to write to Excel
+        filename: Name of the Excel file to create
+
+    Returns:
+        The created file annotation object
+    """
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = os.path.join(temp_dir, filename)
+
+        # Write all dataframes to Excel file
+        with pd.ExcelWriter(temp_path, engine="openpyxl") as writer:
+            for sheet_name, df in dataframes.items():
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+        # Create and attach file annotation
+        file_ann = conn.createFileAnnfromLocalFile(
+            temp_path,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        plate.linkAnnotation(file_ann)
 
 
 def delete_excel_attachment(

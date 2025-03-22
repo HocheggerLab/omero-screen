@@ -71,8 +71,8 @@ def test_load_data_from_excel(base_plate, attach_excel, standard_excel_data):
     file_annotation = parser._check_excel_file()
     assert file_annotation is not None, "Excel file should be found"
     channel_data, well_data = parser._load_data_from_excel(file_annotation)
-    assert channel_data["Channels"] == ["DAPI", "Tub", "EdU"]
-    assert channel_data["Index"] == [0, 1, 2]
+    assert list(channel_data.keys()) == ["DAPI", "Tub", "EdU"]
+    assert list(channel_data.values()) == ["0", "1", "2"]
     assert well_data["Well"] == ["C2", "C5"]
     assert well_data["cell_line"] == ["RPE-1", "RPE-1"]
     assert well_data["condition"] == ["Ctr", "Cdk4"]
@@ -198,7 +198,7 @@ class MockParser(MetadataParser):
 def test_validate_metadata_structure_success():
     """Test that valid metadata structure passes validation."""
     parser = MockParser(
-        channel_data={"DAPI": 0, "GFP": 1},
+        channel_data={"DAPI": "0", "GFP": "1"},
         well_data={"Well": ["A1", "A2"], "condition": ["ctrl", "treat"]},
     )
     parser._validate_metadata_structure()  # Should not raise any exceptions
@@ -243,7 +243,7 @@ def test_validate_metadata_structure_invalid_channel_values():
         parser._validate_metadata_structure()
     assert (
         str(exc_info.value)
-        == "Channel data must be a dictionary with integer values"
+        == "Channel data must be a dictionary with string values"
     )
 
 
