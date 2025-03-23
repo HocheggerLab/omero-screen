@@ -1,3 +1,5 @@
+from typing import Optional
+
 from omero.gateway import BlitzGateway
 from omero.model import ImageI, PlateAcquisitionI, PlateI, WellI, WellSampleI
 from omero.rtypes import rint, rstring
@@ -75,7 +77,9 @@ def create_well_with_image(
     return update_service.saveAndReturnObject(well)
 
 
-def base_plate(omero_conn: BlitzGateway, well_positions: list[str]) -> PlateI:
+def base_plate(
+    omero_conn: BlitzGateway, well_positions: Optional[list[str]] = None
+) -> PlateI:
     """
     Session-scoped fixture that creates a plate with two wells (C2 and C5).
     Each well is linked to the plate through a PlateAcquisition.
@@ -84,6 +88,8 @@ def base_plate(omero_conn: BlitzGateway, well_positions: list[str]) -> PlateI:
     Returns:
         The created plate object
     """
+    if well_positions is None:
+        well_positions = ["C2", "C5"]
 
     # Create the basic plate structure
     plate, plate_acq = create_basic_plate(omero_conn)
