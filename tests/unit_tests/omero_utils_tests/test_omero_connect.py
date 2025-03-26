@@ -1,7 +1,6 @@
 import os
 
 import pytest
-
 from omero_utils.omero_connect import omero_connect
 
 
@@ -34,6 +33,6 @@ def test_connection_failure(caplog):
 
     # Check the log records
     assert any(
-        "Failed to connect to Omero" in record.message
+        "Failed to establish connection to OMERO server" in record.message
         for record in caplog.records
     ), "Expected error message not found in logs"

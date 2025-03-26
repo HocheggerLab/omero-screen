@@ -8,8 +8,6 @@ If no Excel file is found, the metadata is parsed from the plate data.
 if metadata is not found, the program extists with an error.
 """
 
-import sys
-import traceback
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
@@ -24,18 +22,21 @@ from omero_utils.map_anns import (
     delete_map_annotations,
     parse_annotations,
 )
-from rich.console import Console
-from rich.panel import Panel
+from omero_utils.message import (
+    ChannelAnnotationError,
+    ExcelParsingError,
+    MetadataValidationError,
+    PlateNotFoundError,
+    WellAnnotationError,
+    get_console,
+    log_success,
+)
 
 from omero_screen.config import get_logger
 
 logger = get_logger(__name__)
-console = Console()
 
 T = TypeVar("T")
-
-
-# Define consistent styling
 SUCCESS_STYLE = "bold cyan"
 
 
@@ -74,14 +75,12 @@ class MetadataParser:
         """
         plate = self.conn.getObject("Plate", self.plate_id)
         if plate is None:
-            logger.error("A plate with id %s was not found!", self.plate_id)
             raise PlateNotFoundError(
-                f"A plate with id {self.plate_id} was not found!"
+                f"A plate with id {self.plate_id} was not found!", logger
             )
         assert isinstance(plate, PlateWrapper)
-        logger.info("Found plate with id %s", self.plate_id)
-        console.print(
-            f"[{SUCCESS_STYLE}]✓ Found plate with id {self.plate_id}"
+        log_success(
+            SUCCESS_STYLE, f"Found plate with id {self.plate_id}", logger
         )
         return plate
 
@@ -93,15 +92,17 @@ class MetadataParser:
             self._add_channel_annotations(self.channel_data)
             self._add_well_annotations(self.well_data)
             delete_excel_attachment(self.conn, self.plate)
-            console.print(
-                f"[{SUCCESS_STYLE}]✓ Metadata parsed from Excel file and transferred to plate {self.plate_id}"
+            log_success(
+                SUCCESS_STYLE,
+                f"Metadata parsed from Excel file and transferred to plate {self.plate_id}",
+                logger,
             )
         else:
-            console.print(
-                f"[{SUCCESS_STYLE}]✓ Metadata parsed from plate {self.plate_id}"
+            log_success(
+                SUCCESS_STYLE,
+                f"Metadata parsed from plate {self.plate_id}",
+                logger,
             )
-
-    # --------------------Metadata Parsing--------------------
 
     def _parse_metadata(self) -> None:
         """Parse the metadata from the plate.
@@ -116,8 +117,10 @@ class MetadataParser:
         """
         assert self.plate
         if file_annotations := self._check_excel_file():
-            console.print(
-                f"[{SUCCESS_STYLE}]✓ Found Excel file attachment on plate {self.plate_id}"
+            log_success(
+                SUCCESS_STYLE,
+                f"Found Excel file attachment on plate {self.plate_id}",
+                logger,
             )
             try:
                 self.channel_data, self.well_data = self._load_data_from_excel(
@@ -125,7 +128,7 @@ class MetadataParser:
                 )
             except Exception as e:
                 raise ExcelParsingError(
-                    f"Failed to parse Excel file: {str(e)}"
+                    f"Failed to parse Excel file: {str(e)}", logger
                 ) from e
         else:
             try:
@@ -134,11 +137,12 @@ class MetadataParser:
             except (ChannelAnnotationError, WellAnnotationError) as e:
                 if isinstance(e, ChannelAnnotationError):
                     raise ChannelAnnotationError(
-                        f"Failed to parse channel annotations: {str(e)}"
+                        f"Failed to parse channel annotations: {str(e)}",
+                        logger,
                     ) from e
                 else:
                     raise WellAnnotationError(
-                        f"Failed to parse well annotations: {str(e)}"
+                        f"Failed to parse well annotations: {str(e)}", logger
                     ) from e
 
     def _check_excel_file(self) -> FileAnnotationWrapper | None:
@@ -149,7 +153,9 @@ class MetadataParser:
             self.excel_file = True
             return file_annotations[0]
         elif file_annotations and len(file_annotations) > 1:
-            raise ExcelParsingError("Multiple Excel files found on plate")
+            raise ExcelParsingError(
+                "Multiple Excel files found on plate", logger
+            )
         else:
             return None
 
@@ -161,7 +167,8 @@ class MetadataParser:
         meta_data = parse_excel_data(file_annotations)
         if not meta_data or list(meta_data.keys()) != ["Sheet1", "Sheet2"]:
             raise ExcelParsingError(
-                "Invalid excel file format - expected Sheet1 and Sheet2"
+                "Invalid excel file format - expected Sheet1 and Sheet2",
+                logger,
             )
 
         channel_data = {
@@ -208,7 +215,7 @@ class MetadataParser:
         annotations = parse_annotations(self.plate)
         if not annotations:
             raise ChannelAnnotationError(
-                "No channel annotations found on plate"
+                "No channel annotations found on plate", logger
             )
 
         # Validate and convert values to integers
@@ -240,12 +247,10 @@ class MetadataParser:
                     well_data[key].append(value)
             else:
                 raise WellAnnotationError(
-                    f"No well annotations found for well {well_pos}"
+                    f"No well annotations found for well {well_pos}", logger
                 )
 
         return well_data
-
-    # --------------------Metadata Validation--------------------
 
     def _validate_metadata(self) -> None:
         """Validate the metadata."""
@@ -253,7 +258,7 @@ class MetadataParser:
         # Check for nuclei channel and normalize to DAPI
         self._validate_channel_data()
         self._validate_well_data()
-        console.print(
+        get_console().print(
             f"[{SUCCESS_STYLE}]✓ Metadata validation passed for plate {self.plate_id}\n\n"
             f"Channel data: {self.channel_data}\n\n"
             f"Well data: {self.well_data}"
@@ -262,19 +267,19 @@ class MetadataParser:
     def _validate_metadata_structure(self) -> None:
         """Validate the basic structure and types of the metadata."""
         if not self.channel_data:
-            raise MetadataValidationError("No channel data found")
+            raise MetadataValidationError("No channel data found", logger)
         if not self.well_data:
-            raise MetadataValidationError("No well data found")
+            raise MetadataValidationError("No well data found", logger)
 
         if not isinstance(self.channel_data, dict) or not all(
             isinstance(k, str) for k in self.channel_data
         ):
             raise MetadataValidationError(
-                "Channel data must be a dictionary with string keys"
+                "Channel data must be a dictionary with string keys", logger
             )
         if not all(isinstance(v, str) for v in self.channel_data.values()):
             raise MetadataValidationError(
-                "Channel data must be a dictionary with string values"
+                "Channel data must be a dictionary with string values", logger
             )
 
     def _validate_channel_data(self) -> None:
@@ -296,7 +301,8 @@ class MetadataParser:
 
         if not found_nuclei:
             raise MetadataValidationError(
-                "At least one nuclei channel (DAPI/Hoechst/DNA/RFP) is required"
+                "At least one nuclei channel (DAPI/Hoechst/DNA/RFP) is required",
+                logger,
             )
 
         self.channel_data = channel_data_normalized
@@ -317,7 +323,8 @@ class MetadataParser:
         missing_keys = required_keys - self.well_data.keys()
         if missing_keys:
             raise MetadataValidationError(
-                f"Missing required keys in well data: {', '.join(missing_keys)}"
+                f"Missing required keys in well data: {', '.join(missing_keys)}",
+                logger,
             )
 
         # Check all values are lists
@@ -328,7 +335,8 @@ class MetadataParser:
         ]
         if non_list_keys:
             raise MetadataValidationError(
-                f"Values must be lists for all keys. Non-list values found for: {', '.join(non_list_keys)}"
+                f"Values must be lists for all keys. Non-list values found for: {', '.join(non_list_keys)}",
+                logger,
             )
 
         # Check all lists have the same length
@@ -341,82 +349,6 @@ class MetadataParser:
                 f"{key}: {length}" for key, length in list_lengths.items()
             ]
             raise MetadataValidationError(
-                f"All well data lists must have the same length. Found: {', '.join(length_info)}"
+                f"All well data lists must have the same length. Found: {', '.join(length_info)}",
+                logger,
             )
-
-
-# --------------------Custom Exception Classes--------------------
-
-
-class OmeroScreenError(Exception):
-    """Base class for all OMERO Screen exceptions"""
-
-    def __init__(self, message: str, error_type: str):
-        super().__init__(message)
-        # Get the current exception info
-        exc_type, exc_value, exc_traceback = sys.exc_info()
-
-        # If we're handling an exception, start from its traceback
-        if exc_traceback:
-            # Skip the last frame (this __init__ call)
-            trace_str = "".join(
-                traceback.format_tb(
-                    exc_traceback.tb_next
-                    if exc_traceback.tb_next
-                    else exc_traceback
-                )
-            )
-        else:
-            # If no current exception, get the call stack
-            stack = traceback.extract_stack()[:-1]  # Exclude current frame
-            trace_str = "".join(traceback.format_list(stack))
-
-        console.print(
-            Panel.fit(
-                f"[red]{error_type}:[/red]\n{message}\n\n[dim]Location:[/dim]\n{trace_str}",
-                title="Error",
-                border_style="red",
-            )
-        )
-
-
-class PlateNotFoundError(OmeroScreenError):
-    """Raised when a plate is not found"""
-
-    def __init__(self, message: str):
-        super().__init__(message, "Plate Not Found Error")
-
-
-class ExcelParsingError(OmeroScreenError):
-    """Raised when there are issues parsing the Excel file"""
-
-    def __init__(self, message: str):
-        super().__init__(message, "Excel Parsing Error")
-
-
-class ChannelAnnotationError(OmeroScreenError):
-    """Raised when there are issues with channel annotations"""
-
-    def __init__(self, message: str):
-        super().__init__(message, "Channel Annotation Error")
-
-
-class WellAnnotationError(OmeroScreenError):
-    """Raised when there are issues with well annotations"""
-
-    def __init__(self, message: str):
-        super().__init__(message, "Well Annotation Error")
-
-
-class MetadataValidationError(OmeroScreenError):
-    """Raised when parsed data doesn't meet requirements"""
-
-    def __init__(self, message: str):
-        super().__init__(message, "Metadata Validation Error")
-
-
-class MetadataParsingError(OmeroScreenError):
-    """Raised when no data could be parsed from the Excel file"""
-
-    def __init__(self, message: str):
-        super().__init__(message, "Metadata Parsing Error")

@@ -35,6 +35,6 @@ def e2e_excel_setup(conn=None):
     """Test the excel file handling functionality"""
     plate = base_plate(conn, ["C2", "C5"])
     plate_id = plate.getId()
-    print(f"Testrun: Successfully generated plate with id: {plate_id}")
+    # print(f"Testrun: Successfully generated plate with id: {plate_id}")
     run_excel_file_handling(conn, plate_id)
     return plate_id

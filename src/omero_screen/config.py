@@ -117,7 +117,9 @@ def get_logger(name: str) -> logging.Logger:
         validate_env_vars()
 
         # Retrieve logging configurations from environment variables
-        LOG_LEVEL = os.getenv("LOG_LEVEL", "WARNING").upper()
+        LOG_LEVEL = os.getenv(
+            "LOG_LEVEL", "INFO"
+        ).upper()  # Default to INFO level
         LOG_FORMAT = os.getenv(
             "LOG_FORMAT",
             "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s",
@@ -133,10 +135,17 @@ def get_logger(name: str) -> logging.Logger:
         LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", 5))
 
         # Configure the root logger
-        root_logger.setLevel(getattr(logging, LOG_LEVEL, logging.DEBUG))
+        root_logger.setLevel(
+            getattr(logging, LOG_LEVEL, logging.DEBUG)
+        )  # Use LOG_LEVEL from env
 
         # Prevent propagation beyond our root logger
         root_logger.propagate = False
+
+        # Suppress specific external package logs
+        omero_logger = logging.getLogger("omero")
+        omero_logger.setLevel(logging.WARNING)
+        omero_logger.propagate = True  # Allow OMERO logs to propagate to root
 
         # Formatter
         formatter = logging.Formatter(LOG_FORMAT)
@@ -144,6 +153,9 @@ def get_logger(name: str) -> logging.Logger:
         # Console Handler
         if ENABLE_CONSOLE_LOGGING:
             ch = logging.StreamHandler()
+            ch.setLevel(
+                getattr(logging, LOG_LEVEL, logging.DEBUG)
+            )  # Set console handler to desired level
             configure_log_handler(ch, LOG_LEVEL, formatter, root_logger)
 
         # File Handler
@@ -157,6 +169,9 @@ def get_logger(name: str) -> logging.Logger:
                 maxBytes=LOG_MAX_BYTES,
                 backupCount=LOG_BACKUP_COUNT,
             )
+            fh.setLevel(
+                getattr(logging, LOG_LEVEL, logging.DEBUG)
+            )  # Set file handler to desired level
             configure_log_handler(fh, LOG_LEVEL, formatter, root_logger)
 
     return logger
