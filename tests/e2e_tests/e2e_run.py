@@ -18,7 +18,6 @@ from typing import Optional
 
 from omero.gateway import BlitzGateway
 from omero_utils.omero_connect import omero_connect
-from omero_utils.omero_plate import cleanup_plate
 
 from tests.e2e_tests.e2e_connection import (
     failed_connection,
@@ -26,9 +25,10 @@ from tests.e2e_tests.e2e_connection import (
 )
 from tests.e2e_tests.e2e_excel import (
     missing_plate,
+    run_plate_noDAPI,
     run_plate_with_correct_excel,
 )
-from tests.e2e_tests.e2e_setup import e2e_excel_setup
+from tests.e2e_tests.e2e_pixelsize import run_pixel_size_test
 
 # Set up output redirection for SLURM mode before any other imports
 parser = argparse.ArgumentParser(description="Run metadata integration tests")
@@ -36,8 +36,8 @@ parser.add_argument("test", help="Test to run")
 parser.add_argument(
     "-t",
     "--teardown",
-    choices=["yes", "no"],
-    default="yes",
+    choices=[True, False],
+    default=True,
     help="Tear down the test environment after running (default: yes)",
 )
 parser.add_argument(
@@ -60,6 +60,8 @@ TEST_FUNCTIONS = {
     "successful_connection": successful_connection,
     "e2e_excel": run_plate_with_correct_excel,
     "missing_plate": missing_plate,
+    "noDAPI": run_plate_noDAPI,
+    "pixel_size": run_pixel_size_test,
 }
 
 
@@ -75,15 +77,7 @@ def main() -> None:
         @omero_connect
         def run_e2etest(conn: Optional[BlitzGateway] = None) -> None:
             assert conn is not None
-            plate_id = e2e_excel_setup(conn)
-            plate = conn.getObject("Plate", plate_id)
-
-            # Run the test
-            TEST_FUNCTIONS[args.test](conn=conn, plate_id=plate_id)
-
-            # Teardown if requested
-            if args.teardown == "yes":
-                cleanup_plate(conn, plate)
+            TEST_FUNCTIONS[args.test](conn=conn, teardown=args.teardown)
 
         run_e2etest()
 

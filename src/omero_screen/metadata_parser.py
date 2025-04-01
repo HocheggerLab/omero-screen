@@ -8,8 +8,7 @@ If no Excel file is found, the metadata is parsed from the plate data.
 if metadata is not found, the program extists with an error.
 """
 
-from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import Any
 
 from omero.gateway import BlitzGateway, FileAnnotationWrapper, PlateWrapper
 from omero_utils.attachments import (
@@ -28,26 +27,18 @@ from omero_utils.message import (
     MetadataValidationError,
     PlateNotFoundError,
     WellAnnotationError,
-    get_console,
     log_success,
 )
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
 from omero_screen.config import get_logger
 
 logger = get_logger(__name__)
+console = Console()
 
-T = TypeVar("T")
 SUCCESS_STYLE = "bold cyan"
-
-
-# --------------------Dataclass to store metadata--------------------
-@dataclass
-class PlateMetadata:
-    """Data class to store plate metadata."""
-
-    channels: dict[str, int]
-    well_inputs: dict[str, Any]
-    pixel_size: float
 
 
 # --------------------Metadata Parser--------------------
@@ -63,6 +54,7 @@ class MetadataParser:
         self.excel_file: bool = False
         self.channel_data: dict[str, str] = {}
         self.well_data: dict[str, Any] = {}
+        self.pixel_size: float = 0
 
     def _check_plate(self) -> PlateWrapper:
         """Get the plate, validating it exists first.
@@ -86,9 +78,10 @@ class MetadataParser:
 
     def manage_metadata(self) -> None:
         """Manage the metadata for the plate."""
-        self._parse_metadata()
+        self._parse_metadata()  # checks for excel file or well data and pulls channel and well data into self.channel_data and self.well_data dictionaries
         self._validate_metadata()
-        if self.excel_file:
+        self._get_pixel_size()
+        if self.excel_file:  # if excel file is found, add channel and well annotations to plate and delete excel file
             self._add_channel_annotations(self.channel_data)
             self._add_well_annotations(self.well_data)
             delete_excel_attachment(self.conn, self.plate)
@@ -207,19 +200,18 @@ class MetadataParser:
         """Parse the channel annotations from the plate.
 
         Returns:
-            dict[str, int]: Dictionary mapping channel names to their indices
+            dict[str, str]: Dictionary mapping channel names to their indices
 
         Raises:
             ChannelAnnotationError: If no channel annotations are found or if values are not integers
         """
-        annotations = parse_annotations(self.plate)
-        if not annotations:
+        if annotations := parse_annotations(self.plate):
+            # Validate and convert values to integers
+            return annotations
+        else:
             raise ChannelAnnotationError(
                 "No channel annotations found on plate", logger
             )
-
-        # Validate and convert values to integers
-        return annotations
 
     def _parse_well_annotations(self) -> dict[str, Any]:
         """Parse the well annotations from the plate.
@@ -238,19 +230,68 @@ class MetadataParser:
             well_data["Well"].append(well_pos)
 
             well_annotation = parse_annotations(well)
-            if well_annotation:
-                # For each key in the well's annotations, ensure it exists in well_data
-                # and append the value to its list
-                for key, value in well_annotation.items():
-                    if key not in well_data:
-                        well_data[key] = []
-                    well_data[key].append(value)
-            else:
+            if not well_annotation:
                 raise WellAnnotationError(
                     f"No well annotations found for well {well_pos}", logger
                 )
 
+            # For each key in the well's annotations, ensure it exists in well_data
+            # and append the value to its list
+            for key, value in well_annotation.items():
+                if key not in well_data:
+                    well_data[key] = []
+                well_data[key].append(value)
         return well_data
+
+    def _create_two_column_table(
+        self, title: str, col1_name: str, col2_name: str
+    ) -> Table:
+        """Create a table with two columns.
+
+        Args:
+            title: The title of the table
+            col1_name: Name of the first column
+            col2_name: Name of the second column
+
+        Returns:
+            Table: A Rich table with two columns
+        """
+        table = Table(title=title)
+        table.add_column(col1_name, style="cyan")
+        table.add_column(col2_name, style="green")
+        return table
+
+    def _display_metadata(self) -> None:
+        """Display the metadata in a nicely formatted way using Rich."""
+        # Create and populate channel table
+        channel_table = self._create_two_column_table(
+            "Channel Information", "Channel Name", "Index"
+        )
+        for channel, index in self.channel_data.items():
+            channel_table.add_row(channel, str(index))
+
+        # Create and populate well summary table
+        well_table = self._create_two_column_table(
+            "Well Data Summary", "Key", "Unique Values"
+        )
+        well_table.add_column("Count", style="yellow")
+
+        for key, values in self.well_data.items():
+            if key != "Well":  # Skip the Well column as it's too verbose
+                unique_values = set(values)
+                well_table.add_row(
+                    key,
+                    ", ".join(str(v) for v in unique_values),
+                    str(len(values)),
+                )
+
+        # Display the tables in panels
+        console.print(
+            Panel(channel_table, title="Channel Data", border_style="cyan")
+        )
+        console.print(
+            Panel(well_table, title="Well Data Summary", border_style="cyan")
+        )
 
     def _validate_metadata(self) -> None:
         """Validate the metadata."""
@@ -258,11 +299,14 @@ class MetadataParser:
         # Check for nuclei channel and normalize to DAPI
         self._validate_channel_data()
         self._validate_well_data()
-        get_console().print(
-            f"[{SUCCESS_STYLE}]✓ Metadata validation passed for plate {self.plate_id}\n\n"
-            f"Channel data: {self.channel_data}\n\n"
-            f"Well data: {self.well_data}"
+
+        log_success(
+            SUCCESS_STYLE,
+            f"Metadata validation passed for plate {self.plate_id}",
+            logger,
         )
+
+        self._display_metadata()
 
     def _validate_metadata_structure(self) -> None:
         """Validate the basic structure and types of the metadata."""
@@ -320,20 +364,17 @@ class MetadataParser:
         """
         # Check required keys exist
         required_keys = {"Well", "cell_line"}
-        missing_keys = required_keys - self.well_data.keys()
-        if missing_keys:
+        if missing_keys := required_keys - self.well_data.keys():
             raise MetadataValidationError(
                 f"Missing required keys in well data: {', '.join(missing_keys)}",
                 logger,
             )
 
-        # Check all values are lists
-        non_list_keys = [
+        if non_list_keys := [
             key
             for key, value in self.well_data.items()
             if not isinstance(value, list)
-        ]
-        if non_list_keys:
+        ]:
             raise MetadataValidationError(
                 f"Values must be lists for all keys. Non-list values found for: {', '.join(non_list_keys)}",
                 logger,
@@ -352,3 +393,70 @@ class MetadataParser:
                 f"All well data lists must have the same length. Found: {', '.join(length_info)}",
                 logger,
             )
+
+    def _get_first_image(self) -> Any:
+        """Get the first image from the first well of the plate.
+
+        Returns:
+            Any: The first image from the first well
+
+        Raises:
+            MetadataValidationError: If no wells or images are found
+        """
+        # Get the first well
+        first_well = next(self.plate.listChildren(), None)
+        if not first_well:
+            raise MetadataValidationError("No wells found in plate", logger)
+
+        # Get the first well sample from the well
+        first_well_sample = next(first_well.listChildren(), None)
+        if not first_well_sample:
+            raise MetadataValidationError(
+                "No images found in first well", logger
+            )
+
+        if first_image := first_well_sample.getImage():
+            return first_image
+        else:
+            raise MetadataValidationError(
+                "Could not get image from well sample", logger
+            )
+
+    def _get_pixel_size(self) -> None:
+        """Get the pixel size in micrometers from the first image of the first well.
+        Raises:
+            MetadataValidationError: If no images are found or if pixel size cannot be determined
+        """
+        first_image = self._get_first_image()
+
+        # Get the pixel size from the image's pixels
+        pixels = first_image.getPrimaryPixels()
+        if not pixels:
+            raise MetadataValidationError(
+                "No pixel information found in image", logger
+            )
+
+        # Get the physical size in micrometers
+        pixel_size_x = round(float(pixels.getPhysicalSizeX().getValue()), 1)
+        pixel_size_y = round(float(pixels.getPhysicalSizeY().getValue()), 1)
+        logger.debug(
+            "Pixel size x: %s, Pixel size y: %s", pixel_size_x, pixel_size_y
+        )
+        # Validate that we have valid pixel sizes
+        if pixel_size_x is None or pixel_size_y is None:
+            raise MetadataValidationError(
+                "Could not determine pixel size from image", logger
+            )
+
+        if pixel_size_x != pixel_size_y:
+            raise MetadataValidationError(
+                f"Pixel size x ({pixel_size_x}) and y ({pixel_size_y}) are not the same",
+                logger,
+            )
+
+        log_success(
+            SUCCESS_STYLE,
+            f"The images in plate {self.plate_id} have a pixel size of {pixel_size_x} micrometers",
+            logger,
+        )
+        self.pixel_size = pixel_size_x

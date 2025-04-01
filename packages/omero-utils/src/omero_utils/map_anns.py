@@ -7,7 +7,7 @@ from omero.gateway import (
 )
 
 
-def parse_annotations(omero_object: BlitzObjectWrapper) -> dict[str, Any]:
+def parse_annotations(omero_object: BlitzObjectWrapper) -> dict[str, str]:
     """Parse the key value pair annotations from any OMERO object.
 
     Args:
