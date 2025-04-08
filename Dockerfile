@@ -17,7 +17,7 @@ ENV LOG_LEVEL=DEBUG \
     PASSWORD=omero \
     ENV=development \
     LOG_FILE_PATH=/tmp/omero_screen.log \
-    LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s \
+    LOG_FORMAT="%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s" \
     ENABLE_CONSOLE_LOGGING=True \
     ENABLE_FILE_LOGGING=False
 
