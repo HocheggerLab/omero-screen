@@ -17,7 +17,10 @@ ENV ENV=development \
     PASSWORD=omero \
     LOG_FORMAT="%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s" \
     ENABLE_CONSOLE_LOGGING=True \
-    ENABLE_FILE_LOGGING=False
+    ENABLE_FILE_LOGGING=False \
+    LOG_FILE_PATH=logs/app.log \
+    LOG_MAX_BYTES=1048576 \
+    LOG_BACKUP_COUNT=5
 
 # Ensure no .env files exist that could override our settings
 RUN rm -f .env .env.*
