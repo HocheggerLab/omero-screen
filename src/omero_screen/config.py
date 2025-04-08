@@ -14,9 +14,10 @@ def set_env_vars() -> None:
     Load environment variables from configuration files.
     If ENV is not set, defaults to 'development'.
     Tries to load from .env.{ENV} first, then falls back to .env if needed.
+    If no files are found, checks for required environment variables.
 
     Raises:
-        OSError: If no configuration file exists.
+        OSError: If no configuration exists in files or environment.
     """
     # Determine the project root (adjust as necessary)
     project_root = Path(__file__).parent.parent.parent.resolve()
@@ -36,15 +37,38 @@ def set_env_vars() -> None:
         load_dotenv(default_env_path)
         return
 
-    # If we get here, no configuration file was found
+    # If no files found, check for required environment variables
+    required_vars = [
+        "ENV",
+        "USERNAME",
+        "PASSWORD",
+        "HOST",
+        "PROJECT_ID",
+        "DATA_PATH",
+        "LOG_LEVEL",
+        "LOG_FILE_PATH",
+        "LOG_FORMAT",
+        "ENABLE_CONSOLE_LOGGING",
+        "ENABLE_FILE_LOGGING",
+        "LOG_MAX_BYTES",
+        "LOG_BACKUP_COUNT",
+    ]
+
+    if all(os.getenv(var) is not None for var in required_vars):
+        # All required variables are present in environment
+        return
+
+    # If we get here, no configuration was found
     error_msg = "\n".join(
         [
-            "No configuration file found!",
+            "No configuration found!",
             f"Current environment: {env}",
             "Tried looking for:",
             f"  - {env_specific_path}",
             f"  - {default_env_path}",
-            "\nPlease create either a .env.{ENV} file or a .env file with the required configuration.",
+            "And checked environment variables for:",
+            f"  - {', '.join(required_vars)}",
+            "\nPlease create either a .env.{ENV} file, .env file, or set all required environment variables.",
         ]
     )
     raise OSError(error_msg)

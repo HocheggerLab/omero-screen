@@ -38,35 +38,6 @@ services:
       - omeroserver
     environment:
       - HOST=omeroserver
-      - ENV=development
-      - USERNAME=root
-      - PASSWORD=omero
-      - PROJECT_ID=151
-      - DATA_PATH=omero-napari-data_tests
-      - LOG_LEVEL=DEBUG
-      - LOG_FILE_PATH=logs/app.log
-      - LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s
-      - ENABLE_CONSOLE_LOGGING=True
-      - ENABLE_FILE_LOGGING=False
-      - LOG_MAX_BYTES=1048576
-      - LOG_BACKUP_COUNT=5
-    command: >
-      sh -c "
-        echo 'ENV=development
-        USERNAME=root
-        PASSWORD=omero
-        HOST=omeroserver
-        PROJECT_ID=151
-        DATA_PATH=omero-napari-data_tests
-        LOG_LEVEL=DEBUG
-        LOG_FILE_PATH=logs/app.log
-        LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s
-        ENABLE_CONSOLE_LOGGING=True
-        ENABLE_FILE_LOGGING=False
-        LOG_MAX_BYTES=1048576
-        LOG_BACKUP_COUNT=5' > /app/.env.development &&
-        uv run pytest tests/ -v --ignore=tests/e2e_tests/
-      "
 
 networks:
   omero:

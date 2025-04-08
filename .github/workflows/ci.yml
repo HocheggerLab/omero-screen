@@ -57,7 +57,21 @@ jobs:
         docker compose up -d omeroserver
         docker compose logs omeroserver  # Let's see the logs
         sleep 240  # Wait for OMERO
-        docker compose run --rm test uv run pytest tests/ -v --ignore=tests/e2e_tests/
+        docker compose run --rm test \
+          -e ENV=development \
+          -e USERNAME=root \
+          -e PASSWORD=omero \
+          -e HOST=omeroserver \
+          -e PROJECT_ID=151 \
+          -e DATA_PATH=omero-napari-data_tests \
+          -e LOG_LEVEL=DEBUG \
+          -e LOG_FILE_PATH=logs/app.log \
+          -e LOG_FORMAT="%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s" \
+          -e ENABLE_CONSOLE_LOGGING=True \
+          -e ENABLE_FILE_LOGGING=False \
+          -e LOG_MAX_BYTES=1048576 \
+          -e LOG_BACKUP_COUNT=5 \
+          uv run pytest tests/ -v --ignore=tests/e2e_tests/
 
     - name: Cleanup
       if: always()
