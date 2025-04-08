@@ -50,24 +50,6 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Create environment file
-      run: |
-        cat > .env.development << EOF
-        ENV=development
-        USERNAME=root
-        PASSWORD=omero
-        HOST=localhost
-        PROJECT_ID=151
-        DATA_PATH=omero-napari-data_tests
-        LOG_LEVEL=DEBUG
-        LOG_FILE_PATH=logs/app.log
-        LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s
-        ENABLE_CONSOLE_LOGGING=True
-        ENABLE_FILE_LOGGING=False
-        LOG_MAX_BYTES=1048576
-        LOG_BACKUP_COUNT=5
-        EOF
-
     - name: Start OMERO server and run tests
       run: |
         docker compose up -d database
@@ -75,11 +57,7 @@ jobs:
         docker compose up -d omeroserver
         docker compose logs omeroserver  # Let's see the logs
         sleep 240  # Wait for OMERO
-        # Run tests and capture exit code
-        if ! uv run pytest tests/ -v --ignore=tests/e2e_tests/; then
-          echo "Tests failed"
-          exit 1
-        fi
+        docker compose run --rm test uv run pytest tests/ -v --ignore=tests/e2e_tests/
 
     - name: Cleanup
       if: always()
