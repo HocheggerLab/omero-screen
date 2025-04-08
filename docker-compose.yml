@@ -36,8 +36,6 @@ services:
       - omero
     depends_on:
       - omeroserver
-    environment:
-      - HOST: omeroserver
 
 networks:
   omero:
