@@ -43,8 +43,6 @@ def set_env_vars() -> None:
         "USERNAME",
         "PASSWORD",
         "HOST",
-        "PROJECT_ID",
-        "DATA_PATH",
         "LOG_LEVEL",
         "LOG_FORMAT",
         "ENABLE_CONSOLE_LOGGING",
