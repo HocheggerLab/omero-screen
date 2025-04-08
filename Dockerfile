@@ -15,7 +15,12 @@ ENV LOG_LEVEL=DEBUG \
     HOST=omeroserver \
     USERNAME=root \
     PASSWORD=omero \
-    ENV=development
+    ENV=development \
+    LOG_LEVEL=DEBUG \
+    LOG_FILE_PATH=/tmp/omero_screen.log \
+    LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s \
+    ENABLE_CONSOLE_LOGGING=True \
+    ENABLE_FILE_LOGGING=False
 
 # Ensure no .env files exist that could override our settings
 RUN rm -f .env .env.*

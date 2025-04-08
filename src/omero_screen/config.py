@@ -46,12 +46,9 @@ def set_env_vars() -> None:
         "PROJECT_ID",
         "DATA_PATH",
         "LOG_LEVEL",
-        "LOG_FILE_PATH",
         "LOG_FORMAT",
         "ENABLE_CONSOLE_LOGGING",
         "ENABLE_FILE_LOGGING",
-        "LOG_MAX_BYTES",
-        "LOG_BACKUP_COUNT",
     ]
 
     if all(os.getenv(var) is not None for var in required_vars):
