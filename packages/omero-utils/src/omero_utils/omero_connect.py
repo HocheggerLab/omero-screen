@@ -79,7 +79,7 @@ def omero_connect(func: Callable[..., Any]) -> Callable[..., Any]:
                 or "credentials" in str(e).lower()
             ):
                 raise OmeroConnectionError(
-                    f"Failed to connect to OMERO server at {host}",
+                    f"Failed to establish connection to OMERO server at {host} as {username}",
                     logger,
                     original_error=e,
                 ) from e

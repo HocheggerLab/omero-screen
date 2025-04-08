@@ -85,7 +85,7 @@ def test_no_config_files_error(tmp_path, monkeypatch, clean_env):
         set_env_vars()
 
     error_msg = str(exc_info.value)
-    assert "No configuration file found!" in error_msg
+    assert "No configuration found!" in error_msg
     assert "Current environment: development" in error_msg
     assert str(tmp_path / ".env.development") in error_msg
     assert str(tmp_path / ".env") in error_msg
