@@ -260,3 +260,7 @@ scratch/
 # Ignore all cache files/directories
 **/*cache*
 **/.cache*
+
+# =========================
+# Ignore large image files
+examples/*

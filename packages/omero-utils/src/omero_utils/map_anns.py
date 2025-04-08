@@ -35,7 +35,6 @@ def delete_map_annotations(
     for ann in annotations:
         if isinstance(ann, MapAnnotationWrapper):
             conn.deleteObject(ann._obj)
-            print(f"Deleted map annotation: {ann}")
 
 
 def add_map_annotations(

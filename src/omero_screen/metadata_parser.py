@@ -294,11 +294,30 @@ class MetadataParser:
         )
 
     def _validate_metadata(self) -> None:
-        """Validate the metadata."""
-        self._validate_metadata_structure()
-        # Check for nuclei channel and normalize to DAPI
-        self._validate_channel_data()
-        self._validate_well_data()
+        """Validate the metadata.
+
+        Collects all validation errors and reports them together.
+        """
+        errors = []
+
+        # Collect errors from all validation steps
+        errors.extend(self._validate_metadata_structure())
+        errors.extend(self._validate_channel_data())
+        errors.extend(self._validate_well_data())
+
+        # If any errors were found, raise them all together
+        if errors:
+            if len(errors) == 1:
+                raise MetadataValidationError(
+                    errors[0],
+                    logger,
+                )
+            else:
+                raise MetadataValidationError(
+                    "Multiple validation errors found:\n"
+                    + "\n".join(f"- {error}" for error in errors),
+                    logger,
+                )
 
         log_success(
             SUCCESS_STYLE,
@@ -308,28 +327,37 @@ class MetadataParser:
 
         self._display_metadata()
 
-    def _validate_metadata_structure(self) -> None:
-        """Validate the basic structure and types of the metadata."""
+    def _validate_metadata_structure(self) -> list[str]:
+        """Validate the basic structure and types of the metadata.
+
+        Returns:
+            list[str]: List of error messages, empty if no errors
+        """
+        errors = []
         if not self.channel_data:
-            raise MetadataValidationError("No channel data found", logger)
+            errors.append("No channel data found")
         if not self.well_data:
-            raise MetadataValidationError("No well data found", logger)
+            errors.append("No well data found")
 
         if not isinstance(self.channel_data, dict) or not all(
             isinstance(k, str) for k in self.channel_data
         ):
-            raise MetadataValidationError(
-                "Channel data must be a dictionary with string keys", logger
-            )
+            errors.append("Channel data must be a dictionary with string keys")
         if not all(isinstance(v, str) for v in self.channel_data.values()):
-            raise MetadataValidationError(
-                "Channel data must be a dictionary with string values", logger
+            errors.append(
+                "Channel data must be a dictionary with string values"
             )
 
-    def _validate_channel_data(self) -> None:
+        return errors
+
+    def _validate_channel_data(self) -> list[str]:
         """Make sure the channel data contain a nuclei channels
         and normalize the channel names to DAPI.
+
+        Returns:
+            list[str]: List of error messages, empty if no errors
         """
+        errors = []
         nuclei_channels = {"dapi", "hoechst", "dna", "rfp"}
         found_nuclei = False
         channel_data_normalized = {}
@@ -344,30 +372,69 @@ class MetadataParser:
                 channel_data_normalized[key] = value
 
         if not found_nuclei:
-            raise MetadataValidationError(
-                "At least one nuclei channel (DAPI/Hoechst/DNA/RFP) is required",
-                logger,
+            errors.append(
+                "At least one nuclei channel (DAPI/Hoechst/DNA/RFP) is required"
             )
+        else:
+            self.channel_data = channel_data_normalized
 
-        self.channel_data = channel_data_normalized
+        return errors
 
-    def _validate_well_data(self) -> None:
+    def _validate_well_positions(self) -> list[str]:
+        """Validate that the well positions in the metadata match the actual wells in the plate.
+
+        Returns:
+            list[str]: List of error messages, empty if no errors
+        """
+        errors = []
+        # Get actual well positions from the plate
+        actual_wells = [
+            well.getWellPos() for well in self.plate.listChildren()
+        ]
+
+        # Get well positions from metadata
+        metadata_wells = self.well_data["Well"]
+
+        # Check for missing wells
+        if len(actual_wells) != len(metadata_wells):
+            if len(actual_wells) > len(metadata_wells):
+                missing_wells = set(actual_wells) - set(metadata_wells)
+                errors.append(
+                    f"Missing wells in metadata: {', '.join(sorted(missing_wells))}"
+                )
+            else:
+                extra_wells = set(metadata_wells) - set(actual_wells)
+                errors.append(
+                    f"Extra wells in metadata: {', '.join(sorted(extra_wells))}"
+                )
+
+        # Check well order
+        if actual_wells != metadata_wells:
+            # Collect all mismatches
+            mismatches: list[str] = []
+            mismatches.extend(
+                f"position {i + 1}: expected {actual}, found {metadata}"
+                for i, (actual, metadata) in enumerate(
+                    zip(actual_wells, metadata_wells, strict=False)
+                )
+                if actual != metadata
+            )
+            errors.append(f"Well order mismatches at {', '.join(mismatches)}")
+
+        return errors
+
+    def _validate_well_data(self) -> list[str]:
         """Validate the well data structure and content.
 
-        Ensures:
-        - Required keys ("Well" and "cell_line") exist
-        - All values are lists
-        - All lists have the same length (matching number of wells)
-
-        Raises:
-            MetadataValidationError: If any validation check fails
+        Returns:
+            list[str]: List of error messages, empty if no errors
         """
+        errors = []
         # Check required keys exist
         required_keys = {"Well", "cell_line"}
         if missing_keys := required_keys - self.well_data.keys():
-            raise MetadataValidationError(
-                f"Missing required keys in well data: {', '.join(missing_keys)}",
-                logger,
+            errors.append(
+                f"Missing required keys in well data: {', '.join(missing_keys)}"
             )
 
         if non_list_keys := [
@@ -375,9 +442,8 @@ class MetadataParser:
             for key, value in self.well_data.items()
             if not isinstance(value, list)
         ]:
-            raise MetadataValidationError(
-                f"Values must be lists for all keys. Non-list values found for: {', '.join(non_list_keys)}",
-                logger,
+            errors.append(
+                f"Values must be lists for all keys. Non-list values found for: {', '.join(non_list_keys)}"
             )
 
         # Check all lists have the same length
@@ -389,10 +455,14 @@ class MetadataParser:
             length_info = [
                 f"{key}: {length}" for key, length in list_lengths.items()
             ]
-            raise MetadataValidationError(
-                f"All well data lists must have the same length. Found: {', '.join(length_info)}",
-                logger,
+            errors.append(
+                f"All well data lists must have the same length. Found: {', '.join(length_info)}"
             )
+
+        # Validate well positions match actual wells in plate
+        errors.extend(self._validate_well_positions())
+
+        return errors
 
     def _get_first_image(self) -> Any:
         """Get the first image from the first well of the plate.

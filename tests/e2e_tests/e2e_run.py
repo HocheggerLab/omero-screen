@@ -25,8 +25,10 @@ from tests.e2e_tests.e2e_connection import (
 )
 from tests.e2e_tests.e2e_excel import (
     missing_plate,
+    run_plate_multierror,
     run_plate_noDAPI,
     run_plate_with_correct_excel,
+    run_plate_wrongwell,
 )
 from tests.e2e_tests.e2e_pixelsize import run_pixel_size_test
 
@@ -61,6 +63,8 @@ TEST_FUNCTIONS = {
     "e2e_excel": run_plate_with_correct_excel,
     "missing_plate": missing_plate,
     "noDAPI": run_plate_noDAPI,
+    "wrongwell": run_plate_wrongwell,
+    "multierror": run_plate_multierror,
     "pixel_size": run_pixel_size_test,
 }
 

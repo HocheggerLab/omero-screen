@@ -5,7 +5,6 @@ from omero_screen.metadata_parser import (
     ChannelAnnotationError,
     ExcelParsingError,
     MetadataParser,
-    MetadataValidationError,
     PlateNotFoundError,
     WellAnnotationError,
 )
@@ -185,11 +184,31 @@ def test_parse_well_annotations_failure(base_plate):
 class MockParser(MetadataParser):
     """Mock parser class for testing channel data validation."""
 
-    def __init__(self, channel_data=None, well_data=None):
+    def __init__(self, channel_data=None, well_data=None, plate_wells=None):
         # Skip parent class initialization by not calling super().__init__()
         # This avoids the need for OMERO connection objects
         self.channel_data = channel_data if channel_data is not None else {}
         self.well_data = well_data if well_data is not None else {}
+
+        # Create mock well class
+        class MockWell:
+            def __init__(self, pos):
+                self.pos = pos
+
+            def getWellPos(self):
+                return self.pos
+
+        # Create mock plate class
+        class MockPlate:
+            def __init__(self, wells):
+                self.wells = wells
+
+            def listChildren(self):
+                return [MockWell(pos) for pos in wells]
+
+        # Initialize mock plate
+        wells = plate_wells or []
+        self.plate = MockPlate(wells)
 
 
 # --------------------TEST Validate Metadata Structure--------------------
@@ -201,50 +220,57 @@ def test_validate_metadata_structure_success():
         channel_data={"DAPI": "0", "GFP": "1"},
         well_data={"Well": ["A1", "A2"], "condition": ["ctrl", "treat"]},
     )
-    parser._validate_metadata_structure()  # Should not raise any exceptions
+    errors = parser._validate_metadata_structure()
+    assert not errors, "No errors should be found for valid metadata"
 
 
 def test_validate_metadata_structure_missing_channel_data():
     """Test that missing channel data raises an error."""
     parser = MockParser(well_data={"Well": ["A1", "A2"]})
-    with pytest.raises(MetadataValidationError) as exc_info:
-        parser._validate_metadata_structure()
-    assert str(exc_info.value) == "No channel data found"
+    errors = parser._validate_metadata_structure()
+    assert len(errors) == 1
+    assert errors[0] == "No channel data found"
 
 
 def test_validate_metadata_structure_missing_well_data():
     """Test that missing well data raises an error."""
-    parser = MockParser(channel_data={"DAPI": 0, "GFP": 1})
-    with pytest.raises(MetadataValidationError) as exc_info:
-        parser._validate_metadata_structure()
-    assert str(exc_info.value) == "No well data found"
+    parser = MockParser(channel_data={"DAPI": "0", "GFP": "1"})
+    errors = parser._validate_metadata_structure()
+    assert len(errors) == 1
+    assert errors[0] == "No well data found"
 
 
 def test_validate_metadata_structure_invalid_channel_keys():
     """Test that non-string channel keys raise an error."""
     parser = MockParser(
-        channel_data={1: 0, "GFP": 1}, well_data={"Well": ["A1"]}
+        channel_data={1: "0", "GFP": "1"}, well_data={"Well": ["A1"]}
     )
-    with pytest.raises(MetadataValidationError) as exc_info:
-        parser._validate_metadata_structure()
-    assert (
-        str(exc_info.value)
-        == "Channel data must be a dictionary with string keys"
-    )
+    errors = parser._validate_metadata_structure()
+    assert len(errors) == 1
+    assert errors[0] == "Channel data must be a dictionary with string keys"
 
 
 def test_validate_metadata_structure_invalid_channel_values():
-    """Test that non-integer channel values raise an error."""
+    """Test that non-string channel values raise an error."""
     parser = MockParser(
-        channel_data={"DAPI": "0", "GFP": 1},  # "0" is a string, not an int
+        channel_data={"DAPI": 0, "GFP": "1"},  # 0 is an int, not a string
         well_data={"Well": ["A1"]},
     )
-    with pytest.raises(MetadataValidationError) as exc_info:
-        parser._validate_metadata_structure()
-    assert (
-        str(exc_info.value)
-        == "Channel data must be a dictionary with string values"
+    errors = parser._validate_metadata_structure()
+    assert len(errors) == 1
+    assert errors[0] == "Channel data must be a dictionary with string values"
+
+
+def test_validate_metadata_structure_multiple_errors():
+    """Test that multiple validation errors are collected."""
+    parser = MockParser(
+        channel_data={1: 0},  # Invalid key and value
+        well_data={"Well": "A1"},  # Not a list
     )
+    errors = parser._validate_metadata_structure()
+    assert len(errors) == 2  # Invalid key and invalid value
+    assert "Channel data must be a dictionary with string keys" in errors
+    assert "Channel data must be a dictionary with string values" in errors
 
 
 # --------------------TEST Validate Channel Data--------------------
@@ -252,9 +278,10 @@ def test_validate_metadata_structure_invalid_channel_values():
 
 def test_validate_channel_data_with_dapi():
     """Test that DAPI channel passes validation and remains unchanged."""
-    parser = MockParser({"DAPI": 0, "GFP": 1})
-    parser._validate_channel_data()
-    assert parser.channel_data == {"DAPI": 0, "GFP": 1}
+    parser = MockParser({"DAPI": "0", "GFP": "1"})
+    errors = parser._validate_channel_data()
+    assert not errors
+    assert parser.channel_data == {"DAPI": "0", "GFP": "1"}
 
 
 def test_validate_channel_data_normalize_hoechst():
@@ -298,12 +325,12 @@ def test_validate_channel_data_case_insensitive():
 
 def test_validate_channel_data_no_nuclei_channel():
     """Test that validation fails when no nuclei channel is present."""
-    parser = MockParser({"GFP": 0, "YFP": 1})
-    with pytest.raises(MetadataValidationError) as exc_info:
-        parser._validate_channel_data()
+    parser = MockParser({"GFP": "0", "YFP": "1"})
+    errors = parser._validate_channel_data()
+    assert len(errors) == 1
     assert (
         "At least one nuclei channel (DAPI/Hoechst/DNA/RFP) is required"
-        in str(exc_info.value)
+        in errors[0]
     )
 
 
@@ -317,9 +344,11 @@ def test_validate_well_data_success():
             "Well": ["A1", "A2"],
             "cell_line": ["RPE1", "RPE1"],
             "condition": ["ctrl", "treat"],
-        }
+        },
+        plate_wells=["A1", "A2"],
     )
-    parser._validate_well_data()  # Should not raise any exceptions
+    errors = parser._validate_well_data()
+    assert not errors
 
 
 def test_validate_well_data_missing_required_key():
@@ -328,13 +357,12 @@ def test_validate_well_data_missing_required_key():
         well_data={
             "Well": ["A1", "A2"],
             "condition": ["ctrl", "treat"],  # Missing cell_line
-        }
+        },
+        plate_wells=["A1", "A2"],
     )
-    with pytest.raises(MetadataValidationError) as exc_info:
-        parser._validate_well_data()
-    assert "Missing required keys in well data: cell_line" in str(
-        exc_info.value
-    )
+    errors = parser._validate_well_data()
+    assert len(errors) == 1
+    assert "Missing required keys in well data: cell_line" in errors[0]
 
 
 def test_validate_well_data_non_list_values():
@@ -344,12 +372,17 @@ def test_validate_well_data_non_list_values():
             "Well": ["A1", "A2"],
             "cell_line": "RPE1",  # Should be a list
             "condition": ["ctrl", "treat"],
-        }
+        },
+        plate_wells=["A1", "A2"],
     )
-    with pytest.raises(MetadataValidationError) as exc_info:
-        parser._validate_well_data()
-    assert "Values must be lists for all keys" in str(exc_info.value)
-    assert "cell_line" in str(exc_info.value)
+    errors = parser._validate_well_data()
+    assert (
+        len(errors) == 2
+    )  # Non-list value error and well position validation error
+    assert any(
+        "Values must be lists for all keys" in error for error in errors
+    )
+    assert any("cell_line" in error for error in errors)
 
 
 def test_validate_well_data_inconsistent_lengths():
@@ -359,12 +392,48 @@ def test_validate_well_data_inconsistent_lengths():
             "Well": ["A1", "A2"],
             "cell_line": ["RPE1", "RPE1", "RPE1"],  # One extra value
             "condition": ["ctrl", "treat"],
-        }
+        },
+        plate_wells=["A1", "A2"],
     )
-    with pytest.raises(MetadataValidationError) as exc_info:
-        parser._validate_well_data()
-    assert "All well data lists must have the same length" in str(
-        exc_info.value
+    errors = parser._validate_well_data()
+    assert len(errors) == 1
+    assert "All well data lists must have the same length" in errors[0]
+    assert "Well: 2" in errors[0]
+    assert "cell_line: 3" in errors[0]
+
+
+def test_validate_well_data_wrong_well_order():
+    """Test that wrong well order raises an error."""
+    parser = MockParser(
+        well_data={
+            "Well": ["A2", "A1"],  # Wrong order
+            "cell_line": ["RPE1", "RPE1"],
+            "condition": ["ctrl", "treat"],
+        },
+        plate_wells=["A1", "A2"],
     )
-    assert "Well: 2" in str(exc_info.value)
-    assert "cell_line: 3" in str(exc_info.value)
+    errors = parser._validate_well_data()
+    assert len(errors) == 1
+    assert "Well order mismatches" in errors[0]
+    assert "position 1: expected A1, found A2" in errors[0]
+
+
+def test_validate_well_data_multiple_errors():
+    """Test that multiple well data errors are collected."""
+    parser = MockParser(
+        well_data={
+            "Well": ["A2", "A1"],  # Wrong order
+            "cell_line": "RPE1",  # Not a list
+            "condition": ["ctrl", "treat"],
+        },
+        plate_wells=["A1", "A2"],
+    )
+    errors = parser._validate_well_data()
+    assert (
+        len(errors) == 3
+    )  # Non-list value error, well order error, and well position validation error
+    assert any(
+        "Values must be lists for all keys" in error for error in errors
+    )
+    assert any("Well order mismatches" in error for error in errors)
+    assert any("cell_line" in error for error in errors)

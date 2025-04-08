@@ -1,0 +1,43 @@
+<icegrid>
+<!--
+        This file was generated at Tue Apr  8 08:38:13 2025 by the OmeroConfig system.
+        Do not edit directly but see `omero config` for details.
+        This file may be included into your IceGrid application.
+-->
+<properties id="__ACTIVE__">
+    <property name="omero.config.profile" value="default" />
+    <property name="omero.config.version" value="5.1.0" />
+    <property name="omero.glacier2.IceSSL.DefaultDir" value="" />
+    <property name="omero.certificates.commonname" value="localhost" />
+    <property name="omero.certificates.owner" value="/L=OMERO/O=OMERO.server" />
+    <property name="omero.certificates.key" value="" />
+    <property name="omero.glacier2.IceSSL.CertFile" value="" />
+    <property name="omero.glacier2.IceSSL.CAs" value="" />
+    <property name="omero.glacier2.IceSSL.Password" value="" />
+    <property name="omero.glacier2.IceSSL.Ciphers" value="" />
+    <property name="omero.glacier2.IceSSL.ProtocolVersionMax" value="" />
+    <property name="omero.glacier2.IceSSL.Protocols" value="" />
+    <property name="omero.db.pass" value="omero" />
+    <property name="omero.db.name" value="omero_test" />
+    <property name="omero.db.host" value="test-database" />
+    <property name="omero.db.user" value="omero" />
+</properties>
+<properties id="default">
+    <property name="omero.config.version" value="5.1.0" />
+    <property name="omero.glacier2.IceSSL.DefaultDir" value="" />
+    <property name="omero.certificates.commonname" value="localhost" />
+    <property name="omero.certificates.owner" value="/L=OMERO/O=OMERO.server" />
+    <property name="omero.certificates.key" value="" />
+    <property name="omero.glacier2.IceSSL.CertFile" value="" />
+    <property name="omero.glacier2.IceSSL.CAs" value="" />
+    <property name="omero.glacier2.IceSSL.Password" value="" />
+    <property name="omero.glacier2.IceSSL.Ciphers" value="" />
+    <property name="omero.glacier2.IceSSL.ProtocolVersionMax" value="" />
+    <property name="omero.glacier2.IceSSL.Protocols" value="" />
+    <property name="omero.db.pass" value="omero" />
+    <property name="omero.db.name" value="omero_test" />
+    <property name="omero.db.host" value="test-database" />
+    <property name="omero.db.user" value="omero" />
+</properties>
+<include file="templates.xml" />
+</icegrid>

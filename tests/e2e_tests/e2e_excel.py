@@ -2,11 +2,11 @@ from typing import Any, Optional
 
 import pandas as pd
 from omero.gateway import BlitzGateway
-from omero_utils.map_anns import parse_annotations
-from omero_utils.omero_plate import cleanup_plate
+from omero_utils.attachments import delete_excel_attachment
+from omero_utils.map_anns import delete_map_annotations, parse_annotations
 
 from omero_screen.metadata_parser import MetadataParser
-from tests.e2e_tests.e2e_setup import e2e_excel_setup, excel_file_handling
+from tests.e2e_tests.e2e_setup import excel_file_handling
 
 
 # Helper functions for test data generation
@@ -18,7 +18,7 @@ def get_channel_test_data() -> dict[str, pd.DataFrame]:
         ),
         "Sheet2": pd.DataFrame(
             {
-                "Well": ["C2", "C5"],
+                "Well": ["A1", "B1"],
                 "cell_line": ["RPE-1", "RPE-1"],
                 "condition": ["Ctr", "Cdk4"],
             }
@@ -32,7 +32,37 @@ def get_nodapi_test_data() -> dict[str, pd.DataFrame]:
         "Sheet1": pd.DataFrame({"Channels": ["Tub", "EdU"], "Index": [0, 1]}),
         "Sheet2": pd.DataFrame(
             {
-                "Well": ["C2", "C5"],
+                "Well": ["A1", "B1"],
+                "cell_line": ["RPE-1", "RPE-1"],
+                "condition": ["Ctr", "Cdk4"],
+            }
+        ),
+    }
+
+
+def get_wrongwell_test_data() -> dict[str, pd.DataFrame]:
+    """Return test data without DAPI channel"""
+    return {
+        "Sheet1": pd.DataFrame(
+            {"Channels": ["DAPI", "Tub", "EdU"], "Index": [0, 1, 2]}
+        ),
+        "Sheet2": pd.DataFrame(
+            {
+                "Well": ["A1", "B2"],
+                "cell_line": ["RPE-1", "RPE-1"],
+                "condition": ["Ctr", "Cdk4"],
+            }
+        ),
+    }
+
+
+def get_multierror_test_data() -> dict[str, pd.DataFrame]:
+    """Return test data without DAPI channel"""
+    return {
+        "Sheet1": pd.DataFrame({"Channels": ["Tub", "EdU"], "Index": [1, 2]}),
+        "Sheet2": pd.DataFrame(
+            {
+                "Well": ["A1", "B2"],
                 "cell_line": ["RPE-1", "RPE-1"],
                 "condition": ["Ctr", "Cdk4"],
             }
@@ -73,41 +103,50 @@ def run_plate(
         dict: Test results including annotations and metadata
     """
     # Setup
-    plate_id = e2e_excel_setup(conn)
+    plate_id = 1
     excel_file_handling(conn, plate_id, correct_df)
 
-    # Test execution
-    parser = MetadataParser(conn, plate_id)
-    parser.manage_metadata()
-
+    # Initialize plate and wells for cleanup
     plate = conn.getObject("Plate", plate_id)
-    if plate is None:
-        raise ValueError(f"Plate with ID {plate_id} not found")
+    wells = list(plate.listChildren()) if plate else []
 
-    wells = list(plate.listChildren())
-    if not wells:
-        raise ValueError(f"No wells found in plate {plate_id}")
+    try:
+        # Test execution
+        parser = MetadataParser(conn, plate_id)
+        parser.manage_metadata()
 
-    well = wells[0]
-    channel_annotations = parse_annotations(plate)
-    well_annotations = parse_annotations(well)
+        if plate is None:
+            raise ValueError(f"Plate with ID {plate_id} not found")
 
-    # Format result for both pytest assertions and manual inspection
-    result = {
-        "plate_id": plate_id,
-        "channel_annotations": channel_annotations,
-        "well_annotations": well_annotations,
-    }
+        if not wells:
+            raise ValueError(f"No wells found in plate {plate_id}")
 
-    # Print output for manual runs
-    print(f"Plate annotations: {channel_annotations}")
-    print(f"Well annotations: {well_annotations}")
+        well = wells[0]
+        channel_annotations = parse_annotations(plate)
+        well_annotations = parse_annotations(well)
 
-    # Cleanup if requested
-    if teardown:
-        cleanup_plate(conn, plate)
+        # Format result for both pytest assertions and manual inspection
+        result = {
+            "plate_id": plate_id,
+            "channel_annotations": channel_annotations,
+            "well_annotations": well_annotations,
+        }
 
-    return result
+        # Print output for manual runs
+        print(f"Plate annotations: {channel_annotations}")
+        print(f"Well annotations: {well_annotations}")
+
+        return result
+    finally:
+        # Cleanup if requested
+        if teardown and plate is not None:
+            print("Cleaning up plate annotations")
+            delete_map_annotations(conn, plate)
+            delete_excel_attachment(conn, plate)
+
+            for well in wells:
+                delete_map_annotations(conn, well)
+                delete_excel_attachment(conn, well)
 
 
 # Specific test case functions
@@ -124,4 +163,20 @@ def run_plate_noDAPI(
 ) -> dict[str, Any]:
     """Test with alternative channel configuration without DAPI"""
     correct_df = get_nodapi_test_data()
+    return run_plate(conn, teardown, correct_df)
+
+
+def run_plate_wrongwell(
+    conn: BlitzGateway, teardown: bool = True
+) -> dict[str, Any]:
+    """Test with alternative channel configuration without DAPI"""
+    correct_df = get_wrongwell_test_data()
+    return run_plate(conn, teardown, correct_df)
+
+
+def run_plate_multierror(
+    conn: BlitzGateway, teardown: bool = True
+) -> dict[str, Any]:
+    """Test with alternative channel configuration without DAPI"""
+    correct_df = get_multierror_test_data()
     return run_plate(conn, teardown, correct_df)

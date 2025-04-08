@@ -2,7 +2,6 @@ from unittest.mock import patch
 
 import pandas as pd
 import pytest
-from omero_utils.omero_plate import cleanup_plate
 
 from tests.e2e_tests.e2e_excel import run_plate, run_plate_with_correct_excel
 
@@ -31,7 +30,7 @@ def test_excel_success(omero_conn):
         (
             {
                 "well_data": {
-                    "Well": ["C2", "C5"],
+                    "Well": ["A1", "B1"],
                     "condition": ["Ctr", "Cdk4"],
                 },
                 "channel_data": {
@@ -46,7 +45,7 @@ def test_excel_success(omero_conn):
         (
             {
                 "well_data": {
-                    "Well": ["C2", "C5"],
+                    "Well": ["A1", "B1"],
                     "cell_line": "RPE-1",  # String instead of list
                     "condition": ["Ctr", "Cdk4"],
                 },
@@ -78,7 +77,7 @@ def test_excel_success(omero_conn):
         (
             {
                 "well_data": {
-                    "Well": ["C2", "C5"],
+                    "Well": ["A1", "B1"],
                     "cell_line": ["RPE-1", "RPE-1"],
                     "condition": ["Ctr", "Cdk4"],
                 },
@@ -93,7 +92,7 @@ def test_excel_success(omero_conn):
         (
             {
                 "well_data": {
-                    "Well": ["C2", "C5"],
+                    "Well": ["A1", "B1"],
                     "cell_line": ["RPE-1", "RPE-1"],
                     "condition": ["Ctr", "Cdk4"],
                 },
@@ -109,39 +108,30 @@ def test_excel_success(omero_conn):
 )
 def test_excel_validation_failures(omero_conn, invalid_data, expected_error):
     """Test various validation failures in Excel data handling"""
-    # Create valid test data
+    # Test data for the mock - this won't actually be used but needed for the function call
     test_data = {
         "Sheet1": pd.DataFrame(
             {"Channels": ["DAPI", "Tub", "EdU"], "Index": [0, 1, 2]}
         ),
         "Sheet2": pd.DataFrame(
             {
-                "Well": ["C2", "C5"],
+                "Well": ["A1", "B1"],
                 "cell_line": ["RPE-1", "RPE-1"],
                 "condition": ["Ctr", "Cdk4"],
             }
         ),
     }
 
-    # Get the plate ID before running the test
-    plate_id = None
-    try:
-        # Run the test with teardown=False to get the plate ID
-        result = run_plate(omero_conn, teardown=False, correct_df=test_data)
-        plate_id = result["plate_id"]
+    # Patch the _load_data_from_excel method to return our invalid data
+    with patch(
+        "omero_screen.metadata_parser.MetadataParser._load_data_from_excel"
+    ) as mock_load:
+        mock_load.return_value = (
+            invalid_data["channel_data"],
+            invalid_data["well_data"],
+        )
 
-        # Patch the _load_data_from_excel method to return our invalid data
-        with patch(
-            "omero_screen.metadata_parser.MetadataParser._load_data_from_excel"
-        ) as mock_load:
-            mock_load.return_value = (
-                invalid_data["channel_data"],
-                invalid_data["well_data"],
-            )
-
-            with pytest.raises(Exception) as exc_info:
-                run_plate(omero_conn, teardown=False, correct_df=test_data)
-            assert expected_error in str(exc_info.value)
-    finally:
-        plate = omero_conn.getObject("Plate", plate_id)
-        cleanup_plate(omero_conn, plate)
+        with pytest.raises(Exception) as exc_info:
+            # Use plate_id 1 which is hardcoded in run_plate
+            run_plate(omero_conn, teardown=True, correct_df=test_data)
+        assert expected_error in str(exc_info.value)

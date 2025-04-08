@@ -355,7 +355,7 @@ def base_plate_with_annotations(
         well_pos = well.getWellPos()
         if well_pos in well_data:
             # Convert dict to list of tuples for map annotation
-            well_map = [(k, v) for k, v in well_data[well_pos].items()]
+            well_map = list(well_data[well_pos].items())
             map_ann = MapAnnotationWrapper(omero_conn)
             map_ann.setNs(NSCLIENTMAPANNOTATION)
             map_ann.setValue(well_map)

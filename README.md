@@ -34,6 +34,33 @@ source .venv/bin/activate
 
 ```
 
+## Test Server Setup
+
+For local development and testing, you can run a separate OMERO test server that runs in parallel with your main OMERO server. The test server uses a different IP address (127.0.0.2) to avoid conflicts with your main OMERO server.
+
+To manage the test server, use the provided script:
+
+```bash
+# Start the test server
+./scripts/manage_test_server.sh start
+
+# Check server status
+./scripts/manage_test_server.sh status
+
+# Stop the test server
+./scripts/manage_test_server.sh stop
+
+# Restart the test server
+./scripts/manage_test_server.sh restart
+```
+
+The test server will be accessible at:
+- OMERO.server: 127.0.0.2:4064
+
+Default credentials:
+- Username: root
+- Password: omero
+
 ## Project Structure
 
 ```
