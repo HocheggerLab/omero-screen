@@ -248,15 +248,20 @@ The e2e tests use a dedicated environment configuration (`.env.e2etest`) that:
 
 Example `.env.e2etest` configuration:
 ```bash
-ENV=production
 USERNAME=root
 PASSWORD=omero
 HOST=localhost
-LOG_LEVEL=INFO
-LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(message)s
+PROJECT_ID=1
+DATA_PATH = 'omero-napari-data'
+
+# Logging configuration
+LOG_LEVEL=DEBUG
+LOG_FILE_PATH=logs/app.log
+LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s
 ENABLE_CONSOLE_LOGGING=False
 ENABLE_FILE_LOGGING=True
-LOG_FILE_PATH=logs/e2e_test.log
+LOG_MAX_BYTES=1048576        # 1MB
+LOG_BACKUP_COUNT=5
 ```
 
 #### Running E2E Tests
