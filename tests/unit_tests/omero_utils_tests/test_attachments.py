@@ -3,7 +3,6 @@ import tempfile
 
 import pandas as pd
 from omero.gateway import FileAnnotationWrapper
-
 from omero_utils.attachments import delete_excel_attachment, parse_excel_data
 
 # def test_get_file_attachments(test_project):

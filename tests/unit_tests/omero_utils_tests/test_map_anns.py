@@ -1,6 +1,5 @@
 import pytest
 from omero.gateway import MapAnnotationWrapper
-
 from omero_utils.map_anns import (
     add_map_annotations,
     delete_map_annotations,
