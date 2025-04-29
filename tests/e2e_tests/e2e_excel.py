@@ -28,46 +28,23 @@ def get_channel_test_data() -> dict[str, pd.DataFrame]:
 
 def get_nodapi_test_data() -> dict[str, pd.DataFrame]:
     """Return test data without DAPI channel"""
-    return {
-        "Sheet1": pd.DataFrame({"Channels": ["Tub", "EdU"], "Index": [0, 1]}),
-        "Sheet2": pd.DataFrame(
-            {
-                "Well": ["A1", "B1"],
-                "cell_line": ["RPE-1", "RPE-1"],
-                "condition": ["Ctr", "Cdk4"],
-            }
-        ),
-    }
+    d = get_channel_test_data()
+    d["Sheet1"] = pd.DataFrame({"Channels": ["Tub", "EdU"], "Index": [0, 1]})
+    return d
 
 
 def get_wrongwell_test_data() -> dict[str, pd.DataFrame]:
-    """Return test data without DAPI channel"""
-    return {
-        "Sheet1": pd.DataFrame(
-            {"Channels": ["DAPI", "Tub", "EdU"], "Index": [0, 1, 2]}
-        ),
-        "Sheet2": pd.DataFrame(
-            {
-                "Well": ["A1", "B2"],
-                "cell_line": ["RPE-1", "RPE-1"],
-                "condition": ["Ctr", "Cdk4"],
-            }
-        ),
-    }
+    """Return test data with the wrong well names"""
+    d = get_channel_test_data()
+    d["Sheet2"]["Well"] = ["A1", "B2"]  # B2 is incorrect
+    return d
 
 
 def get_multierror_test_data() -> dict[str, pd.DataFrame]:
-    """Return test data without DAPI channel"""
-    return {
-        "Sheet1": pd.DataFrame({"Channels": ["Tub", "EdU"], "Index": [1, 2]}),
-        "Sheet2": pd.DataFrame(
-            {
-                "Well": ["A1", "B2"],
-                "cell_line": ["RPE-1", "RPE-1"],
-                "condition": ["Ctr", "Cdk4"],
-            }
-        ),
-    }
+    """Return test data without DAPI channel and wrong well names"""
+    d = get_nodapi_test_data()
+    d["Sheet2"]["Well"] = ["A1", "B2"]  # B1 is incorrect
+    return d
 
 
 # Core test functions
@@ -111,15 +88,15 @@ def run_plate(
     wells = list(plate.listChildren()) if plate else []
 
     try:
+        # Validate setup
+        if plate is None:
+            raise ValueError(f"Plate with ID {plate_id} not found")
+        if not wells:
+            raise ValueError(f"No wells found in plate {plate_id}")
+
         # Test execution
         parser = MetadataParser(conn, plate_id)
         parser.manage_metadata()
-
-        if plate is None:
-            raise ValueError(f"Plate with ID {plate_id} not found")
-
-        if not wells:
-            raise ValueError(f"No wells found in plate {plate_id}")
 
         well = wells[0]
         channel_annotations = parse_annotations(plate)
@@ -169,7 +146,7 @@ def run_plate_noDAPI(
 def run_plate_wrongwell(
     conn: BlitzGateway, teardown: bool = True
 ) -> dict[str, Any]:
-    """Test with alternative channel configuration without DAPI"""
+    """Test with alternative channel configuration without correct well names"""
     correct_df = get_wrongwell_test_data()
     return run_plate(conn, teardown, correct_df)
 
@@ -177,6 +154,6 @@ def run_plate_wrongwell(
 def run_plate_multierror(
     conn: BlitzGateway, teardown: bool = True
 ) -> dict[str, Any]:
-    """Test with alternative channel configuration without DAPI"""
+    """Test with alternative channel configuration without DAPI or correct well names"""
     correct_df = get_multierror_test_data()
     return run_plate(conn, teardown, correct_df)
