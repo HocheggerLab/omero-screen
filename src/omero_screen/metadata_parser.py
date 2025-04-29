@@ -1,11 +1,11 @@
-"""Module for parsing metadata from.
+"""Module for parsing metadata from OMERO.
 First the plate is scanned for an Excel file attachment.
 If found, the metadata is parsed from the Excel file.
 Channel data is added to the plate and Well data is added
 as key value annotations to each well.
-plate data and metadat are then stored in a dataclass
+plate data and metadata are then stored in a dataclass.
 If no Excel file is found, the metadata is parsed from the plate data.
-if metadata is not found, the program extists with an error.
+If metadata is not found, the program exits with an error.
 """
 
 from typing import Any
