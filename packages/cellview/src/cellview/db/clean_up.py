@@ -380,8 +380,8 @@ def del_orphaned_condition_variables(
 
 def find_repeats_without_measurements(conn: duckdb.DuckDBPyConnection) -> None:
     """Find and display repeats that have conditions but no measurements."""
-    # Find repeats with conditions but no measurements
-    result = conn.execute("""
+    if result := conn.execute(
+        """
         SELECT r.repeat_id, r.plate_id, r.experiment_id, r.date,
                COUNT(DISTINCT c.condition_id) as condition_count,
                COUNT(DISTINCT m.measurement_id) as measurement_count
@@ -390,9 +390,8 @@ def find_repeats_without_measurements(conn: duckdb.DuckDBPyConnection) -> None:
         LEFT JOIN measurements m ON c.condition_id = m.condition_id
         GROUP BY r.repeat_id, r.plate_id, r.experiment_id, r.date
         HAVING condition_count > 0 AND measurement_count = 0
-    """).fetchall()
-
-    if result:
+    """
+    ).fetchall():
         ui.warning("Found repeats with conditions but no measurements")
 
         table = Table(
@@ -422,3 +421,56 @@ def find_repeats_without_measurements(conn: duckdb.DuckDBPyConnection) -> None:
 def del_conditions(db: CellViewDB, conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("DELETE FROM conditions")
     ui.warning("All conditions deleted from database")
+
+
+def del_measurements_by_plate_id(
+    db: CellViewDB, conn: duckdb.DuckDBPyConnection, plate_id: int
+) -> int:
+    """Delete all measurements associated with a specific plate_id.
+
+    Args:
+        db: The CellViewDB instance
+        conn: The database connection
+        plate_id: The ID of the plate whose measurements should be deleted
+
+    Returns:
+        int: The number of measurements deleted
+    """
+    # First count the measurements to be deleted
+    result = conn.execute(
+        """
+        SELECT COUNT(*)
+        FROM measurements m
+        JOIN conditions c ON m.condition_id = c.condition_id
+        JOIN repeats r ON c.repeat_id = r.repeat_id
+        WHERE r.plate_id = ?
+    """,
+        [plate_id],
+    ).fetchone()
+
+    count = result[0] if result else 0
+
+    if count > 0:
+        # Delete the measurements
+        conn.execute(
+            """
+            DELETE FROM measurements m
+            USING conditions c, repeats r
+            WHERE m.condition_id = c.condition_id
+            AND c.repeat_id = r.repeat_id
+            AND r.plate_id = ?
+        """,
+            [plate_id],
+        )
+        conn.commit()
+        clean_up_db(db, conn)
+        ui.header(
+            f"Plate {plate_id} Successfully Deleted",
+        )
+        ui.success(
+            f"Deleted {count} measurements as well as all associated data for plate {plate_id}"
+        )
+    else:
+        ui.info(f"No measurements found for plate {plate_id}")
+
+    return count

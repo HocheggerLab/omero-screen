@@ -1,4 +1,4 @@
-from cellview.db.clean_up import clean_up_db
+from cellview.db.clean_up import clean_up_db, del_measurements_by_plate_id
 from cellview.db.db import CellViewDB
 from cellview.db.display import display_plate_summary, display_projects
 from cellview.importers import import_from_csv
@@ -17,11 +17,13 @@ def main() -> None:
         import_from_csv(db, state)
 
     if args.clean:
-        clean_up_db(db, db.connect())
+        clean_up_db(db, conn)
     if args.plate:
         display_plate_summary(args.plate, conn)
     if args.projects:
         display_projects(conn)
+    if args.delete_plate:
+        del_measurements_by_plate_id(db, conn, args.delete_plate)
     conn.close()
 
 

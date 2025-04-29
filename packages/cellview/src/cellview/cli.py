@@ -37,4 +37,10 @@ def parse_args() -> argparse.Namespace:
         help="Display information about all projects.",
     )
 
+    parser.add_argument(
+        "--delete-plate",
+        type=int,
+        help="Delete a plate by its ID. This will also delete all associated data.",
+    )
+
     return parser.parse_args()
