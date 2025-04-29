@@ -1,74 +1,17 @@
 [project]
-name = "omero-screen"
-version = "0.1.3"
+name = "cellview"
+version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [
     { name = "hh65", email = "hh65@sussex.ac.uk" }
 ]
 requires-python = ">=3.12"
-dependencies = [
-    "omero-screen-napari",
-    "omero-utils",
-    "python-dotenv>=1.0.1",
-    # macOS-specific zeroc-ice wheel
-    'zeroc-ice @ https://github.com/glencoesoftware/zeroc-ice-py-macos-universal2/releases/download/20240131/zeroc_ice-3.6.5-cp312-cp312-macosx_11_0_universal2.whl ; sys_platform == "darwin"',
-    # Linux aarch64-specific zeroc-ice wheel
-    'zeroc-ice @ https://github.com/glencoesoftware/zeroc-ice-py-linux-aarch64/releases/download/20240620/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_aarch64.whl ; sys_platform == "linux" and platform_machine == "aarch64"',
-    # Linux x86_64-specific zeroc-ice wheel
-    'zeroc-ice @ https://github.com/glencoesoftware/zeroc-ice-py-linux-x86_64/releases/download/20240202/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_x86_64.whl ; sys_platform == "linux" and platform_machine == "x86_64"',
-    # Default zeroc-ice for other platforms or architectures
-    'zeroc-ice ; sys_platform != "darwin" and platform_machine != "aarch64" and platform_machine != "x86_64"',
-    "omero-py>=5.19.5",
-    "pandas>=2.2.3",
-    "openpyxl>=3.1.5",
-    "rich>=13.9.4",
-    "pydantic>=2.10.6",
-    "tifffile>=2025.3.30",
-    "duckdb>=1.2.2",
-    "cellview",
-]
-
-[project.scripts]
-omero-screen = "omero_screen:main"
-omero-integration-test = "tests.e2e_tests.e2e_run:main"
-cellview = "cellview.main:main"
+dependencies = []
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[tool.hatch.metadata]
-allow-direct-references = true
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/omero_screen", "tests"]
-
-[tool.uv.workspace]
-members = [
-    "packages/omero-utils",
-    "packages/omero-screen-napari",
-    "packages/cellview",
-]
-
-[tool.uv.sources]
-omero-utils = { workspace = true }
-omero-screen-napari = { workspace = true }
-cellview = { workspace = true }
-
-
-[dependency-groups]
-dev = [
-    "commitizen>=4.1.0",
-    "mypy>=1.15.0",
-    "pandas-stubs",
-    "pydantic[mypy]>=2.10.6",
-    "typing-extensions>=4.9.0",
-    "pre-commit>=4.0.1",
-    "pytest-mock>=3.14.0",
-    "pytest>=8.3.4",
-    "ruff>=0.9.6",
-]
 
 # ===========================
 # Mypy Configuration Section
@@ -77,8 +20,6 @@ dev = [
 [tool.mypy]
 strict = true
 python_version = 3.12
-plugins = ["pydantic.mypy"]
-allow_untyped_decorators = true
 exclude = [
     "tests/.*",
     ".venv/.*",
@@ -91,9 +32,17 @@ exclude = [
 
 incremental = true
 cache_dir = ".mypy_cache"
-ignore_missing_imports = true
+ignore_missing_imports = false
+#follow_imports = "silent"
 pretty = true
 warn_unused_configs = true
+
+["tool.mypy.some_untyped_package.*"]
+ignore_missing_imports = true
+
+["tool.mypy.another_untyped_package.*"]
+ignore_missing_imports = true
+
 
 # ===========================
 # Ruff Configuration Section
@@ -152,10 +101,9 @@ fix = true
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = "-ra -q --ignore=e2e/"
+addopts = "-ra -q"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-
 
 
 # ===========================
@@ -165,10 +113,10 @@ python_files = ["test_*.py"]
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.1.3"
-tag_format = "omero-screen-v$version"
+version = "0.1.0"
+tag_format = "cellview-v$version"
 version_files = [
-    "src/omero_screen/__init__.py:__version__",
+    "src/cellview/__init__.py:__version__",
     "pyproject.toml:version",
     "README.md:version-[0-9]+\\.[0-9]+\\.[0-9]+"
 ]
