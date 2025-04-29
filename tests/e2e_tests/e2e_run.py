@@ -69,8 +69,13 @@ TEST_FUNCTIONS = {
 }
 
 
-def main() -> None:
+def main() -> int:
     """Main entry point for the integration tests"""
+    if args.test not in TEST_FUNCTIONS:
+      print(f"\nERROR: Unknown test: {args.test}")
+      print("Choose from: ", list(TEST_FUNCTIONS.keys()))
+      return 1
+
     print(f"\nRunning test: {args.test}")
     print(f"Description: {TEST_FUNCTIONS[args.test].__doc__}\n")
 
@@ -84,6 +89,8 @@ def main() -> None:
             TEST_FUNCTIONS[args.test](conn=conn, teardown=args.teardown)
 
         run_e2etest()
+
+    return 0
 
 
 if __name__ == "__main__":
