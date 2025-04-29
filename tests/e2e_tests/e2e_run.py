@@ -86,7 +86,7 @@ def main() -> int:
     print(f"Description: {TEST_FUNCTIONS[args.test].__doc__}\n")
 
     # Add optional keyword arguments
-    kwargs = dict()
+    kwargs = {}
     if args.plate_id:
         kwargs["plate_id"] = args.plate_id
 
