@@ -18,7 +18,7 @@ def failed_connection():
     os.environ["HOST"] = "wrong_host"
 
     @omero_connect
-    def attempt_connection(conn=None, plate_id=53):
+    def attempt_connection(conn=None, plate_id=1):
         if conn:
             plate = conn.getObject("Plate", plate_id)
             print(plate.getName())
@@ -34,7 +34,7 @@ def successful_connection():
 
     # Set correct credentials before attempting connection
     @omero_connect
-    def attempt_connection(conn=None, plate_id=53):
+    def attempt_connection(conn=None, plate_id=1):
         if conn:
             plate = conn.getObject("Plate", plate_id)
             print(plate.getName())
