@@ -46,7 +46,13 @@ parser.add_argument(
     "-c",
     "--connection",
     action="store_true",
-    help="Run connection test with omero_connect decorator",
+    help="Do not run with omero_connect decorator (the named test must create a connection)",
+)
+parser.add_argument(
+    "--plate_id",
+    type=int,
+    default=0,
+    help="Optional plate ID",
 )
 args, _ = (
     parser.parse_known_args()
@@ -79,14 +85,21 @@ def main() -> int:
     print(f"\nRunning test: {args.test}")
     print(f"Description: {TEST_FUNCTIONS[args.test].__doc__}\n")
 
+    # Add optional keyword arguments
+    kwargs = dict()
+    if args.plate_id:
+        kwargs["plate_id"] = args.plate_id
+
     if args.connection:
-        TEST_FUNCTIONS[args.test]()
+        TEST_FUNCTIONS[args.test](**kwargs)
     else:
 
         @omero_connect
         def run_e2etest(conn: Optional[BlitzGateway] = None) -> None:
             assert conn is not None
-            TEST_FUNCTIONS[args.test](conn=conn, teardown=args.teardown)
+            TEST_FUNCTIONS[args.test](
+                conn=conn, teardown=args.teardown, **kwargs
+            )
 
         run_e2etest()
 

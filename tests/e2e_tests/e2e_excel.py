@@ -48,7 +48,9 @@ def get_multierror_test_data() -> dict[str, pd.DataFrame]:
 
 
 # Core test functions
-def missing_plate(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
+def missing_plate(
+    conn: BlitzGateway, plate_id: int, teardown: bool = False
+) -> dict[str, Any]:
     """Test basic metadata parsing functionality"""
     assert plate_id  # the e2erun has to pass a plate id here!
 
