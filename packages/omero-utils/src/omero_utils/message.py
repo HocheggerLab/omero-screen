@@ -111,6 +111,18 @@ class PlateNotFoundError(OmeroError):
         super().__init__(message, logger_instance, original_error)
 
 
+class PlateDataError(OmeroError):
+    """Raised when there is an error in the plate data."""
+
+    def __init__(
+        self,
+        message: str,
+        logger_instance: logging.Logger,
+        original_error: Optional[Exception] = None,
+    ):
+        super().__init__(message, logger_instance, original_error)
+
+
 class ExcelParsingError(OmeroError):
     """Raised when there are issues parsing the Excel file."""
 

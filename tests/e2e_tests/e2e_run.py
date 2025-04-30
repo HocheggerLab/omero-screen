@@ -31,6 +31,10 @@ from tests.e2e_tests.e2e_excel import (
     run_plate_wrongwell,
 )
 from tests.e2e_tests.e2e_pixelsize import run_pixel_size_test
+from tests.e2e_tests.e2e_plate_dataset import (
+    run_plate_dataset_missing_project_test,
+    run_plate_dataset_test,
+)
 
 # Set up output redirection for SLURM mode before any other imports
 parser = argparse.ArgumentParser(description="Run metadata integration tests")
@@ -72,6 +76,8 @@ TEST_FUNCTIONS = {
     "wrongwell": run_plate_wrongwell,
     "multierror": run_plate_multierror,
     "pixel_size": run_pixel_size_test,
+    "plate_data": run_plate_dataset_test,
+    "missing_screen_project": run_plate_dataset_missing_project_test,
 }
 
 
