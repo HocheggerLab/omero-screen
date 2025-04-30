@@ -144,10 +144,10 @@ def get_logger(name: str) -> logging.Logger:
             "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s",
         )
         ENABLE_CONSOLE_LOGGING = os.getenv(
-            "ENABLE_CONSOLE_LOGGING", "False"
+            "ENABLE_CONSOLE_LOGGING", "false"
         ).lower() in ["true", "1", "yes"]
         ENABLE_FILE_LOGGING = os.getenv(
-            "ENABLE_FILE_LOGGING", "False"
+            "ENABLE_FILE_LOGGING", "false"
         ).lower() in ["true", "1", "yes"]
         LOG_FILE_PATH = os.getenv("LOG_FILE_PATH", "logs/app.log")
         LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", 1048576))  # 1MB default
