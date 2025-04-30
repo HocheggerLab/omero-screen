@@ -351,7 +351,7 @@ class MetadataParser:
         return errors
 
     def _validate_channel_data(self) -> list[str]:
-        """Make sure the channel data contain a nuclei channels
+        """Make sure the channel data contain a nuclei channel
         and normalize the channel names to DAPI.
 
         Returns:
