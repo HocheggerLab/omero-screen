@@ -8,6 +8,7 @@ If no Excel file is found, the metadata is parsed from the plate data.
 If metadata is not found, the program exits with an error.
 """
 
+from collections import Counter
 from typing import Any
 
 from omero.gateway import BlitzGateway, FileAnnotationWrapper, PlateWrapper
@@ -278,11 +279,11 @@ class MetadataParser:
 
         for key, values in self.well_data.items():
             if key != "Well":  # Skip the Well column as it's too verbose
-                unique_values = set(values)
+                unique_values = Counter(values)
                 well_table.add_row(
                     key,
-                    ", ".join(str(v) for v in unique_values),
-                    str(len(values)),
+                    ", ".join(str(k) for k in unique_values),
+                    ", ".join(str(v) for v in unique_values.values()),
                 )
 
         # Display the tables in panels
