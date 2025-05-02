@@ -110,7 +110,16 @@ def attach_excel_to_plate(
 def delete_excel_attachment(
     conn: BlitzGateway, omero_obj: BlitzObjectWrapper
 ) -> None:
-    """Delete the excel attachment from the plate."""
+    """Delete the excel file attachments from the object."""
+    delete_file_attachment(conn, omero_obj, ".xlsx")
+
+
+def delete_file_attachment(
+    conn: BlitzGateway,
+    omero_obj: BlitzObjectWrapper,
+    ends_with: str | None = None,
+) -> None:
+    """Delete the file attachment from the object."""
     file_annotations = [
         ann
         for ann in omero_obj.listAnnotations()
@@ -118,8 +127,14 @@ def delete_excel_attachment(
     ]
 
     for file_ann in file_annotations:
-        # Get the link first
-        links = list(file_ann.getParentLinks(omero_obj.OMERO_CLASS))
-        for link in links:
-            conn.deleteObject(link._obj)  # Delete the link
-        conn.deleteObject(file_ann._obj)  # Then delete the annotation
+        delete = True
+        # optionally only delete using a filename suffix
+        if ends_with is not None:
+            name = file_ann.getFile().getName()
+            delete = name is not None and name.endswith(ends_with)
+        if delete:
+            # Get the link first
+            links = list(file_ann.getParentLinks(omero_obj.OMERO_CLASS))
+            for link in links:
+                conn.deleteObject(link._obj)  # Delete the link
+            conn.deleteObject(file_ann._obj)  # Then delete the annotation

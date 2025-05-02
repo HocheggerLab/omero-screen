@@ -48,7 +48,8 @@ def add_map_annotations(
         omero_object: Any OMERO object (Plate, Well, Image, etc.)
         map_annotations: Dictionary of key-value pairs
     """
-    for key, value in map_annotations.items():
-        ann = MapAnnotationWrapper(conn)
-        ann.setValue([(key, str(value))])
-        omero_object.linkAnnotation(ann)
+    key_value_data = [[str(k), str(v)] for k, v in map_annotations.items()]
+    ann = MapAnnotationWrapper(conn)
+    ann.setValue(key_value_data)
+    ann.save()
+    omero_object.linkAnnotation(ann)

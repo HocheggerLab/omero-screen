@@ -30,6 +30,8 @@ from tests.e2e_tests.e2e_excel import (
     run_plate_with_correct_excel,
     run_plate_wrongwell,
 )
+from tests.e2e_tests.e2e_flatfield_corr import run_flatfield_corr_test
+from tests.e2e_tests.e2e_omero_screen import run_omero_screen_test
 from tests.e2e_tests.e2e_pixelsize import run_pixel_size_test
 from tests.e2e_tests.e2e_plate_dataset import (
     run_plate_dataset_missing_project_test,
@@ -40,17 +42,16 @@ from tests.e2e_tests.e2e_plate_dataset import (
 parser = argparse.ArgumentParser(description="Run metadata integration tests")
 parser.add_argument("test", help="Test to run")
 parser.add_argument(
-    "-t",
     "--teardown",
-    choices=[True, False],
+    action=argparse.BooleanOptionalAction,
     default=True,
-    help="Tear down the test environment after running (default: yes)",
+    help="Tear down the test environment after running (default: %(default)s)",
 )
 parser.add_argument(
-    "-c",
     "--connection",
-    action="store_true",
-    help="Do not run with omero_connect decorator (the named test must create a connection)",
+    action=argparse.BooleanOptionalAction,
+    default=True,
+    help="Run with omero_connect decorator (if false the named test must create a connection. default: %(default)s)",
 )
 parser.add_argument(
     "--plate_id",
@@ -78,6 +79,8 @@ TEST_FUNCTIONS = {
     "pixel_size": run_pixel_size_test,
     "plate_data": run_plate_dataset_test,
     "missing_screen_project": run_plate_dataset_missing_project_test,
+    "flatfield": run_flatfield_corr_test,
+    "omero_screen": run_omero_screen_test,
 }
 
 
@@ -96,7 +99,7 @@ def main() -> int:
     if args.plate_id:
         kwargs["plate_id"] = args.plate_id
 
-    if args.connection:
+    if not args.connection:
         TEST_FUNCTIONS[args.test](**kwargs)
     else:
 
