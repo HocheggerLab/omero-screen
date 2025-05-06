@@ -4,7 +4,6 @@ from omero_utils.attachments import delete_file_attachment
 from omero_screen.flatfield_corr import flatfieldcorr
 from omero_screen.metadata_parser import MetadataParser
 from omero_screen.plate_dataset import PlateDataset
-
 from tests.e2e_tests.e2e_excel import (
     clean_plate_annotations,
     get_channel_test_data,

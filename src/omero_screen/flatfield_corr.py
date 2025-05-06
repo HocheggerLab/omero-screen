@@ -255,14 +255,29 @@ def aggregate_imgs(
     """
     agg = ImageAggregator(60)
     for img_id in tqdm(img_list):
-        # Returns: ImageWrapper, ndarray (TZYXC order)
-        # TODO: Should be optimised to get only the specified channel
-        # and select the random timepoints before getting the planes
-        image, image_array = get_image(conn, img_id)
-        mip_array = np.max(image_array[..., channel], axis=1, keepdims=True)
-        for t_img in random_timgs(mip_array):
-            # images should be 2D so remove TZ
-            agg.add_image(t_img.squeeze(axis=(0, 1)))
+        # Get the image dimensions
+        image = conn.getObject("Image", img_id)
+        xyzct = [
+            image.getSizeX(),
+            image.getSizeY(),
+            image.getSizeZ(),
+            image.getSizeC(),
+            image.getSizeT(),
+        ]
+        # Get random timepoints
+        num_images_to_select = min(10, xyzct[-1])
+        selected_t = random.sample(range(xyzct[-1]), num_images_to_select)
+        axis_lengths = (xyzct[0], xyzct[1], xyzct[2], 1, 1)
+        for t in selected_t:
+            # Returns: ImageWrapper, ndarray (TZYXC order); crop uses xyzct
+            start = (0, 0, 0, channel, t)
+            _, image_array = get_image(
+                conn, img_id, start_coords=start, axis_lengths=axis_lengths
+            )
+            if xyzct[2] > 1:
+                image_array = np.max(image_array, axis=1, keepdims=True)
+            # images should be 2D so remove TZC
+            agg.add_image(image_array.squeeze(axis=(0, 1, 4)))
     blurred_agg_img = agg.get_gaussian_image(30)
     assert blurred_agg_img is not None, "Failed to aggregated image"
     norm_img: npt.NDArray[Any] = blurred_agg_img / blurred_agg_img.mean()

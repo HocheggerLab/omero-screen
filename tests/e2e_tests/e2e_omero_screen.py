@@ -2,7 +2,6 @@ from omero.gateway import BlitzGateway
 
 from omero_screen.loops import plate_loop
 from omero_screen.plate_dataset import PlateDataset
-
 from tests.e2e_tests.e2e_excel import (
     clean_plate_annotations,
     get_channel_test_data,
