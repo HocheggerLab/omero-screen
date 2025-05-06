@@ -137,6 +137,13 @@ Note: The script expects plate data to be organized in a specific structure with
 └── uv.lock
 ```
 
+## Development
+
+This project uses [pre-commit](https://pre-commit.com/) to create actions to validate changes to the source code for each `git commit`.
+Install the hooks for your development repository clone using:
+
+    pre-commit install
+
 ## Versioning
 
 This project uses [Semantic Versioning](https://semver.org/) and [Conventional Commits](https://www.conventionalcommits.org/).
