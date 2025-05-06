@@ -6,11 +6,13 @@ from typing import Any
 import numpy.typing as npt
 import pandas as pd
 import torch
+import tqdm
 from matplotlib.figure import Figure
-from omero.gateway import BlitzGateway
+from omero.gateway import BlitzGateway, WellWrapper
 from omero_utils.map_anns import parse_annotations
 
 from omero_screen.config import get_logger
+from omero_screen.image_analysis import Image, ImageProperties
 
 from .flatfield_corr import flatfieldcorr
 from .metadata_parser import MetadataParser
@@ -21,7 +23,9 @@ logger = get_logger(__name__)
 
 def plate_loop(
     conn: BlitzGateway, plate_id: int
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, list[Any]]]:
+) -> tuple[
+    pd.DataFrame, pd.DataFrame | None, pd.DataFrame, dict[str, list[Any]]
+]:
     """
     Main loop to process a plate.
     Args:
@@ -52,7 +56,33 @@ def plate_loop(
     logger.debug("Final data sample: %s", df_final.head())
     logger.debug("Final data columns: %s", df_final.columns)
 
-    return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}
+    # check conditiosn for cell cycle analysis
+    # keys = metadata.channel_data.keys()
+
+    # if "EdU" in keys:
+    #     try:
+    #         H3 = "H3P" in keys
+    #         cyto = "Tub" in keys
+
+    #         if H3 and cyto:
+    #             df_final_cc = cellcycle_analysis(df_final, H3=True, cyto=True)
+    #         elif H3:
+    #             df_final_cc = cellcycle_analysis(df_final, H3=True)
+    #         elif not cyto:
+    #             df_final_cc = cellcycle_analysis(df_final, cyto=False)
+    #         else:
+    #             df_final_cc = cellcycle_analysis(df_final)
+    #         wells = list(metadata.plate_obj.listChildren())
+    #         add_welldata(wells, df_final_cc, conn)
+    #     except Exception as e:
+    #         print(e)
+    #         df_final_cc = None
+    # else:
+    #     df_final_cc = None
+
+    # save_results(df_final, df_final_cc, df_quality_control, dict_gallery, metadata, plate_name, conn)
+    return df_final, None, df_quality_control, {}
+    # return df_final, df_final_cc, df_quality_control, dict_gallery
 
 
 def print_device_info() -> None:
@@ -84,8 +114,8 @@ def process_wells(
     """
     df_final = pd.DataFrame()
     df_quality_control = pd.DataFrame()
-    # image_classifier = None
-    # TODO: load these
+    image_classifier = None
+    # TODO: load these from env
     # inference_model: list[str] | None = None
     # gallery_width = 10
     # if inference_model:
@@ -100,13 +130,23 @@ def process_wells(
         except KeyError:
             cell_line = ann["Cell_Line"]
         if cell_line != "Empty":
-            message = f"Analysing well row:{well.row}/col:{well.column} - {count + 1} of {len(wells)}."
-            print(message)
-            # well_data, well_quality = well_loop(
-            #     conn, well, metadata, project_data, flatfield_dict, image_classifier=image_classifier
-            # )
-            # df_final = pd.concat([df_final, well_data])
-            # df_quality_control = pd.concat([df_quality_control, well_quality])
+            logger.info(
+                "Analysing well row:%d/col:%d - %d of %d.",
+                well.row,
+                well.column,
+                count + 1,
+                len(wells),
+            )
+            well_data, well_quality = well_loop(
+                conn,
+                well,
+                metadata,
+                dataset_id,
+                flatfield_dict,
+                image_classifier=image_classifier,
+            )
+            df_final = pd.concat([df_final, well_data])
+            df_quality_control = pd.concat([df_quality_control, well_quality])
 
     # Create and save galleries after the loop
     dict_gallery = None
@@ -133,3 +173,37 @@ def process_wells(
 #     # image_classifier.gallery_size = gallery_width**2
 #     # image_classifier.batch_size = Defaults["INFERENCE_BATCH_SIZE"]
 #     return image_classifier
+
+
+def well_loop(
+    conn: BlitzGateway,
+    well: WellWrapper,
+    metadata: MetadataParser,
+    dataset_id: int,
+    flatfield_dict: dict[str, npt.NDArray[Any]],
+    image_classifier: None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    logger.info("Segmenting and Analysing Images")
+    df_well = pd.DataFrame()
+    df_well_quality = pd.DataFrame()
+    image_number = len(list(well.listChildren()))
+    for number in tqdm.tqdm(range(image_number)):
+        omero_img = well.getImage(number)
+        if "Tub" in metadata.channel_data:
+            image = Image(
+                conn, well, omero_img, metadata, dataset_id, flatfield_dict
+            )
+            image_data = ImageProperties(
+                well, image, metadata, image_classifier=image_classifier
+            )
+            # else:
+            #     image = NucImage(
+            #         conn, well, omero_img, metadata, dataset_id, flatfield_dict
+            #     )
+            #     image_data = NucImageProperties(well, image, metadata)
+            df_image = image_data.image_df
+            df_image_quality = image_data.quality_df
+            df_well = pd.concat([df_well, df_image])
+            df_well_quality = pd.concat([df_well_quality, df_image_quality])
+
+    return df_well, df_well_quality

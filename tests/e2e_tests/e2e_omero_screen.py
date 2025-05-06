@@ -7,6 +7,7 @@ from tests.e2e_tests.e2e_excel import (
     get_channel_test_data,
 )
 from tests.e2e_tests.e2e_flatfield_corr import clean_flatfield_results
+from tests.e2e_tests.e2e_mip import clean_mip_results
 from tests.e2e_tests.e2e_setup import excel_file_handling
 
 
@@ -29,3 +30,4 @@ def run_omero_screen_test(
             clean_flatfield_results(
                 conn, plate_id, PlateDataset(conn, plate_id).dataset_id
             )
+            clean_mip_results(conn, plate)

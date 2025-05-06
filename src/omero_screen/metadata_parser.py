@@ -531,3 +531,13 @@ class MetadataParser:
             logger,
         )
         self.pixel_size = pixel_size_x
+
+    def well_conditions(self, well_id: str) -> dict[str, Any]:
+        """Get the conditions for the specified well position (e.g. A1).
+
+        Returns:
+            dict[str, Any]: Dictionary with annotations
+        """
+        idx = self.well_data["Well"].index(well_id)
+        d = {k: v[idx] for k, v in self.well_data.items() if k != "Well"}
+        return d
