@@ -1,4 +1,5 @@
 from omero.gateway import BlitzGateway
+from omero_utils.images import delete_masks
 
 from omero_screen.loops import plate_loop
 from omero_screen.plate_dataset import PlateDataset
@@ -26,8 +27,8 @@ def run_omero_screen_test(
         if teardown:
             # Remove metadata
             plate = conn.getObject("Plate", plate_id)
-            clean_plate_annotations(conn, plate)
-            clean_flatfield_results(
-                conn, plate_id, PlateDataset(conn, plate_id).dataset_id
-            )
+            dataset_id = PlateDataset(conn, plate_id).dataset_id
+            delete_masks(conn, dataset_id)
             clean_mip_results(conn, plate)
+            clean_flatfield_results(conn, plate_id, dataset_id)
+            clean_plate_annotations(conn, plate)

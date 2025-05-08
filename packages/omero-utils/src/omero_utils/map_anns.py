@@ -17,10 +17,10 @@ def parse_annotations(omero_object: BlitzObjectWrapper) -> dict[str, str]:
         Dictionary of key-value pairs from map annotations
     """
     annotations = omero_object.listAnnotations()
-    map_annotations = [
+    map_anns = [
         ann for ann in annotations if isinstance(ann, MapAnnotationWrapper)
     ]
-    return {k: v for ann in map_annotations for k, v in ann.getValue()}
+    return {k: v for ann in map_anns for k, v in ann.getValue()}
 
 
 def delete_map_annotations(
@@ -35,6 +35,26 @@ def delete_map_annotations(
     for ann in annotations:
         if isinstance(ann, MapAnnotationWrapper):
             conn.deleteObject(ann._obj)
+
+
+def delete_map_annotation(
+    conn: BlitzGateway, omero_object: BlitzObjectWrapper, key: str
+) -> None:
+    """Remove the map annotation from an OMERO object.
+    Args:
+        conn: OMERO connection
+        object: OMERO object
+        key: Key to identify annotation
+    """
+    # Get the existing map annotations of the image
+    annotations = omero_object.listAnnotations()
+    map_anns = [
+        ann for ann in annotations if isinstance(ann, MapAnnotationWrapper)
+    ]
+    if map_anns:  # If there are existing map annotations
+        for ann in map_anns:
+            if key in dict(ann.getValue()):
+                conn.deleteObject(ann._obj)  # Delete the annotation
 
 
 def add_map_annotations(

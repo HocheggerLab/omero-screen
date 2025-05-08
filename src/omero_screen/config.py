@@ -143,12 +143,8 @@ def get_logger(name: str) -> logging.Logger:
             "LOG_FORMAT",
             "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s",
         )
-        ENABLE_CONSOLE_LOGGING = os.getenv(
-            "ENABLE_CONSOLE_LOGGING", "false"
-        ).lower() in ["true", "1", "yes"]
-        ENABLE_FILE_LOGGING = os.getenv(
-            "ENABLE_FILE_LOGGING", "false"
-        ).lower() in ["true", "1", "yes"]
+        ENABLE_CONSOLE_LOGGING = getenv_as_bool("ENABLE_CONSOLE_LOGGING")
+        ENABLE_FILE_LOGGING = getenv_as_bool("ENABLE_FILE_LOGGING")
         LOG_FILE_PATH = os.getenv("LOG_FILE_PATH", "logs/app.log")
         LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", 1048576))  # 1MB default
         LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", 5))
@@ -194,3 +190,17 @@ def get_logger(name: str) -> logging.Logger:
             configure_log_handler(fh, LOG_LEVEL, formatter, root_logger)
 
     return logger
+
+
+def getenv_as_bool(name: str, default: bool = False) -> bool:
+    """Get the boolean value of an environment variable.
+    Args:
+        name: Name of variable
+        default: Default value
+    Returns:
+        True if the variable has value {true, 1, yes} (case insensitive)
+    """
+    v = os.getenv(name)
+    if v is not None:
+        return v.lower() in ["true", "1", "yes"]
+    return default

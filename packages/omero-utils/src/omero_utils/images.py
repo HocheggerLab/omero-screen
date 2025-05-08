@@ -4,7 +4,6 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-import omero
 from ezomero import get_image
 from omero.gateway import (
     BlitzGateway,
@@ -14,13 +13,15 @@ from omero.gateway import (
 from omero_screen.config import get_logger
 from typing_extensions import Generator
 
+from omero_utils.map_anns import add_map_annotations, delete_map_annotation
+
 logger = get_logger(__name__)
 
 
 def upload_masks(
     conn: BlitzGateway,
     dataset_id: int,
-    omero_image: ImageWrapper,
+    image: ImageWrapper,
     n_mask: npt.NDArray[Any],
     c_mask: npt.NDArray[Any] | None = None,
 ) -> None:
@@ -31,19 +32,20 @@ def upload_masks(
     Args:
         conn: OMERO connection
         dataset_id: ID of the dataset to link the masks to
-        omero_image: Image object
-        n_mask: Nuclei segmentation mask
-        c_mask: Cell segmentation mask
+        image: Image object
+        n_mask: Nuclei segmentation mask (TYX)
+        c_mask: Cell segmentation mask (TYX)
     """
-
-    image_name = f"{omero_image.getId()}_segmentation"
+    image_name = f"{image.getId()}_segmentation"
     dataset = conn.getObject("Dataset", dataset_id)
 
     def plane_gen() -> Generator[npt.NDArray[Any]]:
         """Generator that yields each plane in the n_mask and c_mask arrays"""
+        # Yield T first, then C, then Z. Assumes 2d images so no z iteration.
         for i in range(n_mask.shape[0]):
             yield n_mask[i]
-            if c_mask is not None:
+        if c_mask is not None:
+            for i in range(n_mask.shape[0]):
                 yield c_mask[i]
 
     # Create the image in the dataset
@@ -51,35 +53,30 @@ def upload_masks(
     mask = conn.createImageFromNumpySeq(
         plane_gen(),
         image_name,
-        1,
-        num_channels,
-        n_mask.shape[0],
+        1,  # Z
+        num_channels,  # C
+        n_mask.shape[0],  # T
         dataset=dataset,
     )
 
     # Create a map annotation to store the segmentation mask ID
-    key_value_data = [["Segmentation_Mask", str(mask.getId())]]
+    delete_map_annotation(conn, image, "Segmentation_Mask")
+    add_map_annotations(conn, image, {"Segmentation_Mask": mask.getId()})
 
-    # Get the existing map annotations of the image
-    map_anns = list(
-        omero_image.listAnnotations(
-            ns=omero.constants.metadata.NSCLIENTMAPANNOTATION
-        )
-    )
-    if map_anns:  # If there are existing map annotations
-        for ann in map_anns:
-            ann_values = dict(ann.getValue())
-            if (
-                "Segmentation_Mask" in ann_values
-            ):  # If the desired annotation exists
-                conn.deleteObject(ann._obj)  # Delete the existing annotation
-    # Create a new map annotation
-    map_ann = MapAnnotationWrapper(conn)
-    map_ann.setNs(omero.constants.metadata.NSCLIENTMAPANNOTATION)
-    map_ann.setValue(key_value_data)
 
-    map_ann.save()
-    omero_image.linkAnnotation(map_ann)
+def delete_masks(conn: BlitzGateway, dataset_id: int) -> None:
+    """Removes all segmentation masks from an OMERO dataset.
+    Args:
+        conn: OMERO connection
+        dataset_id: OMERO dataset ID
+    """
+    dataset = conn.getObject("Dataset", dataset_id)
+    for child in dataset.listChildren():
+        if child.getName().endswith("_segmentation"):
+            image_id = int(child.getName()[: -len("_segmentation")])
+            image = conn.getObject("Image", image_id)
+            delete_map_annotation(conn, image, "Segmentation_Mask")
+            conn.deleteObject(child._obj)
 
 
 def parse_mip(
@@ -96,7 +93,7 @@ def parse_mip(
     """
     image = conn.getObject("Image", image_id)
 
-    mip_id = _check_map_annotation(image)
+    mip_id = _check_mip_annotation(image)
     if mip_id:
         _, mip_array = get_image(conn, mip_id)
         if isinstance(mip_array, np.ndarray):
@@ -107,21 +104,25 @@ def parse_mip(
     return _load_mip(conn, image, dataset_id)
 
 
-def _check_map_annotation(image: ImageWrapper) -> int:
+def _check_mip_annotation(image: ImageWrapper) -> int:
     """Check if a MIP map annotation exists.
     Args:
         omero_object: OMERO image object
     Returns:
         The annotation MIP image ID; else 0
     """
-    if map_anns := image.listAnnotations(
-        ns=omero.constants.metadata.NSCLIENTMAPANNOTATION
-    ):
+    annotations = image.listAnnotations()
+    map_anns = [
+        ann for ann in annotations if isinstance(ann, MapAnnotationWrapper)
+    ]
+    if map_anns:
         for ann in map_anns:
             ann_values = dict(ann.getValue())
             for k, v in ann_values.items():
                 if k == "MIP":
-                    return int(v.split(":")[-1])
+                    return (
+                        int(v.split(":")[-1]) if v.find(":") >= 0 else int(v)
+                    )
     return 0
 
 
@@ -150,9 +151,8 @@ def _load_mip(
         mip_array.shape[0],
         dataset=dataset,
     )
-    _add_mip_annotation(
-        conn, image, [("MIP", f"Image ID: {new_image.getId()}")]
-    )
+    delete_map_annotation(conn, image, "MIP")
+    add_map_annotations(conn, image, {"MIP": new_image.getId()})
     return mip_array
 
 
@@ -178,42 +178,6 @@ def _image_generator(
             yield image_array[t, 0, ..., c]
 
 
-def _add_mip_annotation(
-    conn: BlitzGateway, image: ImageWrapper, key_value: list[tuple[str, str]]
-) -> None:
-    """Add a map annotation to an OMERO object.
-    Args:
-        conn: OMERO connection
-        image: OMERO image object
-        key_value: List of key-value pairs
-    """
-    _remove_mip_annotation(conn, image)
-
-    map_ann = omero.gateway.MapAnnotationWrapper(conn)
-    map_ann.setNs(omero.constants.metadata.NSCLIENTMAPANNOTATION)
-    map_ann.setValue(key_value)
-    map_ann.save()
-    image.linkAnnotation(map_ann)
-
-
-def _remove_mip_annotation(conn: BlitzGateway, image: ImageWrapper) -> None:
-    """Remove the MIP map annotation from an OMERO object.
-    Args:
-        conn: OMERO connection
-        image: OMERO image object
-        key_value: List of key-value pairs
-    """
-    map_anns = list(
-        image.listAnnotations(
-            ns=omero.constants.metadata.NSCLIENTMAPANNOTATION
-        )
-    )
-    if map_anns:  # If there are existing map annotations
-        for ann in map_anns:
-            if "MIP" in dict(ann.getValue()):
-                conn.deleteObject(ann._obj)  # Delete the annotation
-
-
 def delete_mip(conn: BlitzGateway, image_id: int) -> None:
     """Removes a maximum intensity projection of a z-stack image saved in OMERO as an annotation.
     Args:
@@ -221,8 +185,8 @@ def delete_mip(conn: BlitzGateway, image_id: int) -> None:
         image_id: OMERO image ID
     """
     image = conn.getObject("Image", image_id)
-    mip_id = _check_map_annotation(image)
+    mip_id = _check_mip_annotation(image)
     if mip_id:
-        _remove_mip_annotation(conn, image)
+        delete_map_annotation(conn, image, "MIP")
         mip = conn.getObject("Image", mip_id)
         conn.deleteObject(mip._obj)

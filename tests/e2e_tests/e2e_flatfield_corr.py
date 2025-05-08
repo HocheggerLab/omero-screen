@@ -32,8 +32,8 @@ def run_flatfield_corr_test(
         if teardown:
             # Remove metadata
             plate = conn.getObject("Plate", plate_id)
-            clean_plate_annotations(conn, plate)
             clean_flatfield_results(conn, plate_id, dataset_id)
+            clean_plate_annotations(conn, plate)
 
 
 def clean_flatfield_results(

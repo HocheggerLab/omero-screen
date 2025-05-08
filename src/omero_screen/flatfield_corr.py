@@ -25,11 +25,11 @@ from omero.gateway import (
     PlateWrapper,
 )
 from omero_utils.map_anns import add_map_annotations
-from skimage import exposure
 from tqdm import tqdm
 from typing_extensions import Generator
 
 from omero_screen.aggregator import ImageAggregator
+from omero_screen.general_functions import scale_img
 
 # from omero_screen.general_functions import (
 #     add_map_annotation,
@@ -319,10 +319,10 @@ def gen_example(
     random_id = random.choice(img_list)
     image = conn.getObject("Image", random_id)
     example_img = _generate_image(image, channel)
-    scaled = _scale_img(example_img)
+    scaled = scale_img(example_img)
     corr_img = example_img / mask
     bgcorr_img = corr_img - np.percentile(corr_img, 0.2) + 1
-    corr_scaled = _scale_img(bgcorr_img)
+    corr_scaled = scale_img(bgcorr_img)
     # order all images for plotting
     return [
         (scaled, "original image"),
@@ -331,14 +331,6 @@ def gen_example(
         (np.diagonal(corr_img), "diag. intensities"),
         (mask, "flatfield correction mask"),
     ]
-
-
-def _scale_img(
-    img: npt.NDArray[Any], percentile: tuple[float, float] = (1, 99)
-) -> npt.NDArray[Any]:
-    """Increase contrast by scaling image to exclude lowest and highest intensities"""
-    percentiles = np.percentile(img, (percentile[0], percentile[1]))
-    return exposure.rescale_intensity(img, in_range=tuple(percentiles))  # type: ignore
 
 
 def _generate_image(image: ImageWrapper, channel: int) -> npt.NDArray[Any]:
@@ -351,7 +343,7 @@ def _generate_image(image: ImageWrapper, channel: int) -> npt.NDArray[Any]:
         image
     """
     pixels = image.getPrimaryPixels()
-    return pixels.getPlane(0, channel, 0)  # type: ignore
+    return pixels.getPlane(0, channel, 0)
 
 
 def example_fig(

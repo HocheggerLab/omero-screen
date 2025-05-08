@@ -30,8 +30,8 @@ def run_mip_test(conn: BlitzGateway, teardown: bool = True, plate_id: int = 1):
         if teardown:
             # Remove metadata
             plate = conn.getObject("Plate", plate_id)
-            clean_plate_annotations(conn, plate)
             clean_mip_results(conn, plate)
+            clean_plate_annotations(conn, plate)
 
 
 def clean_mip_results(conn: BlitzGateway, plate: PlateWrapper):

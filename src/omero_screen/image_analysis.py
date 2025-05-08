@@ -5,11 +5,15 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+import torch
+from cellpose import models
 from ezomero import get_image
 from omero.gateway import BlitzGateway, ImageWrapper, WellWrapper
-from omero_utils.images import parse_mip
+from omero_utils.images import parse_mip, upload_masks
 
 from omero_screen import default_config
+from omero_screen.config import getenv_as_bool
+from omero_screen.general_functions import filter_segmentation, scale_img
 from omero_screen.metadata_parser import MetadataParser
 
 logger = logging.getLogger("omero-screen")
@@ -43,7 +47,7 @@ class Image:
         )
         self.img_dict = self._get_img_dict()
 
-    #     self.n_mask, self.c_mask, self.cyto_mask = self._segmentation()
+        self.n_mask, self.c_mask, self.cyto_mask = self._segmentation()
 
     def _get_metadata(self) -> None:
         self.channels = self._meta_data.channel_data
@@ -65,174 +69,178 @@ class Image:
             img = array[..., int(idx)] / self._flatfield_dict[ch]
             # Reduce (tzyx) to (tyx)
             img = np.squeeze(img, axis=1)
-            # Convert back to original pixel type, clipping as necessary.
-            np.clip(img, out=img, a_min=0, a_max=np.iinfo(array.dtype).max)
-            print(ch, img.shape, np.min(img), np.max(img))
-            img_dict[ch] = img.astype(array.dtype)
+
+            # # Convert back to original pixel type, clipping as necessary.
+            # np.clip(img, out=img, a_min=0, a_max=np.iinfo(array.dtype).max)
+            # img_dict[ch] = img.astype(array.dtype)
+
+            # Use float image. When passed to scale_img this will scale to [0, 1] for cellpose.
+            img_dict[ch] = img
         return img_dict
 
-    # def _get_models(self):
-    #     """
-    #     Matches well with cell line and gets model_path for cell line from plate_layout
-    #     :param number: int 0 or 1, 0 for nuclei model, 1 for cell model
-    #     :return: path to model (str)
-    #     """
-    #     cell_line = self.cell_line.replace(
-    #         " ", ""
-    #     ).upper()  # remove spaces and make uppercase
-    #     if "40X" in cell_line:
-    #         logger.info("40x image detected, using 40x nuclei model")
-    #         return "40x_Tub_H2B"
-    #     elif "20X" in cell_line:
-    #         logger.info("20x image detected, using 20x nuclei model")
-    #         return "cyto"
-    #     elif cell_line in Defaults["MODEL_DICT"]:
-    #         return Defaults["MODEL_DICT"][cell_line]
-    #     else:
-    #         return Defaults["MODEL_DICT"]["U2OS"]
+    def _segmentation(
+        self,
+    ) -> tuple[
+        npt.NDArray[Any], npt.NDArray[Any] | None, npt.NDArray[Any] | None
+    ]:
+        # check if masks already exist
+        image_name = f"{self.omero_image.getId()}_segmentation"
+        dataset = self._conn.getObject("Dataset", self.dataset_id)
+        image_id = None
+        for image in dataset.listChildren():
+            if image.getName() == image_name:
+                image_id = image.getId()
+                logger.info("Segmentation masks found for image %s", image_id)
+                # masks is TZYXC
+                _, masks = get_image(self._conn, image_id)
+                if "Tub" in self.channels:
+                    self.n_mask, self.c_mask = masks[..., 0], masks[..., 1]
+                    self.cyto_mask = self._get_cyto()
+                else:
+                    self.n_mask = masks[..., 0]
+                    self.c_mask = None
+                    self.cyto_mask = None
+                break  # stop the loop once the image is found
+        if image_id is None:
+            n_mask = self._n_segmentation()
+            if "Tub" in self.channels:
+                c_mask = self._c_segmentation()
+                self.n_mask, self.c_mask = self._compact_mask(
+                    np.stack([n_mask, c_mask])
+                )
+                self.cyto_mask = self._get_cyto()
+            else:
+                self.n_mask = self._compact_mask(n_mask)
+                self.c_mask = None
+                self.cyto_mask = None
 
-    # def _n_segmentation(self):
-    #     if "40X" in self.cell_line.upper():
-    #         self.nuc_diameter = 100
-    #     elif "20X" in self.cell_line.upper():
-    #         self.nuc_diameter = 25
-    #     else:
-    #         self.nuc_diameter = 10
-    #     segmentation_model = models.CellposeModel(
-    #         gpu=True if Defaults["GPU"] else torch.cuda.is_available(),
-    #         model_type=Defaults["MODEL_DICT"]["nuclei"],
-    #     )
-    #     # Get the image array
-    #     img_array = self.img_dict["DAPI"]
+            upload_masks(
+                self._conn,
+                self.dataset_id,
+                self.omero_image,
+                self.n_mask,
+                self.c_mask,
+            )
+        return self.n_mask, self.c_mask, self.cyto_mask
 
-    #     # Initialize an array to store the segmentation masks
-    #     segmentation_masks = np.zeros_like(img_array, dtype=np.uint32)
+    def _get_cyto(self) -> npt.NDArray[Any] | None:
+        """substract nuclei mask from cell mask to get cytoplasm mask"""
+        if self.c_mask is None:
+            return None
+        overlap = (self.c_mask != 0) * (self.n_mask != 0)
+        cyto_mask_binary = (self.c_mask != 0) * (overlap == 0)
+        return self.c_mask * cyto_mask_binary
 
-    #     for t in range(img_array.shape[0]):
-    #         # Select the image at the current timepoint
-    #         img_t = img_array[t]
+    def _n_segmentation(self) -> npt.NDArray[Any]:
+        if "40X" in self.cell_line.upper():
+            self.nuc_diameter = 100
+        elif "20X" in self.cell_line.upper():
+            self.nuc_diameter = 25
+        else:
+            self.nuc_diameter = 10
+        segmentation_model = models.CellposeModel(
+            gpu=getenv_as_bool("GPU", default=torch.cuda.is_available()),
+            model_type=default_config.MODEL_DICT["nuclei"],
+        )
+        # Get the image array
+        img_array = self.img_dict["DAPI"]
 
-    #         # Prepare the image for segmentation
-    #         scaled_img_t = scale_img(img_t)
+        # Initialize an array to store the segmentation masks
+        segmentation_masks = np.zeros_like(img_array, dtype=np.uint32)
 
-    #         # Perform segmentation
-    #         n_channels = [[0, 0]]
-    #         logger.info(f"Segmenting nuclei with diameter {self.nuc_diameter}")
-    #         try:
-    #             n_mask_array, n_flows, n_styles = segmentation_model.eval(
-    #                 scaled_img_t,
-    #                 channels=n_channels,
-    #                 diameter=self.nuc_diameter,
-    #                 normalize=False,
-    #             )
-    #         except IndexError:
-    #             n_mask_array = np.zeros_like(scaled_img_t).astype(np.uint16)
-    #         # Store the segmentation mask in the corresponding timepoint
-    #         segmentation_masks[t] = filter_segmentation(n_mask_array)
-    #     return segmentation_masks
+        for t in range(img_array.shape[0]):
+            # Select the image at the current timepoint
+            img_t = img_array[t]
 
-    # def _c_segmentation(self):
-    #     """perform cellpose segmentation using cell mask"""
-    #     segmentation_model = models.CellposeModel(
-    #         gpu=True if Defaults["GPU"] else torch.cuda.is_available(),
-    #         model_type=self._get_models(),
-    #     )
-    #     c_channels = [[2, 1]]
+            # Prepare the image for segmentation
+            scaled_img_t = scale_img(img_t)
 
-    #     # Get the image arrays for DAPI and Tubulin channels
-    #     dapi_array = self.img_dict["DAPI"]
-    #     tub_array = self.img_dict["Tub"]
+            # Perform segmentation
+            n_channels = [[0, 0]]
+            logger.info(
+                "Segmenting nuclei with diameter %s", self.nuc_diameter
+            )
+            try:
+                n_mask_array, n_flows, n_styles = segmentation_model.eval(
+                    scaled_img_t,
+                    channels=n_channels,
+                    diameter=self.nuc_diameter,
+                    normalize=False,
+                )
+            except IndexError:
+                n_mask_array = np.zeros_like(scaled_img_t).astype(np.uint8)
+            # Store the segmentation mask in the corresponding timepoint
+            segmentation_masks[t] = filter_segmentation(n_mask_array)
+        return segmentation_masks
 
-    #     # Check if the time dimension matches
-    #     assert dapi_array.shape[0] == tub_array.shape[0], (
-    #         "Time dimension mismatch between DAPI and Tubulin channels"
-    #     )
+    def _c_segmentation(self) -> npt.NDArray[Any]:
+        """Perform cellpose segmentation using cell mask"""
+        segmentation_model = models.CellposeModel(
+            gpu=getenv_as_bool("GPU", default=torch.cuda.is_available()),
+            model_type=self._get_models(),
+        )
+        c_channels = [[2, 1]]
 
-    #     # Initialize an array to store the segmentation masks
-    #     segmentation_masks = np.zeros_like(dapi_array, dtype=np.uint32)
+        # Get the image arrays for DAPI and Tubulin channels
+        dapi_array = self.img_dict["DAPI"]
+        tub_array = self.img_dict["Tub"]
 
-    #     # Process each timepoint
-    #     for t in range(dapi_array.shape[0]):
-    #         # Select the images at the current timepoint
-    #         dapi_t = dapi_array[t]
-    #         tub_t = tub_array[t]
+        # Check if the time dimension matches
+        assert dapi_array.shape[0] == tub_array.shape[0], (
+            "Time dimension mismatch between DAPI and Tubulin channels"
+        )
 
-    #         # Combine the 2 channel numpy array for cell segmentation with the nuclei channel
-    #         comb_image_t = scale_img(np.dstack([dapi_t, tub_t]))
+        # Initialize an array to store the segmentation masks
+        segmentation_masks = np.zeros_like(dapi_array, dtype=np.uint32)
 
-    #         # Perform segmentation
-    #         try:
-    #             c_masks_array, c_flows, c_styles = segmentation_model.eval(
-    #                 comb_image_t, channels=c_channels, normalize=False
-    #             )
-    #         except IndexError:
-    #             c_masks_array = np.zeros_like(comb_image_t).astype(np.uint16)
+        # Process each timepoint
+        for t in range(dapi_array.shape[0]):
+            # Select the images at the current timepoint
+            dapi_t = dapi_array[t]
+            tub_t = tub_array[t]
 
-    #         # Store the segmentation mask in the corresponding timepoint
-    #         segmentation_masks[t] = filter_segmentation(c_masks_array)
-    #     return segmentation_masks
+            # Combine the 2 channel numpy array for cell segmentation with the nuclei channel
+            comb_image_t = scale_img(np.dstack([dapi_t, tub_t]))
 
-    # def _compact_mask(self, mask):
-    #     """Compact the uint32 datatype to the smallest required to store all mask IDs"""
-    #     m = mask.max()
-    #     if m < 2**8:
-    #         return mask.astype(np.uint8)
-    #     if m < 2**16:
-    #         return mask.astype(np.uint16)
-    #     return mask
+            # Perform segmentation
+            try:
+                c_masks_array, c_flows, c_styles = segmentation_model.eval(
+                    comb_image_t, channels=c_channels, normalize=False
+                )
+            except IndexError:
+                c_masks_array = np.zeros_like(comb_image_t).astype(np.uint8)
 
-    # def _download_masks(self, image_id):
-    #     """Download masks from OMERO server and save as numpy arrays"""
-    #     _, masks = get_image(self._conn, image_id)
-    #     return correct_channel_order(masks) if masks.shape[-1] == 2 else masks
+            # Store the segmentation mask in the corresponding timepoint
+            segmentation_masks[t] = filter_segmentation(c_masks_array)
+        return segmentation_masks
 
-    # def _get_cyto(self):
-    #     """substract nuclei mask from cell mask to get cytoplasm mask"""
-    #     if self.c_mask is None:
-    #         return None
-    #     overlap = (self.c_mask != 0) * (self.n_mask != 0)
-    #     cyto_mask_binary = (self.c_mask != 0) * (overlap == 0)
-    #     return self.c_mask * cyto_mask_binary
+    def _get_models(self) -> str:
+        """Matches well with cell line and gets model_path for cell line from plate_layout.
+        Returns:
+            path to model
+        """
+        cell_line = self.cell_line.replace(
+            " ", ""
+        ).upper()  # remove spaces and make uppercase
+        if "40X" in cell_line:
+            logger.info("40x image detected, using 40x nuclei model")
+            return "40x_Tub_H2B"
+        elif "20X" in cell_line:
+            logger.info("20x image detected, using 20x nuclei model")
+            return "cyto"
+        elif cell_line in default_config.MODEL_DICT:
+            return default_config.MODEL_DICT[cell_line]
+        else:
+            return default_config.MODEL_DICT["U2OS"]
 
-    # def _segmentation(self):
-    #     # check if masks already exist
-    #     image_name = f"{self.omero_image.getId()}_segmentation"
-    #     dataset_id = self.dataset_id
-    #     dataset = self._conn.getObject("Dataset", dataset_id)
-    #     image_id = None
-    #     for image in dataset.listChildren():
-    #         if image.getName() == image_name:
-    #             image_id = image.getId()
-    #             logger.info(f"Segmentation masks found for image {image_id}")
-    #             if "Tub" in self.channels:
-    #                 self.n_mask, self.c_mask = self._download_masks(image_id)
-    #                 self.cyto_mask = self._get_cyto()
-    #             else:
-    #                 self.n_mask = self._download_masks(image_id)
-    #                 self.c_mask = None
-    #                 self.cyto_mask = None
-    #             break  # stop the loop once the image is found
-    #     if image_id is None:
-    #         n_mask = self._n_segmentation()
-    #         if "Tub" in self.channels:
-    #             c_mask = self._c_segmentation()
-    #             self.n_mask, self.c_mask = self._compact_mask(
-    #                 np.stack([n_mask, c_mask])
-    #             )
-    #             self.cyto_mask = self._get_cyto()
-    #         else:
-    #             self.n_mask = self._compact_mask(n_mask)
-    #             self.c_mask = None
-    #             self.cyto_mask = None
-
-    #         upload_masks(
-    #             self.dataset_id,
-    #             self.omero_image,
-    #             self.n_mask,
-    #             self.c_mask,
-    #             self._conn,
-    #         )
-    #     return self.n_mask, self.c_mask, self.cyto_mask
+    def _compact_mask(self, mask: npt.NDArray[Any]) -> npt.NDArray[Any]:
+        """Compact the uint32 datatype to the smallest required to store all mask IDs"""
+        m = mask.max()
+        if m < 2**8:
+            return mask.astype(np.uint8)
+        if m < 2**16:
+            return mask.astype(np.uint16)
+        return mask
 
 
 class ImageProperties:
