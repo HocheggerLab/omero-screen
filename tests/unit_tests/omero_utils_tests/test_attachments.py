@@ -59,7 +59,7 @@ def test_parse_excel_data(base_plate, attach_excel, standard_excel_data):
 
 def test_delete_excel_attachment(base_plate, standard_excel_data):
     with tempfile.TemporaryDirectory() as temp_dir:
-        temp_path = os.path.join(temp_dir, "test_data")
+        temp_path = os.path.join(temp_dir, "test_data.xlsx")
 
         # Write all dataframes to Excel file
         with pd.ExcelWriter(temp_path, engine="openpyxl") as writer:

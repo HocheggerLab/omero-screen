@@ -84,16 +84,13 @@ def test_add_map_annotations(
     ]
 
     # Verify each annotation contains one key-value pair from test_map
-    assert len(map_anns) == len(test_map)
-    found_pairs = []
+    assert len(map_anns) == 1, (
+        "Map annotation should be added as a single annotation"
+    )
     for ann in map_anns:
         value_pairs = ann.getValue()
         assert (
-            len(value_pairs) == 1
-        )  # Each annotation should have one key-value pair
-        key, value = value_pairs[0]
-        assert test_map[key] == value
-        found_pairs.append((key, value))
-
-    # Verify all key-value pairs were found
-    assert sorted(found_pairs) == sorted(test_map.items())
+            len(value_pairs) == 2
+        )  # Annotation is added as 2 key-value pairs
+        for key, value in value_pairs:
+            assert test_map[key] == value
