@@ -145,6 +145,7 @@ def process_wells(
                 flatfield_dict,
                 image_classifier=image_classifier,
             )
+            print(well_data, well_quality)
             df_final = pd.concat([df_final, well_data])
             df_quality_control = pd.concat([df_quality_control, well_quality])
 
