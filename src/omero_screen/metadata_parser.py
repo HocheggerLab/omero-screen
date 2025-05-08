@@ -208,7 +208,7 @@ class MetadataParser:
         """
         if annotations := parse_annotations(self.plate):
             # Validate and convert values to integers
-            return annotations
+            return annotations  # type: ignore
         else:
             raise ChannelAnnotationError(
                 "No channel annotations found on plate", logger
@@ -534,6 +534,7 @@ class MetadataParser:
 
     def well_conditions(self, well_id: str) -> dict[str, Any]:
         """Get the conditions for the specified well position (e.g. A1).
+        See: WellWrapper.getWellPos().
 
         Returns:
             dict[str, Any]: Dictionary with annotations

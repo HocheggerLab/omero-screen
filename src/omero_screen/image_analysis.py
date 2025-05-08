@@ -10,6 +10,8 @@ from cellpose import models
 from ezomero import get_image
 from omero.gateway import BlitzGateway, ImageWrapper, WellWrapper
 from omero_utils.images import parse_mip, upload_masks
+from pandas.api.types import is_integer_dtype
+from skimage import measure
 
 from omero_screen import default_config
 from omero_screen.config import getenv_as_bool
@@ -264,181 +266,194 @@ class ImageProperties:
         self.image_df = pd.DataFrame()
         self.quality_df = pd.DataFrame()
 
-    #     self.plate_name = meta_data.plate.getName()
-    # # TODO: add method to get the dict[str, Any] for the given well id
-    #     self._cond_dict = image_obj._meta_data.well_conditions(self._well_id)
-    #     self._overlay = self._overlay_mask()
-    #     self.image_df = self._combine_channels(featurelist)
-    #     self.quality_df = self._concat_quality_df()
+        self.plate_name = meta_data.plate.getName()
+        # Get the dict[str, Any] for the given well
+        self._cond_dict = meta_data.well_conditions(well.getWellPos())
+        self._overlay = self._overlay_mask()
+        self.image_df = self._combine_channels(featurelist)
+        # self.quality_df = self._concat_quality_df()
 
-    #     if image_classifier is not None:
-    #         for cls in image_classifier:
-    #             if cls.select_channels(image_obj.img_dict):
-    #                 self.image_df = cls.process_images(
-    #                     self.image_df, image_obj.c_mask
-    #                 )
+        # if image_classifier is not None:
+        #     for cls in image_classifier:
+        #         if cls.select_channels(image_obj.img_dict):
+        #             self.image_df = cls.process_images(
+        #                 self.image_df, image_obj.c_mask
+        #             )
 
-    # def _overlay_mask(self) -> pd.DataFrame:
-    #     """Links nuclear IDs with cell IDs"""
-    #     if self._image.c_mask is None:
-    #         return pd.DataFrame({"label": self._image.n_mask.flatten()})
+    def _overlay_mask(self) -> pd.DataFrame:
+        """Links nuclear IDs with cell IDs"""
+        if self._image.c_mask is None:
+            return pd.DataFrame({"label": self._image.n_mask.flatten()})
 
-    #     overlap = (self._image.c_mask != 0) * (self._image.n_mask != 0)
-    #     list_n_masks = np.stack(
-    #         [self._image.n_mask[overlap], self._image.c_mask[overlap]]
-    #     )[-2].tolist()
-    #     list_masks = np.stack(
-    #         [self._image.n_mask[overlap], self._image.c_mask[overlap]]
-    #     )[-1].tolist()
-    #     overlay_all = {
-    #         list_n_masks[i]: list_masks[i] for i in range(len(list_n_masks))
-    #     }
-    #     return pd.DataFrame(
-    #         list(overlay_all.items()), columns=["label", "Cyto_ID"]
-    #     )
+        overlap = (self._image.c_mask != 0) * (self._image.n_mask != 0)
+        stack = np.stack(
+            [self._image.n_mask[overlap], self._image.c_mask[overlap]]
+        )
+        list_n_masks = stack[-2].tolist()
+        list_masks = stack[-1].tolist()
+        overlay_all = {
+            list_n_masks[i]: list_masks[i] for i in range(len(list_n_masks))
+        }
+        return pd.DataFrame(
+            list(overlay_all.items()), columns=["label", "Cyto_ID"]
+        )
 
-    # @staticmethod
-    # def _edit_properties(channel, segment, featurelist):
-    #     """generates a dictionary with"""
-    #     feature_dict = {
-    #         feature: f"{feature}_{channel}_{segment}"
-    #         for feature in featurelist[2:]
-    #     }
-    #     feature_dict["area"] = (
-    #         f"area_{segment}"  # the area is the same for each channel
-    #     )
-    #     return feature_dict
+    def _combine_channels(self, featurelist: list[str]) -> pd.DataFrame:
+        channel_data = [
+            self._channel_data(channel, featurelist)
+            for channel in self._meta_data.channel_data
+        ]
+        props_data = pd.concat(channel_data, axis=1, join="inner")
+        edited_props_data = props_data.loc[
+            :, ~props_data.columns.duplicated()
+        ].copy()
+        cond_list = [
+            self.plate_name,
+            self._meta_data.plate.getId(),
+            self._well.getWellPos(),
+            self._well_id,
+            self._image.omero_image.getId(),
+        ]
+        cond_list.extend(iter(self._cond_dict.values()))
+        col_list = ["experiment", "plate_id", "well", "well_id", "image_id"]
+        col_list.extend(iter(self._cond_dict.keys()))
+        col_list_edited = [entry.lower() for entry in col_list]
+        edited_props_data[col_list_edited] = cond_list
 
-    # def _get_properties(
-    #     self, segmentation_mask, channel, segment, featurelist
-    # ):
-    #     """Measure selected features for each segmented cell in given channel"""
-    #     timepoints = self._image.img_dict[channel].shape[0]
-    #     label = np.squeeze(segmentation_mask).astype(np.int64)
+        return edited_props_data.sort_values(by=["timepoint"]).reset_index(
+            drop=True
+        )
 
-    #     if timepoints > 1:
-    #         data_list = []
-    #         for t in range(timepoints):
-    #             props = measure.regionprops_table(
-    #                 label[t],
-    #                 np.squeeze(self._image.img_dict[channel][t]),
-    #                 properties=featurelist,
-    #             )
-    #             data = pd.DataFrame(props)
-    #             feature_dict = self._edit_properties(
-    #                 channel, segment, featurelist
-    #             )
-    #             data = data.rename(columns=feature_dict)
-    #             data["timepoint"] = t  # Add timepoint for all channels
-    #             data_list.append(data)
-    #         combined_data = pd.concat(data_list, axis=0, ignore_index=True)
-    #         return combined_data.sort_values(
-    #             by=["timepoint", "label"]
-    #         ).reset_index(drop=True)
-    #     else:
-    #         props = measure.regionprops_table(
-    #             label,
-    #             np.squeeze(self._image.img_dict[channel]),
-    #             properties=featurelist,
-    #         )
-    #         data = pd.DataFrame(props)
-    #         feature_dict = self._edit_properties(channel, segment, featurelist)
-    #         data = data.rename(columns=feature_dict)
-    #         data["timepoint"] = 0  # Add timepoint 0 for single timepoint data
-    #         return data.sort_values(by=["label"]).reset_index(drop=True)
+    def _channel_data(
+        self, channel: str, featurelist: list[str]
+    ) -> pd.DataFrame:
+        nucleus_data = self._get_properties(
+            self._image.n_mask, channel, "nucleus", featurelist
+        )
+        # merge channel data, outer merge combines all area columns into 1
+        if self._image.c_mask is not None:
+            nucleus_data = self._outer_merge(
+                nucleus_data, self._overlay, "label"
+            )
+        if channel == "DAPI":
+            nucleus_data["integrated_int_DAPI"] = (
+                nucleus_data["intensity_mean_DAPI_nucleus"]
+                * nucleus_data["area_nucleus"]
+            )
 
-    # def _channel_data(self, channel, featurelist):
-    #     nucleus_data = self._get_properties(
-    #         self._image.n_mask, channel, "nucleus", featurelist
-    #     )
-    #     # merge channel data, outer merge combines all area columns into 1
-    #     if self._image.c_mask is not None:
-    #         nucleus_data = self._outer_merge(
-    #             nucleus_data, self._overlay, "label"
-    #         )
-    #     if channel == "DAPI":
-    #         nucleus_data["integrated_int_DAPI"] = (
-    #             nucleus_data["intensity_mean_DAPI_nucleus"]
-    #             * nucleus_data["area_nucleus"]
-    #         )
+        if self._image.c_mask is not None:
+            cell_data = self._get_properties(
+                self._image.c_mask, channel, "cell", featurelist
+            )
+            cyto_data = self._get_properties(
+                self._image.cyto_mask, channel, "cyto", featurelist
+            )
+            merge_1 = self._outer_merge(
+                cell_data, cyto_data, ["label", "timepoint"]
+            )
+            merge_1 = merge_1.rename(columns={"label": "Cyto_ID"})
+            return self._outer_merge(
+                nucleus_data, merge_1, ["Cyto_ID", "timepoint"]
+            )
+        else:
+            return nucleus_data
 
-    #     if self._image.c_mask is not None:
-    #         cell_data = self._get_properties(
-    #             self._image.c_mask, channel, "cell", featurelist
-    #         )
-    #         cyto_data = self._get_properties(
-    #             self._image.cyto_mask, channel, "cyto", featurelist
-    #         )
-    #         merge_1 = self._outer_merge(
-    #             cell_data, cyto_data, ["label", "timepoint"]
-    #         )
-    #         merge_1 = merge_1.rename(columns={"label": "Cyto_ID"})
-    #         return self._outer_merge(
-    #             nucleus_data, merge_1, ["Cyto_ID", "timepoint"]
-    #         )
-    #     else:
-    #         return nucleus_data
+    def _get_properties(
+        self,
+        segmentation_mask: npt.NDArray[Any],
+        channel: str,
+        segment: str,
+        featurelist: list[str],
+    ) -> pd.DataFrame:
+        """Measure selected features for each segmented cell in given channel"""
+        timepoints = self._image.img_dict[channel].shape[0]
+        print("squeezing [t]z?", segmentation_mask.shape)
+        label = np.squeeze(segmentation_mask).astype(np.int64)
 
-    # def _outer_merge(self, df1, df2, on):
-    #     """Perform an outer-join merge on the two pandas dataframes. NA rows are removed and integer columns are restored."""
-    #     df = pd.merge(df1, df2, how="outer", on=on).dropna(axis=0, how="any")
-    #     # Outer-join merge will create columns that support NA. This changes int columns to float.
-    #     # After dropping all the NA rows restore the int columns.
-    #     for c in df1.columns:
-    #         if is_integer_dtype(df1[c].dtype) and not is_integer_dtype(
-    #             df[c].dtype
-    #         ):
-    #             df[c] = df[c].astype(df1[c].dtype)
-    #     for c in df2.columns:
-    #         if is_integer_dtype(df2[c].dtype) and not is_integer_dtype(
-    #             df[c].dtype
-    #         ):
-    #             df[c] = df[c].astype(df2[c].dtype)
-    #     return df
+        if timepoints > 1:
+            data_list = []
+            for t in range(timepoints):
+                print("squeezing z?", segmentation_mask.shape)
+                props = measure.regionprops_table(
+                    label[t],
+                    np.squeeze(self._image.img_dict[channel][t]),
+                    properties=featurelist,
+                )
+                data = pd.DataFrame(props)
+                feature_dict = self._edit_properties(
+                    channel, segment, featurelist
+                )
+                data = data.rename(columns=feature_dict)
+                data["timepoint"] = t  # Add timepoint for all channels
+                data_list.append(data)
+            combined_data = pd.concat(data_list, axis=0, ignore_index=True)
+            return combined_data.sort_values(
+                by=["timepoint", "label"]
+            ).reset_index(drop=True)
+        else:
+            print("squeezing tz?", segmentation_mask.shape)
+            props = measure.regionprops_table(
+                label,
+                np.squeeze(self._image.img_dict[channel]),
+                properties=featurelist,
+            )
+            data = pd.DataFrame(props)
+            feature_dict = self._edit_properties(channel, segment, featurelist)
+            data = data.rename(columns=feature_dict)
+            data["timepoint"] = 0  # Add timepoint 0 for single timepoint data
+            return data.sort_values(by=["label"]).reset_index(drop=True)
 
-    # def _combine_channels(self, featurelist):
-    #     channel_data = [
-    #         self._channel_data(channel, featurelist)
-    #         for channel in self._meta_data.channels
-    #     ]
-    #     props_data = pd.concat(channel_data, axis=1, join="inner")
-    #     edited_props_data = props_data.loc[
-    #         :, ~props_data.columns.duplicated()
-    #     ].copy()
-    #     cond_list = [
-    #         self.plate_name,
-    #         self._meta_data.plate_obj.getId(),
-    #         self._well.getWellPos(),
-    #         self._well_id,
-    #         self._image.omero_image.getId(),
-    #     ]
-    #     cond_list.extend(iter(self._cond_dict.values()))
-    #     col_list = ["experiment", "plate_id", "well", "well_id", "image_id"]
-    #     col_list.extend(iter(self._cond_dict.keys()))
-    #     col_list_edited = [entry.lower() for entry in col_list]
-    #     edited_props_data[col_list_edited] = cond_list
+    @staticmethod
+    def _edit_properties(
+        channel: str, segment: str, featurelist: list[str]
+    ) -> dict[str, str]:
+        feature_dict = {
+            feature: f"{feature}_{channel}_{segment}"
+            for feature in featurelist[2:]
+        }
+        feature_dict["area"] = (
+            f"area_{segment}"  # the area is the same for each channel
+        )
+        return feature_dict
 
-    #     return edited_props_data.sort_values(by=["timepoint"]).reset_index(
-    #         drop=True
-    #     )
+    def _outer_merge(
+        self, df1: pd.DataFrame, df2: pd.DataFrame, on: list[str] | str
+    ) -> pd.DataFrame:
+        """Perform an outer-join merge on the two pandas dataframes. NA rows are removed and integer columns are restored."""
+        df = pd.merge(df1, df2, how="outer", on=on).dropna(axis=0, how="any")
+        # Outer-join merge will create columns that support NA. This changes int columns to float.
+        # After dropping all the NA rows restore the int columns.
+        for c in df1.columns:
+            if is_integer_dtype(df1[c].dtype) and not is_integer_dtype(
+                df[c].dtype
+            ):
+                df[c] = df[c].astype(df1[c].dtype)
+        for c in df2.columns:
+            if is_integer_dtype(df2[c].dtype) and not is_integer_dtype(
+                df[c].dtype
+            ):
+                df[c] = df[c].astype(df2[c].dtype)
+        return df
 
-    # def _set_quality_df(self, channel, corr_img):
-    #     """generates df for image quality control saving the median intensity of the image"""
-    #     return pd.DataFrame(
-    #         {
-    #             "experiment": [self.plate_name],
-    #             "plate_id": [self._meta_data.plate_obj.getId()],
-    #             "position": [self._image.well_pos],
-    #             "image_id": [self._image.omero_image.getId()],
-    #             "channel": [channel],
-    #             "intensity_median": [np.median(corr_img)],
-    #         }
-    #     )
+    def _set_quality_df(
+        self, channel: str, corr_img: npt.NDArray[Any]
+    ) -> pd.DataFrame:
+        """generates df for image quality control saving the median intensity of the image"""
+        return pd.DataFrame(
+            {
+                "experiment": [self.plate_name],
+                "plate_id": [self._meta_data.plate.getId()],
+                "position": [self._image.well_pos],
+                "image_id": [self._image.omero_image.getId()],
+                "channel": [channel],
+                "intensity_median": [np.median(corr_img)],
+            }
+        )
 
-    # def _concat_quality_df(self) -> pd.DataFrame:
-    #     """Concatenate quality dfs for all channels in _corr_img_dict"""
-    #     df_list = [
-    #         self._set_quality_df(channel, image)
-    #         for channel, image in self._image.img_dict.items()
-    #     ]
-    #     return pd.concat(df_list)
+    def _concat_quality_df(self) -> pd.DataFrame:
+        """Concatenate quality dfs for all channels in _corr_img_dict"""
+        df_list = [
+            self._set_quality_df(channel, image)
+            for channel, image in self._image.img_dict.items()
+        ]
+        return pd.concat(df_list)
