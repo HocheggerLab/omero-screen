@@ -86,6 +86,8 @@ class MetadataParser:
             self._add_channel_annotations(self.channel_data)
             self._add_well_annotations(self.well_data)
             delete_excel_attachment(self.conn, self.plate)
+            # Refresh plate after deletion of annotations
+            self.plate = self.conn.getObject("Plate", self.plate_id)
             log_success(
                 SUCCESS_STYLE,
                 f"Metadata parsed from Excel file and transferred to plate {self.plate_id}",
@@ -207,8 +209,7 @@ class MetadataParser:
             ChannelAnnotationError: If no channel annotations are found or if values are not integers
         """
         if annotations := parse_annotations(self.plate):
-            # Validate and convert values to integers
-            return annotations  # type: ignore
+            return annotations
         else:
             raise ChannelAnnotationError(
                 "No channel annotations found on plate", logger

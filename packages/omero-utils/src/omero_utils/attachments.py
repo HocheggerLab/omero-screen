@@ -5,12 +5,13 @@ import tempfile
 from typing import Optional
 
 import pandas as pd
+from matplotlib.figure import Figure
 from omero.gateway import (
     BlitzGateway,
     BlitzObjectWrapper,
     FileAnnotationWrapper,
+    OriginalFileWrapper,
 )
-from omero.model import OriginalFileI, PlateI
 from omero_screen.config import get_logger
 from pandas import DataFrame
 
@@ -60,7 +61,7 @@ def parse_excel_data(
         dict[str, DataFrame]: Dictionary mapping sheet names to pandas DataFrames
         or None if no Excel file is found
     """
-    original_file: OriginalFileI = file_ann.getFile()
+    original_file: OriginalFileWrapper = file_ann.getFile()
     try:
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
             tmp_path = tmp.name
@@ -74,9 +75,9 @@ def parse_excel_data(
             os.unlink(tmp_path)  # Delete the temporary file
 
 
-def attach_excel_to_plate(
+def attach_excel(
     conn: BlitzGateway,
-    plate: PlateI,
+    obj: BlitzObjectWrapper,
     dataframes: dict[str, pd.DataFrame],
     filename: str = "metadata.xlsx",
 ) -> None:
@@ -84,7 +85,7 @@ def attach_excel_to_plate(
 
     Args:
         conn: OMERO gateway connection
-        plate: The plate to attach the file to
+        obj: The OMERO object to attach the file to
         dataframes: Dictionary of sheet_name -> dataframe to write to Excel
         filename: Name of the Excel file to create
 
@@ -104,37 +105,120 @@ def attach_excel_to_plate(
             temp_path,
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-        plate.linkAnnotation(file_ann)
+        obj.linkAnnotation(file_ann)
 
 
 def delete_excel_attachment(
-    conn: BlitzGateway, omero_obj: BlitzObjectWrapper
+    conn: BlitzGateway, obj: BlitzObjectWrapper
 ) -> None:
-    """Delete the excel file attachments from the object."""
-    delete_file_attachment(conn, omero_obj, ".xlsx")
+    """Delete the excel file attachments from the object.
+    The object should be refreshed before listing the updated annotations.
+    Args:
+        conn: OMERO gateway connection
+        obj: The OMERO object
+    """
+    delete_file_attachment(conn, obj, ".xlsx")
 
 
 def delete_file_attachment(
     conn: BlitzGateway,
-    omero_obj: BlitzObjectWrapper,
+    obj: BlitzObjectWrapper,
     ends_with: str | None = None,
 ) -> None:
-    """Delete the file attachment from the object."""
+    """Delete the file attachment from the object.
+    The object should be refreshed before listing the updated annotations.
+    Args:
+        conn: OMERO gateway connection
+        obj: The OMERO object
+        ends_with: Optional suffix to filter attachments to delete
+    """
     file_annotations = [
         ann
-        for ann in omero_obj.listAnnotations()
+        for ann in obj.listAnnotations()
         if isinstance(ann, FileAnnotationWrapper)
     ]
 
-    for file_ann in file_annotations:
+    for ann in file_annotations:
         delete = True
         # optionally only delete using a filename suffix
         if ends_with is not None:
-            name = file_ann.getFile().getName()
+            name = ann.getFile().getName()
             delete = name is not None and name.endswith(ends_with)
         if delete:
             # Get the link first
-            links = list(file_ann.getParentLinks(omero_obj.OMERO_CLASS))
+            links = list(ann.getParentLinks(obj.OMERO_CLASS))
             for link in links:
                 conn.deleteObject(link._obj)  # Delete the link
-            conn.deleteObject(file_ann._obj)  # Then delete the annotation
+            conn.deleteObject(ann._obj)  # Then delete the annotation
+
+
+def attach_figure(
+    conn: BlitzGateway, fig: Figure, obj: BlitzObjectWrapper, title: str
+) -> None:
+    """Load a matplotlib figure to OMERO.
+    Args:
+        conn: OMERO gateway connection
+        fig: matplotlib figure
+        obj: The OMERO object to attach the figure to
+        title: Name of the figure
+    """
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = os.path.join(temp_dir, f"{title}.png")
+        _save_figure(
+            fig,
+            temp_path,
+        )
+
+        # Create and attach file annotation
+        file_ann = conn.createFileAnnfromLocalFile(
+            temp_path,
+            mimetype="image/png",
+        )
+        obj.linkAnnotation(file_ann)
+
+
+def _save_figure(
+    fig: Figure,
+    path: str,
+    tight_layout: bool = True,
+    resolution: float = 300,
+    transparent: bool = False,
+) -> None:
+    """Coherent saving of matplotlib figures.
+    Args:
+        fig: Figure
+        path: Path for saving (file extension defines the file type)
+        tight_layout: option, default True
+        resolution: option, default 300dpi
+        transparent: option, default False
+    """
+    if tight_layout:
+        fig.tight_layout()
+    fig.savefig(path, dpi=resolution, transparent=transparent)
+
+
+def attach_data(
+    conn: BlitzGateway,
+    df: pd.DataFrame,
+    obj: BlitzObjectWrapper,
+    title: str,
+    cols: list[str] | None = None,
+) -> None:
+    """Load a table to OMERO.
+    Args:
+        conn: OMERO gateway connection
+        df: Data table
+        obj: The OMERO object to attach the table to
+        title: Name of the table
+        cols: Columns to use
+    """
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = os.path.join(temp_dir, f"{title}.csv")
+        df.to_csv(temp_path, columns=cols)
+
+        # Create and attach file annotation
+        file_ann = conn.createFileAnnfromLocalFile(
+            temp_path,
+            mimetype="text/csv",
+        )
+        obj.linkAnnotation(file_ann)

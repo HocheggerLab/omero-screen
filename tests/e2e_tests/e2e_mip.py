@@ -1,4 +1,4 @@
-from omero.gateway import BlitzGateway, PlateWrapper
+from omero.gateway import BlitzGateway
 from omero_utils.images import delete_mip, parse_mip
 
 from omero_screen.plate_dataset import PlateDataset
@@ -29,13 +29,13 @@ def run_mip_test(conn: BlitzGateway, teardown: bool = True, plate_id: int = 1):
         # Cleanup if requested
         if teardown:
             # Remove metadata
-            plate = conn.getObject("Plate", plate_id)
-            clean_mip_results(conn, plate)
-            clean_plate_annotations(conn, plate)
+            clean_mip_results(conn, plate_id)
+            clean_plate_annotations(conn, plate_id)
 
 
-def clean_mip_results(conn: BlitzGateway, plate: PlateWrapper):
+def clean_mip_results(conn: BlitzGateway, plate_id: int):
     """Clean the plate flatfield correction masks"""
+    plate = conn.getObject("Plate", plate_id)
     if plate is not None:
         print("Cleaning up MIP images")
         for well in plate.listChildren():

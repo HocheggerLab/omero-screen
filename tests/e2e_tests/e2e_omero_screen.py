@@ -1,4 +1,5 @@
 from omero.gateway import BlitzGateway
+from omero_utils.attachments import delete_file_attachment
 from omero_utils.images import delete_masks
 
 from omero_screen.loops import plate_loop
@@ -26,9 +27,20 @@ def run_omero_screen_test(
         # Cleanup if requested
         if teardown:
             # Remove metadata
-            plate = conn.getObject("Plate", plate_id)
             dataset_id = PlateDataset(conn, plate_id).dataset_id
+            clean_screen_results(conn, plate_id)
             delete_masks(conn, dataset_id)
-            clean_mip_results(conn, plate)
+            clean_mip_results(conn, plate_id)
             clean_flatfield_results(conn, plate_id, dataset_id)
-            clean_plate_annotations(conn, plate)
+            clean_plate_annotations(conn, plate_id)
+
+
+def clean_screen_results(conn: BlitzGateway, plate_id: int):
+    """Clean the plate screen results"""
+    plate = conn.getObject("Plate", plate_id)
+    if plate is not None:
+        print("Cleaning up screen results")
+        delete_file_attachment(conn, plate, ends_with=".png")
+        delete_file_attachment(conn, plate, ends_with=".csv")
+        for well in plate.listChildren():
+            delete_file_attachment(conn, well, ends_with=".png")

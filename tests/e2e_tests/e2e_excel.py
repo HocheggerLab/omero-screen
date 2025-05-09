@@ -1,7 +1,7 @@
 from typing import Any, Optional
 
 import pandas as pd
-from omero.gateway import BlitzGateway, PlateWrapper
+from omero.gateway import BlitzGateway
 from omero_utils.attachments import delete_excel_attachment
 from omero_utils.map_anns import delete_map_annotations, parse_annotations
 
@@ -119,11 +119,12 @@ def run_plate(
     finally:
         # Cleanup if requested
         if teardown:
-            clean_plate_annotations(conn, plate)
+            clean_plate_annotations(conn, plate_id)
 
 
-def clean_plate_annotations(conn: BlitzGateway, plate: PlateWrapper):
+def clean_plate_annotations(conn: BlitzGateway, plate_id: int):
     """Clean the plate annotations"""
+    plate = conn.getObject("Plate", plate_id)
     if plate is not None:
         print("Cleaning up plate annotations")
         delete_map_annotations(conn, plate)

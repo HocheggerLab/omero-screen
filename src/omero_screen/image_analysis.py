@@ -98,7 +98,7 @@ class Image:
                 _, masks = get_image(self._conn, image_id)
                 if "Tub" in self.channels:
                     n_mask, c_mask = masks[..., 0], masks[..., 1]
-                    cyto_mask = self._get_cyto()
+                    cyto_mask = self._get_cyto(n_mask, c_mask)
                 else:
                     n_mask = masks[..., 0]
                 break  # stop the loop once the image is found
@@ -107,7 +107,7 @@ class Image:
             if "Tub" in self.channels:
                 c_mask = self._c_segmentation()
                 n_mask, c_mask = self._compact_mask(np.stack([n_mask, c_mask]))
-                cyto_mask = self._get_cyto()
+                cyto_mask = self._get_cyto(n_mask, c_mask)
             else:
                 n_mask = self._compact_mask(n_mask)
 
@@ -120,13 +120,13 @@ class Image:
             )
         return n_mask, c_mask, cyto_mask
 
-    def _get_cyto(self) -> npt.NDArray[Any] | None:
-        """substract nuclei mask from cell mask to get cytoplasm mask"""
-        if self.c_mask is None:
-            return None
-        overlap = (self.c_mask != 0) * (self.n_mask != 0)
-        cyto_mask_binary = (self.c_mask != 0) * (overlap == 0)
-        return self.c_mask * cyto_mask_binary
+    def _get_cyto(
+        self, n_mask: npt.NDArray[Any], c_mask: npt.NDArray[Any]
+    ) -> npt.NDArray[Any] | None:
+        """Substract nuclei mask from cell mask to get cytoplasm mask"""
+        overlap = (c_mask != 0) * (n_mask != 0)
+        cyto_mask_binary = (c_mask != 0) * (overlap == 0)
+        return c_mask * cyto_mask_binary
 
     def _n_segmentation(self) -> npt.NDArray[Any]:
         if "40X" in self.cell_line.upper():

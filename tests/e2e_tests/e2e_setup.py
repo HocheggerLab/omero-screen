@@ -1,5 +1,5 @@
 from omero_utils.attachments import (
-    attach_excel_to_plate,
+    attach_excel,
     delete_excel_attachment,
 )
 from omero_utils.omero_plate import base_plate
@@ -7,7 +7,7 @@ from omero_utils.omero_plate import base_plate
 
 def excel_file_handling(conn, plate_id, df):
     plate = conn.getObject("Plate", plate_id)
-    attach_excel_to_plate(conn, plate, df)
+    attach_excel(conn, plate, df)
 
 
 def delete_excel(conn=None, plate_id=53):

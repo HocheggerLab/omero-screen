@@ -9,10 +9,18 @@ import torch
 import tqdm
 from matplotlib.figure import Figure
 from omero.gateway import BlitzGateway, WellWrapper
+from omero_utils.attachments import (
+    attach_data,
+    attach_figure,
+    delete_file_attachment,
+)
 from omero_utils.map_anns import parse_annotations
 
+from omero_screen.cellcycle_analysis import cellcycle_analysis, combplot
 from omero_screen.config import get_logger
 from omero_screen.image_analysis import Image, ImageProperties
+from omero_screen.image_analysis_nucleus import NucImage, NucImageProperties
+from omero_screen.quality_control import quality_control_fig
 
 from .flatfield_corr import flatfieldcorr
 from .metadata_parser import MetadataParser
@@ -24,7 +32,7 @@ logger = get_logger(__name__)
 def plate_loop(
     conn: BlitzGateway, plate_id: int
 ) -> tuple[
-    pd.DataFrame, pd.DataFrame | None, pd.DataFrame, dict[str, list[Any]]
+    pd.DataFrame, pd.DataFrame | None, pd.DataFrame, dict[str, Figure] | None
 ]:
     """
     Main loop to process a plate.
@@ -48,7 +56,7 @@ def plate_loop(
     # ) as f:
     #     print(plate_name, file=f)
 
-    print_device_info()
+    _print_device_info()
 
     df_final, df_quality_control, dict_gallery = process_wells(
         conn, metadata, dataset_id, flatfield_dict
@@ -56,36 +64,38 @@ def plate_loop(
     logger.debug("Final data sample: %s", df_final.head())
     logger.debug("Final data columns: %s", df_final.columns)
 
-    # check conditiosn for cell cycle analysis
-    # keys = metadata.channel_data.keys()
+    # check conditions for cell cycle analysis
+    logger.info("Performing cell cycle analysis")
+    keys = metadata.channel_data.keys()
 
-    # if "EdU" in keys:
-    #     try:
-    #         H3 = "H3P" in keys
-    #         cyto = "Tub" in keys
+    if "EdU" in keys:
+        try:
+            H3 = "H3P" in keys
+            cyto = "Tub" in keys
 
-    #         if H3 and cyto:
-    #             df_final_cc = cellcycle_analysis(df_final, H3=True, cyto=True)
-    #         elif H3:
-    #             df_final_cc = cellcycle_analysis(df_final, H3=True)
-    #         elif not cyto:
-    #             df_final_cc = cellcycle_analysis(df_final, cyto=False)
-    #         else:
-    #             df_final_cc = cellcycle_analysis(df_final)
-    #         wells = list(metadata.plate_obj.listChildren())
-    #         add_welldata(wells, df_final_cc, conn)
-    #     except Exception as e:
-    #         print(e)
-    #         df_final_cc = None
-    # else:
-    #     df_final_cc = None
+            if H3 and cyto:
+                df_final_cc = cellcycle_analysis(df_final, H3=True, cyto=True)
+            elif H3:
+                df_final_cc = cellcycle_analysis(df_final, H3=True)
+            elif not cyto:
+                df_final_cc = cellcycle_analysis(df_final, cyto=False)
+            else:
+                df_final_cc = cellcycle_analysis(df_final)
+            wells = list(metadata.plate.listChildren())
+            _add_welldata(conn, wells, df_final_cc)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Cell cycle analysis failed", e)
+            df_final_cc = None
+    else:
+        df_final_cc = None
 
-    # save_results(df_final, df_final_cc, df_quality_control, dict_gallery, metadata, plate_name, conn)
-    return df_final, None, df_quality_control, {}
-    # return df_final, df_final_cc, df_quality_control, dict_gallery
+    _save_results(
+        conn, df_final, df_final_cc, df_quality_control, dict_gallery, metadata
+    )
+    return df_final, df_final_cc, df_quality_control, dict_gallery
 
 
-def print_device_info() -> None:
+def _print_device_info() -> None:
     """
     Print whether the code is using Cellpose with GPU or CPU.
     """
@@ -137,7 +147,7 @@ def process_wells(
                 count + 1,
                 len(wells),
             )
-            well_data, well_quality = well_loop(
+            well_data, well_quality = _well_loop(
                 conn,
                 well,
                 metadata,
@@ -145,7 +155,6 @@ def process_wells(
                 flatfield_dict,
                 image_classifier=image_classifier,
             )
-            print(well_data, well_quality)
             df_final = pd.concat([df_final, well_data])
             df_quality_control = pd.concat([df_quality_control, well_quality])
 
@@ -176,7 +185,7 @@ def process_wells(
 #     return image_classifier
 
 
-def well_loop(
+def _well_loop(
     conn: BlitzGateway,
     well: WellWrapper,
     metadata: MetadataParser,
@@ -184,7 +193,7 @@ def well_loop(
     flatfield_dict: dict[str, npt.NDArray[Any]],
     image_classifier: None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    logger.info("Segmenting and Analysing Images")
+    logger.info("Segmenting and analysing Images")
     df_well = pd.DataFrame()
     df_well_quality = pd.DataFrame()
     image_number = len(list(well.listChildren()))
@@ -197,14 +206,94 @@ def well_loop(
             image_data = ImageProperties(
                 well, image, metadata, image_classifier=image_classifier
             )
-            # else:
-            #     image = NucImage(
-            #         conn, well, omero_img, metadata, dataset_id, flatfield_dict
-            #     )
-            #     image_data = NucImageProperties(well, image, metadata)
-            df_image = image_data.image_df
-            df_image_quality = image_data.quality_df
-            df_well = pd.concat([df_well, df_image])
-            df_well_quality = pd.concat([df_well_quality, df_image_quality])
+            df_image, df_image_quality = (
+                image_data.image_df,
+                image_data.quality_df,
+            )
+        else:
+            nimage = NucImage(
+                conn, well, omero_img, metadata, dataset_id, flatfield_dict
+            )
+            nimage_data = NucImageProperties(well, nimage, metadata)
+            df_image, df_image_quality = (
+                nimage_data.image_df,
+                nimage_data.quality_df,
+            )
+        df_well = pd.concat([df_well, df_image])
+        df_well_quality = pd.concat([df_well_quality, df_image_quality])
 
     return df_well, df_well_quality
+
+
+def _add_welldata(
+    conn: BlitzGateway, wells: list[WellWrapper], df_final: pd.DataFrame
+) -> None:
+    """Add well data to OMERO plate.
+    Args:
+        conn: Connection to OMERO
+        wells: Plate wells
+        df_final: DataFrame containing the final data
+    """
+    for well in wells:
+        well_pos = well.getWellPos()
+        if len(df_final[df_final["well"] == well_pos]) > 100:
+            fig = combplot(df_final, well_pos)
+            # Note: This deletes all file attachments
+            delete_file_attachment(conn, well)
+            attach_figure(conn, fig, well, well_pos)
+        else:
+            logger.warning("Insufficient data for %s", well_pos)
+
+
+def _save_results(
+    conn: BlitzGateway,
+    df_final: pd.DataFrame,
+    df_final_cc: pd.DataFrame | None,
+    df_quality_control: pd.DataFrame,
+    dict_gallery: dict[str, Figure] | None,
+    metadata: MetadataParser,
+) -> None:
+    """Save the results to OMERO.
+    Args:
+        df_final: DataFrame containing the final data
+        df_final_cc: DataFrame containing the final cell cycle data
+        df_quality_control: DataFrame containing quality control data
+        dict_gallery: Dictionary of inference galleries as matplotlib.figure.Figure (or None)
+        metadata: Plate metadata
+        plate_name: Name of the plate
+    """
+    logger.info("Removing previous results from OMERO")
+    # delete pre-existing data
+    delete_file_attachment(conn, metadata.plate)
+
+    # TODO: should metadata.plate.getName() be prefixed to the attachment names?
+    # TODO: should the CSV files be saved locally to a plate directory?
+
+    logger.info("Saving results to OMERO")
+    # load cell cycle data
+    attach_data(
+        conn, df_final, metadata.plate, "final_data", cols=_columns(df_final)
+    )
+    if df_final_cc is not None:
+        attach_data(
+            conn,
+            df_final_cc,
+            metadata.plate,
+            "final_data_cc",
+            cols=_columns(df_final),
+        )
+    attach_data(conn, df_quality_control, metadata.plate, "quality_ctr")
+
+    # load quality control figure
+    quality_fig = quality_control_fig(df_quality_control)
+    attach_figure(conn, quality_fig, metadata.plate, "quality_ctr")
+    # load inference gallery
+    if dict_gallery is not None:
+        for cat, fig in dict_gallery.items():
+            attach_figure(conn, fig, metadata.plate, f"inference_{cat}")
+
+
+def _columns(df: pd.DataFrame) -> list[str]:
+    cols: list[str] = df.columns.tolist()
+    i = cols.index("experiment")
+    return cols[i:] + cols[:i]

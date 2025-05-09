@@ -1,0 +1,51 @@
+"""Module for visualising the quality control data."""
+
+import matplotlib.pyplot as plt
+import pandas as pd
+from matplotlib.figure import Figure
+
+
+def quality_control_fig(df: pd.DataFrame) -> Figure:
+    """Plot the quality control data for each image
+    Args:
+        df: Quality control data
+    Returns:
+        Quality control figure
+    """
+    df["position"] = df["position"].astype("category")
+    medians = (
+        df.groupby(["position", "channel"], observed=False)["intensity_median"]
+        .mean()
+        .reset_index()
+    )
+    std = (
+        df.groupby(["position", "channel"], observed=False)["intensity_median"]
+        .std()
+        .reset_index()
+    )
+    channel_num = len(df.channel.unique())
+    well_num = len(df.position.unique())
+    # Plotting the results
+    fig, ax = plt.subplots(nrows=channel_num, figsize=(well_num, channel_num))
+    # Ensure ax is always a list of Axes, even when there's only one subplot
+    if channel_num == 1:
+        ax = [ax]
+    for i, channel in enumerate(df.channel.unique()):
+        channel_df = medians[medians["channel"] == channel]
+        channel_std = std[std["channel"] == channel]["intensity_median"]
+        y_min = (channel_df["intensity_median"] - channel_std).min()
+        y_max = (channel_df["intensity_median"] + channel_std).max()
+        padding = (y_max - y_min) * 0.1  # 10% padding
+        ax[i].errorbar(
+            channel_df["position"],
+            channel_df["intensity_median"],
+            yerr=channel_std,
+            fmt="o",
+        )
+        ax[i].set_title(channel)
+        ax[i].set_xticks(range(len(channel_df["position"])))
+        ax[i].set_xticklabels(channel_df["position"])
+        ax[i].set_xlim(-0.5, len(channel_df["position"]) - 0.5)
+        ax[i].set_ylim(y_min - padding, y_max + padding)
+    plt.tight_layout()
+    return fig
