@@ -209,7 +209,7 @@ class MetadataParser:
             ChannelAnnotationError: If no channel annotations are found or if values are not integers
         """
         if annotations := parse_annotations(self.plate):
-            return annotations
+            return annotations  # type: ignore
         else:
             raise ChannelAnnotationError(
                 "No channel annotations found on plate", logger
@@ -397,31 +397,24 @@ class MetadataParser:
         # Get well positions from metadata
         metadata_wells = self.well_data["Well"]
 
-        # Check for missing wells
-        if len(actual_wells) != len(metadata_wells):
-            if len(actual_wells) > len(metadata_wells):
-                missing_wells = set(actual_wells) - set(metadata_wells)
+        # Check for missing and extra wells
+        s1 = set(actual_wells)
+        s2 = set(metadata_wells)
+        if s1 != s2:
+            missing_wells = s1 - s2
+            extra_wells = s2 - s1
+            if len(missing_wells):
                 errors.append(
                     f"Missing wells in metadata: {', '.join(sorted(missing_wells))}"
                 )
-            else:
-                extra_wells = set(metadata_wells) - set(actual_wells)
+            if len(extra_wells):
                 errors.append(
                     f"Extra wells in metadata: {', '.join(sorted(extra_wells))}"
                 )
 
-        # Check well order
-        if actual_wells != metadata_wells:
-            # Collect all mismatches
-            mismatches: list[str] = []
-            mismatches.extend(
-                f"position {i + 1}: expected {actual}, found {metadata}"
-                for i, (actual, metadata) in enumerate(
-                    zip(actual_wells, metadata_wells, strict=False)
-                )
-                if actual != metadata
-            )
-            errors.append(f"Well order mismatches at {', '.join(mismatches)}")
+        # Here the plate wells and the metadata have the same well position names.
+        # The order does not matter as the dictionary list under 'Well' is used to index
+        # into the well values for each key (see method: well_conditions)
 
         return errors
 

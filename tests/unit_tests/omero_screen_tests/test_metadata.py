@@ -403,7 +403,7 @@ def test_validate_well_data_inconsistent_lengths():
 
 
 def test_validate_well_data_wrong_well_order():
-    """Test that wrong well order raises an error."""
+    """Test that wrong well order is allowed."""
     parser = MockParser(
         well_data={
             "Well": ["A2", "A1"],  # Wrong order
@@ -412,17 +412,46 @@ def test_validate_well_data_wrong_well_order():
         },
         plate_wells=["A1", "A2"],
     )
+    parser._validate_well_data()
+    assert parser.well_conditions("A1")["condition"] == "treat"
+    assert parser.well_conditions("A2")["condition"] == "ctrl"
+
+
+def test_validate_well_data_missing_well():
+    """Test that a missing well raises an error."""
+    parser = MockParser(
+        well_data={
+            "Well": ["A1", "A1"],  # Duplicate well
+            "cell_line": ["RPE1", "RPE1"],
+            "condition": ["ctrl", "treat"],
+        },
+        plate_wells=["A1", "A2"],
+    )
     errors = parser._validate_well_data()
     assert len(errors) == 1
-    assert "Well order mismatches" in errors[0]
-    assert "position 1: expected A1, found A2" in errors[0]
+    assert any("Missing wells in metadata" in error for error in errors)
+
+
+def test_validate_well_data_extra_well():
+    """Test that an extra well raises an error."""
+    parser = MockParser(
+        well_data={
+            "Well": ["A1", "A2", "A3"],  # Extra well
+            "cell_line": ["RPE1", "RPE1", "TS2"],
+            "condition": ["ctrl", "treat", "other"],
+        },
+        plate_wells=["A1", "A2"],
+    )
+    errors = parser._validate_well_data()
+    assert len(errors) == 1
+    assert any("Extra wells in metadata" in error for error in errors)
 
 
 def test_validate_well_data_multiple_errors():
     """Test that multiple well data errors are collected."""
     parser = MockParser(
         well_data={
-            "Well": ["A2", "A1"],  # Wrong order
+            "Well": ["A2", "A3"],  # Wrong wells
             "cell_line": "RPE1",  # Not a list
             "condition": ["ctrl", "treat"],
         },
@@ -430,10 +459,11 @@ def test_validate_well_data_multiple_errors():
     )
     errors = parser._validate_well_data()
     assert (
-        len(errors) == 3
+        len(errors) == 4
     )  # Non-list value error, well order error, and well position validation error
     assert any(
         "Values must be lists for all keys" in error for error in errors
     )
-    assert any("Well order mismatches" in error for error in errors)
+    assert any("Missing wells in metadata" in error for error in errors)
+    assert any("Extra wells in metadata" in error for error in errors)
     assert any("cell_line" in error for error in errors)
