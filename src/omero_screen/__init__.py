@@ -1,6 +1,6 @@
 """OMERO Screen package initialization."""
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 
 from dataclasses import dataclass, field

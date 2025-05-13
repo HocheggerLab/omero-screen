@@ -1,3 +1,9 @@
+## omero-screen-v0.1.4 (2025-05-13)
+
+### Fix
+
+- address mypy errors
+
 ## omero-screen-v0.1.3 (2025-02-17)
 
 ### Fix
