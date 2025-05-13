@@ -38,7 +38,6 @@ repos:
       - id: mypy
         # Because pre-commit runs mypy from an isolated virtualenv
         # add the typed dependencies to allow analysis
-        additional_dependencies:
-          ["pydantic>=2.10.6", "scikit-image>=0.25.2", "pandas>=2.2.3"]
+        additional_dependencies: ["scikit-image>=0.25.2", "pandas>=2.2.3"]
         exclude: ^tests/
         args: ["--config-file=pyproject.toml"]
