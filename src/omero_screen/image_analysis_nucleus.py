@@ -230,7 +230,7 @@ class NucImageProperties:
         if timepoints > 1:
             data_list = []
             for t in range(timepoints):
-                props = measure.regionprops_table(
+                props = measure.regionprops_table(  # type: ignore[no-untyped-call]
                     label[t],
                     # squeezing z
                     np.squeeze(self._image.img_dict[channel][t]),
@@ -248,7 +248,7 @@ class NucImageProperties:
                 by=["timepoint", "label"]
             ).reset_index(drop=True)
         else:
-            props = measure.regionprops_table(
+            props = measure.regionprops_table(  # type: ignore[no-untyped-call]
                 label,
                 # squeezing tz
                 np.squeeze(self._image.img_dict[channel]),

@@ -19,7 +19,8 @@ def scale_img(
         scaled image
     """
     percentiles = np.percentile(img, (percentile[0], percentile[1]))
-    return exposure.rescale_intensity(img, in_range=tuple(percentiles))
+    res = exposure.rescale_intensity(img, in_range=tuple(percentiles))  # type: ignore[no-untyped-call]
+    return res  # type: ignore[no-any-return]
 
 
 def filter_segmentation(mask: npt.NDArray[Any]) -> npt.NDArray[Any]:
@@ -29,9 +30,9 @@ def filter_segmentation(mask: npt.NDArray[Any]) -> npt.NDArray[Any]:
     Returns:
         filtered segmentation mask
     """
-    cleared: npt.NDArray[Any] = clear_border(mask, buffer_size=5)
+    cleared: npt.NDArray[Any] = clear_border(mask, buffer_size=5)  # type: ignore[no-untyped-call]
     sizes = np.bincount(cleared.ravel())
     mask_sizes = sizes > 10
     mask_sizes[0] = 0
     cells_cleaned = mask_sizes[cleared]
-    return cells_cleaned * mask
+    return cells_cleaned * mask  # type: ignore[no-any-return]

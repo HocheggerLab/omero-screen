@@ -126,7 +126,7 @@ class Image:
         """Substract nuclei mask from cell mask to get cytoplasm mask"""
         overlap = (c_mask != 0) * (n_mask != 0)
         cyto_mask_binary = (c_mask != 0) * (overlap == 0)
-        return c_mask * cyto_mask_binary
+        return c_mask * cyto_mask_binary  # type: ignore[no-any-return]
 
     def _n_segmentation(self) -> npt.NDArray[Any]:
         if "40X" in self.cell_line.upper():
@@ -336,7 +336,10 @@ class ImageProperties:
                 * nucleus_data["area_nucleus"]
             )
 
-        if self._image.c_mask is not None:
+        if (
+            self._image.c_mask is not None
+            and self._image.cyto_mask is not None
+        ):
             cell_data = self._get_properties(
                 self._image.c_mask, channel, "cell", featurelist
             )
@@ -368,7 +371,7 @@ class ImageProperties:
         if timepoints > 1:
             data_list = []
             for t in range(timepoints):
-                props = measure.regionprops_table(
+                props = measure.regionprops_table(  # type: ignore[no-untyped-call]
                     label[t],
                     # squeezing z
                     np.squeeze(self._image.img_dict[channel][t]),
@@ -386,7 +389,7 @@ class ImageProperties:
                 by=["timepoint", "label"]
             ).reset_index(drop=True)
         else:
-            props = measure.regionprops_table(
+            props = measure.regionprops_table(  # type: ignore[no-untyped-call]
                 label,
                 # squeezing tz
                 np.squeeze(self._image.img_dict[channel]),

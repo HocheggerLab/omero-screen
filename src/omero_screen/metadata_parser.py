@@ -208,8 +208,9 @@ class MetadataParser:
         Raises:
             ChannelAnnotationError: If no channel annotations are found or if values are not integers
         """
-        if annotations := parse_annotations(self.plate):
-            return annotations  # type: ignore
+        annotations: dict[str, str] = parse_annotations(self.plate)
+        if len(annotations):
+            return annotations
         else:
             raise ChannelAnnotationError(
                 "No channel annotations found on plate", logger

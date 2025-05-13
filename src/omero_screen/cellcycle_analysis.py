@@ -1,6 +1,8 @@
 """Module for processing cell cycle data."""
 
 import pathlib
+from collections.abc import Callable
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -80,7 +82,7 @@ def _agg_multinucleates(df: pd.DataFrame) -> pd.DataFrame:
     num_cols = list(df.select_dtypes(include=["float64", "int64"]).columns)
     str_cols = list(df.select_dtypes(include=["object"]).columns)
     # define the aggregation functions for each column
-    agg_functions: dict[str, object] = {}
+    agg_functions: dict[str, str | Callable[..., Any]] = {}
     for col in num_cols:
         if col in ["integrated_int_DAPI", "area_nucleus"]:
             agg_functions[col] = "sum"
