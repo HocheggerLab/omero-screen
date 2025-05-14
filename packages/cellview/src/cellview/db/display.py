@@ -214,7 +214,6 @@ def display_projects(con: duckdb.DuckDBPyConnection) -> None:
         p.project_id,
         e.experiment_name,
         e.experiment_id,
-        e.experiment_name,
         COUNT(r.repeat_id) AS repeat_count,
         LIST(DISTINCT r.plate_id) AS plate_ids
     FROM projects p

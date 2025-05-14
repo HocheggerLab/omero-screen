@@ -1,7 +1,7 @@
 from cellview.db.clean_up import clean_up_db, del_measurements_by_plate_id
 from cellview.db.db import CellViewDB
 from cellview.db.display import display_plate_summary, display_projects
-from cellview.importers import import_from_csv
+from cellview.importers import import_data
 from cellview.utils.state import CellViewState
 
 from .cli import parse_args
@@ -14,8 +14,10 @@ def main() -> None:
     conn = db.connect()
     if args.csv:
         state = CellViewState.get_instance(args)
-        import_from_csv(db, state)
-
+        import_data(db, state)
+    if args.plate_id:
+        state = CellViewState.get_instance(args)
+        import_data(db, state)
     if args.clean:
         clean_up_db(db, conn)
     if args.plate:
@@ -24,6 +26,7 @@ def main() -> None:
         display_projects(conn)
     if args.delete_plate:
         del_measurements_by_plate_id(db, conn, args.delete_plate)
+
     conn.close()
 
 

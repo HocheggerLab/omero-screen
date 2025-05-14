@@ -8,6 +8,7 @@ from rich.table import Table
 
 from cellview.utils.error_classes import DBError, StateError
 from cellview.utils.state import CellViewState
+from cellview.utils.ui import CellViewUI
 
 JustifyMethod = Literal["default", "left", "center", "right", "full"]
 
@@ -23,12 +24,17 @@ class ProjectManager:
         self.console = Console()
         self.logger = get_logger(__name__)
         self.state = CellViewState.get_instance()
+        self.ui = CellViewUI()
 
     def select_or_create_project(self) -> None:
         """Main method to select an existing project or create a new one."""
         assert self.state.plate_id is not None
         self._check_plate_exists(self.state.plate_id)
-        if projects := self._fetch_existing_projects():
+        if self.state.project_name:
+            self.state.project_id = self._parse_projectid_from_name(
+                self.state.project_name
+            )
+        elif projects := self._fetch_existing_projects():
             self._display_projects_table(projects)
             while True:
                 try:
@@ -45,6 +51,19 @@ class ProjectManager:
             )
             name = Prompt.ask("[cyan]New project name[/cyan]")
             self.state.project_id = self._create_new_project(name)
+
+    def _parse_projectid_from_name(self, name: str) -> int:
+        """Parse the project ID from the project name."""
+        if result := self.db_conn.execute(
+            "SELECT project_id FROM projects WHERE project_name = ?",
+            [name],
+        ).fetchone():
+            self.ui.info(
+                f"Attaching data from plate {self.state.plate_id} to project '{name}' with ID {result[0]}"
+            )
+            return cast(int, result[0])
+        self._create_new_project(name)
+        return self._parse_projectid_from_name(name)
 
     def _create_table(
         self, title: str, columns: list[tuple[str, JustifyMethod]]
@@ -157,9 +176,7 @@ class ProjectManager:
                     context={"project_name": name},
                 )
             new_id = result[0]
-            self.console.print(
-                f"[green]Created new project '{name}' with ID {new_id}.[/green]"
-            )
+            self.ui.info(f"Created new project '{name}' with ID {new_id}")
             return cast(int, new_id)
         except duckdb.Error as err:
             raise DBError(

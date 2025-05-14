@@ -6,6 +6,7 @@ from rich.prompt import Prompt
 from rich.table import Table
 
 from cellview.utils.state import CellViewState
+from cellview.utils.ui import CellViewUI
 
 
 class ExperimentManager:
@@ -15,10 +16,15 @@ class ExperimentManager:
         self.db_conn: duckdb.DuckDBPyConnection = db_conn
         self.console = Console()
         self.state = CellViewState.get_instance()
+        self.ui = CellViewUI()
 
     def select_or_create_experiment(self) -> int:
         """Main method to select an existing experiment or create a new one."""
-        if experiments := self._fetch_existing_experiments():
+        if self.state.experiment_name:
+            return self._parse_experimentid_from_name(
+                self.state.experiment_name
+            )
+        elif experiments := self._fetch_existing_experiments():
             self._display_experiments_table(experiments)
             while True:
                 result = self._handle_experiment_selection(experiments)
@@ -30,6 +36,19 @@ class ExperimentManager:
             )
             name = Prompt.ask("[cyan]New experiment name[/cyan]")
             return self._create_new_experiment(name)
+
+    def _parse_experimentid_from_name(self, name: str) -> int:
+        """Parse the experiment ID from the experiment name."""
+        if result := self.db_conn.execute(
+            "SELECT experiment_id FROM experiments WHERE experiment_name = ?",
+            [name],
+        ).fetchone():
+            self.ui.info(
+                f"Attaching data from plate {self.state.plate_id} to experiment '{name}' with ID {result[0]}"
+            )
+            return cast(int, result[0])
+        self._create_new_experiment(name)
+        return self._parse_experimentid_from_name(name)
 
     def _fetch_existing_experiments(self) -> list[tuple[int, str, str]]:
         """Fetch all existing experiments for the current project from the database."""

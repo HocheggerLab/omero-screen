@@ -8,9 +8,12 @@ from cellview.importers.projects import select_or_create_project
 from cellview.importers.repeats import create_new_repeat
 from cellview.utils.error_classes import CellViewError
 from cellview.utils.state import CellViewState
+from cellview.utils.ui import CellViewUI
+
+ui = CellViewUI()
 
 
-def import_from_csv(db: CellViewDB, state: CellViewState) -> int:
+def import_data(db: CellViewDB, state: CellViewState) -> int:
     """Import data from CSV files into the database."""
     conn = db.connect()
     try:

@@ -47,7 +47,6 @@ class CellViewDB:
         """Connect to the database and initialize schema if needed."""
         if self.conn:
             return self.conn
-
         try:
             is_new_db = not self.db_path.exists()
             self.conn = duckdb.connect(str(self.db_path))

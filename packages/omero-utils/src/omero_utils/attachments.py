@@ -74,6 +74,34 @@ def parse_excel_data(
             os.unlink(tmp_path)  # Delete the temporary file
 
 
+def parse_csv_data(
+    file_ann: FileAnnotationWrapper,
+) -> pd.DataFrame | None:
+    """
+    Parse CSV data from a file attachment.
+
+    Args:
+        file_ann: FileAnnotationWrapper containing a CSV file
+
+    Returns:
+        pd.DataFrame: DataFrame containing the CSV data
+        or None if no CSV file is found
+    """
+    original_file: OriginalFileI = file_ann.getFile()
+    tmp_path = None
+    try:
+        tmp_path = tempfile.mktemp(suffix=".csv")
+        with open(tmp_path, "wb") as file_on_disk:
+            for chunk in original_file.asFileObj():
+                file_on_disk.write(chunk)
+
+        logger.info("Parsing CSV Metadata File")
+        return pd.read_csv(tmp_path)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)  # Delete the temporary file
+
+
 def attach_excel_to_plate(
     conn: BlitzGateway,
     plate: PlateI,

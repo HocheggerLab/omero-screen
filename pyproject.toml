@@ -27,6 +27,7 @@ dependencies = [
     "tifffile>=2025.3.30",
     "duckdb>=1.2.2",
     "cellview",
+    "jupyter>=1.1.1",
 ]
 
 [project.scripts]
@@ -141,6 +142,7 @@ exclude = [
     "venv",
     "*vendored*",
     "*_vendor*",
+    "**/*.ipynb",
 ]
 
 fix = true

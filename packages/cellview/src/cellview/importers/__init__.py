@@ -1,3 +1,3 @@
-from .import_functions import import_from_csv
+from .import_functions import import_data
 
-__all__ = ["import_from_csv"]
+__all__ = ["import_data"]

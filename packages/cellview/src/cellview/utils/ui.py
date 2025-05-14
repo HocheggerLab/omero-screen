@@ -17,7 +17,7 @@ JustifyMethod = Literal["default", "left", "center", "right", "full"]
 
 class Colors(Enum):
     # Primary colors
-    PRIMARY = "green"
+    PRIMARY = "white"
     SECONDARY = "cyan"
     ACCENT = "magenta"
 
@@ -25,7 +25,7 @@ class Colors(Enum):
     SUCCESS = "light_green"
     WARNING = "yellow"
     ERROR = "red"
-    INFO = "white"
+    INFO = "green"
 
     # UI elements
     HEADER = "bold cyan"

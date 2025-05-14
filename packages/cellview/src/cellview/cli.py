@@ -20,6 +20,12 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--plate-id",
+        type=int,
+        help="The ID of the plate to import.",
+    )
+
+    parser.add_argument(
         "--clean",
         action="store_true",
         help="Clean up the database before importing.",
@@ -41,6 +47,12 @@ def parse_args() -> argparse.Namespace:
         "--delete-plate",
         type=int,
         help="Delete a plate by its ID. This will also delete all associated data.",
+    )
+
+    parser.add_argument(
+        "--export-plate",
+        type=int,
+        help="Export a plate by its ID.",
     )
 
     return parser.parse_args()

@@ -7,17 +7,14 @@ from typing import Any, Optional
 
 import duckdb
 import pandas as pd
+from omero.gateway import BlitzGateway, PlateWrapper, TagAnnotationWrapper
 from omero_screen.config import get_logger
+from omero_utils.attachments import get_file_attachments, parse_csv_data
+from omero_utils.omero_connect import omero_connect
 from rich.console import Console
-from rich.panel import Panel
-from rich.text import Text
 
-from cellview.utils.error_classes import (
-    DataError,
-    DBError,
-    FileError,
-    StateError,
-)
+from cellview.utils.error_classes import DataError, DBError, StateError
+from cellview.utils.ui import CellViewUI
 
 # Initialize logger with the module's name
 logger = get_logger(__name__)
@@ -32,9 +29,12 @@ class CellViewState:
     """
 
     # Class attributes with default values
+    ui: CellViewUI = CellViewUI()
     csv_path: Optional[Path] = None
     df: Optional[pd.DataFrame] = None
     plate_id: Optional[int] = None
+    project_name: Optional[Any] = None
+    experiment_name: Optional[Any] = None
     project_id: Optional[int] = None
     experiment_id: Optional[int] = None
     repeat_id: Optional[int] = None
@@ -55,11 +55,13 @@ class CellViewState:
     def __init__(self) -> None:
         """Initialize a new instance."""
         self.console = Console()
+        self.ui = CellViewUI()
         self.logger = get_logger(__name__)
 
     @classmethod
     def get_instance(
-        cls, args: Optional[argparse.Namespace] = None
+        cls,
+        args: Optional[argparse.Namespace] = None,
     ) -> "CellViewState":
         """Get the singleton instance of CellViewState."""
         if cls._instance is None:
@@ -68,52 +70,54 @@ class CellViewState:
             cls._instance = instance
 
         # Initialize with args if provided
-        if args is not None:
+        if args and args.csv:
             cls._instance.csv_path = args.csv
-            try:
-                cls._instance.df = pd.read_csv(args.csv)
-                cls._instance.plate_id = cls._instance.get_plate_id()
-                cls._instance.date = cls._instance.extract_date_from_filename(
-                    args.csv.name
-                )
-                channels = cls._instance.get_channels()
-                cls._instance.channel_0 = channels[0] if channels else None
-                cls._instance.channel_1 = (
-                    channels[1] if len(channels) > 1 else None
-                )
-                cls._instance.channel_2 = (
-                    channels[2] if len(channels) > 2 else None
-                )
-                cls._instance.channel_3 = (
-                    channels[3] if len(channels) > 3 else None
-                )
-            except (
-                pd.errors.EmptyDataError,
-                pd.errors.ParserError,
-            ) as err:
-                raise DataError(
-                    f"Error reading CSV file: {err}",
-                    context={"csv_path": str(args.csv)},
-                ) from err
-            except KeyError as err:
-                raise DataError(
-                    f"Required column missing in CSV: {err}",
-                    context={
-                        "csv_path": str(args.csv),
-                        "missing_column": str(err),
-                    },
-                ) from err
-            except ValueError as err:
-                raise DataError(
-                    f"Error processing data: {err}",
-                    context={"csv_path": str(args.csv)},
-                ) from err
-            except FileNotFoundError as err:
-                raise FileError(
-                    "CSV file not found",
-                    file_path=args.csv,
-                    context={"csv_path": str(args.csv)},
-                ) from err
+            cls._instance.df = pd.read_csv(args.csv)
+            cls._instance.date = cls._instance.extract_date_from_filename(
+                args.csv.name
+            )
+            cls._instance.plate_id = cls._instance.get_plate_id()
+        elif args and args.plate_id:
+            cls._instance.plate_id = args.plate_id
+            (
+                cls._instance.df,
+                cls._instance.project_name,
+                cls._instance.experiment_name,
+                cls._instance.date,
+            ) = cls._instance.parse_omero_data(args.plate_id)
+        try:
+            channels = cls._instance.get_channels()
+            cls._instance.channel_0 = channels[0] if channels else None
+            cls._instance.channel_1 = (
+                channels[1] if len(channels) > 1 else None
+            )
+            cls._instance.channel_2 = (
+                channels[2] if len(channels) > 2 else None
+            )
+            cls._instance.channel_3 = (
+                channels[3] if len(channels) > 3 else None
+            )
+        except (
+            pd.errors.EmptyDataError,
+            pd.errors.ParserError,
+        ) as err:
+            raise DataError(
+                f"Error reading CSV file: {err}",
+                # context={"csv_path": str(args.csv)},
+            ) from err
+        except KeyError as err:
+            raise DataError(
+                f"Required column missing in CSV: {err}",
+                context={
+                    # "csv_path": str(args.csv),
+                    "missing_column": str(err),
+                },
+            ) from err
+        except ValueError as err:
+            raise DataError(
+                f"Error processing data: {err}",
+                # context={"csv_path": str(args.csv)},
+            ) from err
         return cls._instance
 
     @classmethod
@@ -136,52 +140,103 @@ class CellViewState:
         cls._instance.channel_2 = None
         cls._instance.channel_3 = None
 
-    def load_csv(self, csv_path: Path) -> None:
-        """Load a CSV file into the state."""
-        try:
-            self.csv_path = csv_path
-            self.df = pd.read_csv(csv_path)
+    # -----------------methods to get data from Omero-----------------
 
-            # Check required columns
-            required_columns = ["plate_id", "well", "cell_line"]
-            if missing_columns := [
-                col for col in required_columns if col not in self.df.columns
-            ]:
-                raise DataError(
-                    f"Missing required columns: {', '.join(missing_columns)}",
-                    context={
-                        "csv_path": str(csv_path),
-                        "missing_columns": missing_columns,
-                        "available_columns": list(self.df.columns),
-                    },
-                )
-
-            self.console.print(
-                Panel(
-                    Text(f"Loaded CSV file: {csv_path}", style="green"),
-                    title="CSV Load",
-                    border_style="green",
-                )
+    @omero_connect
+    def parse_omero_data(
+        self,
+        plate_id: int,
+        conn: Optional[BlitzGateway] = None,
+    ) -> tuple[pd.DataFrame, Any, Any, Any]:
+        """Parse the Omero data for the given plate ID."""
+        if conn is None:
+            raise StateError(
+                "No database connection available",
+                context={"current_state": self.get_state_dict()},
             )
-        except pd.errors.EmptyDataError as err:
+        plate = conn.getObject("Plate", plate_id)
+        if not plate:
             raise DataError(
-                "CSV file is empty",
-                context={"csv_path": str(csv_path)},
-            ) from err
-        except pd.errors.ParserError as err:
+                "Plate not found",
+                context={"plate_id": plate_id},
+            )
+        df = self._get_plate_df(plate)
+        project, experiment, date = self._get_project_info(plate)
+        return df, project, experiment, date
+
+    def _get_plate_df(
+        self,
+        plate: PlateWrapper,
+    ) -> pd.DataFrame:
+        """Get the plate dataframe from the Omero database."""
+        csv_annotations = get_file_attachments(plate, "csv")
+        if not csv_annotations:
             raise DataError(
-                "Failed to parse CSV file",
-                context={
-                    "csv_path": str(csv_path),
-                    "error": str(err),
-                },
-            ) from err
-        except FileNotFoundError as err:
-            raise FileError(
-                "CSV file not found",
-                file_path=csv_path,
-                context={"csv_path": str(csv_path)},
-            ) from err
+                "No CSV annotations found for plate",
+                context={"plate_id": self.plate_id},
+            )
+
+        # First try to find final_data_cc.csv
+        for ann in csv_annotations:
+            file_name = ann.getFile().getName()
+            if file_name and file_name.endswith("final_data_cc.csv"):
+                with self.console.status(
+                    "Downloading and parsing CSV...", spinner="dots"
+                ):
+                    df = parse_csv_data(ann)
+                if df is not None:
+                    self.ui.info(
+                        f"Found IF data csv file with cellcycle annotations attached to plate {self.plate_id}"
+                    )
+                    return df
+
+        # If final_data_cc.csv not found, look for final_data.csv
+        for ann in csv_annotations:
+            file_name = ann.getFile().getName()
+            if file_name and file_name.endswith("final_data.csv"):
+                with self.console.status(
+                    "Downloading and parsing CSV...", spinner="dots"
+                ):
+                    df = parse_csv_data(ann)
+                if df is not None:
+                    self.ui.info(
+                        f"Found IF data csv file without cellcycle annotations attached to plate {self.plate_id}"
+                    )
+                    return df
+
+        # If neither file is found, raise error
+        raise DataError(
+            "Plate does not have IF data attached",
+            context={"plate_id": self.plate_id},
+        )
+
+    def _get_project_info(
+        self,
+        plate: PlateWrapper,
+    ) -> tuple[Any, Any, Any]:
+        screen = plate.getParent()
+        if not screen:
+            raise DataError(
+                "Plate does not have a parent screen",
+                context={"plate_id": self.plate_id},
+            )
+        experiment_name = screen.getName()
+        tags = [
+            ann
+            for ann in screen.listAnnotations()
+            if isinstance(ann, TagAnnotationWrapper)
+        ]
+        if len(tags) != 1:
+            raise DataError(
+                "Plate does not have exactly correct project tag annotation",
+                context={"plate_id": self.plate_id},
+            )
+        tag = tags[0]
+        project_name = tag.getValue()
+        plate_date = plate.getDate().strftime("%Y-%m-%d")
+        return project_name, experiment_name, plate_date
+
+    # -----------------methods to get data from CSV-----------------
 
     def get_plate_id(self) -> int:
         """Get the plate ID from the loaded DataFrame."""
