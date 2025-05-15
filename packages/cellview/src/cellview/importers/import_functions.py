@@ -1,3 +1,7 @@
+from typing import Optional
+
+import duckdb
+
 from cellview.db.clean_up import clean_up_db
 from cellview.db.db import CellViewDB
 from cellview.db.display import display_plate_summary
@@ -13,9 +17,14 @@ from cellview.utils.ui import CellViewUI
 ui = CellViewUI()
 
 
-def import_data(db: CellViewDB, state: CellViewState) -> int:
+def import_data(
+    db: CellViewDB,
+    state: CellViewState,
+    conn: Optional[duckdb.DuckDBPyConnection] = None,
+) -> int:
     """Import data from CSV files into the database."""
-    conn = db.connect()
+    if conn is None:
+        conn = db.connect()
     try:
         # Set the database connection in the state
         state.db_conn = conn
@@ -34,6 +43,6 @@ def import_data(db: CellViewDB, state: CellViewState) -> int:
             e.display()
             return 1  # Return error code without re-raising
         raise e
-    finally:
-        conn.close()
+    # finally:
+    #     conn.close()
     return 0

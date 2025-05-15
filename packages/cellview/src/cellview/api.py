@@ -19,10 +19,10 @@ def cellview_load_data(*plate_ids: int) -> tuple[pd.DataFrame, list[str]]:
         if not _check_plate_exists(plate_id, conn):
             args = argparse.Namespace(plate_id=plate_id, csv=None)
             state = CellViewState.get_instance(args)
-            import_data(db, state)
+            import_data(db, state, conn=conn)
         df, variable_names = export_pandas_df(plate_id, conn)
         df_list.append(df)
-        conn.close()
+    conn.close()
     return pd.concat(df_list), variable_names
 
 
