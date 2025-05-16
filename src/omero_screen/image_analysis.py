@@ -18,6 +18,7 @@ from skimage import measure
 from omero_screen import default_config
 from omero_screen.config import getenv_as_bool
 from omero_screen.general_functions import filter_segmentation, scale_img
+from omero_screen.image_classifier import ImageClassifier
 from omero_screen.metadata_parser import MetadataParser
 
 logger = logging.getLogger("omero-screen")
@@ -252,7 +253,7 @@ class ImageProperties:
         image_obj: Image,
         meta_data: MetadataParser,
         featurelist: list[str] = default_config.FEATURELIST,
-        image_classifier: None = None,
+        image_classifier: None | list[ImageClassifier] = None,
     ):
         self._well = well
         self._well_id = well.getId()
@@ -268,12 +269,12 @@ class ImageProperties:
         self.image_df = self._combine_channels(featurelist)
         self.quality_df = self._concat_quality_df()
 
-        # if image_classifier is not None:
-        #     for cls in image_classifier:
-        #         if cls.select_channels(image_obj.img_dict):
-        #             self.image_df = cls.process_images(
-        #                 self.image_df, image_obj.c_mask
-        #             )
+        if image_classifier is not None and image_obj.c_mask is not None:
+            for cls in image_classifier:
+                if cls.select_channels(image_obj.img_dict):
+                    self.image_df = cls.process_images(
+                        self.image_df, image_obj.c_mask
+                    )
 
     def _overlay_mask(self) -> pd.DataFrame:
         """Links nuclear IDs with cell IDs"""

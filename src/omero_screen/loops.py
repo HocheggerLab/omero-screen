@@ -1,6 +1,6 @@
 """Module for processing the wells in a plate."""
 
-# import torch
+import os
 from typing import Any
 
 import numpy.typing as npt
@@ -18,8 +18,10 @@ from omero_utils.map_anns import parse_annotations
 
 from omero_screen.cellcycle_analysis import cellcycle_analysis, combplot
 from omero_screen.config import get_logger
+from omero_screen.gallery_figure import create_gallery
 from omero_screen.image_analysis import Image, ImageProperties
 from omero_screen.image_analysis_nucleus import NucImage, NucImageProperties
+from omero_screen.image_classifier import ImageClassifier
 from omero_screen.quality_control import quality_control_fig
 
 from .flatfield_corr import flatfieldcorr
@@ -125,13 +127,16 @@ def process_wells(
     df_final = pd.DataFrame()
     df_quality_control = pd.DataFrame()
     image_classifier = None
-    # TODO: load these from env
-    # inference_model: list[str] | None = None
-    # gallery_width = 10
-    # if inference_model:
-    #     image_classifier = [
-    #         _create_classifier(conn, x, gallery_width) for x in inference_model
-    #     ]
+    inference_model_names = os.getenv("OMERO_SCREEN_INFERENCE_MODEL")
+    gallery_width = int(
+        os.getenv("OMERO_SCREEN_INFERENCE_GALLERY_WIDTH", "10")
+    )
+    batch_size = int(os.getenv("OMERO_SCREEN_INFERENCE_BATCH_SIZE", "100"))
+    if inference_model_names:
+        image_classifier = [
+            _create_classifier(conn, x, gallery_width, batch_size)
+            for x in inference_model_names.split(":")
+        ]
     wells = list(metadata.plate.listChildren())
     for count, well in enumerate(wells):
         ann = parse_annotations(well)
@@ -160,29 +165,35 @@ def process_wells(
 
     # Create and save galleries after the loop
     dict_gallery = None
-    # if image_classifier is not None and gallery_width:
-    #     logger.info("Generating gallery images")
-    #     dict_gallery = {}
-    # for cls in image_classifier:
-    #     prefix = cls.class_name + '_'
-    #     for predicted_class, data in cls.gallery_dict.items():
-    #         selected_images, total = data
-    #         if selected_images:
-    #             dict_gallery[prefix + predicted_class] = create_gallery(selected_images, gallery_width)
-    #             logger.info(f"Gallery created for '{cls.class_name}/{predicted_class}': {len(selected_images)}/{total}")
+    if image_classifier is not None and gallery_width:
+        logger.info("Generating gallery images")
+        dict_gallery = {}
+        for cls in image_classifier:
+            prefix = cls.class_name + "_"
+            for predicted_class, data in cls.gallery_dict.items():
+                selected_images, total = data
+                if selected_images:
+                    dict_gallery[prefix + predicted_class] = create_gallery(
+                        selected_images, gallery_width
+                    )
+                    logger.info(
+                        "Gallery created for '%s/%s': %d/%d",
+                        cls.class_name,
+                        predicted_class,
+                        len(selected_images),
+                        total,
+                    )
 
     return df_final, df_quality_control, dict_gallery
 
 
-# def _create_classifier(
-#     conn: BlitzGateway, model_name: str, gallery_width: int
-# ) -> None:
-#     image_classifier = (
-#         None  # ImageClassifier(conn, model_name, class_name=model_name)
-#     )
-#     # image_classifier.gallery_size = gallery_width**2
-#     # image_classifier.batch_size = Defaults["INFERENCE_BATCH_SIZE"]
-#     return image_classifier
+def _create_classifier(
+    conn: BlitzGateway, model_name: str, gallery_width: int, batch_size: int
+) -> ImageClassifier:
+    image_classifier = ImageClassifier(conn, model_name, class_name=model_name)
+    image_classifier.gallery_size = gallery_width**2
+    image_classifier.batch_size = batch_size
+    return image_classifier
 
 
 def _well_loop(
@@ -191,7 +202,7 @@ def _well_loop(
     metadata: MetadataParser,
     dataset_id: int,
     flatfield_dict: dict[str, npt.NDArray[Any]],
-    image_classifier: None,
+    image_classifier: None | list[ImageClassifier],
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     logger.info("Segmenting and analysing Images")
     df_well = pd.DataFrame()
