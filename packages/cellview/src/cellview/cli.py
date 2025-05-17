@@ -1,0 +1,58 @@
+import argparse
+from pathlib import Path
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="")
+
+    parser.add_argument(
+        "--db",
+        type=Path,
+        default=None,
+        help="Optional path to the DuckDB database file. Defaults to ~/cellview_data/cellview.duckdb",
+    )
+
+    parser.add_argument(
+        "--csv",
+        type=Path,
+        help="To trigger import, supply the path to the CSV file.",
+    )
+
+    parser.add_argument(
+        "--plate-id",
+        type=int,
+        help="The ID of the plate to import.",
+    )
+
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Clean up the database before importing.",
+    )
+
+    parser.add_argument(
+        "--plate",
+        type=int,
+        help="Display information about a specific plate.",
+    )
+
+    parser.add_argument(
+        "--projects",
+        action="store_true",
+        help="Display information about all projects.",
+    )
+
+    parser.add_argument(
+        "--delete-plate",
+        type=int,
+        help="Delete a plate by its ID. This will also delete all associated data.",
+    )
+
+    parser.add_argument(
+        "--export-plate",
+        type=int,
+        help="Export a plate by its ID.",
+    )
+
+    return parser.parse_args()

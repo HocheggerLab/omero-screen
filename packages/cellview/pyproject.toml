@@ -1,0 +1,127 @@
+[project]
+name = "cellview"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "hh65", email = "hh65@sussex.ac.uk" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# ===========================
+# Mypy Configuration Section
+# ===========================
+
+[tool.mypy]
+strict = true
+python_version = 3.12
+exclude = [
+    "tests/.*",
+    ".venv/.*",
+    "venv/.*",
+    "env/.*",
+    "build/.*",
+    "dist/.*",
+    "migrations/.*",
+]
+
+incremental = true
+cache_dir = ".mypy_cache"
+ignore_missing_imports = false
+#follow_imports = "silent"
+pretty = true
+warn_unused_configs = true
+
+["tool.mypy.some_untyped_package.*"]
+ignore_missing_imports = true
+
+["tool.mypy.another_untyped_package.*"]
+ignore_missing_imports = true
+
+
+# ===========================
+# Ruff Configuration Section
+# ===========================
+
+[tool.ruff]
+line-length = 79
+lint.select = [
+    "E", "F", "W", #flake8
+    "UP", # pyupgrade
+    "I", # isort
+    "BLE", # flake8-blind-exception
+    "B", # flake8-bugbear
+    "A", # flake8-builtins
+    "C4", # flake8-comprehensions
+    "ISC", # flake8-implicit-str-concat
+    "G", # flake8-logging-format
+    "PIE", # flake8-pie
+    "SIM", # flake8-simplify
+]
+lint.ignore = [
+    "E501", # line too long. let black handle this
+    "UP006", "UP007", # type annotation. As using magicgui require runtime type annotation then we disable this.
+    "SIM117", # flake8-simplify - some of merged with statements are not looking great with black, reanble after drop python 3.9
+    "ISC001", # string concatenation conflicts with formatter
+]
+
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".mypy_cache",
+    ".pants.d",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    "*vendored*",
+    "*_vendor*",
+]
+
+fix = true
+
+
+# ============================
+# Pytest Configuration Section
+# ============================
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+
+# ===========================
+# Commitizen Configuration Section
+# ===========================
+
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+tag_format = "cellview-v$version"
+version_files = [
+    "src/cellview/__init__.py:__version__",
+    "pyproject.toml:version",
+    "README.md:version-[0-9]+\\.[0-9]+\\.[0-9]+"
+]
+version_provider = "commitizen"
+major_version_zero = true
+bump_message = "bump: version $current_version → $new_version"
+update_changelog_on_bump = true
+annotated_tag = true
