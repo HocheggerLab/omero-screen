@@ -1,3 +1,9 @@
+## omero-screen-v0.1.5 (2025-05-19)
+
+### Fix
+
+- **cellview**: merge cellview branch to main
+
 ## omero-screen-v0.1.4 (2025-05-13)
 
 ### Fix
