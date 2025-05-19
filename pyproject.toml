@@ -3,9 +3,7 @@ name = "omero-screen"
 version = "0.1.4"
 description = "Add your description here"
 readme = "README.md"
-authors = [
-    { name = "hh65", email = "hh65@sussex.ac.uk" }
-]
+authors = [{ name = "hh65", email = "hh65@sussex.ac.uk" }]
 requires-python = ">=3.12"
 dependencies = [
     "omero-screen-napari",
@@ -18,7 +16,7 @@ dependencies = [
     # Linux x86_64-specific zeroc-ice wheel
     'zeroc-ice @ https://github.com/glencoesoftware/zeroc-ice-py-linux-x86_64/releases/download/20240202/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_x86_64.whl ; sys_platform == "linux" and platform_machine == "x86_64"',
     # Default zeroc-ice for other platforms or architectures
-    'zeroc-ice ; sys_platform != "darwin" and platform_machine != "aarch64" and platform_machine != "x86_64"',
+    'zeroc-ice>=3.6.5; sys_platform != "darwin" and platform_machine != "aarch64" and platform_machine != "x86_64"',
     "omero-py>=5.19.5",
     "pandas>=2.2.3",
     "openpyxl>=3.1.5",
@@ -36,6 +34,7 @@ dependencies = [
     "duckdb>=1.2.2",
     "cellview",
     "jupyter>=1.1.1",
+    "opencv-python>=4.11.0.86",
 ]
 
 [project.scripts]
@@ -71,7 +70,6 @@ dev = [
     "commitizen>=4.1.0",
     "mypy>=1.15.0",
     "pandas-stubs",
-    "pydantic[mypy]>=2.10.6",
     "typing-extensions>=4.9.0",
     "pre-commit>=4.0.1",
     "pytest-mock>=3.14.0",
@@ -110,21 +108,24 @@ warn_unused_configs = true
 [tool.ruff]
 line-length = 79
 lint.select = [
-    "E", "F", "W", #flake8
-    "UP", # pyupgrade
-    "I", # isort
+    "E",
+    "F",
+    "W",   #flake8
+    "UP",  # pyupgrade
+    "I",   # isort
     "BLE", # flake8-blind-exception
-    "B", # flake8-bugbear
-    "A", # flake8-builtins
-    "C4", # flake8-comprehensions
+    "B",   # flake8-bugbear
+    "A",   # flake8-builtins
+    "C4",  # flake8-comprehensions
     "ISC", # flake8-implicit-str-concat
-    "G", # flake8-logging-format
+    "G",   # flake8-logging-format
     "PIE", # flake8-pie
     "SIM", # flake8-simplify
 ]
 lint.ignore = [
-    "E501", # line too long. let black handle this
-    "UP006", "UP007", # type annotation. As using magicgui require runtime type annotation then we disable this.
+    "E501",   # line too long. let black handle this
+    "UP006",
+    "UP007",  # type annotation. As using magicgui require runtime type annotation then we disable this.
     "SIM117", # flake8-simplify - some of merged with statements are not looking great with black, reanble after drop python 3.9
     "ISC001", # string concatenation conflicts with formatter
 ]
@@ -166,7 +167,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 
 
-
 # ===========================
 # Commitizen Configuration Section
 # ===========================
@@ -179,7 +179,7 @@ tag_format = "omero-screen-v$version"
 version_files = [
     "src/omero_screen/__init__.py:__version__",
     "pyproject.toml:version",
-    "README.md:version-[0-9]+\\.[0-9]+\\.[0-9]+"
+    "README.md:version-[0-9]+\\.[0-9]+\\.[0-9]+",
 ]
 version_provider = "commitizen"
 major_version_zero = true
