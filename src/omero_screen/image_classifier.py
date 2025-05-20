@@ -1,10 +1,12 @@
 """Module to classify images using a neural network model.
+
 The model is stored in OMERO as a TorchScript file. It is downloaded
 from the CNN models project using the model name to identify the file.
 The model is pretrained to classify images using regions cropped from
 the image channels. The channels, crop size, network input size, and
 network classification labels are stored in OMERO as a corresponding
-metadata JSON file."""
+metadata JSON file.
+"""
 
 import json
 import logging
@@ -27,15 +29,13 @@ logger = logging.getLogger("omero-screen")
 
 
 class ImageClassifier:
-    """
-    Classify images using a model.
-    """
+    """Classify images using a model."""
 
     def __init__(
         self, conn: BlitzGateway, model_name: str, class_name: str = "Class"
     ):
-        """
-        Initialize the classifier.
+        """Initialize the classifier.
+
         Args:
             conn: Connection to OMERO
             model_name: Name of classification model
@@ -68,8 +68,8 @@ class ImageClassifier:
     ) -> tuple[
         torch.jit.ScriptModule | None, list[str] | None, list[str] | None
     ]:
-        """
-        Laod the model from OMERO.
+        """Laod the model from OMERO.
+
         Args:
             conn: Connection to OMERO
             project_name: Name of project containing the models
@@ -117,13 +117,14 @@ class ImageClassifier:
         dataset_name: str,
         file_name: str,
     ) -> pathlib.Path | None:
-        """
-        Download the file attachment.
+        """Download the file attachment.
+
         Args:
             conn: Connection to OMERO
             project_name: The name of the project in OMERO.
             dataset_name: The name of the dataset in OMERO.
             file_name: The name of the file attachment in OMERO.
+
         Returns:
             Path to local file (or None).
         """
@@ -224,11 +225,13 @@ class ImageClassifier:
         return [], []
 
     def select_channels(self, image_data: dict[str, npt.NDArray[Any]]) -> bool:
-        """
-        Select the channels from the image_data to be used for classification.
+        """Select the channels from the image_data to be used for classification.
+
         If this method returns False then the classifier is not able to process the images.
+
         Args:
             image_data: Dictionary of images keyed by channel name. Images should be [TYX].
+
         Returns:
             True if the channels were selected.
         """
@@ -247,13 +250,16 @@ class ImageClassifier:
     def process_images(
         self, original_image_df: pd.DataFrame, mask: npt.NDArray[Any]
     ) -> pd.DataFrame:
-        """
+        """Process the images to classify segmented objects.
+
         For each object in the segmentation mask, extract the image channels, mask the pixels and run
         the model to classify the object. Classifications are appended as a new column with the heading
         specified in the object constructor.
+
         Args:
             original_image_df: Dataframe of OMERO screen segmented cell objects.
             mask: Segmentation mask. Should be TZYX with Z=1.
+
         Returns:
             Dataframe supplemented with the classification column. Returned unchanged if the classifier is
             not initialised.
@@ -272,13 +278,15 @@ class ImageClassifier:
     def _process_images(
         self, original_image_df: pd.DataFrame, mask: npt.NDArray[Any], t: int
     ) -> pd.DataFrame:
-        """
+        """Process the images to classify segmented objects for the specified time point.
+
         For the given time point:
         For each object in the segmentation mask, extract the image channels, mask the pixels and run
         the model to classify the object. Classifications are appended as a new column with the heading
         specified in the object constructor.
         Note: Cropping of objects to classify from the images uses the time point. The dataframe must
         contain only the given timepoint.
+
         Args:
             original_image_df: Dataframe of OMERO screen segmented cell objects for time point t.
             mask: Segmentation mask. Should be TZYX with Z=1.
@@ -433,8 +441,8 @@ class ImageClassifier:
         x1: int,
         y1: int,
     ) -> npt.NDArray[Any]:
-        """
-        Crops the input image using the provided coordinates.
+        """Crops the input image using the provided coordinates.
+
         Args:
             image: The image to be cropped.
             t: The time point for cropping.
@@ -442,6 +450,7 @@ class ImageClassifier:
             y0: Top-left Y coordinate for cropping.
             x1: Bottom-right X coordinate for cropping.
             y1: Bottom-right Y coordinate for cropping.
+
         Returns:
             Cropped image as a numpy array. Note: This uses the same underlying data.
         """
@@ -454,8 +463,8 @@ class ImageClassifier:
         return i[y0:y1, x0:x1]  # type: ignore[no-any-return]
 
     def _to_uint8(self, image: npt.NDArray[Any]) -> npt.NDArray[np.uint8]:
-        """
-        Convert image to uint8 using the (1, 99) percentiles.
+        """Convert image to uint8 using the (1, 99) percentiles.
+
         Args:
             image: The image
         Returns:
@@ -477,11 +486,12 @@ class ImageClassifier:
     def _extract_roi(
         self, image: npt.NDArray[Any], binary_mask: npt.NDArray[np.uint8]
     ) -> npt.NDArray[Any]:
-        """
-        Extracts the ROI (Region of Interest) from a multi-channel image using the mask.
+        """Extracts the ROI (Region of Interest) from a multi-channel image using the mask.
+
         Args:
             image: Multi-channel input image (YXC).
             binary_mask: Mask image (YX).
+
         Returns:
             ROI (CYX)
         """
@@ -497,12 +507,13 @@ class ImageClassifier:
         target_size: tuple[int, int],
         padding_value: int = 0,
     ) -> npt.NDArray[Any]:
-        """
-        Adds padding to a NumPy array image to reach the target size.
+        """Adds padding to a NumPy array image to reach the target size.
+
         Args:
             image: Input image as a NumPy array (H, W) or (C, H, W).
             target_size: Target size as (height, width).
             padding_value: Value to use for padding (default: 0).
+
         Returns:
             Padded image with the desired target size.
         """
@@ -546,11 +557,12 @@ class ImageClassifier:
     def _erase_masks(
         self, cropped_label: npt.NDArray[Any], cx: int, cy: int
     ) -> npt.NDArray[Any]:
-        """
-        Erases all masks in the cropped label (yx format) that do not overlap with the centroid.
+        """Erases all masks in the cropped label (yx format) that do not overlap with the centroid.
+
         If no label overlaps with the centroid then the closest label is used based on their centroids.
         An exception is raised if there are no labels.
         Data is modified in-place.
+
         Args:
             cropped_label: Input image as a NumPy array (H, W) or (C, H, W).
             cx: Centroid X

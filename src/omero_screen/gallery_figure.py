@@ -11,8 +11,8 @@ from matplotlib.patches import Polygon
 
 
 def create_gallery(images: list[npt.NDArray[Any]], grid_size: int) -> Figure:
-    """
-    Generates a gallery figure of the images in a grid.
+    """Generates a gallery figure of the images in a grid.
+
     Args:
         images: List of numpy image arrays
         grid_size: Edge length of the grid
@@ -47,13 +47,16 @@ def create_gallery(images: list[npt.NDArray[Any]], grid_size: int) -> Figure:
 
 
 def _create_image(image: npt.NDArray[Any]) -> npt.NDArray[Any]:
-    """
-    Generates an image (M, N) or (M, N, 3).
+    """Generates an image (M, N) or (M, N, 3).
+
     Note: Multi-channel images use the first 3 channels as RBG.
+
     Args:
         image: Input grayscale image (single channel), or CYX multi-channel.
+
     Returns:
         Processed image.
+
     Raises:
         Exception: if the input shape is not 2D or 3D
     """
