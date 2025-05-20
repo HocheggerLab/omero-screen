@@ -1,9 +1,24 @@
+"""Module for parsing command-line arguments.
+
+This module provides a function to parse command-line arguments using the argparse library.
+It supports various options for database connection, CSV file import, plate ID, project listing,
+
+"""
+
 import argparse
 from pathlib import Path
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command line arguments."""
+    """Parse command line arguments.
+
+    This function parses command-line arguments using the argparse library.
+    It supports various options for database connection, CSV file import, plate ID, project listing,
+    and cleanup.
+
+    Returns:
+        argparse.Namespace: An object containing the parsed arguments.
+    """
     parser = argparse.ArgumentParser(description="")
 
     parser.add_argument(

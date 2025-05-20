@@ -54,8 +54,7 @@ def test_screen_plate_image(omero_conn: BlitzGateway):
 
 @pytest.fixture
 def test_project(omero_conn):
-    """
-    Fixture to create a temporary test project and attach an Excel file to it.
+    """Fixture to create a temporary test project and attach an Excel file to it.
     Returns the project object.
     Deletes the project after the test.
     """

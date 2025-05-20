@@ -1,4 +1,22 @@
-"""Module for handling file attachments loaded to the Omeroserver."""
+"""Module for handling file attachments loaded to the Omeroserver.
+
+This module provides functions for retrieving, parsing, and attaching file attachments to OMERO objects.
+
+It includes functions for parsing Excel and CSV files, attaching figures and tables to OMERO objects, and deleting file attachments.
+
+Available functions:
+
+- get_file_attachments(obj, extension): Retrieve file attachments with a specific extension from an OMERO object.
+- parse_excel_data(file_ann): Parse Excel data from a file attachment and return a dict of DataFrames.
+- parse_csv_data(file_ann): Parse CSV data from a file attachment and return a DataFrame.
+- attach_excel(conn, obj, dataframes, filename="metadata.xlsx"): Attach an Excel file with given dataframes to an OMERO object.
+- delete_excel_attachment(conn, obj): Delete Excel file attachments from an OMERO object.
+- delete_file_attachment(conn, obj, ends_with=None): Delete file attachments from an OMERO object, optionally filtered by filename suffix.
+- attach_figure(conn, fig, obj, title): Attach a matplotlib figure as a PNG file to an OMERO object.
+- _save_figure(fig, path, tight_layout=True, resolution=300, transparent=False): Save a matplotlib figure to disk with specified options.
+- attach_data(conn, df, obj, title, cols=None): Attach a DataFrame as a CSV file to an OMERO object.
+
+"""
 
 import os
 import tempfile
@@ -22,8 +40,7 @@ def get_file_attachments(
     obj: BlitzObjectWrapper,
     extension: str,
 ) -> Optional[list[FileAnnotationWrapper]]:
-    """
-    Retrieve FileAnnotationWrappers for files with a specific extension from an OMERO object.
+    """Retrieve FileAnnotationWrappers for files with a specific extension from an OMERO object.
 
     Args:
         obj: The OMERO object to search for attachments
@@ -32,6 +49,7 @@ def get_file_attachments(
 
     Returns:
         List of matching FileAnnotationWrappers or None if no matches found
+
     """
     if not extension.startswith("."):
         extension = f".{extension}"
@@ -51,8 +69,7 @@ def get_file_attachments(
 def parse_excel_data(
     file_ann: FileAnnotationWrapper,
 ) -> dict[str, DataFrame] | None:
-    """
-    Parse Excel data from a file attachment.
+    """Parse Excel data from a file attachment.
 
     Args:
         file_ann: FileAnnotationWrapper containing an Excel file
@@ -60,6 +77,7 @@ def parse_excel_data(
     Returns:
         dict[str, DataFrame]: Dictionary mapping sheet names to pandas DataFrames
         or None if no Excel file is found
+
     """
     original_file: OriginalFileWrapper = file_ann.getFile()
     try:
@@ -78,8 +96,7 @@ def parse_excel_data(
 def parse_csv_data(
     file_ann: FileAnnotationWrapper,
 ) -> pd.DataFrame | None:
-    """
-    Parse CSV data from a file attachment.
+    """Parse CSV data from a file attachment.
 
     Args:
         file_ann: FileAnnotationWrapper containing a CSV file
@@ -87,6 +104,7 @@ def parse_csv_data(
     Returns:
         pd.DataFrame: DataFrame containing the CSV data
         or None if no CSV file is found
+
     """
     original_file: OriginalFileWrapper = file_ann.getFile()
     tmp_path = None
@@ -119,6 +137,7 @@ def attach_excel(
 
     Returns:
         The created file annotation object
+
     """
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = os.path.join(temp_dir, filename)
@@ -140,10 +159,13 @@ def delete_excel_attachment(
     conn: BlitzGateway, obj: BlitzObjectWrapper
 ) -> None:
     """Delete the excel file attachments from the object.
+
     The object should be refreshed before listing the updated annotations.
+
     Args:
         conn: OMERO gateway connection
         obj: The OMERO object
+
     """
     delete_file_attachment(conn, obj, ".xlsx")
 
@@ -154,11 +176,14 @@ def delete_file_attachment(
     ends_with: str | None = None,
 ) -> None:
     """Delete the file attachment from the object.
+
     The object should be refreshed before listing the updated annotations.
+
     Args:
         conn: OMERO gateway connection
         obj: The OMERO object
         ends_with: Optional suffix to filter attachments to delete
+
     """
     file_annotations = [
         ann
@@ -184,11 +209,13 @@ def attach_figure(
     conn: BlitzGateway, fig: Figure, obj: BlitzObjectWrapper, title: str
 ) -> None:
     """Load a matplotlib figure to OMERO.
+
     Args:
         conn: OMERO gateway connection
         fig: matplotlib figure
         obj: The OMERO object to attach the figure to
         title: Name of the figure
+
     """
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = os.path.join(temp_dir, f"{title}.png")
@@ -213,12 +240,14 @@ def _save_figure(
     transparent: bool = False,
 ) -> None:
     """Coherent saving of matplotlib figures.
+
     Args:
         fig: Figure
         path: Path for saving (file extension defines the file type)
         tight_layout: option, default True
         resolution: option, default 300dpi
         transparent: option, default False
+
     """
     if tight_layout:
         fig.tight_layout()
@@ -233,12 +262,14 @@ def attach_data(
     cols: list[str] | None = None,
 ) -> None:
     """Load a table to OMERO.
+
     Args:
         conn: OMERO gateway connection
         df: Data table
         obj: The OMERO object to attach the table to
         title: Name of the table
         cols: Columns to use
+
     """
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = os.path.join(temp_dir, f"{title}.csv")

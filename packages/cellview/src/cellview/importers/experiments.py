@@ -1,3 +1,8 @@
+"""Module for importing plate level experiment data into CellView.
+
+This module provides a class for managing experiment selection and creation operations.
+"""
+
 from typing import Optional, cast
 
 import duckdb
@@ -10,16 +15,32 @@ from cellview.utils.ui import CellViewUI
 
 
 class ExperimentManager:
-    """Manages experiment selection and creation operations."""
+    """Manages experiment selection and creation operations.
+
+    Attributes:
+        db_conn: The DuckDB connection.
+        console: The console.
+        state: The CellView state.
+        ui: The CellView UI.
+    """
 
     def __init__(self, db_conn: duckdb.DuckDBPyConnection) -> None:
+        """Initialize the ExperimentManager.
+
+        Args:
+            db_conn: The DuckDB connection.
+        """
         self.db_conn: duckdb.DuckDBPyConnection = db_conn
         self.console = Console()
         self.state = CellViewState.get_instance()
         self.ui = CellViewUI()
 
     def select_or_create_experiment(self) -> int:
-        """Main method to select an existing experiment or create a new one."""
+        """Main method to select an existing experiment or create a new one.
+
+        Returns:
+            The ID of the selected experiment.
+        """
         if self.state.experiment_name:
             return self._parse_experimentid_from_name(
                 self.state.experiment_name
@@ -38,7 +59,14 @@ class ExperimentManager:
             return self._create_new_experiment(name)
 
     def _parse_experimentid_from_name(self, name: str) -> int:
-        """Parse the experiment ID from the experiment name."""
+        """Parse the experiment ID from the experiment name.
+
+        Args:
+            name: The name of the experiment.
+
+        Returns:
+            The ID of the experiment.
+        """
         if result := self.db_conn.execute(
             "SELECT experiment_id FROM experiments WHERE experiment_name = ?",
             [name],
@@ -51,7 +79,11 @@ class ExperimentManager:
         return self._parse_experimentid_from_name(name)
 
     def _fetch_existing_experiments(self) -> list[tuple[int, str, str]]:
-        """Fetch all existing experiments for the current project from the database."""
+        """Fetch all existing experiments for the current project from the database.
+
+        Returns:
+            A list of tuples containing the experiment ID, name, and description.
+        """
         if not self.state.project_id:
             raise ValueError("No project selected")
 
@@ -67,7 +99,11 @@ class ExperimentManager:
         return cast(list[tuple[int, str, str]], result)
 
     def _fetch_project_name(self) -> str:
-        """Fetch the name of the current project."""
+        """Fetch the name of the current project.
+
+        Returns:
+            The name of the project.
+        """
         if not self.state.project_id:
             raise ValueError("No project selected")
 
@@ -84,7 +120,11 @@ class ExperimentManager:
     def _display_experiments_table(
         self, experiments: list[tuple[int, str, str]]
     ) -> None:
-        """Display a table of existing experiments."""
+        """Display a table of existing experiments.
+
+        Args:
+            experiments: A list of tuples containing the experiment ID, name, and description.
+        """
         project_name = self._fetch_project_name()
         table = Table(
             title=f"Available Experiments for Project: {project_name}"
@@ -103,10 +143,17 @@ class ExperimentManager:
     def _create_new_experiment(
         self, name: str, description: str | None = None
     ) -> int:
-        """Create a new experiment and return its ID."""
+        """Create a new experiment and return its ID.
+
+        Args:
+            name: The name of the experiment.
+            description: The description of the experiment.
+
+        Returns:
+            The ID of the new experiment.
+        """
         if not self.state.project_id:
             raise ValueError("No project selected")
-
         self.db_conn.execute(
             """
             INSERT INTO experiments (project_id, experiment_name, description)
@@ -128,7 +175,14 @@ class ExperimentManager:
     def _handle_experiment_selection(
         self, experiments: list[tuple[int, str, str]]
     ) -> Optional[int]:
-        """Handle user input for experiment selection."""
+        """Handle user input for experiment selection.
+
+        Args:
+            experiments: A list of tuples containing the experiment ID, name, and description.
+
+        Returns:
+            The ID of the selected experiment.
+        """
         choice = Prompt.ask(
             "[cyan]Enter an experiment ID to select, or type a new experiment name to create it[/cyan]"
         )
@@ -155,7 +209,11 @@ class ExperimentManager:
 
 
 def select_or_create_experiment(db_conn: duckdb.DuckDBPyConnection) -> None:
-    """Legacy function that creates an ExperimentManager instance and calls its main method."""
+    """Function that instantiates an ExperimentManager instance and supplies data to state.
+
+    Args:
+        db_conn: The DuckDB connection.
+    """
     manager = ExperimentManager(db_conn)
     state = CellViewState.get_instance()
     state.experiment_id = manager.select_or_create_experiment()

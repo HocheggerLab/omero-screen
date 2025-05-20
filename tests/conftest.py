@@ -151,8 +151,7 @@ def ice_cleanup():
 
 @pytest.fixture(scope="session")
 def base_plate(omero_conn, request: pytest.FixtureRequest):
-    """
-    Session-scoped fixture that creates a plate with two wells (C2 and C5).
+    """Session-scoped fixture that creates a plate with two wells (C2 and C5).
     Each well is linked to the plate through a PlateAcquisition.
     Uses helper functions to create the plate, wells, and handle cleanup.
 

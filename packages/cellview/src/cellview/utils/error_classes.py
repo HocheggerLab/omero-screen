@@ -1,5 +1,5 @@
-"""
-Error classes for the CellView application.
+"""Error classes for the CellView application.
+
 These classes provide rich-formatted error messages and structured error handling.
 """
 
@@ -34,6 +34,7 @@ class CellViewError(Exception):
             message: The main error message
             context: Optional dictionary of contextual information
             show_traceback: Whether to show the traceback in rich format
+
         """
         super().__init__(message)
         self.message = message
@@ -94,6 +95,7 @@ class DataError(CellViewError):
         - Invalid data types
         - Duplicate entries
         - Parse errors
+
     """
 
 
@@ -104,6 +106,7 @@ class StateError(CellViewError):
         - Missing required state (DataFrame, IDs)
         - Invalid state transitions
         - Invalid operation for current state
+
     """
 
 
@@ -114,6 +117,7 @@ class DBError(CellViewError):
         - Connection failures
         - Constraint violations
         - Query errors
+
     """
 
 
@@ -124,6 +128,7 @@ class FileError(CellViewError):
         - File access issues
         - Missing files
         - Permission issues
+
     """
 
     def __init__(
@@ -138,6 +143,7 @@ class FileError(CellViewError):
             message: The main error message
             file_path: Path to the file that caused the error
             context: Optional additional context
+
         """
         context = context or {}
         context["file_path"] = str(file_path)

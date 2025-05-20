@@ -1,5 +1,4 @@
-"""
-This script is used to run the integration tests.
+"""This script is used to run the integration tests.
 It will create a plate, run the test, and then tear down the plate.
 The test can be chosen from the command line.
 The teardown can be chosen with the --teardown flag with yes or no as options.

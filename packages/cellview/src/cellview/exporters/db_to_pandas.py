@@ -1,3 +1,8 @@
+"""Module for exporting data from CellView to a pandas DataFrame.
+
+This module provides a class for exporting data from CellView to a pandas DataFrame.
+"""
+
 import duckdb
 import pandas as pd
 
@@ -5,11 +10,19 @@ from cellview.utils.ui import CellViewUI
 
 
 class PlateParser:
+    """Class for parsing plate data from the database into a pandas DataFrame.
+
+    Attributes:
+        conn: The active DuckDB connection.
+        ui: The CellView UI.
+    """
+
     def __init__(self, conn: duckdb.DuckDBPyConnection):
         """Initialize the PlateParser with an active database connection.
 
         Args:
             conn: An active DuckDB connection
+
         """
         self.conn = conn
         self.ui = CellViewUI()
@@ -26,6 +39,7 @@ class PlateParser:
             A tuple containing:
                 - A pandas DataFrame with condition variables as columns.
                 - A list of unique variable names.
+
         """
         query = """
         SELECT
@@ -159,6 +173,7 @@ class PlateParser:
 
         Returns:
             A tidy pandas DataFrame with all measurements and well conditions.
+
         """
         # Get condition variables as separate columns and variable names
         conditions_df, variable_names = self._get_condition_variables(plate_id)
@@ -187,10 +202,13 @@ def export_pandas_df(
 
     Args:
         plate_id: The ID of the plate to export.
-        db_path: Path to the DuckDB database file.
+        conn: The active DuckDB connection.
 
     Returns:
-        A pandas DataFrame with the plate data.
+        A tuple containing:
+            - A pandas DataFrame with the plate data.
+            - A list of unique variable names.
+
     """
     parser = PlateParser(conn)
     df, variable_names = parser.build_df(plate_id)

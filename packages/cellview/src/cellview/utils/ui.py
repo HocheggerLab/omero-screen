@@ -1,4 +1,4 @@
-# Place this in a new file: src/cellview/utils/ui.py
+"""Module for the CellViewUI class and related functions."""
 
 import logging
 from enum import Enum
@@ -16,6 +16,8 @@ JustifyMethod = Literal["default", "left", "center", "right", "full"]
 
 
 class Colors(Enum):
+    """Enum for colors used in the CellViewUI class."""
+
     # Primary colors
     PRIMARY = "white"
     SECONDARY = "cyan"
@@ -35,23 +37,43 @@ class Colors(Enum):
 
 
 class CellViewUI:
+    """Class for the CellViewUI class and related functions."""
+
     def __init__(
         self,
         console: Optional[Console] = None,
         enable_logging: bool = False,
         logger: Optional[logging.Logger] = None,
     ) -> None:
+        """Initialize the CellViewUI class.
+
+        Args:
+            console: The console to use.
+            enable_logging: Whether to enable logging.
+            logger: The logger to use.
+        """
         self.console = console or Console()
         self.enable_logging = enable_logging
         self.logger = logger
 
     def _log(self, message: str, level: str = "info") -> None:
+        """Log a message.
+
+        Args:
+            message: The message to log.
+            level: The level to log the message at.
+        """
         if self.enable_logging and self.logger:
             log_func = getattr(self.logger, level, self.logger.info)
             log_func(message)
 
     def section(self, title: str, subtitle: Optional[str] = None) -> None:
-        """Draw a formatted section header."""
+        """Draw a formatted section header.
+
+        Args:
+            title: The title of the section.
+            subtitle: The subtitle of the section.
+        """
         self.console.print()
         self.console.print(Rule(title, style=Colors.ACCENT.value))
         if subtitle:
@@ -62,48 +84,78 @@ class CellViewUI:
         self._log(f"[SECTION] {title} - {subtitle or ''}")
 
     def info(self, message: str) -> None:
-        """Print a standard information message."""
+        """Print a standard information message.
+
+        Args:
+            message: The message to print.
+        """
         self.console.print(
             f"[{Colors.INFO.value}]{message}[/{Colors.INFO.value}]"
         )
         self._log(message, "info")
 
     def success(self, message: str) -> None:
-        """Print a success message."""
+        """Print a success message.
+
+        Args:
+            message: The message to print.
+        """
         self.console.print(
             f"[{Colors.SUCCESS.value}]✔ {message}[/{Colors.SUCCESS.value}]"
         )
         self._log(message, "info")
 
     def error(self, message: str) -> None:
-        """Print an error message."""
+        """Print an error message.
+
+        Args:
+            message: The message to print.
+        """
         self.console.print(
             f"[{Colors.ERROR.value}]✖ {message}[/{Colors.ERROR.value}]"
         )
         self._log(message, "error")
 
     def warning(self, message: str) -> None:
-        """Print a warning message."""
+        """Print a warning message.
+
+        Args:
+            message: The message to print.
+        """
         self.console.print(
             f"[{Colors.WARNING.value}]⚠ {message}[/{Colors.WARNING.value}]"
         )
         self._log(message, "warning")
 
     def progress(self, message: str) -> None:
-        """Print a progress/status update."""
+        """Print a progress/status update.
+
+        Args:
+            message: The message to print.
+        """
         self.console.print(
             f"[{Colors.SECONDARY.value}]… {message}[/{Colors.SECONDARY.value}]"
         )
         self._log(message, "debug")
 
     def highlight(self, label: str, value: str) -> None:
-        """Highlight a key-value pair (for displaying status/info blocks)."""
+        """Highlight a key-value pair (for displaying status/info blocks).
+
+        Args:
+            label: The label to print.
+            value: The value to print.
+        """
         self.console.print(
             f"[{Colors.TITLE.value}]{label}:[/{Colors.TITLE.value}] {value}"
         )
 
     def header(self, title: str, subtitle: Optional[str] = None) -> None:
-        """Display an application section header"""
+        """Display an application section header.
+
+        Args:
+            title: The title of the section.
+            subtitle: The subtitle of the section.
+        """
         self.console.print()
         self.console.print(Rule(title, style=Colors.ACCENT.value))
         if subtitle:
@@ -114,7 +166,12 @@ class CellViewUI:
     def notification_panel(
         self, message: str | Text, level: str = "info"
     ) -> None:
-        """Display a notification panel with appropriate styling"""
+        """Display a notification panel with appropriate styling.
+
+        Args:
+            message: The message to print.
+            level: The level of the message.
+        """
         if level == "success":
             style, border_style = Colors.SUCCESS.value, Colors.SUCCESS.value
             title = "Success"
@@ -149,16 +206,21 @@ def display_table(
     highlight_style: str = Colors.SECONDARY.value,
     show_lines: bool = True,
 ) -> None:
-    """
-    Print a SQL query result from DuckDB as a styled Rich table.
+    """Print a SQL query result from DuckDB as a styled Rich table.
 
-    Parameters:
-    - db_path: path to the DuckDB file
-    - query: SQL query string
-    - style_header: style for headers (default: 'bold green')
-    - style_columns: list of column indices (0-based) to style
-    - highlight_style: Rich style string to apply to those columns
-    - show_lines: whether to show horizontal lines in the table
+    Args:
+        con: The DuckDB connection.
+        title: The title of the table.
+        rows: The rows of the table.
+        columns: The columns of the table.
+        subtitle: The subtitle of the table.
+        style_header: The style for headers.
+        style_columns: The list of column indices to style.
+        highlight_style: The Rich style string to apply to those columns.
+        show_lines: Whether to show horizontal lines in the table.
+
+    Raises:
+        ValueError: If the query does not return any description.
     """
     section_header(title, subtitle)
     # result = con.execute(query).fetchall()
@@ -189,7 +251,12 @@ def display_table(
 
 
 def section_header(title: str, subtitle: Optional[str] = None) -> None:
-    """Display a stylized section header with title and optional subtitle."""
+    """Display a stylized section header with title and optional subtitle.
+
+    Args:
+        title: The title of the section.
+        subtitle: The subtitle of the section.
+    """
     console = Console()
 
     console.print()  # blank line above
@@ -204,122 +271,3 @@ def section_header(title: str, subtitle: Optional[str] = None) -> None:
         )
 
     console.print()  # blank line below
-
-
-# class CellViewUI:
-#     def __init__(self) -> None:
-#         self.console: Console = Console()
-
-#     def header(self, title: str, subtitle: Optional[str] = None) -> None:
-#         """Display an application section header"""
-#         self.console.print()
-#         self.console.print(
-#             f"[{Colors.HEADER.value}]{title}[/{Colors.HEADER.value}]"
-#         )
-#         if subtitle:
-#             self.console.print(
-#                 f"[{Colors.SUBTLE.value}]{subtitle}[/{Colors.SUBTLE.value}]"
-#             )
-#         self.console.print()
-
-#     def success(self, message: str) -> None:
-#         """Display a success message"""
-#         self.console.print(
-#             f"[{Colors.SUCCESS.value}]✓ {message}[/{Colors.SUCCESS.value}]"
-#         )
-
-#     def info(self, message: str) -> None:
-#         """Display an informational message"""
-#         self.console.print(
-#             f"[{Colors.INFO.value}]ℹ {message}[/{Colors.INFO.value}]"
-#         )
-
-#     def warning(self, message: str) -> None:
-#         """Display a warning message"""
-#         self.console.print(
-#             f"[{Colors.WARNING.value}]⚠ {message}[/{Colors.WARNING.value}]"
-#         )
-
-#     def error(self, message: str) -> None:
-#         """Display a simple error message (not for exceptions)"""
-#         self.console.print(
-#             f"[{Colors.ERROR.value}]✗ {message}[/{Colors.ERROR.value}]"
-#         )
-
-#     def progress(self, message: str) -> None:
-#         """Display a progress indicator"""
-#         self.console.print(
-#             f"[{Colors.SECONDARY.value}]→ {message}...[/{Colors.SECONDARY.value}]"
-#         )
-
-#     def create_table(self, title, columns):
-#         """Create a standardized Rich table"""
-#         table = Table(title=title, title_style=Colors.TITLE.value)
-
-#         for col_name, col_type in columns:
-#             # Map data types to corresponding styles
-#             if col_type == "id":
-#                 style = Colors.ID.value
-#             elif col_type == "text":
-#                 style = Colors.TEXT.value
-#             elif col_type == "numeric":
-#                 style = Colors.NUMERIC.value
-#             elif col_type == "date":
-#                 style = Colors.DATE.value
-#             else:
-#                 style = Colors.INFO.value
-
-#             table.add_column(col_name, style=style)
-
-#         return table
-
-#     def create_standard_table(
-#         self,
-#         title: str,
-#         column_names: List[str],
-#         justify_list: Optional[List[JustifyMethod]] = None,
-#     ) -> Table:
-#         """Create a simplified table with purple headers and white text for data.
-
-#         Args:
-#             title: The title of the table
-#             column_names: List of column header names
-#             justify_list: Optional list of justification values ('left', 'right', 'center', etc.)
-#                           If None, all columns will use default justification
-
-#         Returns:
-#             Table: A Rich Table object ready for adding rows with white text
-#         """
-#         table = Table(title=title, title_style="bold magenta")
-
-#         for i, name in enumerate(column_names):
-#             justify: Optional[JustifyMethod] = None
-#             if justify_list and i < len(justify_list):
-#                 justify = justify_list[i]
-
-#             # Only pass justify if it's not None
-#             if justify:
-#                 table.add_column(name, style="bold magenta", justify=justify)
-#             else:
-#                 table.add_column(name, style="bold magenta")
-
-#         return table
-
-#     def notification_panel(self, message, level="info"):
-#         """Display a notification panel with appropriate styling"""
-#         if level == "success":
-#             style, border_style = Colors.SUCCESS.value, Colors.SUCCESS.value
-#             title = "Success"
-#         elif level == "warning":
-#             style, border_style = Colors.WARNING.value, Colors.WARNING.value
-#             title = "Warning"
-#         elif level == "error":
-#             style, border_style = Colors.ERROR.value, Colors.ERROR.value
-#             title = "Error"
-#         else:  # info
-#             style, border_style = Colors.INFO.value, Colors.PRIMARY.value
-#             title = "Information"
-
-#         text = Text(message, style=style)
-#         panel = Panel(text, title=title, border_style=border_style)
-#         self.console.print(panel)

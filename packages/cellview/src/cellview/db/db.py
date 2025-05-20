@@ -1,3 +1,8 @@
+"""Module for the CellView database.
+
+This module provides a class for managing the CellView database.
+"""
+
 import os
 from pathlib import Path
 
@@ -12,7 +17,20 @@ logger = get_logger(__name__)
 
 
 class CellViewDB:
+    """Class for managing the CellView database.
+
+    Attributes:
+        db_path: The path to the database file
+        conn: The database connection
+        logger: The logger
+    """
+
     def __init__(self, db_path: Path | None = None) -> None:
+        """Initialize the CellViewDB instance.
+
+        Args:
+            db_path: The path to the database file
+        """
         self.ui = CellViewUI()
         if db_path is None:
             if os.getenv("TEST_DATABASE") == "true":
@@ -30,7 +48,11 @@ class CellViewDB:
         self.logger = get_logger(__name__)
 
     def _is_initialized(self) -> bool:
-        """Check if the database has been initialized with tables."""
+        """Check if the database has been initialized with tables.
+
+        Returns:
+            True if the database has been initialized, False otherwise
+        """
         if not self.conn:
             return False
 
@@ -44,7 +66,11 @@ class CellViewDB:
             return False
 
     def connect(self) -> duckdb.DuckDBPyConnection:
-        """Connect to the database and initialize schema if needed."""
+        """Connect to the database and initialize schema if needed.
+
+        Returns:
+            The database connection
+        """
         if self.conn:
             return self.conn
         try:
@@ -77,7 +103,11 @@ class CellViewDB:
             ) from err
 
     def create_tables(self) -> None:
-        """Create the database schema."""
+        """Create the database schema.
+
+        Raises:
+            DBError: If the database schema creation fails
+        """
         try:
             conn = self.connect()
 

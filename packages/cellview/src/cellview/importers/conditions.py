@@ -1,3 +1,5 @@
+"""Module for parsing well level experimental conditions from omero screen csv files."""
+
 import logging
 
 import duckdb
@@ -14,7 +16,22 @@ SUCCESS_STYLE = "bold green"
 
 
 class ConditionManager:
+    """Class for parsing well level experimental conditions from omero screen csv files.
+
+    Attributes:
+        db_conn: The DuckDB connection.
+        state: The CellView state.
+        logger: The logger.
+        console: The console.
+        per_well_constant_cols: The columns that are constant per well.
+    """
+
     def __init__(self, db_conn: duckdb.DuckDBPyConnection) -> None:
+        """Initialize the ConditionManager.
+
+        Args:
+            db_conn: The DuckDB connection.
+        """
         self.db_conn: duckdb.DuckDBPyConnection = db_conn
         self.state: CellViewState = CellViewState.get_instance()
         self.logger: logging.Logger = get_logger(__name__)
@@ -31,7 +48,11 @@ class ConditionManager:
     def populate_condition_variables(
         self, condition_id_map: dict[str, int]
     ) -> None:
-        """Populate the condition_variables table with per-well information."""
+        """Populate the condition_variables table with per-well information.
+
+        Args:
+            condition_id_map: The map of well to condition_id.
+        """
         assert isinstance(self.state.df, pd.DataFrame)
         variable_cols = self._identify_variable_columns()
         self._populate_condition_variables_table(
@@ -40,7 +61,11 @@ class ConditionManager:
 
     def _check_antibodies(self) -> None:
         """Check if channels are annotated as wavelengths.
+
         If they are, the df needs to contain corresponding antibody columns.
+
+        Raises:
+            DataError: If the antibody column is missing.
         """
         assert isinstance(self.state.df, pd.DataFrame)
         # Create a list of channel values and their positions
@@ -82,7 +107,14 @@ class ConditionManager:
     def _populate_conditions_table(
         self, conditions_dict: dict[str, dict[str, str | int | float]]
     ) -> None:
-        """Populate the conditions table with per-well information."""
+        """Populate the conditions table with per-well information.
+
+        Args:
+            conditions_dict: The dictionary of conditions.
+
+        Raises:
+            DataError: If the conditions table cannot be populated.
+        """
         try:
             # Get the current repeat_id from state
             repeat_id = self.state.repeat_id
@@ -133,7 +165,11 @@ class ConditionManager:
             ) from e
 
     def define_per_well_conditions(self) -> dict[str, int]:
-        """Define per-well conditions and populate the database."""
+        """Define per-well conditions and populate the database.
+
+        Returns:
+            The dictionary of conditions.
+        """
         assert isinstance(self.state.df, pd.DataFrame)
         self._check_antibodies()
         raw_dict = (
@@ -162,7 +198,11 @@ class ConditionManager:
         return condition_id_map
 
     def _identify_variable_columns(self) -> list[str]:
-        """Identify variable columns in the dataframe."""
+        """Identify variable columns in the dataframe.
+
+        Returns:
+            The list of variable columns.
+        """
         assert isinstance(self.state.df, pd.DataFrame)
 
         # Find columns that are constant per well
@@ -194,7 +234,12 @@ class ConditionManager:
     def _populate_condition_variables_table(
         self, variable_cols: list[str], condition_id_map: dict[str, int]
     ) -> None:
-        """Populate the condition_variables table with per-well information."""
+        """Populate the condition_variables table with per-well information.
+
+        Args:
+            variable_cols: The list of variable columns.
+            condition_id_map: The map of well to condition_id.
+        """
         try:
             assert isinstance(self.state.df, pd.DataFrame)
             # Create a dictionary where keys are wells and values are dictionaries of variable values
@@ -317,8 +362,11 @@ class ConditionManager:
 
 
 def import_conditions(db_conn: duckdb.DuckDBPyConnection) -> None:
-    """Import conditions from the dataframe."""
+    """Function that instantiates a ConditionManager and populates the conditions table.
+
+    Args:
+        db_conn: The DuckDB connection.
+    """
     condition_manager = ConditionManager(db_conn)
     condition_id_map = condition_manager.define_per_well_conditions()
     condition_manager.populate_condition_variables(condition_id_map)
-    # condition_manager.display_well_conditions()

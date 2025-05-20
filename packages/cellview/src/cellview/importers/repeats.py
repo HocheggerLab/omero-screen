@@ -1,3 +1,8 @@
+"""Module for importing repeat data into CellView.
+
+This module provides a class for managing repeat selection and creation operations.
+"""
+
 import io
 from typing import cast
 
@@ -13,9 +18,21 @@ logger = get_logger(__name__)
 
 
 class RepeatsManager:
-    """Manages repeat selection and creation operations."""
+    """Manages repeat selection and creation operations.
+
+    Attributes:
+        db_conn: The DuckDB connection.
+        console: The console.
+        state: The CellView state.
+        logger: The logger.
+    """
 
     def __init__(self, db_conn: duckdb.DuckDBPyConnection) -> None:
+        """Initialize the RepeatsManager.
+
+        Args:
+            db_conn: The DuckDB connection.
+        """
         self.db_conn: duckdb.DuckDBPyConnection = db_conn
         self.console = Console()
         self.state = CellViewState.get_instance()
@@ -58,7 +75,11 @@ class RepeatsManager:
         self,
         repeats: list[tuple[int, int, int, str, str, str, str, str, str]],
     ) -> None:
-        """Check if the current plate_id already exists in the database and raise an error if it does."""
+        """Check if the current plate_id already exists in the database and raise an error if it does.
+
+        Args:
+            repeats: A list of tuples containing the repeat ID, experiment ID, plate ID, date, lab member, channel 0, channel 1, channel 2, and channel 3.
+        """
         for (
             _,
             _,
@@ -76,7 +97,11 @@ class RepeatsManager:
                 )
 
     def _fetch_experiment_name(self) -> str:
-        """Fetch the name of the current experiment."""
+        """Fetch the name of the current experiment.
+
+        Returns:
+            The name of the experiment.
+        """
         if not self.state.experiment_id:
             raise StateError(
                 "No experiment selected",
@@ -107,7 +132,11 @@ class RepeatsManager:
             ) from err
 
     def _create_new_repeat(self) -> int:
-        """Create a new repeat and return its ID."""
+        """Create a new repeat and return its ID.
+
+        Returns:
+            The ID of the new repeat.
+        """
         if not self.state.experiment_id:
             raise StateError(
                 "No experiment selected",
@@ -154,7 +183,11 @@ class RepeatsManager:
             ) from err
 
     def create_new_repeat(self) -> None:
-        """Create a new repeat and return its ID."""
+        """Create a new repeat and return its ID.
+
+        Raises:
+            DataError: If the plate ID is not provided.
+        """
         if not self.state.plate_id:
             if self.state.df is not None:
                 buf = io.StringIO()
@@ -177,6 +210,10 @@ class RepeatsManager:
 
 
 def create_new_repeat(db_conn: duckdb.DuckDBPyConnection) -> None:
-    """Legacy function that creates a RepeatsManager instance and calls its main method."""
+    """Function that creates a RepeatsManager instance and calls its main method.
+
+    Args:
+        db_conn: The DuckDB connection.
+    """
     manager = RepeatsManager(db_conn)
     manager.create_new_repeat()

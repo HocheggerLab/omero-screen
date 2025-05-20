@@ -1,3 +1,15 @@
+"""Module for handling OMERO connection lifecycle management.
+
+This module provides a decorator that automatically establishes a connection to an OMERO server using
+credentials from environment variables, passes the connection object to the decorated function,
+and ensures proper cleanup by closing the connection afterward, even if an exception occurs.
+
+Available functions:
+
+- omero_connect(func): Decorator that handles OMERO connection lifecycle management.
+
+"""
+
 import functools
 import os
 from collections.abc import Callable
@@ -14,8 +26,7 @@ SUCCESS_STYLE = "bold green"
 
 
 def omero_connect(func: Callable[..., Any]) -> Callable[..., Any]:
-    """
-    Decorator that handles OMERO connection lifecycle management.
+    """Decorator that handles OMERO connection lifecycle management.
 
     This decorator automatically establishes a connection to an OMERO server using
     credentials from environment variables, passes the connection object to the
@@ -32,6 +43,7 @@ def omero_connect(func: Callable[..., Any]) -> Callable[..., Any]:
     Raises:
         ConnectionError: If connection to the OMERO server fails or if there are credential issues
         Exception: Other exceptions from the decorated function are passed through
+
     """
 
     @functools.wraps(func)

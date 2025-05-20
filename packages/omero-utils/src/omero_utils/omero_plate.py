@@ -1,3 +1,17 @@
+"""Module for handling OMERO plate creation and management.
+
+This module provides functions for creating and managing OMERO plates,
+including basic plate creation, well creation, and cleanup.
+
+Available functions:
+
+- create_basic_plate(conn, name="Test Plate"): Create a basic plate with a plate acquisition.
+- create_well_with_image(conn, plate, plate_acq, position): Create a well at the specified position with a basic image.
+- base_plate(omero_conn, well_positions=None): Session-scoped fixture that creates a plate with two wells (C2 and C5).
+- cleanup_plate(conn, plate): Delete a plate and all its contents.
+
+"""
+
 from typing import Optional
 
 from omero.gateway import BlitzGateway
@@ -16,6 +30,7 @@ def create_basic_plate(
 
     Returns:
         tuple: (plate, plate_acquisition)
+
     """
     update_service = conn.getUpdateService()
 
@@ -48,6 +63,7 @@ def create_well_with_image(
 
     Returns:
         The saved well object
+
     """
     update_service = conn.getUpdateService()
 
@@ -80,13 +96,18 @@ def create_well_with_image(
 def base_plate(
     omero_conn: BlitzGateway, well_positions: Optional[list[str]] = None
 ) -> PlateI:
-    """
-    Session-scoped fixture that creates a plate with two wells (C2 and C5).
+    """Session-scoped fixture that creates a plate with two wells (C2 and C5).
+
     Each well is linked to the plate through a PlateAcquisition.
     Uses helper functions to create the plate, wells, and handle cleanup.
 
+    Args:
+        omero_conn: The OMERO connection object
+        well_positions: A list of well positions to create on the plate
+
     Returns:
         The created plate object
+
     """
     if well_positions is None:
         well_positions = ["C2", "C5"]
@@ -109,6 +130,7 @@ def cleanup_plate(conn: BlitzGateway, plate: PlateI) -> None:
     Args:
         conn: The BlitzGateway connection
         plate: The plate to delete
+
     """
     try:
         # Use the deleteObjects method which is part of the BlitzGateway API

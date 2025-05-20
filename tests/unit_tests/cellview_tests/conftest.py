@@ -18,8 +18,7 @@ def mock_console():
 
 @pytest.fixture(scope="function")
 def db(mock_console):
-    """
-    Provides a fresh database instance with schema initialized.
+    """Provides a fresh database instance with schema initialized.
     Using function scope to ensure complete isolation between tests.
     """
     db = CellViewDB(db_path=Path(":memory:"))
@@ -30,8 +29,7 @@ def db(mock_console):
 
 @pytest.fixture(scope="function")
 def uninitialized_db(mock_console):
-    """
-    Provides a fresh database instance without connecting or initializing schema.
+    """Provides a fresh database instance without connecting or initializing schema.
     Useful for testing connection initialization.
     """
     db = CellViewDB(db_path=Path(":memory:"))
@@ -41,8 +39,7 @@ def uninitialized_db(mock_console):
 
 @pytest.fixture(autouse=True)
 def setup_fresh_db(db):
-    """
-    Automatically ensures each test starts with a fresh schema.
+    """Automatically ensures each test starts with a fresh schema.
     This fixture runs automatically for each test.
     """
     db.create_tables()

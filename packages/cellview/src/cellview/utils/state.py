@@ -1,3 +1,10 @@
+"""Module to manage data state in the CellView application.
+
+This module maintains the state of imported data, including dataframes,
+various IDs and foreign keys that need to be tracked across different operations
+in the application.
+"""
+
 import argparse
 import re
 from dataclasses import dataclass
@@ -24,8 +31,27 @@ logger = get_logger(__name__)
 class CellViewState:
     """Singleton state manager for CellView application.
 
-    This class maintains the state of various IDs and foreign keys
-    that need to be tracked across different operations in the application.
+    This class maintains the state of data that need to be tracked
+    across different operations in the application.
+
+    Attributes:
+        ui: The user interface object.
+        csv_path: The path to the CSV file for import.
+        df: The dataframe loaded from the imported CSV file.
+        plate_id: The omero plate ID asscoaited with the imported CSV file.
+        project_name: The project name.
+        experiment_name: The experiment name.
+        project_id: The project ID.
+        experiment_id: The experiment ID.
+        repeat_id: The repeat ID.
+        condition_id_map: The condition ID map.
+        lab_member: The lab member.
+        date: The date.
+        channel_0: The first channel.
+        channel_1: The second channel.
+        channel_2: The third channel.
+        channel_3: The fourth channel.
+        db_conn: The database connection.
     """
 
     # Class attributes with default values
@@ -148,7 +174,16 @@ class CellViewState:
         plate_id: int,
         conn: Optional[BlitzGateway] = None,
     ) -> tuple[pd.DataFrame, Any, Any, Any]:
-        """Parse the Omero data for the given plate ID."""
+        """Parse the Omero data for the given plate ID.
+
+        Args:
+            plate_id: The omero screen plate ID.
+            conn: The omero connection.
+
+        Returns:
+            A tuple containing the dataframe, project name, experiment name, and date.
+
+        """
         if conn is None:
             raise StateError(
                 "No database connection available",
@@ -168,7 +203,17 @@ class CellViewState:
         self,
         plate: PlateWrapper,
     ) -> pd.DataFrame:
-        """Get the plate dataframe from the Omero database."""
+        """Get the plate dataframe from the Omero database.
+
+        Args:
+            plate: The omero plate object.
+
+        Returns:
+            A dataframe containing the data from the plate csv file.
+
+        Raises:
+            DataError: If no CSV annotations are found for the plate.
+        """
         csv_annotations = get_file_attachments(plate, "csv")
         if not csv_annotations:
             raise DataError(
@@ -214,6 +259,17 @@ class CellViewState:
         self,
         plate: PlateWrapper,
     ) -> tuple[Any, Any, Any]:
+        """Get the project info for the given plate.
+
+        Args:
+            plate: The omero plate object.
+
+        Returns:
+            A tuple containing the project name, experiment name, and date.
+
+        Raises:
+            DataError: If the plate does not have a parent screen.
+        """
         screen = plate.getParent()
         if not screen:
             raise DataError(
@@ -239,7 +295,14 @@ class CellViewState:
     # -----------------methods to get data from CSV-----------------
 
     def get_plate_id(self) -> int:
-        """Get the plate ID from the loaded DataFrame."""
+        """Get the plate ID from the loaded DataFrame.
+
+        Returns:
+            The plate ID.
+
+        Raises:
+            StateError: If no dataframe is loaded.
+        """
         if self.df is None:
             raise StateError(
                 "Cannot get plate ID: no DataFrame loaded",
@@ -275,6 +338,7 @@ class CellViewState:
 
     def extract_date_from_filename(self, filename: str) -> Optional[str]:
         """Extract a date in YYMMDD format from a filename and convert to YYYY-MM-DD.
+
         If no date is found, returns the current date in YYYY-MM-DD format.
 
         Args:
@@ -282,6 +346,7 @@ class CellViewState:
 
         Returns:
             The date string in YYYY-MM-DD format
+
         """
         # Pattern looks for 6 digits where first two start with 2 (for 20s decade)
         pattern = r"2[0-9][01][0-9][0-3][0-9]"
@@ -298,7 +363,14 @@ class CellViewState:
         return f"20{yy}-{mm}-{dd}"  # Assuming dates are in the 2000s
 
     def get_channels(self) -> list[str]:
-        """Get the channels from the CSV file."""
+        """Get the channels from the CSV file.
+
+        Returns:
+            A list of channel names.
+
+        Raises:
+            StateError: If no dataframe is loaded.
+        """
         if self.df is None:
             return []
         pattern = re.compile(
@@ -316,7 +388,11 @@ class CellViewState:
         return markers
 
     def get_state_dict(self) -> dict[str, Any]:
-        """Get a dictionary representation of the current state."""
+        """Get a dictionary representation of the current state.
+
+        Returns:
+            A dictionary representation of the current state.
+        """
         return {
             "csv_path": str(self.csv_path) if self.csv_path else None,
             "df_loaded": self.df is not None,
@@ -329,7 +405,11 @@ class CellViewState:
     # -----------------methods to prepare for measurements import-----------------
 
     def prepare_for_measurements(self) -> None:
-        """Prepare the dataframe for measurements import using the methods below."""
+        """Prepare the dataframe for measurements import using the methods below.
+
+        Raises:
+            StateError: If no dataframe is loaded.
+        """
         meas_cols = self._find_measurement_cols()
         self.df = self._trim_df(meas_cols)
         channels = self._get_channel_list()
@@ -340,7 +420,14 @@ class CellViewState:
         self._set_classifier()
 
     def _find_measurement_cols(self) -> list[str]:
-        """Find columns that are likely to be measurements by identifying columns that vary within images."""
+        """Find columns that are likely to be measurements by identifying columns that vary within images.
+
+        Returns:
+            A list of measurement columns.
+
+        Raises:
+            StateError: If no dataframe is loaded.
+        """
         assert isinstance(self.df, pd.DataFrame)
 
         # Count unique values per image for each column
@@ -364,6 +451,15 @@ class CellViewState:
 
         Keeps measurement columns along with well, image_id, and timepoint columns
         for proper data identification. Explicitly excludes plate_id.
+
+        Args:
+            measurement_cols: A list of measurement columns.
+
+        Returns:
+            A trimmed dataframe.
+
+        Raises:
+            StateError: If no dataframe is loaded.
         """
         if self.df is None:
             raise StateError("No dataframe loaded in state")
@@ -402,6 +498,7 @@ class CellViewState:
 
         Returns:
             list[str]: List of unique channel names found in measurements in order of appearance
+
         """
         if self.df is None:
             return []
@@ -422,7 +519,11 @@ class CellViewState:
         return channels
 
     def _validate_channels(self, channels: list[str]) -> None:
-        """Compare the channels extracted from the df with the channels in the state."""
+        """Compare the channels extracted from the df with the channels in the state.
+
+        Raises:
+            StateError: If the channels do not match.
+        """
         # Get non-None state channels
         state_channels = [
             ch
@@ -451,9 +552,15 @@ class CellViewState:
             )
 
     def _rename_channel_columns(self, channels: list[str]) -> None:
-        """
-        Renames non-DAPI channel names in DataFrame columns to ch1, ch2, etc.
+        """Renames non-DAPI channel names in DataFrame columns to ch1, ch2, etc.
+
         DAPI is left unchanged.
+
+        Args:
+            channels: A list of channel names.
+
+        Raises:
+            StateError: If the channels do not match.
         """
         assert isinstance(self.df, pd.DataFrame)
         non_dapi_channels: list[str] = [ch for ch in channels if ch != "DAPI"]
@@ -484,6 +591,9 @@ class CellViewState:
         - Always add -nuc to centroid-0 and centroid-1
         - If centroid-0_x or centroid-1_x exist, rename to centroid-0-cell and centroid-1-cell
         - Drop any centroid-*_y columns
+
+        Raises:
+            StateError: If the centroid columns do not exist.
         """
         assert isinstance(self.df, pd.DataFrame)
 
@@ -518,6 +628,9 @@ class CellViewState:
         Converts numeric columns to appropriate types:
         - For columns with median > 10 and all values in 0-65535 range, converts to uint16
         - For other numeric columns, converts to float32
+
+        Raises:
+            StateError: If the dataframe is not loaded.
         """
         assert isinstance(self.df, pd.DataFrame)
 
@@ -542,7 +655,11 @@ class CellViewState:
                 self.df[col] = self.df[col].astype("float32")
 
     def _set_classifier(self) -> None:
-        """Set the classifier field in the repeats table based on the first column name."""
+        """Set the classifier field in the repeats table based on the first column name.
+
+        Raises:
+            StateError: If the repeat_id or database connection is not available.
+        """
         assert isinstance(self.df, pd.DataFrame)
 
         # Check if we have a repeat_id stored

@@ -1,4 +1,16 @@
-"""Module for visualising the quality control data."""
+"""This module provides functions for visualizing quality control data.
+
+It includes utilities to plot the median intensity values for each image position and channel,
+with error bars representing the standard deviation, to help assess the consistency and quality of image data.
+
+Typical usage example:
+    import pandas as pd
+    from omero_screen.quality_control import quality_control_fig
+
+    # df should be a pandas DataFrame with columns: 'position', 'channel', 'intensity_median'
+    fig = quality_control_fig(df)
+    fig.show()
+"""
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -6,9 +18,11 @@ from matplotlib.figure import Figure
 
 
 def quality_control_fig(df: pd.DataFrame) -> Figure:
-    """Plot the quality control data for each image
+    """Plot the quality control data for each image position and channel.
+
     Args:
         df: Quality control data
+
     Returns:
         Quality control figure
     """

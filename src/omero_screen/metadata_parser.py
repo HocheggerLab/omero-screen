@@ -1,11 +1,14 @@
-"""Module for parsing metadata from OMERO.
-First the plate is scanned for an Excel file attachment.
-If found, the metadata is parsed from the Excel file.
-Channel data is added to the plate and Well data is added
-as key value annotations to each well.
-plate data and metadata are then stored in a dataclass.
-If no Excel file is found, the metadata is parsed from the plate data.
-If metadata is not found, the program exits with an error.
+"""Parse and manage metadata for OMERO plates.
+
+This module provides functionality to extract and validate metadata for OMERO plates.
+It first checks for an attached Excel file on the plate. If found, metadata is parsed
+from the Excel file; otherwise, it is extracted from existing plate annotations.
+
+- Channel data is added to the plate as annotations.
+- Well data is added as key-value annotations to each well.
+- All parsed metadata is stored in a dataclass.
+
+If no valid metadata is found, the program exits with an error.
 """
 
 from collections import Counter
@@ -44,11 +47,27 @@ SUCCESS_STYLE = "bold cyan"
 
 # --------------------Metadata Parser--------------------
 class MetadataParser:
-    """Class to parse channel and well metadata from a plate.
-    and store the data in a dataclass.
+    """Parses and manages channel and well metadata for an OMERO plate.
+
+    This class extracts metadata from an OMERO plate, either from an attached Excel file or from existing plate annotations. It validates, normalizes, and stores channel and well metadata, and provides methods to annotate the plate and its wells accordingly.
+
+    Attributes:
+        conn (BlitzGateway): The OMERO connection object.
+        plate_id (int): The ID of the plate to parse.
+        plate (PlateWrapper): The OMERO plate object.
+        excel_file (bool): Whether an Excel file was found and used for metadata.
+        channel_data (dict[str, str]): Channel metadata, mapping channel names to indices.
+        well_data (dict[str, Any]): Well metadata, mapping annotation keys to lists of values.
+        pixel_size (float): Pixel size in micrometers, determined from the first image.
     """
 
     def __init__(self, conn: BlitzGateway, plate_id: int):
+        """Initializes the MetadataParser with an OMERO connection and plate ID.
+
+        Args:
+            conn (BlitzGateway): The OMERO connection object.
+            plate_id (int): The ID of the plate to parse metadata from.
+        """
         self.conn: BlitzGateway = conn
         self.plate_id: int = plate_id
         self.plate: PlateWrapper = self._check_plate()
@@ -58,13 +77,13 @@ class MetadataParser:
         self.pixel_size: float = 0
 
     def _check_plate(self) -> PlateWrapper:
-        """Get the plate, validating it exists first.
+        """Retrieve and validate the OMERO plate object for the given plate ID.
 
         Returns:
-            PlateWrapper: The validated plate object
+            PlateWrapper: The validated OMERO plate object corresponding to the provided plate ID.
 
         Raises:
-            PlateNotFoundError: If the plate with the given ID doesn't exist
+            PlateNotFoundError: If no plate with the specified ID exists in OMERO.
         """
         plate = self.conn.getObject("Plate", self.plate_id)
         if plate is None:
@@ -78,7 +97,15 @@ class MetadataParser:
         return plate
 
     def manage_metadata(self) -> None:
-        """Manage the metadata for the plate."""
+        """Parse, validate, and apply metadata for the OMERO plate.
+
+        This method orchestrates the metadata management workflow:
+        - Parses metadata from an attached Excel file or from plate annotations.
+        - Validates the extracted metadata.
+        - Retrieves pixel size information from the first image.
+        - If an Excel file was used, applies channel and well annotations to the plate and deletes the Excel file.
+        - Logs the outcome of the metadata management process.
+        """
         self._parse_metadata()  # checks for excel file or well data and pulls channel and well data into self.channel_data and self.well_data dictionaries
         self._validate_metadata()
         self._get_pixel_size()
@@ -101,15 +128,16 @@ class MetadataParser:
             )
 
     def _parse_metadata(self) -> None:
-        """Parse the metadata from the plate.
+        """Extract channel and well metadata from the OMERO plate.
 
-        Returns:
-            PlateMetadata: A dataclass containing the parsed metadata
+        Attempts to parse metadata from an attached Excel file. If no Excel file is found,
+        falls back to extracting metadata from existing plate and well annotations.
+        Populates self.channel_data and self.well_data with the parsed results.
 
         Raises:
-            ExcelParsingError: If there are issues parsing the Excel file
-            ChannelAnnotationError: If there are issues with channel annotations
-            WellAnnotationError: If there are issues with well annotations
+            ExcelParsingError: If there are issues parsing the Excel file.
+            ChannelAnnotationError: If there are issues with channel annotations.
+            WellAnnotationError: If there are issues with well annotations.
         """
         assert self.plate
         if file_annotations := self._check_excel_file():
@@ -142,7 +170,14 @@ class MetadataParser:
                     ) from e
 
     def _check_excel_file(self) -> FileAnnotationWrapper | None:
-        """Check if the plate has an Excel file attachment."""
+        """Check for an Excel file attachment on the OMERO plate.
+
+        Returns:
+            FileAnnotationWrapper | None: The Excel file annotation if exactly one is found; otherwise, None.
+
+        Raises:
+            ExcelParsingError: If multiple Excel file attachments are found on the plate.
+        """
         # Plate is already validated in __init__
         file_annotations = get_file_attachments(self.plate, ".xlsx")
         if file_annotations and len(file_annotations) == 1:
@@ -158,8 +193,22 @@ class MetadataParser:
     def _load_data_from_excel(
         self, file_annotations: FileAnnotationWrapper
     ) -> tuple[dict[str, str], dict[str, Any]]:
-        """Load the data from the Excel file."""
+        """Parse channel and well metadata from an attached Excel file.
 
+        Reads the provided Excel file annotation and extracts channel and well metadata
+        from the expected sheets ('Sheet1' for channels, 'Sheet2' for wells).
+
+        Args:
+            file_annotations (FileAnnotationWrapper): The Excel file annotation to parse.
+
+        Returns:
+            tuple[dict[str, str], dict[str, Any]]: A tuple containing:
+                - channel_data: Dictionary mapping channel names to indices.
+                - well_data: Dictionary mapping annotation keys to lists of values.
+
+        Raises:
+            ExcelParsingError: If the Excel file format is invalid or missing required sheets.
+        """
         meta_data = parse_excel_data(file_annotations)
         if not meta_data or list(meta_data.keys()) != ["Sheet1", "Sheet2"]:
             raise ExcelParsingError(
@@ -182,11 +231,26 @@ class MetadataParser:
         return channel_data, well_data
 
     def _add_channel_annotations(self, channel_data: dict[str, str]) -> None:
-        """Delete preexisting annotations and add the channel annotations to the plate."""
+        """Replace existing channel annotations on the plate with new channel data.
+
+        Deletes any preexisting map annotations from the plate and adds the provided
+        channel metadata as new map annotations.
+
+        Args:
+            channel_data (dict[str, str]): Dictionary mapping channel names to indices to be added as annotations.
+        """
         delete_map_annotations(self.conn, self.plate)
         add_map_annotations(self.conn, self.plate, channel_data)
 
     def _add_well_annotations(self, well_data: dict[str, Any]) -> None:
+        """Replace existing well annotations with new metadata for each well in the plate.
+
+        Iterates over all wells in the plate, deletes any preexisting map annotations,
+        and adds new annotations based on the provided well metadata.
+
+        Args:
+            well_data (dict[str, Any]): Dictionary mapping annotation keys to lists of values for each well.
+        """
         for well in self.plate.listChildren():
             delete_map_annotations(self.conn, well)
             well_name = well.getWellPos()
@@ -200,13 +264,16 @@ class MetadataParser:
             add_map_annotations(self.conn, well, well_meta_data)
 
     def _parse_channel_annotations(self) -> dict[str, str]:
-        """Parse the channel annotations from the plate.
+        """Extract channel annotations from the plate and return as a dictionary.
+
+        Parses map annotations from the plate and returns a dictionary mapping channel names
+        to their indices. Raises an error if no channel annotations are found.
 
         Returns:
-            dict[str, str]: Dictionary mapping channel names to their indices
+            dict[str, str]: Dictionary mapping channel names to their indices.
 
         Raises:
-            ChannelAnnotationError: If no channel annotations are found or if values are not integers
+            ChannelAnnotationError: If no channel annotations are found on the plate.
         """
         annotations: dict[str, str] = parse_annotations(self.plate)
         if len(annotations):
@@ -217,14 +284,17 @@ class MetadataParser:
             )
 
     def _parse_well_annotations(self) -> dict[str, Any]:
-        """Parse the well annotations from the plate.
+        """Extract well annotations from the plate and return as a dictionary.
 
-        Returns a dictionary where each key is an annotation key and the value
-        is a list of values for that key across all wells. Also includes a 'Well'
-        key with the well positions.
+        Iterates over all wells in the plate, collecting map annotations for each well.
+        Returns a dictionary where each key is an annotation key and the value is a list
+        of values for that key across all wells. Also includes a 'Well' key with the well positions.
 
         Returns:
-            dict[str, Any]: Dictionary with annotation keys mapping to lists of values
+            dict[str, Any]: Dictionary mapping annotation keys to lists of values for each well, including a 'Well' key for well positions.
+
+        Raises:
+            WellAnnotationError: If any well is missing annotations.
         """
         well_data: dict[str, list[Any]] = {"Well": []}
 
@@ -249,15 +319,15 @@ class MetadataParser:
     def _create_two_column_table(
         self, title: str, col1_name: str, col2_name: str
     ) -> Table:
-        """Create a table with two columns.
+        """Create and return a Rich table with two columns and a title.
 
         Args:
-            title: The title of the table
-            col1_name: Name of the first column
-            col2_name: Name of the second column
+            title (str): The title of the table.
+            col1_name (str): Name of the first column.
+            col2_name (str): Name of the second column.
 
         Returns:
-            Table: A Rich table with two columns
+            Table: A Rich Table object with the specified columns and title.
         """
         table = Table(title=title)
         table.add_column(col1_name, style="cyan")
@@ -265,7 +335,11 @@ class MetadataParser:
         return table
 
     def _display_metadata(self) -> None:
-        """Display the metadata in a nicely formatted way using Rich."""
+        """Display parsed channel and well metadata using Rich tables.
+
+        Formats and prints channel and well metadata in visually appealing tables using the Rich library.
+        Channel data is shown as a two-column table, and well data is summarized with unique values and counts.
+        """
         # Create and populate channel table
         channel_table = self._create_two_column_table(
             "Channel Information", "Channel Name", "Index"
@@ -297,9 +371,14 @@ class MetadataParser:
         )
 
     def _validate_metadata(self) -> None:
-        """Validate the metadata.
+        """Validate the structure and content of parsed metadata.
 
-        Collects all validation errors and reports them together.
+        Runs a series of validation checks on channel and well metadata, collecting all errors.
+        If any validation errors are found, raises a MetadataValidationError with details.
+        Also displays the metadata if validation passes.
+
+        Raises:
+            MetadataValidationError: If any validation errors are detected in the metadata.
         """
         errors = []
 
@@ -331,10 +410,13 @@ class MetadataParser:
         self._display_metadata()
 
     def _validate_metadata_structure(self) -> list[str]:
-        """Validate the basic structure and types of the metadata.
+        """Check the basic structure and types of the parsed metadata.
+
+        Validates that channel and well metadata are present and have the correct types.
+        Returns a list of error messages for any structural issues found.
 
         Returns:
-            list[str]: List of error messages, empty if no errors
+            list[str]: A list of error messages. The list is empty if no errors are found.
         """
         errors = []
         if not self.channel_data:
@@ -354,11 +436,13 @@ class MetadataParser:
         return errors
 
     def _validate_channel_data(self) -> list[str]:
-        """Make sure the channel data contain a nuclei channel
-        and normalize the channel names to DAPI.
+        """Validate and normalize channel metadata, ensuring a nuclei channel is present.
+
+        Checks that the channel data includes at least one nuclei channel (DAPI, Hoechst, DNA, or RFP),
+        and normalizes the channel name to 'DAPI' if found. Returns a list of error messages for any issues.
 
         Returns:
-            list[str]: List of error messages, empty if no errors
+            list[str]: A list of error messages. The list is empty if no errors are found.
         """
         errors = []
         nuclei_channels = {"dapi", "hoechst", "dna", "rfp"}
@@ -380,42 +464,6 @@ class MetadataParser:
             )
         else:
             self.channel_data = channel_data_normalized
-
-        return errors
-
-    def _validate_well_positions(self) -> list[str]:
-        """Validate that the well positions in the metadata match the actual wells in the plate.
-
-        Returns:
-            list[str]: List of error messages, empty if no errors
-        """
-        errors = []
-        # Get actual well positions from the plate
-        actual_wells = [
-            well.getWellPos() for well in self.plate.listChildren()
-        ]
-
-        # Get well positions from metadata
-        metadata_wells = self.well_data["Well"]
-
-        # Check for missing and extra wells
-        s1 = set(actual_wells)
-        s2 = set(metadata_wells)
-        if s1 != s2:
-            missing_wells = s1 - s2
-            extra_wells = s2 - s1
-            if len(missing_wells):
-                errors.append(
-                    f"Missing wells in metadata: {', '.join(sorted(missing_wells))}"
-                )
-            if len(extra_wells):
-                errors.append(
-                    f"Extra wells in metadata: {', '.join(sorted(extra_wells))}"
-                )
-
-        # Here the plate wells and the metadata have the same well position names.
-        # The order does not matter as the dictionary list under 'Well' is used to index
-        # into the well values for each key (see method: well_conditions)
 
         return errors
 
@@ -460,14 +508,56 @@ class MetadataParser:
 
         return errors
 
-    def _get_first_image(self) -> Any:
-        """Get the first image from the first well of the plate.
+    def _validate_well_positions(self) -> list[str]:
+        """Check that well positions in metadata match the actual wells in the plate.
+
+        Compares the well positions listed in the metadata with those present in the plate.
+        Returns a list of error messages for any missing or extra wells.
 
         Returns:
-            Any: The first image from the first well
+            list[str]: A list of error messages. The list is empty if no errors are found.
+        """
+        errors = []
+        # Get actual well positions from the plate
+        actual_wells = [
+            well.getWellPos() for well in self.plate.listChildren()
+        ]
+
+        # Get well positions from metadata
+        metadata_wells = self.well_data["Well"]
+
+        # Check for missing and extra wells
+        s1 = set(actual_wells)
+        s2 = set(metadata_wells)
+        if s1 != s2:
+            missing_wells = s1 - s2
+            extra_wells = s2 - s1
+            if len(missing_wells):
+                errors.append(
+                    f"Missing wells in metadata: {', '.join(sorted(missing_wells))}"
+                )
+            if len(extra_wells):
+                errors.append(
+                    f"Extra wells in metadata: {', '.join(sorted(extra_wells))}"
+                )
+
+        # Here the plate wells and the metadata have the same well position names.
+        # The order does not matter as the dictionary list under 'Well' is used to index
+        # into the well values for each key (see method: well_conditions)
+
+        return errors
+
+    def _get_first_image(self) -> Any:
+        """Retrieve the first image from the first well of the plate.
+
+        Accesses the first well and its first well sample to obtain the associated image.
+        Raises an error if no wells or images are found.
+
+        Returns:
+            Any: The first image object from the first well.
 
         Raises:
-            MetadataValidationError: If no wells or images are found
+            MetadataValidationError: If no wells or images are found in the plate.
         """
         # Get the first well
         first_well = next(self.plate.listChildren(), None)
@@ -489,9 +579,13 @@ class MetadataParser:
             )
 
     def _get_pixel_size(self) -> None:
-        """Get the pixel size in micrometers from the first image of the first well.
+        """Determine the pixel size in micrometers from the first image of the first well.
+
+        Retrieves the pixel size (X and Y) from the primary pixels of the first image.
+        Validates that both pixel sizes are present and equal. Sets self.pixel_size to the value.
+
         Raises:
-            MetadataValidationError: If no images are found or if pixel size cannot be determined
+            MetadataValidationError: If pixel size information is missing, inconsistent, or cannot be determined.
         """
         first_image = self._get_first_image()
 
@@ -529,11 +623,11 @@ class MetadataParser:
 
     def well_conditions(self, well_id: str) -> dict[str, Any]:
         """Get the conditions for the specified well position (e.g. A1).
+
         See: WellWrapper.getWellPos().
 
         Returns:
             dict[str, Any]: Dictionary with annotations
         """
         idx = self.well_data["Well"].index(well_id)
-        d = {k: v[idx] for k, v in self.well_data.items() if k != "Well"}
-        return d
+        return {k: v[idx] for k, v in self.well_data.items() if k != "Well"}

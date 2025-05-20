@@ -1,3 +1,8 @@
+"""Module for displaying data from the CellView database.
+
+This module provides functions for displaying data from the CellView database.
+"""
+
 from collections import defaultdict
 from typing import Any
 
@@ -9,6 +14,12 @@ from cellview.utils.ui import Colors, display_table, ui
 def plate_project_query(
     plate_id: int, conn: duckdb.DuckDBPyConnection
 ) -> None:
+    """Display the project information for a given plate.
+
+    Args:
+        plate_id: The ID of the plate
+        conn: The database connection
+    """
     query = """
   SELECT
     r.plate_id,
@@ -48,6 +59,12 @@ def plate_project_query(
 
 
 def conditions_query(plate_id: int, con: duckdb.DuckDBPyConnection) -> None:
+    """Display the conditions for a given plate.
+
+    Args:
+        plate_id: The ID of the plate
+        con: The database connection
+    """
     query = """
     SELECT
         c.well,
@@ -143,6 +160,13 @@ def conditions_query(plate_id: int, con: duckdb.DuckDBPyConnection) -> None:
 def measurements_query(
     plate_id: int, con: duckdb.DuckDBPyConnection, limit: int = 5
 ) -> None:
+    """Display the measurements for a given plate.
+
+    Args:
+        plate_id: The ID of the plate
+        con: The database connection
+        limit: The number of measurements to display
+    """
     query = """
     SELECT m.*
     FROM repeats r
@@ -202,12 +226,23 @@ def measurements_query(
 def display_plate_summary(
     plate_id: int, con: duckdb.DuckDBPyConnection
 ) -> None:
+    """Display the summary of a given plate.
+
+    Args:
+        plate_id: The ID of the plate
+        con: The database connection
+    """
     plate_project_query(plate_id, con)
     conditions_query(plate_id, con)
     measurements_query(plate_id, con)
 
 
 def display_projects(con: duckdb.DuckDBPyConnection) -> None:
+    """Display the projects in the database.
+
+    Args:
+        con: The database connection
+    """
     query = """
     SELECT
         p.project_name,

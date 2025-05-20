@@ -1,3 +1,8 @@
+"""Module for loading data from a plate or a CSV file into the database.
+
+This module provides a function to load data from a plate or a CSV file into the database.
+"""
+
 import argparse
 
 import duckdb
@@ -11,7 +16,16 @@ from cellview.utils.state import CellViewState
 
 def cellview_load_data(*plate_ids: int) -> tuple[pd.DataFrame, list[str]]:
     # sourcery skip: hoist-statement-from-if, inline-immediately-returned-variable
-    """Load data from a plate or a CSV file into the database."""
+    """Load data from a plate or a CSV file into the database.
+
+    This function loads data from a plate or a CSV file into the database.
+
+    Args:
+        *plate_ids: The plate IDs to load data from.
+
+    Returns:
+        A tuple containing a pandas DataFrame and a list of variable names.
+    """
     db = CellViewDB()
     df_list = []
     for plate_id in plate_ids:

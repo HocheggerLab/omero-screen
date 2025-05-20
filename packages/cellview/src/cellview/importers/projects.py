@@ -1,3 +1,9 @@
+"""Module for importing projects into CellView.
+
+This module provides a class for managing the top level project
+table.
+"""
+
 from typing import Literal, Optional, cast
 
 import duckdb
@@ -17,9 +23,21 @@ logger = get_logger(__name__)
 
 
 class ProjectManager:
-    """Manages project selection and creation operations."""
+    """Manages project selection and creation operations.
+
+    Attributes:
+        db_conn: The DuckDB connection.
+        console: The console.
+        state: The CellView state.
+        ui: The CellView UI.
+    """
 
     def __init__(self, db_conn: duckdb.DuckDBPyConnection) -> None:
+        """Initialize the ProjectManager.
+
+        Args:
+            db_conn: The DuckDB connection.
+        """
         self.db_conn: duckdb.DuckDBPyConnection = db_conn
         self.console = Console()
         self.logger = get_logger(__name__)
@@ -27,7 +45,12 @@ class ProjectManager:
         self.ui = CellViewUI()
 
     def select_or_create_project(self) -> None:
-        """Main method to select an existing project or create a new one."""
+        """Main method to select an existing project or create a new one.
+
+        Raises:
+            DBError: If the plate already exists.
+            StateError: If the project name is invalid.
+        """
         assert self.state.plate_id is not None
         self._check_plate_exists(self.state.plate_id)
         if self.state.project_name:
@@ -53,7 +76,14 @@ class ProjectManager:
             self.state.project_id = self._create_new_project(name)
 
     def _parse_projectid_from_name(self, name: str) -> int:
-        """Parse the project ID from the project name."""
+        """Parse the project ID from the project name.
+
+        Args:
+            name: The name of the project.
+
+        Returns:
+            The ID of the project.
+        """
         if result := self.db_conn.execute(
             "SELECT project_id FROM projects WHERE project_name = ?",
             [name],
@@ -68,7 +98,15 @@ class ProjectManager:
     def _create_table(
         self, title: str, columns: list[tuple[str, JustifyMethod]]
     ) -> Table:
-        """Create a rich table with consistent formatting."""
+        """Create a rich table with consistent formatting.
+
+        Args:
+            title: The title of the table.
+            columns: The columns of the table.
+
+        Returns:
+            The table.
+        """
         table = Table(title=title)
         for col_name, justify in columns:
             table.add_column(col_name, justify=justify)
@@ -76,7 +114,11 @@ class ProjectManager:
 
     def _check_plate_exists(self, plate_id: int) -> None:
         """Check if a plate exists in the database.
+
         If it does, display information about where it's stored and raise an error.
+
+        Args:
+            plate_id: The ID of the plate.
         """
         if result := self.db_conn.execute(
             """
@@ -109,7 +151,11 @@ class ProjectManager:
             )
 
     def _fetch_existing_projects(self) -> list[tuple[int, str, str]]:
-        """Fetch all existing projects from the database."""
+        """Fetch all existing projects from the database.
+
+        Returns:
+            A list of tuples containing the project ID, name, and description.
+        """
         try:
             result = self.db_conn.execute(
                 "SELECT project_id, project_name, description FROM projects ORDER BY project_id"
@@ -124,7 +170,11 @@ class ProjectManager:
     def _display_projects_table(
         self, projects: list[tuple[int, str, str]]
     ) -> None:
-        """Display a table of existing projects."""
+        """Display a table of existing projects.
+
+        Args:
+            projects: A list of tuples containing the project ID, name, and description.
+        """
         table = self._create_table(
             "Available Projects",
             [
@@ -140,13 +190,24 @@ class ProjectManager:
         self._add_projects_to_table(table)
 
     def _add_projects_to_table(self, table: Table) -> None:
-        """Add project data rows to the table."""
+        """Add project data rows to the table.
+
+        Args:
+            table: The table to add the project data to.
+        """
         self.console.print()
         self.console.print(table)
         self.console.print()
 
     def _create_new_project(self, name: str) -> int:
-        """Create a new project and return its ID."""
+        """Create a new project and return its ID.
+
+        Args:
+            name: The name of the project.
+
+        Returns:
+            The ID of the new project.
+        """
         try:
             if existing := self.db_conn.execute(
                 "SELECT project_id FROM projects WHERE project_name = ?",
@@ -190,7 +251,14 @@ class ProjectManager:
     def _handle_project_selection(
         self, projects: list[tuple[int, str, str]]
     ) -> Optional[int]:
-        """Handle user input for project selection."""
+        """Handle user input for project selection.
+
+        Args:
+            projects: A list of tuples containing the project ID, name, and description.
+
+        Returns:
+            The ID of the selected project.
+        """
         choice = Prompt.ask(
             "[cyan]Enter a project ID to select, or type a new project name to create it[/cyan]"
         )
@@ -220,6 +288,10 @@ class ProjectManager:
 
 
 def select_or_create_project(db_conn: duckdb.DuckDBPyConnection) -> None:
-    """Legacy function that creates a ProjectManager instance and calls its main method."""
+    """Function that creates a ProjectManager instance and calls its main method.
+
+    Args:
+        db_conn: The DuckDB connection.
+    """
     manager = ProjectManager(db_conn)
     manager.select_or_create_project()

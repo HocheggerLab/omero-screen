@@ -1,3 +1,10 @@
+"""Module for importing data into CellView.
+
+This module combined all parsers and importers into a single function.
+Data are imported either via a path to a csv file or via a file that has been
+attached to an omero plate
+"""
+
 from typing import Optional
 
 import duckdb
@@ -22,7 +29,16 @@ def import_data(
     state: CellViewState,
     conn: Optional[duckdb.DuckDBPyConnection] = None,
 ) -> int:
-    """Import data from CSV files into the database."""
+    """Import data from CSV files into the database.
+
+    Args:
+        db: The CellView database.
+        state: The CellView state.
+        conn: The DuckDB connection.
+
+    Returns:
+        The exit code.
+    """
     if conn is None:
         conn = db.connect()
     try:

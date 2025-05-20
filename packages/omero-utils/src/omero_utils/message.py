@@ -1,5 +1,17 @@
-"""Module for handling shared message and error management for OMERO utilities."""
-# ruff: noqa: I001  # Disable import sorting for this file
+"""Module for handling shared message and error management for OMERO utilities.
+
+This module provides a shared console instance for logging and printing messages,
+as well as a base class for all OMERO-related errors.
+
+Available functions:
+
+- log_connection_success(style, message, logger_instance): Log and print a success message.
+- log_success(style, message, logger_instance): Log and print a success message.
+- OmeroError: Base class for all OMERO-related errors.
+- OmeroConnectionError: Raised when there are issues connecting to OMERO.
+- PlateNotFoundError: Raised when a plate is not found.
+- PlateDataError: Raised when there is an error in the plate data.
+"""
 
 import logging
 import sys
@@ -7,10 +19,9 @@ import traceback
 from datetime import datetime
 from typing import Optional
 
+from omero_screen.config import get_logger
 from rich.console import Console
 from rich.panel import Panel
-
-from omero_screen.config import get_logger
 
 # Initialize logger with the module's name
 logger = get_logger(__name__)
@@ -51,6 +62,13 @@ class OmeroError(Exception):
         logger_instance: logging.Logger,
         original_error: Optional[Exception] = None,
     ):
+        """Initialize the OmeroError class.
+
+        Args:
+            message: The error message.
+            logger_instance: The logger instance.
+            original_error: The original error.
+        """
         super().__init__(message)
         self.logger = logger_instance
         self.original_error = original_error
@@ -96,6 +114,13 @@ class OmeroConnectionError(OmeroError):
         logger_instance: logging.Logger,
         original_error: Optional[Exception] = None,
     ):
+        """Initialize the OmeroConnectionError class.
+
+        Args:
+            message: The error message.
+            logger_instance: The logger instance.
+            original_error: The original error.
+        """
         super().__init__(message, logger_instance, original_error)
 
 
@@ -108,6 +133,13 @@ class PlateNotFoundError(OmeroError):
         logger_instance: logging.Logger,
         original_error: Optional[Exception] = None,
     ):
+        """Initialize the PlateNotFoundError class.
+
+        Args:
+            message: The error message.
+            logger_instance: The logger instance.
+            original_error: The original error.
+        """
         super().__init__(message, logger_instance, original_error)
 
 
@@ -120,6 +152,13 @@ class PlateDataError(OmeroError):
         logger_instance: logging.Logger,
         original_error: Optional[Exception] = None,
     ):
+        """Initialize the PlateDataError class.
+
+        Args:
+            message: The error message.
+            logger_instance: The logger instance.
+            original_error: The original error.
+        """
         super().__init__(message, logger_instance, original_error)
 
 
@@ -132,6 +171,13 @@ class ExcelParsingError(OmeroError):
         logger_instance: logging.Logger,
         original_error: Optional[Exception] = None,
     ):
+        """Initialize the ExcelParsingError class.
+
+        Args:
+            message: The error message.
+            logger_instance: The logger instance.
+            original_error: The original error.
+        """
         super().__init__(message, logger_instance, original_error)
 
 
@@ -144,6 +190,13 @@ class ChannelAnnotationError(OmeroError):
         logger_instance: logging.Logger,
         original_error: Optional[Exception] = None,
     ):
+        """Initialize the ChannelAnnotationError class.
+
+        Args:
+            message: The error message.
+            logger_instance: The logger instance.
+            original_error: The original error.
+        """
         super().__init__(message, logger_instance, original_error)
 
 
@@ -156,6 +209,13 @@ class WellAnnotationError(OmeroError):
         logger_instance: logging.Logger,
         original_error: Optional[Exception] = None,
     ):
+        """Initialize the WellAnnotationError class.
+
+        Args:
+            message: The error message.
+            logger_instance: The logger instance.
+            original_error: The original error.
+        """
         super().__init__(message, logger_instance, original_error)
 
 
@@ -168,6 +228,13 @@ class MetadataValidationError(OmeroError):
         logger_instance: logging.Logger,
         original_error: Optional[Exception] = None,
     ):
+        """Initialize the MetadataValidationError class.
+
+        Args:
+            message: The error message.
+            logger_instance: The logger instance.
+            original_error: The original error.
+        """
         super().__init__(message, logger_instance, original_error)
 
 

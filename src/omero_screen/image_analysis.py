@@ -1,5 +1,24 @@
-"""Module to segment an image with nucleus and cell channels and collect properties
-on the labelled regions."""
+"""Module for image segmentation and feature extraction in high-content screening workflows using OMERO.
+
+This module provides tools to segment microscopy images with nucleus and cell channels, apply flatfield correction,
+and extract quantitative properties from labelled regions. It is designed to work with OMERO server objects and
+supports multi-channel, multi-timepoint images. The segmentation leverages Cellpose models, and extracted features
+are organized into pandas DataFrames for downstream analysis.
+
+Main Components:
+----------------
+- Image: Handles image correction, segmentation (nucleus, cell, cytoplasm), and mask management. Integrates with OMERO objects and supports flatfield correction.
+- ImageProperties: Extracts region properties (area, intensity, etc.) from segmented masks, merges features across channels, and compiles experiment metadata.
+
+Key Features:
+-------------
+- Flatfield correction for each channel using provided masks.
+- Segmentation using Cellpose models, with model selection based on cell line and magnification.
+- Automatic mask upload and retrieval from OMERO datasets.
+- Extraction of region properties (area, intensity, etc.) for nuclei, cells, and cytoplasm.
+- Data organization into pandas DataFrames, including experiment and well metadata.
+- Quality control metrics for each image channel.
+"""
 
 import logging
 from typing import Any
@@ -25,9 +44,28 @@ logger = logging.getLogger("omero-screen")
 
 
 class Image:
-    """
-    Generates the corrected images and segmentation masks.
-    Stores corrected images as dict, and n_mask, c_mask and cyto_mask arrays.
+    """Generates corrected images and segmentation masks for microscopy data.
+
+    This class handles flatfield correction, segmentation of nuclei and cell channels using Cellpose models, and management of segmentation masks.
+    It stores corrected images and segmentation results for downstream analysis.
+
+    Attributes:
+        img_dict (dict[str, np.ndarray]): Dictionary mapping channel names to flatfield-corrected image arrays.
+        n_mask (np.ndarray): Segmentation mask for nuclei.
+        c_mask (np.ndarray or None): Segmentation mask for cells, if available.
+        cyto_mask (np.ndarray or None): Segmentation mask for cytoplasm, if available.
+        nuc_diameter (int): Estimated diameter of nuclei, used for segmentation.
+        channels (dict): Channel metadata from the MetadataParser.
+        well_pos (tuple): Well position in the plate.
+        cell_line (str): Cell line name for the current well.
+
+    Args:
+        conn (BlitzGateway): OMERO server connection.
+        well (WellWrapper): OMERO WellWrapper object for the current well.
+        image_obj (ImageWrapper): OMERO ImageWrapper object for the image.
+        metadata (MetadataParser): Metadata parser with channel and plate information.
+        dataset_id (int): OMERO dataset ID.
+        flatfield_dict (dict[str, np.ndarray]): Flatfield correction masks for each channel.
     """
 
     def __init__(
@@ -39,6 +77,16 @@ class Image:
         dataset_id: int,
         flatfield_dict: dict[str, npt.NDArray[Any]],
     ):
+        """Initializes the Image object for segmentation and correction.
+
+        Args:
+            conn (BlitzGateway): OMERO server connection.
+            well (WellWrapper): OMERO WellWrapper object for the current well.
+            image_obj (ImageWrapper): OMERO ImageWrapper object for the image.
+            metadata (MetadataParser): Metadata parser with channel and plate information.
+            dataset_id (int): OMERO dataset ID.
+            flatfield_dict (dict[str, np.ndarray]): Flatfield correction masks for each channel.
+        """
         self._conn = conn
         self._well = well
         self.omero_image = image_obj
@@ -54,6 +102,7 @@ class Image:
         self.n_mask, self.c_mask, self.cyto_mask = self._segmentation()
 
     def _get_metadata(self) -> None:
+        """Extracts channel metadata, well position, and cell line information from the metadata parser."""
         self.channels = self._meta_data.channel_data
         self.well_pos = self._well.getWellPos()
         self.cell_line = self._meta_data.well_conditions(self.well_pos)[
@@ -61,7 +110,11 @@ class Image:
         ]
 
     def _get_img_dict(self) -> dict[str, npt.NDArray[Any]]:
-        """divide image_array with flatfield correction mask and return dictionary "channel_name": corrected image"""
+        """Divide image_array with flatfield correction mask and return dictionary "channel_name": corrected image.
+
+        Returns:
+            dict[str, npt.NDArray[Any]]: Dictionary mapping channel names to flatfield-corrected image arrays.
+        """
         img_dict = {}
         image_id = self.omero_image.getId()
         if self.omero_image.getSizeZ() > 1:
@@ -87,6 +140,17 @@ class Image:
     ) -> tuple[
         npt.NDArray[Any], npt.NDArray[Any] | None, npt.NDArray[Any] | None
     ]:
+        """Performs segmentation of nuclei and cell channels, retrieving or generating masks as needed.
+
+        This method checks if segmentation masks already exist in the OMERO dataset. If not, it performs segmentation using Cellpose models,
+        generates the required masks, and uploads them to OMERO. It supports both nucleus-only and nucleus+cell segmentation workflows.
+
+        Returns:
+            tuple:
+                n_mask (np.ndarray): Segmentation mask for nuclei.
+                c_mask (np.ndarray or None): Segmentation mask for cells, if available.
+                cyto_mask (np.ndarray or None): Segmentation mask for cytoplasm, if available.
+        """
         # check if masks already exist
         image_name = f"{self.omero_image.getId()}_segmentation"
         dataset = self._conn.getObject("Dataset", self.dataset_id)
@@ -124,12 +188,28 @@ class Image:
     def _get_cyto(
         self, n_mask: npt.NDArray[Any], c_mask: npt.NDArray[Any]
     ) -> npt.NDArray[Any] | None:
-        """Substract nuclei mask from cell mask to get cytoplasm mask"""
+        """Substract nuclei mask from cell mask to get cytoplasm mask.
+
+        Args:
+            n_mask (npt.NDArray[Any]): Nuclei segmentation mask.
+            c_mask (npt.NDArray[Any]): Cell segmentation mask.
+
+        Returns:
+            npt.NDArray[Any] | None: Cytoplasm segmentation mask.
+        """
         overlap = (c_mask != 0) * (n_mask != 0)
         cyto_mask_binary = (c_mask != 0) * (overlap == 0)
         return c_mask * cyto_mask_binary  # type: ignore[no-any-return]
 
     def _n_segmentation(self) -> npt.NDArray[Any]:
+        """Performs nuclei segmentation using Cellpose models.
+
+        This method selects the appropriate Cellpose model based on the cell line and magnification,
+        and performs segmentation on the DAPI channel.
+
+        Returns:
+            npt.NDArray[Any]: Segmentation mask for nuclei.
+        """
         if "40X" in self.cell_line.upper():
             self.nuc_diameter = 100
         elif "20X" in self.cell_line.upper():
@@ -172,7 +252,13 @@ class Image:
         return segmentation_masks
 
     def _c_segmentation(self) -> npt.NDArray[Any]:
-        """Perform cellpose segmentation using cell mask"""
+        """Perform cellpose segmentation using cell mask.
+
+        This method uses the CellposeModel to segment the cell channel.
+
+        Returns:
+            npt.NDArray[Any]: Segmentation mask for cells.
+        """
         segmentation_model = models.CellposeModel(
             gpu=getenv_as_bool("GPU", default=torch.cuda.is_available()),
             model_type=self._get_models(),
@@ -214,6 +300,7 @@ class Image:
 
     def _get_models(self) -> str:
         """Matches well with cell line and gets model_path for cell line from plate_layout.
+
         Returns:
             path to model
         """
@@ -232,7 +319,14 @@ class Image:
             return default_config.MODEL_DICT["U2OS"]
 
     def _compact_mask(self, mask: npt.NDArray[Any]) -> npt.NDArray[Any]:
-        """Compact the uint32 datatype to the smallest required to store all mask IDs"""
+        """Compact the uint32 datatype to the smallest required to store all mask IDs.
+
+        Args:
+            mask (npt.NDArray[Any]): Segmentation mask.
+
+        Returns:
+            npt.NDArray[Any]: Compact segmentation mask.
+        """
         m = mask.max()
         if m < 2**8:
             return mask.astype(np.uint8)
@@ -242,9 +336,21 @@ class Image:
 
 
 class ImageProperties:
-    """
-    Extracts feature measurements from segmented nuclei, cells and cytoplasm
-    and generates combined data frames.
+    """Extracts feature measurements from segmented nuclei, cells and cytoplasm and generates combined data frames.
+
+    This class processes segmented masks to extract quantitative features from nuclei, cells, and cytoplasm.
+    It combines measurements from different channels and generates a comprehensive DataFrame for downstream analysis.
+
+    Attributes:
+        image_df (pd.DataFrame): DataFrame containing feature measurements for all regions and channels.
+        quality_df (pd.DataFrame): DataFrame containing quality control metrics for each channel.
+        plate_name (str): Name of the plate.
+        _cond_dict (dict): Experimental conditions for the current well.
+        _well (WellWrapper): OMERO WellWrapper object for the current well.
+        _well_id (int): OMERO Well ID.
+        _image (Image): Image object containing segmentation masks and corrected images.
+        _meta_data (MetadataParser): Metadata parser with channel and plate information.
+        _overlay (pd.DataFrame): DataFrame linking nuclear IDs with cell IDs.
     """
 
     def __init__(
@@ -255,6 +361,15 @@ class ImageProperties:
         featurelist: list[str] = default_config.FEATURELIST,
         image_classifier: None | list[ImageClassifier] = None,
     ):
+        """Initializes the ImageProperties object for feature extraction and data aggregation.
+
+        Args:
+            well (WellWrapper): OMERO WellWrapper object for the current well.
+            image_obj (Image): Image object containing segmentation masks and corrected images.
+            meta_data (MetadataParser): Metadata parser with channel and plate information.
+            featurelist (list[str], optional): List of features to extract from segmented regions. Defaults to default_config.FEATURELIST.
+            image_classifier (optional): Optional image classifier(s) for additional processing. Defaults to None.
+        """
         self._well = well
         self._well_id = well.getId()
         self._image = image_obj
@@ -277,7 +392,13 @@ class ImageProperties:
                     )
 
     def _overlay_mask(self) -> pd.DataFrame:
-        """Links nuclear IDs with cell IDs"""
+        """Links nuclear IDs with cell IDs.
+
+        This method creates a DataFrame linking nuclear IDs with cell IDs.
+
+        Returns:
+            pd.DataFrame: DataFrame linking nuclear IDs with cell IDs.
+        """
         if self._image.c_mask is None:
             return pd.DataFrame({"label": self._image.n_mask.flatten()})
 
@@ -295,6 +416,13 @@ class ImageProperties:
         )
 
     def _combine_channels(self, featurelist: list[str]) -> pd.DataFrame:
+        """Combines feature measurements from different channels into a single DataFrame.
+
+        This method processes the segmented masks for each channel and combines the measurements into a single DataFrame.
+
+        Returns:
+            pd.DataFrame: DataFrame containing feature measurements for all regions and channels.
+        """
         channel_data = [
             self._channel_data(channel, featurelist)
             for channel in self._meta_data.channel_data
@@ -323,6 +451,13 @@ class ImageProperties:
     def _channel_data(
         self, channel: str, featurelist: list[str]
     ) -> pd.DataFrame:
+        """Processes the segmented masks for a specific channel and combines the measurements into a single DataFrame.
+
+        This method extracts quantitative features from the segmented masks for a given channel and combines them with the overlay DataFrame.
+
+        Returns:
+            pd.DataFrame: DataFrame containing feature measurements for the given channel.
+        """
         nucleus_data = self._get_properties(
             self._image.n_mask, channel, "nucleus", featurelist
         )
@@ -364,7 +499,13 @@ class ImageProperties:
         segment: str,
         featurelist: list[str],
     ) -> pd.DataFrame:
-        """Measure selected features for each segmented cell in given channel"""
+        """Measure selected features for each segmented cell in given channel.
+
+        This method measures the selected features for each segmented cell in the given channel.
+
+        Returns:
+            pd.DataFrame: DataFrame containing feature measurements for the given channel.
+        """
         timepoints = self._image.img_dict[channel].shape[0]
         # squeezing [t]z
         label = np.squeeze(segmentation_mask).astype(np.int64)
@@ -406,6 +547,13 @@ class ImageProperties:
     def _edit_properties(
         channel: str, segment: str, featurelist: list[str]
     ) -> dict[str, str]:
+        """Edit the properties of the features.
+
+        This method edits the properties of the features to be used in the DataFrame.
+
+        Returns:
+            dict[str, str]: Dictionary mapping feature names to their edited names.
+        """
         feature_dict = {
             feature: f"{feature}_{channel}_{segment}"
             for feature in featurelist[2:]
@@ -418,7 +566,13 @@ class ImageProperties:
     def _outer_merge(
         self, df1: pd.DataFrame, df2: pd.DataFrame, on: list[str] | str
     ) -> pd.DataFrame:
-        """Perform an outer-join merge on the two pandas dataframes. NA rows are removed and integer columns are restored."""
+        """Perform an outer-join merge on the two pandas dataframes. NA rows are removed and integer columns are restored.
+
+        This method performs an outer-join merge on the two pandas DataFrames and removes NA rows.
+
+        Returns:
+            pd.DataFrame: Merged DataFrame with integer columns restored.
+        """
         df = pd.merge(df1, df2, how="outer", on=on).dropna(axis=0, how="any")
         # Outer-join merge will create columns that support NA. This changes int columns to float.
         # After dropping all the NA rows restore the int columns.
@@ -437,7 +591,13 @@ class ImageProperties:
     def _set_quality_df(
         self, channel: str, corr_img: npt.NDArray[Any]
     ) -> pd.DataFrame:
-        """generates df for image quality control saving the median intensity of the image"""
+        """Generates df for image quality control saving the median intensity of the image.
+
+        This method generates a DataFrame for image quality control by saving the median intensity of the image.
+
+        Returns:
+            pd.DataFrame: DataFrame containing quality control metrics for the given channel.
+        """
         return pd.DataFrame(
             {
                 "experiment": [self.plate_name],
@@ -450,7 +610,13 @@ class ImageProperties:
         )
 
     def _concat_quality_df(self) -> pd.DataFrame:
-        """Concatenate quality dfs for all channels in _corr_img_dict"""
+        """Concatenate quality dfs for all channels in _corr_img_dict.
+
+        This method concatenates the quality DataFrames for all channels in the _corr_img_dict.
+
+        Returns:
+            pd.DataFrame: Concatenated DataFrame containing quality control metrics for all channels.
+        """
         df_list = [
             self._set_quality_df(channel, image)
             for channel, image in self._image.img_dict.items()

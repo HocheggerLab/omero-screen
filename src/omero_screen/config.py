@@ -1,3 +1,21 @@
+"""Configuration and Logging Utilities for OMERO Screen.
+
+This module provides utilities for loading, validating, and managing environment variables and logging configuration for the OMERO Screen application. It supports loading environment variables from .env files (with environment-specific overrides), validates required variables, and configures logging with support for both console and file handlers.
+
+Main Functions:
+    - set_env_vars: Loads environment variables from .env files or the environment.
+    - validate_env_vars: Ensures required environment variables are set.
+    - get_logger: Returns a configured logger instance for the application/module.
+    - configure_log_handler: Helper to configure logging handlers.
+    - getenv_as_bool: Utility to parse boolean environment variables.
+
+Attributes:
+    project_root (Path): The root directory of the project, used to locate .env files.
+
+Raises:
+    OSError: If required configuration is missing or environment variables are not set.
+"""
+
 import logging
 import os
 from logging.handlers import RotatingFileHandler
@@ -10,14 +28,12 @@ project_root = Path(__file__).parent.parent.parent.resolve()
 
 
 def set_env_vars() -> None:
-    """
-    Load environment variables from configuration files.
-    If ENV is not set, defaults to 'development'.
-    Tries to load from .env.{ENV} first, then falls back to .env if needed.
-    If no files are found, checks for required environment variables.
+    """Loads environment variables from configuration files or the environment.
+
+    If the ENV variable is not set, defaults to 'development'. Attempts to load variables from a file named .env.{ENV} first; if not found, falls back to .env. If neither file exists, checks that all required environment variables are set in the environment.
 
     Raises:
-        OSError: If no configuration exists in files or environment.
+        OSError: If no configuration file is found and required environment variables are missing.
     """
     # Determine the project root (adjust as necessary)
     project_root = Path(__file__).parent.parent.parent.resolve()
@@ -70,8 +86,12 @@ def set_env_vars() -> None:
 
 
 def validate_env_vars() -> None:
-    """
-    Validate that all required environment variables are set.
+    """Validates that all required environment variables are set.
+
+    Checks for the presence of required environment variables needed for logging configuration. Raises an OSError if any are missing.
+
+    Raises:
+        OSError: If one or more required environment variables are missing.
     """
     required_vars = ["LOG_LEVEL", "LOG_FILE_PATH"]
     if missing_vars := [var for var in required_vars if not os.getenv(var)]:
@@ -86,13 +106,15 @@ def configure_log_handler(
     formatter: logging.Formatter,
     logger: logging.Logger,
 ) -> None:
-    """Configure a logging handler with the specified settings.
+    """Configures a logging handler with the specified settings and adds it to the given logger.
+
+    Sets the log level and formatter for the provided handler, then attaches the handler to the specified logger instance.
 
     Args:
-        handler: The logging handler to configure
-        log_level: The logging level to set
-        formatter: The formatter to use for log messages
-        logger: The logger to add the handler to
+        handler (logging.Handler): The logging handler to configure.
+        log_level (str): The logging level to set (e.g., 'DEBUG', 'INFO').
+        formatter (logging.Formatter): The formatter to use for log messages.
+        logger (logging.Logger): The logger to add the handler to.
     """
     handler.setLevel(getattr(logging, log_level, logging.DEBUG))
     handler.setFormatter(formatter)
@@ -100,16 +122,17 @@ def configure_log_handler(
 
 
 def get_logger(name: str) -> logging.Logger:
-    """
-    Get a logger with the given name, ensuring it's properly configured.
-    If this is the first call, it will set up the root logger configuration.
-    Subsequent calls will return appropriately named loggers that inherit the configuration.
+    """Returns a logger with the specified name, ensuring it is properly configured for the application.
+
+    On the first call, this function sets up the root logger configuration, including log level,
+    format, and handlers based on environment variables.
+    Subsequent calls return loggers with the given name that inherit the root logger's configuration.
 
     Args:
-        name: The logger name, typically __name__ from the calling module
+        name (str): The logger name, typically __name__ from the calling module.
 
     Returns:
-        logging.Logger: A configured logger instance
+        logging.Logger: A configured logger instance.
     """
     # Handle the case when module is run directly (__main__)
     if name == "__main__":
@@ -194,6 +217,7 @@ def get_logger(name: str) -> logging.Logger:
 
 def getenv_as_bool(name: str, default: bool = False) -> bool:
     """Get the boolean value of an environment variable.
+
     Args:
         name: Name of variable
         default: Default value
@@ -201,6 +225,4 @@ def getenv_as_bool(name: str, default: bool = False) -> bool:
         True if the variable has value {true, 1, yes} (case insensitive)
     """
     v = os.getenv(name)
-    if v is not None:
-        return v.lower() in ["true", "1", "yes"]
-    return default
+    return v.lower() in ["true", "1", "yes"] if v is not None else default

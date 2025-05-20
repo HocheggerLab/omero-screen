@@ -51,7 +51,7 @@ ignore_missing_imports = true
 [tool.ruff]
 line-length = 79
 lint.select = [
-    "E", "F", "W", #flake8
+    "D", "E", "F", "W", #flake8
     "UP", # pyupgrade
     "I", # isort
     "BLE", # flake8-blind-exception
@@ -94,6 +94,9 @@ exclude = [
 
 fix = true
 
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 # ============================
 # Pytest Configuration Section

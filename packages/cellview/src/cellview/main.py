@@ -1,3 +1,13 @@
+"""Main entry point for the CellView application.
+
+This function parses command-line arguments and performs actions such as:
+- Importing data from CSV files or by plate ID
+- Cleaning up the database
+- Displaying plate summaries or project lists
+- Deleting measurements by plate ID
+It manages the database connection and delegates tasks based on the provided arguments.
+"""
+
 from cellview.db.clean_up import clean_up_db, del_measurements_by_plate_id
 from cellview.db.db import CellViewDB
 from cellview.db.display import display_plate_summary, display_projects
@@ -8,7 +18,7 @@ from .cli import parse_args
 
 
 def main() -> None:
-    """Main entry point for the application."""
+    """Main entry point for the CellView application."""
     args = parse_args()
     db = CellViewDB(args.db)
     conn = db.connect()

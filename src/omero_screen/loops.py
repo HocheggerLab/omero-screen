@@ -1,4 +1,35 @@
-"""Module for processing the wells in a plate."""
+"""Processes and analyzes wells in an OMERO plate, including segmentation, feature extraction, cell cycle analysis, and result attachment.
+
+This module provides the main workflow for high-content screening data analysis using OMERO. It orchestrates the following steps:
+
+- Metadata parsing and management for the plate and its wells.
+- Flatfield correction mask generation and application.
+- Iterative processing of all wells and images in the plate, including segmentation (using Cellpose), feature extraction, and quality control.
+- Optional cell cycle analysis if appropriate channels are present.
+- Aggregation of results into pandas DataFrames.
+- Attachment of results (data tables and figures) back to OMERO as file and image attachments.
+
+Typical usage involves calling `plate_loop`, which coordinates the entire process for a given plate ID and OMERO connection.
+
+Functions:
+    plate_loop(conn, plate_id):
+        Main entry point for processing a plate. Returns final data, cell cycle data (if available), quality control data, and inference galleries.
+    process_wells(...):
+        Processes all wells in the plate, performing segmentation and feature extraction.
+    _well_loop(...):
+        Processes all images in a single well.
+    _add_welldata(...):
+        Attaches well-level results and figures to OMERO.
+    _save_results(...):
+        Attaches summary results and figures to OMERO.
+
+Args:
+    conn (BlitzGateway): OMERO connection object.
+    plate_id (int): OMERO plate identifier.
+
+Returns:
+    tuple: DataFrames and figures summarizing the analysis, attached to OMERO.
+"""
 
 import os
 from typing import Any
@@ -36,8 +67,8 @@ def plate_loop(
 ) -> tuple[
     pd.DataFrame, pd.DataFrame | None, pd.DataFrame, dict[str, Figure] | None
 ]:
-    """
-    Main loop to process a plate.
+    """Main loop to process a plate.
+
     Args:
         conn: Connection to OMERO
         plate_id: ID of the plate
@@ -98,8 +129,9 @@ def plate_loop(
 
 
 def _print_device_info() -> None:
-    """
-    Print whether the code is using Cellpose with GPU or CPU.
+    """Print whether the code is using Cellpose with GPU or CPU.
+
+    This function checks if a GPU is available and prints a message to the logger.
     """
     if torch.cuda.is_available():
         logger.info("Using Cellpose with GPU.")
@@ -113,8 +145,8 @@ def process_wells(
     dataset_id: int,
     flatfield_dict: dict[str, npt.NDArray[Any]],
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Figure] | None]:
-    """
-    Process the wells of the plate.
+    """Process the wells of the plate.
+
     Args:
         conn: Connection to OMERO
         metadata: Metadata associated with the plate
@@ -204,6 +236,18 @@ def _well_loop(
     flatfield_dict: dict[str, npt.NDArray[Any]],
     image_classifier: None | list[ImageClassifier],
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Process all images in a well.
+
+    Args:
+        conn: Connection to OMERO
+        well: WellWrapper object
+        metadata: MetadataParser object
+        dataset_id: Dataset ID
+        flatfield_dict: Flatfield dictionary
+        image_classifier: Image classifier
+    Returns:
+        Tuple[pd.DataFrame, pd.DataFrame]: DataFrames containing the final data and quality control data
+    """
     logger.info("Segmenting and analysing Images")
     df_well = pd.DataFrame()
     df_well_quality = pd.DataFrame()
@@ -240,6 +284,7 @@ def _add_welldata(
     conn: BlitzGateway, wells: list[WellWrapper], df_final: pd.DataFrame
 ) -> None:
     """Add well data to OMERO plate.
+
     Args:
         conn: Connection to OMERO
         wells: Plate wells
@@ -265,13 +310,14 @@ def _save_results(
     metadata: MetadataParser,
 ) -> None:
     """Save the results to OMERO.
+
     Args:
+        conn: Connection to OMERO
         df_final: DataFrame containing the final data
         df_final_cc: DataFrame containing the final cell cycle data
         df_quality_control: DataFrame containing quality control data
         dict_gallery: Dictionary of inference galleries as matplotlib.figure.Figure (or None)
         metadata: Plate metadata
-        plate_name: Name of the plate
     """
     logger.info("Removing previous results from OMERO")
     # delete pre-existing data
@@ -305,6 +351,13 @@ def _save_results(
 
 
 def _columns(df: pd.DataFrame) -> list[str]:
+    """Reorder columns to move 'experiment' to the end.
+
+    This function reorders the columns of a DataFrame to move the 'experiment' column to the end.
+
+    Args:
+        df: DataFrame to reorder
+    """
     cols: list[str] = df.columns.tolist()
     i = cols.index("experiment")
     return cols[i:] + cols[:i]

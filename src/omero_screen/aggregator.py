@@ -1,3 +1,18 @@
+"""This module provides image aggregation and filtering utilities for 2D numpy arrays.
+
+It includes functions for morphological operations, median and Gaussian filtering, and block-wise image processing. The main class, ImageAggregator, accumulates and aggregates image data from multiple images, supporting block-wise minimum aggregation and optional smoothing filters.
+
+Functions:
+    strel_disk(radius): Create a disk structuring element for morphological operations.
+    median_filter(pixel_data, radius): Apply a median filter with a disk-shaped structuring element.
+    gaussian_filter(pixel_data, sigma): Apply a Gaussian filter with edge artifact correction.
+    block(shape, block_shape): Divide an image into labeled blocks for block-wise processing.
+    fixup_scipy_ndimage_result(whatever_it_returned): Ensure scipy.ndimage results are returned as numpy arrays.
+
+Classes:
+    ImageAggregator: Accumulates and aggregates image data, with support for block-wise minimum and smoothing filters.
+"""
+
 from typing import Any, Optional
 
 import numpy as np
@@ -7,15 +22,17 @@ import skimage
 
 
 def strel_disk(radius: float) -> npt.NDArray[np.float64]:
-    """Create a disk structuring element for morphological operations
+    """Create a disk structuring element for morphological operations.
+
     Args:
         radius: radius of the disk
+
     Returns:
         np.ndarray: disk element
     """
     iradius = int(radius)
     x, y = np.mgrid[-iradius : iradius + 1, -iradius : iradius + 1]
-    radius2 = radius * radius
+    radius2 = radius**2
     strel = np.zeros(x.shape, dtype=np.float64)
     strel[x * x + y * y <= radius2] = 1
     return strel
@@ -24,10 +41,12 @@ def strel_disk(radius: float) -> npt.NDArray[np.float64]:
 def median_filter(
     pixel_data: npt.NDArray[Any], radius: float
 ) -> npt.NDArray[Any]:
-    """Perform median filter with the given radius
+    """Perform median filter with the given radius.
+
     Args:
         pixel_data: 2D pixels
         radius: radius of the disk
+
     Returns:
         np.ndarray: filtered data
     """
@@ -48,10 +67,12 @@ def median_filter(
 def gaussian_filter(
     pixel_data: npt.NDArray[Any], sigma: float
 ) -> npt.NDArray[Any]:
-    """Perform gaussian filter with the given radius
+    """Perform gaussian filter with the given radius.
+
     Args:
         pixel_data: 2D pixels
         sigma: standard deviation of the Gaussian
+
     Returns:
         np.ndarray: filtered data
     """
@@ -78,7 +99,7 @@ def gaussian_filter(
 def block(
     shape: tuple[int, ...], block_shape: tuple[int, ...]
 ) -> tuple[npt.NDArray[Any], npt.NDArray[Any]]:
-    """Create a labels image that divides the image into blocks
+    """Create a labels image that divides the image into blocks.
 
     The idea here is to block-process an image by using SciPy label
     routines. This routine divides the image into blocks of a configurable
@@ -93,6 +114,7 @@ def block(
     Args:
         shape: the shape of the image to be blocked
         block_shape: the shape of one block
+
     Returns:
         a labels matrix and the indexes of all labels generated
     """
@@ -112,7 +134,7 @@ def block(
 # https://github.com/CellProfiler/centrosome/blob/master/centrosome/cpmorphology.py
 # centrosome.cpmorphology.fixup_scipy_ndimage_result
 def fixup_scipy_ndimage_result(whatever_it_returned: Any) -> npt.NDArray[Any]:
-    """Convert a result from scipy.ndimage to a numpy array
+    """Convert a result from scipy.ndimage to a numpy array.
 
     scipy.ndimage has the annoying habit of returning a single, bare
     value instead of an array if the indexes passed in are of length 1.
@@ -123,6 +145,7 @@ def fixup_scipy_ndimage_result(whatever_it_returned: Any) -> npt.NDArray[Any]:
 
     Args:
         whatever_it_returned: scipy result
+
     Returns:
         np.ndarray: result as an array
     """
@@ -133,12 +156,23 @@ def fixup_scipy_ndimage_result(whatever_it_returned: Any) -> npt.NDArray[Any]:
 
 
 class ImageAggregator:
-    """ImageAggregator accumulates the image data from successive images and
-    calculates the aggregate image when asked.
+    """Accumulates and aggregates image data from multiple 2D images, providing methods to retrieve the aggregate image and apply optional smoothing filters.
+
+    This class is useful for combining a sequence of images (e.g., for illumination correction or averaging) and supports block-wise minimum aggregation for background correction. The aggregated image can be retrieved directly or after applying a median or Gaussian filter for smoothing.
+
+    Attributes:
+        __block_size (int): Size of the block region for block-wise minimum aggregation. If not strictly positive, block-wise aggregation is not used.
+        __labels (Optional[np.ndarray]): Label matrix for block-wise processing.
+        __indexes (Optional[np.ndarray]): Indexes for block-wise processing.
+        __dirty (bool): Indicates if the cached image is out of date.
+        __image_sum (Optional[np.ndarray]): Accumulated sum of images (or block-minimum images).
+        __count (int): Number of images added.
+        __cached_image (Optional[np.ndarray]): Cached result of the aggregated image.
     """
 
     def __init__(self, block_size: int = 0):
-        """Create an instance
+        """Create an instance.
+
         Args:
             block_size: size of the block region for the minimum; ignored if not strictly positive.
         """
@@ -152,7 +186,8 @@ class ImageAggregator:
         self.__cached_image: Optional[npt.NDArray[Any]] = None
 
     def add_image(self, image: npt.NDArray[Any]) -> None:
-        """Accumulate the data from the given image
+        """Accumulate the data from the given image.
+
         Args:
             image: an instance of a 2D numpy array
         """
@@ -176,7 +211,8 @@ class ImageAggregator:
         self.__count = self.__count + 1
 
     def get_image(self) -> Optional[npt.NDArray[Any]]:
-        """Get the aggregated image
+        """Get the aggregated image.
+
         Returns:
             np.ndarray: image data
         """
@@ -186,31 +222,34 @@ class ImageAggregator:
         return self.__cached_image
 
     def get_median_image(self, radius: float) -> Optional[npt.NDArray[Any]]:
-        """Get the aggregated image after smoothing with a median filter
+        """Get the aggregated image after smoothing with a median filter.
+
         Args:
             radius: radius of the disk
+
         Returns:
             np.ndarray: filtered data
         """
         im = self.get_image()
-        if im is not None:
-            return median_filter(im, radius)
-        return None
+        return median_filter(im, radius) if im is not None else None
 
     def get_gaussian_image(self, sigma: float) -> Optional[npt.NDArray[Any]]:
-        """Get the aggregated image after smoothing with a Gaussian filter
+        """Get the aggregated image after smoothing with a Gaussian filter.
+
         Args:
             sigma: standard deviation of the Gaussian
+
         Returns:
             np.ndarray: filtered data
         """
         im = self.get_image()
-        if im is not None:
-            return gaussian_filter(im, sigma)
-        return None
+        return gaussian_filter(im, sigma) if im is not None else None
 
     def reset(self) -> None:
-        """Reset the aggregator"""
+        """Reset the aggregator to its initial state, clearing all accumulated data and cached results.
+
+        After calling this method, the aggregator will behave as if newly created, with no images added.
+        """
         self.__labels = np.array(None)
         self.__indexes = None
         self.__dirty = False

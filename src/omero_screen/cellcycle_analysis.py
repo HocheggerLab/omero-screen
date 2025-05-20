@@ -1,4 +1,11 @@
-"""Module for processing cell cycle data."""
+"""This module provides functions for processing and analyzing cell cycle data from OMERO screen experiments.
+
+It includes functions for normalizing cell cycle data, assigning cell cycle phases, and creating visualizations of cell cycle proportions.
+
+Typical usage example:
+    import pandas as pd
+    from omero_screen.cellcycle_analysis import cellcycle_analysis
+"""
 
 import pathlib
 from collections.abc import Callable
@@ -29,6 +36,7 @@ def cellcycle_analysis(
     df: pd.DataFrame, H3: bool = False, cyto: bool = True
 ) -> pd.DataFrame:
     """Function to normalise cell cycle data and assign cell cycle phase for each cell line.
+
     Args:
         df: single cell data from omeroscreen
         H3: True if H3 data is present
@@ -74,6 +82,7 @@ def cellcycle_analysis(
 # Helper Functions for cell cycle normalisation
 def _agg_multinucleates(df: pd.DataFrame) -> pd.DataFrame:
     """Function to aggregate multinucleates by summing up the nucleus area and DAPI intensity.
+
     Args:
         df: single cell data from omeroscreen
     Returns:
@@ -101,6 +110,7 @@ def _agg_multinucleates(df: pd.DataFrame) -> pd.DataFrame:
 
 def _delete_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     """Function to delete duplicates from the agg_multinucleate dataframe.
+
     Args:
         df: dataframe from agg_multinucleates function
     Returns:
@@ -114,8 +124,11 @@ def _delete_duplicates(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _normalise(df: pd.DataFrame, values: list[str]) -> pd.DataFrame:
-    """Data normalisation function: Identifies the most frequent intensity value and sets it to
+    """Data normalisation function.
+
+    Identifies the most frequent intensity value and sets it to
     1 by division. For DAPI data this is set to two, to reflect diploid (2N) state of chromosomes.
+
     Args:
         df: dataframe from delete_duplicates function
         values: columns to normalise
@@ -136,6 +149,7 @@ def _normalise(df: pd.DataFrame, values: list[str]) -> pd.DataFrame:
 
 def _assign_ccphase(data: pd.DataFrame, H3: bool) -> pd.DataFrame:
     """Assigns a cell cycle phase to each cell based on normalised EdU and DAPI intensities.
+
     Args:
         data: dataframe from normalise function
         H3: True if H3 data is present
@@ -164,6 +178,7 @@ def _thresholdingH3(
     H3P_col: str = "intensity_mean_H3P_nucleus_norm",
 ) -> str:
     """Function to assign cell cycle phase based on thresholds of normalised EdU, DAPI and H3P intensities.
+
     Args:
         data: data from _assign_ccphase function
         DAPI_col: default 'integrated_int_DAPI_norm'
@@ -206,6 +221,7 @@ def _thresholding(
     EdU_col: str = "intensity_mean_EdU_nucleus_norm",
 ) -> str:
     """Function to assign cell cycle phase based on thesholds of normalised EdU and DAPI intensities.
+
     Args:
         data: data from _assign_ccphase function
         DAPI_col: default 'integrated_int_DAPI_norm'
@@ -245,6 +261,7 @@ def combplot(
     H3: bool = False,
 ) -> Figure:
     """Create a combined figure of the well cell cycle data.
+
     Args:
         df: Data from cellcycle_analysis
         well: Well position (e.g. A1)
@@ -276,6 +293,12 @@ def combplot(
 
 
 def _plot_histogram(ax: Axes, data: pd.DataFrame) -> None:
+    """Plot a histogram of the DAPI intensity.
+
+    Args:
+        ax: Axes object
+        data: Data from cellcycle_analysis
+    """
     sns.histplot(data=data, x="integrated_int_DAPI_norm", ax=ax)
     ax.set_xlabel("")
     ax.set_xscale("log", base=2)
@@ -285,6 +308,13 @@ def _plot_histogram(ax: Axes, data: pd.DataFrame) -> None:
 
 
 def _plot_scatter(ax: Axes, data: pd.DataFrame, H3: bool) -> None:
+    """Plot a scatter plot of the EdU intensity vs. the DAPI intensity.
+
+    Args:
+        ax: Axes object
+        data: Data from cellcycle_analysis
+        H3: True if H3 data is present
+    """
     if H3:
         phases = ["Sub-G1", "G1", "S", "G2", "M", "Polyploid"]
     else:
@@ -329,6 +359,14 @@ def _plot_scatter(ax: Axes, data: pd.DataFrame, H3: bool) -> None:
 def _cellcycle_barplot(
     ax: Axes, df: pd.DataFrame, well: str, H3: bool
 ) -> None:
+    """Plot a barplot of the cell cycle proportions.
+
+    Args:
+        ax: Axes object
+        df: Data from cellcycle_analysis
+        well: Well position (e.g. A1)
+        H3: True if H3 data is present
+    """
     df_mean = _prop_pivot(df, well, H3)
     df_mean.plot(kind="bar", stacked=True, width=0.75, ax=ax)
     ax.set_ylim(0, 110)
@@ -357,12 +395,16 @@ def _cellcycle_barplot(
 
 
 def _prop_pivot(df: pd.DataFrame, well: str, H3: bool) -> pd.DataFrame:
-    """
-    Function to pivot the cell cycle proportion dataframe and get the mean and std of each cell cycle phase
+    """Function to pivot the cell cycle proportion dataframe and get the mean and std of each cell cycle phase.
+
     This will be the input to plot the stacked barplots with errorbars.
-    :param df_prop: dataframe from cellcycle_prop function
-    :param H3: boolean, default False, if True the function will use M phase instead of G2/M based on H3 staining
-    :return: dataframe to submit to the barplot function
+
+    Args:
+        df: Data from cellcycle_analysis
+        well: Well position (e.g. A1)
+        H3: True if H3 data is present
+    Returns:
+        dataframe to submit to the barplot function
     """
     df_prop = _cellcycle_prop(df)
     if H3:
@@ -384,11 +426,13 @@ def _prop_pivot(df: pd.DataFrame, well: str, H3: bool) -> pd.DataFrame:
 def _cellcycle_prop(
     df: pd.DataFrame, cell_cycle: str = "cell_cycle"
 ) -> pd.DataFrame:
-    """
-    Function to calculate the proportion of cells in each cell cycle phase
-    :param df_norm: dataframe from _assign_ccphase function
-    :param cell_cycle: choose column cell_cycle or cell_cycle_detailed, default 'cell_cycle'
-    :return: grouped dataframe with cell cycle proportions
+    """Function to calculate the proportion of cells in each cell cycle phase.
+
+    Args:
+        df: Data from cellcycle_analysis
+        cell_cycle: choose column cell_cycle or cell_cycle_detailed, default 'cell_cycle'
+    Returns:
+        grouped dataframe with cell cycle proportions
     """
     df_ccphase = (
         df.groupby(["plate_id", "well", "cell_line", cell_cycle])[

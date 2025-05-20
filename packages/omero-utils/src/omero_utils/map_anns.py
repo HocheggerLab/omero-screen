@@ -1,3 +1,16 @@
+"""Module for handling map annotations in OMERO.
+
+This module provides functions for parsing, deleting, and adding map annotations to OMERO objects.
+
+Available functions:
+
+- parse_annotations(omero_object): Parse the key value pair annotations from any OMERO object.
+- delete_map_annotations(conn, omero_object): Delete all map annotations from an OMERO object.
+- delete_map_annotation(conn, omero_object, key): Remove the map annotation from an OMERO object.
+- add_map_annotations(conn, omero_object, map_annotations): Add map annotations to an OMERO object.
+
+"""
+
 from typing import Any
 
 from omero.gateway import (
@@ -29,7 +42,9 @@ def delete_map_annotations(
     """Delete all map annotations from an OMERO object.
 
     Args:
+        conn: OMERO connection
         omero_object: Any OMERO object (Plate, Well, Image, etc.)
+
     """
     annotations = omero_object.listAnnotations()
     for ann in annotations:
@@ -41,17 +56,18 @@ def delete_map_annotation(
     conn: BlitzGateway, omero_object: BlitzObjectWrapper, key: str
 ) -> None:
     """Remove the map annotation from an OMERO object.
+
     Args:
         conn: OMERO connection
-        object: OMERO object
+        omero_object: Any OMERO object (Plate, Well, Image, etc.)
         key: Key to identify annotation
+
     """
     # Get the existing map annotations of the image
     annotations = omero_object.listAnnotations()
-    map_anns = [
+    if map_anns := [
         ann for ann in annotations if isinstance(ann, MapAnnotationWrapper)
-    ]
-    if map_anns:  # If there are existing map annotations
+    ]:
         for ann in map_anns:
             if key in dict(ann.getValue()):
                 conn.deleteObject(ann._obj)  # Delete the annotation
@@ -65,8 +81,10 @@ def add_map_annotations(
     """Add map annotations to an OMERO object.
 
     Args:
+        conn: OMERO connection
         omero_object: Any OMERO object (Plate, Well, Image, etc.)
         map_annotations: Dictionary of key-value pairs
+
     """
     key_value_data = [[str(k), str(v)] for k, v in map_annotations.items()]
     ann = MapAnnotationWrapper(conn)

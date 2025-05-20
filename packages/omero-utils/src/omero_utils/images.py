@@ -1,4 +1,15 @@
-"""Module for handling image attachments loaded to the OMERO server."""
+"""Module for handling image attachments loaded to the OMERO server.
+
+This module provides functions for uploading masks and maximum intensity projections (MIPs) to OMERO datasets.
+
+Available functions:
+
+- upload_masks(conn, dataset_id, image, n_mask, c_mask): Uploads generated images to OMERO server and links them to the specified dataset.
+- delete_masks(conn, dataset_id): Removes all segmentation masks from an OMERO dataset.
+- parse_mip(conn, image_id, dataset_id): Get the maximum intensity projection of a z-stack image.
+- delete_mip(conn, image_id): Removes a maximum intensity projection of a z-stack image saved in OMERO as an annotation.
+
+"""
 
 from typing import Any
 
@@ -25,8 +36,8 @@ def upload_masks(
     n_mask: npt.NDArray[Any],
     c_mask: npt.NDArray[Any] | None = None,
 ) -> None:
-    """
-    Uploads generated images to OMERO server and links them to the specified dataset.
+    """Uploads generated images to OMERO server and links them to the specified dataset.
+
     The id of the mask is stored as an annotation on the original screen image.
 
     Args:
@@ -35,13 +46,16 @@ def upload_masks(
         image: Image object
         n_mask: Nuclei segmentation mask (TYX)
         c_mask: Cell segmentation mask (TYX)
+
     """
     image_name = f"{image.getId()}_segmentation"
     dataset = conn.getObject("Dataset", dataset_id)
 
     def plane_gen() -> Generator[npt.NDArray[Any]]:
-        """Generator that yields each plane in the n_mask and c_mask arrays"""
-        # Yield T first, then C, then Z. Assumes 2d images so no z iteration.
+        """Generator that yields each plane in the n_mask and c_mask arrays.
+
+        Yields T first, then C, then Z. Assumes 2d images so no z iteration.
+        """
         for i in range(n_mask.shape[0]):
             yield n_mask[i]
         if c_mask is not None:
@@ -66,9 +80,11 @@ def upload_masks(
 
 def delete_masks(conn: BlitzGateway, dataset_id: int) -> None:
     """Removes all segmentation masks from an OMERO dataset.
+
     Args:
         conn: OMERO connection
         dataset_id: OMERO dataset ID
+
     """
     dataset = conn.getObject("Dataset", dataset_id)
     for child in dataset.listChildren():
@@ -82,19 +98,23 @@ def delete_masks(conn: BlitzGateway, dataset_id: int) -> None:
 def parse_mip(
     conn: BlitzGateway, image_id: int, dataset_id: int
 ) -> npt.NDArray[Any]:
-    """Get the maximum intensity projection of a z-stack image. The MIP is created
-    and saved to OMERO as an annotation if absent; existing map annotations are loaded.
+    """Get the maximum intensity projection of a z-stack image.
+
+    The MIP is created and saved to OMERO as an annotation if absent;
+    existing map annotations are loaded.
+
     Args:
         conn: OMERO connection
         image_id: Image ID
         dataset_id: Dataset ID to save/load the MIP.
+
     Returns:
         MIP image
+
     """
     image = conn.getObject("Image", image_id)
 
-    mip_id = _check_mip_annotation(image)
-    if mip_id:
+    if mip_id := _check_mip_annotation(image):
         _, mip_array = get_image(conn, mip_id)
         if isinstance(mip_array, np.ndarray):
             return mip_array
@@ -106,16 +126,17 @@ def parse_mip(
 
 def _check_mip_annotation(image: ImageWrapper) -> int:
     """Check if a MIP map annotation exists.
+
     Args:
-        omero_object: OMERO image object
+        image: OMERO image object
     Returns:
         The annotation MIP image ID; else 0
+
     """
     annotations = image.listAnnotations()
-    map_anns = [
+    if map_anns := [
         ann for ann in annotations if isinstance(ann, MapAnnotationWrapper)
-    ]
-    if map_anns:
+    ]:
         for ann in map_anns:
             ann_values = dict(ann.getValue())
             for k, v in ann_values.items():
@@ -130,12 +151,15 @@ def _load_mip(
     conn: BlitzGateway, image: ImageWrapper, dataset_id: int
 ) -> npt.NDArray[Any]:
     """Create a maximum intensity projection of a z-stack image and save to OMERO as an annotation.
+
     Args:
         conn: OMERO connection
         image: Image object
         dataset_id: Dataset ID to save the MIP.
+
     Returns:
         MIP image
+
     """
     dataset = conn.getObject("Dataset", dataset_id)
     mip_array = _process_mip(conn, image.getId())
@@ -158,14 +182,16 @@ def _load_mip(
 
 def _process_mip(conn: BlitzGateway, image_id: int) -> npt.NDArray[Any]:
     """Generate maximum intensity projection of an image.
+
     Args:
         conn: OMERO connection
-        image: Image ID
+        image_id: Image ID
     Returns:
         numpy array of maximum intensity projection (t, 1, y, x, c)
+
     """
     _, array = get_image(conn, image_id)
-    return np.max(array, axis=1, keepdims=True)
+    return np.max(array, axis=1, keepdims=True)  # type: ignore
 
 
 def _image_generator(
@@ -180,13 +206,14 @@ def _image_generator(
 
 def delete_mip(conn: BlitzGateway, image_id: int) -> None:
     """Removes a maximum intensity projection of a z-stack image saved in OMERO as an annotation.
+
     Args:
         conn: OMERO connection
         image_id: OMERO image ID
+
     """
     image = conn.getObject("Image", image_id)
-    mip_id = _check_mip_annotation(image)
-    if mip_id:
+    if mip_id := _check_mip_annotation(image):
         delete_map_annotation(conn, image, "MIP")
         mip = conn.getObject("Image", mip_id)
         conn.deleteObject(mip._obj)

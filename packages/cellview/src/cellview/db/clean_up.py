@@ -1,3 +1,8 @@
+"""Module for cleaning up the database.
+
+This module provides functions for cleaning up the database by removing orphaned records.
+"""
+
 import duckdb
 from rich.table import Table
 
@@ -16,8 +21,14 @@ def clean_up_db(db: CellViewDB, conn: duckdb.DuckDBPyConnection) -> None:
     3. Check repeats -> conditions
     4. Check conditions -> measurements
     5. Repeat until no more orphaned records are found
-    """
 
+    Args:
+        db: The CellViewDB instance
+        conn: The database connection
+
+    Raises:
+        Exception: If an error occurs during the cleanup process
+    """
     # Create a table to display cleanup results
     table = Table(
         title="Database Cleanup Results", title_style=Colors.TITLE.value
@@ -133,7 +144,15 @@ def clean_up_db(db: CellViewDB, conn: duckdb.DuckDBPyConnection) -> None:
 def del_orphaned_projects(
     db: CellViewDB, conn: duckdb.DuckDBPyConnection
 ) -> int:
-    """Delete projects that don't have any experiments."""
+    """Delete projects that don't have any experiments.
+
+    Args:
+        db: The CellViewDB instance
+        conn: The database connection
+
+    Returns:
+        The number of projects deleted
+    """
     result = conn.execute("""
         SELECT COUNT(*)
         FROM projects p
@@ -160,7 +179,15 @@ def del_orphaned_projects(
 def del_orphaned_experiments(
     db: CellViewDB, conn: duckdb.DuckDBPyConnection
 ) -> int:
-    """Delete experiments that don't have any repeats."""
+    """Delete experiments that don't have any repeats.
+
+    Args:
+        db: The CellViewDB instance
+        conn: The database connection
+
+    Returns:
+        The number of experiments deleted
+    """
     result = conn.execute("""
         SELECT COUNT(*)
         FROM experiments e
@@ -187,7 +214,15 @@ def del_orphaned_experiments(
 def del_orphaned_repeats(
     db: CellViewDB, conn: duckdb.DuckDBPyConnection
 ) -> int:
-    """Delete repeats that don't have any conditions."""
+    """Delete repeats that don't have any conditions.
+
+    Args:
+        db: The CellViewDB instance
+        conn: The database connection
+
+    Returns:
+        The number of repeats deleted
+    """
     result = conn.execute("""
         SELECT COUNT(*)
         FROM repeats r
@@ -214,8 +249,15 @@ def del_orphaned_repeats(
 def del_orphaned_conditions(
     db: CellViewDB, conn: duckdb.DuckDBPyConnection
 ) -> int:
-    """Delete conditions that don't have any measurements or condition variables."""
-    # Find conditions without measurements OR without condition variables
+    """Delete conditions that don't have any measurements or condition variables.
+
+    Args:
+        db: The CellViewDB instance
+        conn: The database connection
+
+    Returns:
+        The number of conditions deleted
+    """
     result = conn.execute("""
         SELECT c.condition_id, c.repeat_id, c.well, c.cell_line,
                r.plate_id, r.experiment_id, e.project_id
@@ -327,7 +369,15 @@ def del_orphaned_conditions(
 def del_orphaned_measurements(
     db: CellViewDB, conn: duckdb.DuckDBPyConnection
 ) -> int:
-    """Delete measurements that don't have a valid condition_id reference."""
+    """Delete measurements that don't have a valid condition_id reference.
+
+    Args:
+        db: The CellViewDB instance
+        conn: The database connection
+
+    Returns:
+        The number of measurements deleted
+    """
     result = conn.execute("""
         SELECT COUNT(*)
         FROM measurements m
@@ -354,7 +404,15 @@ def del_orphaned_measurements(
 def del_orphaned_condition_variables(
     db: CellViewDB, conn: duckdb.DuckDBPyConnection
 ) -> int:
-    """Delete condition variables that don't have a valid condition_id reference."""
+    """Delete condition variables that don't have a valid condition_id reference.
+
+    Args:
+        db: The CellViewDB instance
+        conn: The database connection
+
+    Returns:
+        The number of condition variables deleted
+    """
     result = conn.execute("""
         SELECT COUNT(*)
         FROM condition_variables cv
@@ -379,7 +437,11 @@ def del_orphaned_condition_variables(
 
 
 def find_repeats_without_measurements(conn: duckdb.DuckDBPyConnection) -> None:
-    """Find and display repeats that have conditions but no measurements."""
+    """Find and display repeats that have conditions but no measurements.
+
+    Args:
+        conn: The database connection
+    """
     if result := conn.execute(
         """
         SELECT r.repeat_id, r.plate_id, r.experiment_id, r.date,
@@ -419,6 +481,12 @@ def find_repeats_without_measurements(conn: duckdb.DuckDBPyConnection) -> None:
 
 
 def del_conditions(db: CellViewDB, conn: duckdb.DuckDBPyConnection) -> None:
+    """Delete all conditions from the database.
+
+    Args:
+        db: The CellViewDB instance
+        conn: The database connection
+    """
     conn.execute("DELETE FROM conditions")
     ui.warning("All conditions deleted from database")
 
@@ -435,6 +503,7 @@ def del_measurements_by_plate_id(
 
     Returns:
         int: The number of measurements deleted
+
     """
     # First count the measurements to be deleted
     result = conn.execute(
