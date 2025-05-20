@@ -51,7 +51,6 @@ from omero_screen.cellcycle_analysis import cellcycle_analysis, combplot
 from omero_screen.config import get_logger
 from omero_screen.gallery_figure import create_gallery
 from omero_screen.image_analysis import Image, ImageProperties
-from omero_screen.image_analysis_nucleus import NucImage, NucImageProperties
 from omero_screen.image_classifier import ImageClassifier
 from omero_screen.quality_control import quality_control_fig
 
@@ -254,26 +253,16 @@ def _well_loop(
     image_number = len(list(well.listChildren()))
     for number in tqdm.tqdm(range(image_number)):
         omero_img = well.getImage(number)
-        if "Tub" in metadata.channel_data:
-            image = Image(
-                conn, well, omero_img, metadata, dataset_id, flatfield_dict
-            )
-            image_data = ImageProperties(
-                well, image, metadata, image_classifier=image_classifier
-            )
-            df_image, df_image_quality = (
-                image_data.image_df,
-                image_data.quality_df,
-            )
-        else:
-            nimage = NucImage(
-                conn, well, omero_img, metadata, dataset_id, flatfield_dict
-            )
-            nimage_data = NucImageProperties(well, nimage, metadata)
-            df_image, df_image_quality = (
-                nimage_data.image_df,
-                nimage_data.quality_df,
-            )
+        image = Image(
+            conn, well, omero_img, metadata, dataset_id, flatfield_dict
+        )
+        image_data = ImageProperties(
+            well, image, metadata, image_classifier=image_classifier
+        )
+        df_image, df_image_quality = (
+            image_data.image_df,
+            image_data.quality_df,
+        )
         df_well = pd.concat([df_well, df_image])
         df_well_quality = pd.concat([df_well_quality, df_image_quality])
 

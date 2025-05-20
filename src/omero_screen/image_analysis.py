@@ -246,7 +246,7 @@ class Image:
                     normalize=False,
                 )
             except IndexError:
-                n_mask_array = np.zeros_like(scaled_img_t).astype(np.uint8)
+                n_mask_array = np.zeros(scaled_img_t.shape, dtype=np.uint8)
             # Store the segmentation mask in the corresponding timepoint
             segmentation_masks[t] = filter_segmentation(n_mask_array)
         return segmentation_masks
@@ -374,8 +374,6 @@ class ImageProperties:
         self._well_id = well.getId()
         self._image = image_obj
         self._meta_data = meta_data
-        self.image_df = pd.DataFrame()
-        self.quality_df = pd.DataFrame()
 
         self.plate_name = meta_data.plate.getName()
         # Get the dict[str, Any] for the given well

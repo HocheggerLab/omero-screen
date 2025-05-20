@@ -59,6 +59,12 @@ parser.add_argument(
     default=0,
     help="Optional plate ID",
 )
+parser.add_argument(
+    "--tub",
+    action=argparse.BooleanOptionalAction,
+    default=True,
+    help="Run with Tub channel (if false the channel is renamed to NoTub. default: %(default)s)",
+)
 args, _ = (
     parser.parse_known_args()
 )  # Use known_args to avoid conflicts with other parsers
@@ -99,6 +105,7 @@ def main() -> int:
     kwargs = {}
     if args.plate_id:
         kwargs["plate_id"] = args.plate_id
+    kwargs["tub"] = args.tub
 
     if not args.connection:
         TEST_FUNCTIONS[args.test](**kwargs)

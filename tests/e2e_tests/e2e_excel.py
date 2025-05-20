@@ -10,11 +10,16 @@ from tests.e2e_tests.e2e_setup import excel_file_handling
 
 
 # Helper functions for test data generation
-def get_channel_test_data() -> dict[str, pd.DataFrame]:
-    """Return standard test data with DAPI, Tub, EdU channels"""
+def get_channel_test_data(tub: bool = True) -> dict[str, pd.DataFrame]:
+    """Return standard test data with DAPI, Tub, EdU channels
+
+    Args:
+        tub: If False then rename the Tub channel to NoTub
+    """
+    tub_name = "Tub" if tub else "NoTub"
     return {
         "Sheet1": pd.DataFrame(
-            {"Channels": ["DAPI", "Tub", "EdU"], "Index": [0, 1, 2]}
+            {"Channels": ["DAPI", tub_name, "EdU"], "Index": [0, 1, 2]}
         ),
         "Sheet2": pd.DataFrame(
             {

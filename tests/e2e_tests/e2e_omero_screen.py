@@ -14,11 +14,11 @@ from tests.e2e_tests.e2e_setup import excel_file_handling
 
 
 def run_omero_screen_test(
-    conn: BlitzGateway, teardown: bool = True, plate_id: int = 1
+    conn: BlitzGateway, teardown: bool = True, plate_id: int = 1, tub: bool = True
 ):
     """Run OMERO Screen on the plate."""
     # metadata for the test OMERO data is the same for each plate
-    df = get_channel_test_data()
+    df = get_channel_test_data(tub)
     excel_file_handling(conn, plate_id, df)
 
     try:
