@@ -12,11 +12,15 @@ Available functions:
 
 """
 
-from typing import Optional
+from typing import Any, Optional
 
-from omero.gateway import BlitzGateway
+import numpy as np
+import numpy.typing as npt
+from omero.gateway import BlitzGateway, ImageWrapper
 from omero.model import ImageI, PlateAcquisitionI, PlateI, WellI, WellSampleI
 from omero.rtypes import rint, rstring
+from skimage.draw import ellipse
+from typing_extensions import Generator
 
 
 def create_basic_plate(
@@ -36,12 +40,13 @@ def create_basic_plate(
 
     # Create and save plate
     plate = PlateI()
-    plate.name = rstring(name)
+    plate.setName(rstring(name))
     plate = update_service.saveAndReturnObject(plate)
 
     # Create and save plate acquisition
+    plate_acq = None
     plate_acq = PlateAcquisitionI()
-    plate_acq.plate = plate
+    plate_acq.setPlate(plate)
     plate_acq = update_service.saveAndReturnObject(plate_acq)
 
     return plate, plate_acq
@@ -52,8 +57,11 @@ def create_well_with_image(
     plate: PlateI,
     plate_acq: PlateAcquisitionI,
     position: str,
-) -> WellI:
-    """Create a well at the specified position with a basic image.
+) -> PlateI:
+    """Create a well at the specified plate position with a basic image.
+
+    For convenience this returns the updated plate and not the well
+    to allow repeat calls using the same (up-to-date) plate.
 
     Args:
         conn: OMERO gateway connection
@@ -62,35 +70,82 @@ def create_well_with_image(
         position: Well position (e.g., 'C2')
 
     Returns:
-        The saved well object
-
+        The saved plate object
     """
-    update_service = conn.getUpdateService()
-
     # Convert position to row/column
     row = ord(position[0]) - ord("A")
     col = int(position[1]) - 1
 
     # Create basic image
-    image = ImageI()
-    image.name = rstring(f"Placeholder Image for {position}")
-    image = update_service.saveAndReturnObject(image)
+    img = _create_img((1080, 1080))
+    image = _upload_image(conn, img)
 
     # Create well
     well = WellI()
-    well.row = rint(row)
-    well.column = rint(col)
-    well.plate = plate
+    well.setRow(rint(row))
+    well.setColumn(rint(col))
+    plate.addWell(well)
 
     # Create well sample and link everything
     well_sample = WellSampleI()
-    well_sample.setImage(image)
-    well_sample.plateAcquisition = plate_acq
-    well_sample.well = well
+    well_sample.setImage(ImageI(image.getId(), False))
+    well_sample.setPlateAcquisition(plate_acq)
     well.addWellSample(well_sample)
 
     # Save the well which will cascade save the well sample
-    return update_service.saveAndReturnObject(well)
+    update_service = conn.getUpdateService()
+    return update_service.saveAndReturnObject(plate)
+
+
+def _create_img(dim: tuple[int, int]) -> npt.NDArray[np.uint8]:
+    """Create a cell image (YXC) where C=3.
+
+    Nuclei are in the first channel; cells are in the second channel.
+    """
+    shape = dim + (3,)
+    img = np.zeros(shape, dtype=np.uint8)
+    # Draw cells of 30 diameter with 10 diameter nucleus
+    cell_radius = 30 // 2
+    nucleus_radius = 10 // 2
+    rng = np.random.default_rng()
+    for x in range(cell_radius, shape[0] - cell_radius, cell_radius * 2):
+        for y in range(cell_radius, shape[0] - cell_radius, cell_radius * 2):
+            rr, cc = ellipse(
+                x,
+                y,
+                cell_radius,
+                cell_radius * rng.uniform(0.7, 1),
+                img.shape,
+                rotation=rng.uniform(-3.14, 3.14),
+            )
+            img[rr, cc, 1] = 255
+            img[rr, cc, 2] = 255
+            rr, cc = ellipse(
+                x,
+                y,
+                nucleus_radius * rng.uniform(0.7, 1.2),
+                nucleus_radius * rng.uniform(0.7, 1.2),
+                img.shape,
+                rotation=rng.uniform(-3.14, 3.14),
+            )
+            img[rr, cc, 0] = 255
+    # Random pixel values
+    indices = img != 0
+    img[indices] = rng.uniform(128, 255, indices.sum())
+    return img
+
+
+def _upload_image(conn: BlitzGateway, img: npt.NDArray[Any]) -> ImageWrapper:
+    """Upload the image (YXC) to OMERO."""
+
+    def plane_gen() -> Generator[npt.NDArray[Any]]:
+        """Generator that yields each plane in the image in order TCZ."""
+        for i in range(img.shape[-1]):
+            yield img[..., i]  # Assume t=z=1
+
+    return conn.createImageFromNumpySeq(
+        plane_gen(), "Test image", 1, img.shape[-1], 1
+    )
 
 
 def base_plate(
@@ -107,7 +162,6 @@ def base_plate(
 
     Returns:
         The created plate object
-
     """
     if well_positions is None:
         well_positions = ["C2", "C5"]
@@ -117,7 +171,7 @@ def base_plate(
 
     # Create wells with images
     for pos in well_positions:
-        create_well_with_image(omero_conn, plate, plate_acq, pos)
+        plate = create_well_with_image(omero_conn, plate, plate_acq, pos)
 
     # Get the plate as a BlitzObject for easier manipulation
     plate = omero_conn.getObject("Plate", plate.getId().getValue())

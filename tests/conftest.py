@@ -158,6 +158,7 @@ def base_plate(omero_conn, request: pytest.FixtureRequest):
     Returns:
         The created plate object
     """
+    plate = None
     try:
         # Create the basic plate structure
         plate, plate_acq = create_basic_plate(omero_conn)
@@ -165,7 +166,7 @@ def base_plate(omero_conn, request: pytest.FixtureRequest):
         # Create wells with images
         well_positions = ["C2", "C5"]
         for pos in well_positions:
-            create_well_with_image(omero_conn, plate, plate_acq, pos)
+            plate = create_well_with_image(omero_conn, plate, plate_acq, pos)
 
         # Get the plate as a BlitzObject for easier manipulation
         plate = omero_conn.getObject("Plate", plate.getId().getValue())
@@ -174,7 +175,7 @@ def base_plate(omero_conn, request: pytest.FixtureRequest):
     finally:
 
         def cleanup():
-            if plate:
+            if plate is not None:
                 cleanup_plate(omero_conn, plate)
 
         request.addfinalizer(cleanup)
