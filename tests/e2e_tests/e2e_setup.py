@@ -10,12 +10,9 @@ def excel_file_handling(conn, plate_id, df):
     attach_excel(conn, plate, df)
 
 
-def delete_excel(conn=None, plate_id=53):
-    if conn:
-        plate = conn.getObject("Plate", plate_id)
-        delete_excel_attachment(conn, plate)
-        deleted_plate = conn.getObject("Plate", plate_id)
-        assert deleted_plate is None, "Plate was not deleted"
+def delete_excel(conn, plate_id):
+    plate = conn.getObject("Plate", plate_id)
+    delete_excel_attachment(conn, plate)
 
 
 def e2e_excel_setup(conn=None):
