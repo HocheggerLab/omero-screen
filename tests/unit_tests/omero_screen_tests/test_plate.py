@@ -1,10 +1,12 @@
 from omero.gateway import BlitzGateway, ImageWrapper, ScreenWrapper
 from omero_utils.message import OmeroError
+import os
 import pandas as pd
 import numpy as np
 import numpy.typing as npt
 import omero
 from omero.rtypes import rint, rstring
+from omero.model import ProjectI
 from typing import Any
 from typing_extensions import Generator
 from omero_utils.omero_plate import base_plate, cleanup_plate
@@ -26,6 +28,13 @@ def test_plate_image(omero_conn):
     df = _get_channel_test_data()
     excel_file_handling(omero_conn, plate_id, df)
 
+    # Create Screens project
+    project = ProjectI()
+    project.setName(rstring("Screens"))
+    project_id = omero_conn.getUpdateService().saveAndReturnObject(project).getId().getValue()
+    os.environ["PROJECT_ID"] = str(project_id)
+    print(f"Created project {project_id}")
+
     # add flatfield correction image.
     # assume the standard plate image size.
     dataset_id = PlateDataset(omero_conn, plate_id).dataset_id
@@ -41,6 +50,7 @@ def test_plate_image(omero_conn):
     # Clean up
     cleanup_plate(omero_conn, plate)
     _cleanup_dataset(omero_conn, dataset_id)
+    _cleanup_project(omero_conn, project_id)
 
 
 def _get_channel_test_data(tub: bool = True) -> dict[str, pd.DataFrame]:
@@ -84,3 +94,25 @@ def _cleanup_dataset(conn: BlitzGateway, dataset_id: int) -> None:
         print(f"Successfully deleted dataset {dataset_id}")
     except Exception as e:  # noqa: BLE001
         print(f"Failed to delete dataset: {e}")
+
+
+def _cleanup_project(conn: BlitzGateway, project_id: int) -> None:
+    """Delete a project and all its contents.
+
+    Args:
+        conn: The BlitzGateway connection
+        project_id: The project to delete
+    """
+    try:
+        # Use the deleteObjects method which is part of the BlitzGateway API
+        # wait=True ensures the deletion completes before returning
+        conn.deleteObjects(
+            "Project",
+            [project_id],
+            deleteAnns=True,
+            deleteChildren=True,
+            wait=True,
+        )
+        print(f"Successfully deleted project {project_id}")
+    except Exception as e:  # noqa: BLE001
+        print(f"Failed to delete project: {e}")
