@@ -46,10 +46,15 @@ def quality_control_fig(df: pd.DataFrame) -> Figure:
         ax = [ax]
     for i, channel in enumerate(df.channel.unique()):
         channel_df = medians[medians["channel"] == channel]
-        channel_std = std[std["channel"] == channel]["intensity_median"]
+        channel_std = std.loc[std["channel"] == channel, "intensity_median"]
+        # std is nan if there is 1 image per (position, channel) group
+        channel_std[pd.isna(channel_std)] = 0
+        print(channel_std)
         y_min = (channel_df["intensity_median"] - channel_std).min()
         y_max = (channel_df["intensity_median"] + channel_std).max()
-        padding = (y_max - y_min) * 0.1  # 10% padding
+        padding = max(
+            (y_max - y_min) * 0.1, 1
+        )  # 10% padding; avoid zero padding
         ax[i].errorbar(
             channel_df["position"],
             channel_df["intensity_median"],
