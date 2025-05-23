@@ -16,8 +16,16 @@ from typing import Any, Optional
 
 import numpy as np
 import numpy.typing as npt
-from omero.gateway import BlitzGateway, ImageWrapper
-from omero.model import ImageI, PlateAcquisitionI, PlateI, WellI, WellSampleI
+from omero.gateway import BlitzGateway
+from omero.model import (
+    ImageI,
+    LengthI,
+    PlateAcquisitionI,
+    PlateI,
+    WellI,
+    WellSampleI,
+)
+from omero.model.enums import UnitsLength
 from omero.rtypes import rint, rstring
 from skimage.draw import ellipse
 from typing_extensions import Generator
@@ -78,7 +86,7 @@ def create_well_with_image(
 
     # Create basic image
     img = _create_img((1080, 1080))
-    image = _upload_image(conn, img)
+    image_id = _upload_image(conn, img)
 
     # Create well
     well = WellI()
@@ -88,7 +96,7 @@ def create_well_with_image(
 
     # Create well sample and link everything
     well_sample = WellSampleI()
-    well_sample.setImage(ImageI(image.getId(), False))
+    well_sample.setImage(ImageI(image_id, False))
     well_sample.setPlateAcquisition(plate_acq)
     well.addWellSample(well_sample)
 
@@ -118,8 +126,8 @@ def _create_img(dim: tuple[int, int]) -> npt.NDArray[np.uint8]:
                 img.shape,
                 rotation=rng.uniform(-3.14, 3.14),
             )
-            img[rr, cc, 1] = 255
-            img[rr, cc, 2] = 255
+            img[rr, cc, 1] = 1
+            img[rr, cc, 2] = 1
             rr, cc = ellipse(
                 x,
                 y,
@@ -128,14 +136,17 @@ def _create_img(dim: tuple[int, int]) -> npt.NDArray[np.uint8]:
                 img.shape,
                 rotation=rng.uniform(-3.14, 3.14),
             )
-            img[rr, cc, 0] = 255
-    # Random pixel values
+            img[rr, cc, 0] = 1
+    # Random pixel values within the mask
     indices = img != 0
-    img[indices] = rng.uniform(128, 255, indices.sum())
-    return img
+    img[indices] = rng.uniform(128, 235, indices.sum())
+    # Add noise
+    return np.clip(
+        img + rng.normal(20, 2, size=shape), a_min=0, a_max=255
+    ).astype(np.uint8)
 
 
-def _upload_image(conn: BlitzGateway, img: npt.NDArray[Any]) -> ImageWrapper:
+def _upload_image(conn: BlitzGateway, img: npt.NDArray[Any]) -> int:
     """Upload the image (YXC) to OMERO."""
 
     def plane_gen() -> Generator[npt.NDArray[Any]]:
@@ -143,9 +154,20 @@ def _upload_image(conn: BlitzGateway, img: npt.NDArray[Any]) -> ImageWrapper:
         for i in range(img.shape[-1]):
             yield img[..., i]  # Assume t=z=1
 
-    return conn.createImageFromNumpySeq(
+    image = conn.createImageFromNumpySeq(
         plane_gen(), "Test image", 1, img.shape[-1], 1
     )
+
+    # Add pixel size required for OMERO screen.
+    # Re-load the image to avoid update conflicts.
+    i = conn.getObject("Image", image.getId())
+    u = LengthI(1.0, UnitsLength.MICROMETER)
+    p = i.getPrimaryPixels()._obj
+    p.setPhysicalSizeX(u)
+    p.setPhysicalSizeY(u)
+    conn.getUpdateService().saveObject(p)
+
+    return image.getId()  # type: ignore[no-any-return]
 
 
 def base_plate(
