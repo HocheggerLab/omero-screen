@@ -87,6 +87,7 @@ jobs:
           echo "LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s" >> $GITHUB_ENV
           echo "ENABLE_CONSOLE_LOGGING=True" >> $GITHUB_ENV
           echo "ENABLE_FILE_LOGGING=False" >> $GITHUB_ENV
+          echo "TEST_IMAGE_SIZE=540" >> $GITHUB_ENV
 
       - name: Run tests
         run: |
