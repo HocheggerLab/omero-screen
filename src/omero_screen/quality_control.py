@@ -49,7 +49,6 @@ def quality_control_fig(df: pd.DataFrame) -> Figure:
         channel_std = std.loc[std["channel"] == channel, "intensity_median"]
         # std is nan if there is 1 image per (position, channel) group
         channel_std[pd.isna(channel_std)] = 0
-        print(channel_std)
         y_min = (channel_df["intensity_median"] - channel_std).min()
         y_max = (channel_df["intensity_median"] + channel_std).max()
         padding = max(
