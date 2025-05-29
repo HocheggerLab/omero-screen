@@ -12,6 +12,7 @@ Available functions:
 
 """
 
+import os
 from typing import Any, Optional
 
 import numpy as np
@@ -85,7 +86,8 @@ def create_well_with_image(
     col = int(position[1]) - 1
 
     # Create basic image
-    img = _create_img((1080, 1080))
+    size = int(os.getenv("TEST_IMAGE_SIZE", "1080"))
+    img = _create_img((size, size))
     image_id = _upload_image(conn, img)
 
     # Create well

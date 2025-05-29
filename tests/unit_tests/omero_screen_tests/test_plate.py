@@ -36,7 +36,8 @@ def test_plate_image(omero_conn):
         dataset_id = PlateDataset(omero_conn, plate_id).dataset_id
         dataset = omero_conn.getObject("Dataset", dataset_id)
         image_name = f"{plate_id}_flatfield_masks"
-        image_dict = {str(k): np.ones((1080,1080)) for k in df["Sheet1"]["Channels"]}
+        size = int(os.getenv("TEST_IMAGE_SIZE", "1080"))
+        image_dict = {str(k): np.ones((size, size)) for k in df["Sheet1"]["Channels"]}
         upload_images(omero_conn, dataset, image_name, image_dict)
 
         # run OMERO screen
