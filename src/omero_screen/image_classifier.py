@@ -25,6 +25,8 @@ from omero.gateway import BlitzGateway
 from skimage.measure import regionprops
 from tqdm import tqdm
 
+from omero_screen.torch import get_device
+
 logger = logging.getLogger("omero-screen")
 
 
@@ -47,12 +49,7 @@ class ImageClassifier:
         self.gallery_size = 0
         self.batch_size = 16
         self.class_name = class_name
-        if torch.cuda.is_available():
-            self.device = torch.device("cuda")
-        else:
-            self.device = torch.device(
-                "mps" if torch.backends.mps.is_available() else "cpu"
-            )
+        self.device = get_device()
         self.selected_channels: list[npt.NDArray[Any]] = []
         # list[Any] is a pair of [list[npt.NDArray[Any]], int]: image samples, total image count.
         # We use a list and not a tuple to allow the count at index 1 to be modified

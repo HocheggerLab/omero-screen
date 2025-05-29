@@ -36,7 +36,6 @@ from typing import Any
 
 import numpy.typing as npt
 import pandas as pd
-import torch
 import tqdm
 from matplotlib.figure import Figure
 from omero.gateway import BlitzGateway, WellWrapper
@@ -132,10 +131,9 @@ def _print_device_info() -> None:
 
     This function checks if a GPU is available and prints a message to the logger.
     """
-    if torch.cuda.is_available():
-        logger.info("Using Cellpose with GPU.")
-    else:
-        logger.info("Using Cellpose with CPU.")
+    import omero_screen.torch
+
+    logger.info("Using Cellpose with %s", str(omero_screen.torch.get_device()))
 
 
 def process_wells(

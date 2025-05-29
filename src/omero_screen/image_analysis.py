@@ -26,7 +26,6 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-import torch
 from cellpose import models
 from ezomero import get_image
 from omero.gateway import BlitzGateway, ImageWrapper, WellWrapper
@@ -35,10 +34,10 @@ from pandas.api.types import is_integer_dtype
 from skimage import measure
 
 from omero_screen import default_config
-from omero_screen.config import getenv_as_bool
 from omero_screen.general_functions import filter_segmentation, scale_img
 from omero_screen.image_classifier import ImageClassifier
 from omero_screen.metadata_parser import MetadataParser
+from omero_screen.torch import get_device
 
 logger = logging.getLogger("omero-screen")
 
@@ -216,8 +215,9 @@ class Image:
             self.nuc_diameter = 25
         else:
             self.nuc_diameter = 10
+
         segmentation_model = models.CellposeModel(
-            gpu=getenv_as_bool("GPU", default=torch.cuda.is_available()),
+            device=get_device(),
             model_type=default_config.MODEL_DICT["nuclei"],
         )
         # Get the image array
@@ -260,7 +260,7 @@ class Image:
             npt.NDArray[Any]: Segmentation mask for cells.
         """
         segmentation_model = models.CellposeModel(
-            gpu=getenv_as_bool("GPU", default=torch.cuda.is_available()),
+            device=get_device(),
             model_type=self._get_models(),
         )
         c_channels = [[2, 1]]
