@@ -38,7 +38,7 @@ dependencies = [
 ]
 
 [project.scripts]
-omero-screen = "omero_screen:main"
+omero-screen = "bin.run_omero_screen:main"
 omero-integration-test = "tests.e2e_tests.e2e_run:main"
 cellview = "cellview.main:main"
 
