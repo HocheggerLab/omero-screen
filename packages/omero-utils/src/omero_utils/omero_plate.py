@@ -66,8 +66,10 @@ def create_well_with_image(
     plate: PlateI,
     plate_acq: PlateAcquisitionI,
     position: str,
+    size_z: int = 1,
+    size_t: int = 1,
 ) -> PlateI:
-    """Create a well at the specified plate position with a basic image.
+    """Create a well at the specified plate position with a basic 3 channel image.
 
     For convenience this returns the updated plate and not the well
     to allow repeat calls using the same (up-to-date) plate.
@@ -77,6 +79,8 @@ def create_well_with_image(
         plate: The parent plate object
         plate_acq: The plate acquisition object
         position: Well position (e.g., 'C2')
+        size_z: Number of slices
+        size_t: Number of timepoints
 
     Returns:
         The saved plate object
@@ -87,7 +91,7 @@ def create_well_with_image(
 
     # Create basic image
     size = int(os.getenv("TEST_IMAGE_SIZE", "1080"))
-    img = _create_img((size, size))
+    img = _create_img((size, size), size_z, size_t)
     image_id = _upload_image(conn, img)
 
     # Create well
@@ -107,57 +111,78 @@ def create_well_with_image(
     return update_service.saveAndReturnObject(plate)
 
 
-def _create_img(dim: tuple[int, int]) -> npt.NDArray[np.uint8]:
-    """Create a cell image (YXC) where C=3.
+def _create_img(
+    dim: tuple[int, int], size_z: int, size_t: int
+) -> npt.NDArray[np.uint8]:
+    """Create a cell image (TCZYX) where C=3.
 
-    Nuclei are in the first channel; cells are in the second channel.
+    Nuclei are in the first channel; cells are in the remaining channels.
+
+    Args:
+        dim: (Y,X) dimension of planes
+        size_z: Number of slices
+        size_t: Number of timepoints
     """
-    shape = dim + (3,)
-    img = np.zeros(shape, dtype=np.uint8)
+    shape = (3,) + dim
+    mask = np.zeros(shape, dtype=np.uint8)
     # Draw cells of 30 diameter with 10 diameter nucleus
     cell_radius = 30 // 2
     nucleus_radius = 10 // 2
     rng = np.random.default_rng()
-    for x in range(cell_radius, shape[0] - cell_radius, cell_radius * 2):
-        for y in range(cell_radius, shape[0] - cell_radius, cell_radius * 2):
+    for x in range(cell_radius, dim[1] - cell_radius, cell_radius * 2):
+        for y in range(cell_radius, dim[0] - cell_radius, cell_radius * 2):
             rr, cc = ellipse(
                 x,
                 y,
                 cell_radius,
                 cell_radius * rng.uniform(0.7, 1),
-                img.shape,
+                dim,
                 rotation=rng.uniform(-3.14, 3.14),
             )
-            img[rr, cc, 1] = 1
-            img[rr, cc, 2] = 1
+            mask[1, rr, cc] = 1
+            mask[2, rr, cc] = 1
             rr, cc = ellipse(
                 x,
                 y,
                 nucleus_radius * rng.uniform(0.7, 1.2),
                 nucleus_radius * rng.uniform(0.7, 1.2),
-                img.shape,
+                dim,
                 rotation=rng.uniform(-3.14, 3.14),
             )
-            img[rr, cc, 0] = 1
-    # Random pixel values within the mask
-    indices = img != 0
-    img[indices] = rng.uniform(128, 235, indices.sum())
-    # Add noise
-    return np.clip(
-        img + rng.normal(20, 2, size=shape), a_min=0, a_max=255
-    ).astype(np.uint8)
+            mask[0, rr, cc] = 1
+    # Mask is CYX. Create output image of TCZYX.
+    img = np.zeros((size_t, 3, size_z) + dim, dtype=np.uint8)
+    for c in range(3):
+        # Random pixel values within the mask
+        indices = mask[c] != 0
+        count = indices.sum()
+        for t in range(size_t):
+            for z in range(size_z):
+                i = img[t][c][z]
+                i[indices] = rng.uniform(128, 235, count)
+                # Add noise
+                np.clip(
+                    i + rng.normal(20, 2, size=dim).astype(np.uint16),
+                    a_min=0,
+                    a_max=255,
+                    out=i,
+                )
+    return img
 
 
 def _upload_image(conn: BlitzGateway, img: npt.NDArray[Any]) -> int:
-    """Upload the image (YXC) to OMERO."""
+    """Upload the image (TCZYX) to OMERO."""
+    size_t, size_c, size_z = img.shape[:3]
 
     def plane_gen() -> Generator[npt.NDArray[Any]]:
         """Generator that yields each plane in the image in order TCZ."""
-        for i in range(img.shape[-1]):
-            yield img[..., i]  # Assume t=z=1
+        for z in range(size_z):
+            for c in range(size_c):
+                for t in range(size_t):
+                    yield img[t, c, z]
 
     image = conn.createImageFromNumpySeq(
-        plane_gen(), "Test image", 1, img.shape[-1], 1
+        plane_gen(), "Test image", size_z, size_c, size_t
     )
 
     # Add pixel size required for OMERO screen.
@@ -173,7 +198,10 @@ def _upload_image(conn: BlitzGateway, img: npt.NDArray[Any]) -> int:
 
 
 def base_plate(
-    omero_conn: BlitzGateway, well_positions: Optional[list[str]] = None
+    omero_conn: BlitzGateway,
+    well_positions: Optional[list[str]] = None,
+    size_z: int = 1,
+    size_t: int = 1,
 ) -> PlateI:
     """Session-scoped fixture that creates a plate with two wells (C2 and C5).
 
@@ -183,6 +211,8 @@ def base_plate(
     Args:
         omero_conn: The OMERO connection object
         well_positions: A list of well positions to create on the plate
+        size_z: Number of slices
+        size_t: Number of timepoints
 
     Returns:
         The created plate object
@@ -195,7 +225,9 @@ def base_plate(
 
     # Create wells with images
     for pos in well_positions:
-        plate = create_well_with_image(omero_conn, plate, plate_acq, pos)
+        plate = create_well_with_image(
+            omero_conn, plate, plate_acq, pos, size_z=size_z, size_t=size_t
+        )
 
     # Get the plate as a BlitzObject for easier manipulation
     plate = omero_conn.getObject("Plate", plate.getId().getValue())

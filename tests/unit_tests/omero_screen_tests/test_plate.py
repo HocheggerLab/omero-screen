@@ -11,12 +11,23 @@ from omero_screen.plate_dataset import PlateDataset
 from omero_screen.flatfield_corr import upload_images
 from tests.e2e_tests.e2e_setup import excel_file_handling
 
+
 def test_plate_image(omero_conn):
-    """Test a plate with a single image per well."""
+    """Test a plate with a single 2D image per well."""
+    _run_plate_image(omero_conn, 1, 1)
+
+
+def test_plate_nd_image(omero_conn):
+    """Test a plate with a single time-series 3D image per well."""
+    _run_plate_image(omero_conn, 3, 2)
+
+
+def _run_plate_image(omero_conn, size_z, size_t):
+    """Run a plate with a single image per well."""
     plate = None
     project_id = 0
     try:
-        plate = base_plate(omero_conn, ["A1", "B1"])
+        plate = base_plate(omero_conn, ["A1", "B1"], size_z=size_z, size_t=size_t)
         plate_id = plate.getId()
         print(f"Created plate {plate_id}")
 
@@ -54,7 +65,7 @@ def test_plate_image(omero_conn):
 
 
 def _get_channel_test_data(tub: bool = True) -> dict[str, pd.DataFrame]:
-    """Return standard test data with DAPI, Tub, EdU channels
+    """Return standard test data with DAPI, Tub, EdU channels.
 
     Args:
         tub: If False then rename the Tub channel to NoTub
