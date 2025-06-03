@@ -43,6 +43,8 @@ from omero_utils.attachments import (
     attach_data,
     attach_figure,
     delete_file_attachment,
+    get_file_attachments,
+    parse_csv_data,
 )
 from omero_utils.map_anns import parse_annotations
 
@@ -123,6 +125,9 @@ def plate_loop(
     _save_results(
         conn, df_final, df_final_cc, df_quality_control, dict_gallery, metadata
     )
+    _remove_intermediate_well_results(
+        conn, list(metadata.plate.listChildren())
+    )
     return df_final, df_final_cc, df_quality_control, dict_gallery
 
 
@@ -173,11 +178,20 @@ def process_wells(
             cell_line = ann["cell_line"]
         except KeyError:
             cell_line = ann["Cell_Line"]
-        if cell_line != "Empty":
+        if cell_line == "Empty":
+            continue
+        well_data, well_quality = _download_well_results(conn, well)
+        if well_data is not None:
             logger.info(
-                "Analysing well row:%d/col:%d - %d of %d.",
-                well.row,
-                well.column,
+                "Loaded well results %s (%d/%d).",
+                well.getWellPos(),
+                count + 1,
+                len(wells),
+            )
+        else:
+            logger.info(
+                "Analysing well %s (%d/%d).",
+                well.getWellPos(),
                 count + 1,
                 len(wells),
             )
@@ -189,8 +203,9 @@ def process_wells(
                 flatfield_dict,
                 image_classifier=image_classifier,
             )
-            df_final = pd.concat([df_final, well_data])
-            df_quality_control = pd.concat([df_quality_control, well_quality])
+            _save_well_results(conn, well, well_data, well_quality)
+        df_final = pd.concat([df_final, well_data])
+        df_quality_control = pd.concat([df_quality_control, well_quality])
 
     # Create and save galleries after the loop
     dict_gallery = None
@@ -223,6 +238,53 @@ def _create_classifier(
     image_classifier.gallery_size = gallery_width**2
     image_classifier.batch_size = batch_size
     return image_classifier
+
+
+def _download_well_results(
+    conn: BlitzGateway,
+    well: WellWrapper,
+) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    """Downloads the previous well results from OMERO.
+
+    Args:
+        conn: Connection to OMERO
+        well: WellWrapper object
+    Returns:
+        Tuple[pd.DataFrame, pd.DataFrame]: DataFrames containing the final data and quality control data
+    """
+    ann1 = get_file_attachments(well, "data.csv")
+    ann2 = get_file_attachments(well, "quality.csv")
+    if ann1 is not None and ann2 is not None:
+        df = parse_csv_data(ann1[0])
+        df_quality = parse_csv_data(ann2[0])
+        return df, df_quality
+    return None, None
+
+
+def _save_well_results(
+    conn: BlitzGateway,
+    well: WellWrapper,
+    df: pd.DataFrame,
+    df_quality: pd.DataFrame,
+) -> None:
+    """Saves the well results to OMERO.
+
+    Args:
+        conn: Connection to OMERO
+        well: WellWrapper object
+        df: Analysis results
+        df_quality: Quality control results
+    """
+    attach_data(conn, df, well, "data", cols=_columns(df))
+    attach_data(conn, df_quality, well, "quality", cols=_columns(df_quality))
+
+
+def _remove_intermediate_well_results(
+    conn: BlitzGateway, wells: list[WellWrapper]
+) -> None:
+    for well in wells:
+        delete_file_attachment(conn, well, ends_with="data.csv")
+        delete_file_attachment(conn, well, ends_with="quality.csv")
 
 
 def _well_loop(
@@ -281,8 +343,7 @@ def _add_welldata(
         well_pos = well.getWellPos()
         if len(df_final[df_final["well"] == well_pos]) > 100:
             fig = combplot(df_final, well_pos)
-            # Note: This deletes all file attachments
-            delete_file_attachment(conn, well)
+            delete_file_attachment(conn, well, ends_with=f"{well_pos}.png")
             attach_figure(conn, fig, well, well_pos)
         else:
             logger.warning("Insufficient data for %s", well_pos)

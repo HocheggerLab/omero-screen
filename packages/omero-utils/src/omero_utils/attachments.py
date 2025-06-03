@@ -45,14 +45,11 @@ def get_file_attachments(
     Args:
         obj: The OMERO object to search for attachments
         extension: File extension to match (e.g., '.xlsx', '.pdf'). Case-insensitive.
-            Should include the dot.
 
     Returns:
         List of matching FileAnnotationWrappers or None if no matches found
 
     """
-    if not extension.startswith("."):
-        extension = f".{extension}"
     extension = extension.lower()
 
     matching_files = []
