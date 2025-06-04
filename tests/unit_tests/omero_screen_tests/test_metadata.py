@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 
+from omero.gateway import PlateWrapper
 from omero_screen.metadata_parser import (
     ChannelAnnotationError,
     ExcelParsingError,
@@ -30,12 +31,8 @@ def test_plate_validation_success(base_plate):
     parser = MetadataParser(conn, plate_id)
 
     # Assert
-    assert parser.plate is not None, "Plate should be set after initialization"
-    assert parser.plate.getId() == plate_id, (
+    assert parser.plate_id == plate_id, (
         "Plate ID should match the input ID"
-    )
-    assert parser.plate == base_plate, (
-        "Plate object should match the base_plate fixture"
     )
 
 
@@ -209,6 +206,10 @@ class MockParser(MetadataParser):
         # Initialize mock plate
         wells = plate_wells or []
         self.plate = MockPlate(wells)
+
+    # Override the method to refresh the plate from OMERO
+    def _get_plate(self) -> PlateWrapper:
+        return self.plate
 
 
 # --------------------TEST Validate Metadata Structure--------------------

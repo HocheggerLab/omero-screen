@@ -54,7 +54,6 @@ class MetadataParser:
     Attributes:
         conn (BlitzGateway): The OMERO connection object.
         plate_id (int): The ID of the plate to parse.
-        plate (PlateWrapper): The OMERO plate object.
         excel_file (bool): Whether an Excel file was found and used for metadata.
         channel_data (dict[str, str]): Channel metadata, mapping channel names to indices.
         well_data (dict[str, Any]): Well metadata, mapping annotation keys to lists of values.
@@ -70,22 +69,19 @@ class MetadataParser:
         """
         self.conn: BlitzGateway = conn
         self.plate_id: int = plate_id
-        self.plate: PlateWrapper = self._check_plate()
+        self._check_plate()
         self.excel_file: bool = False
         self.channel_data: dict[str, str] = {}
         self.well_data: dict[str, Any] = {}
         self.pixel_size: float = 0
 
-    def _check_plate(self) -> PlateWrapper:
-        """Retrieve and validate the OMERO plate object for the given plate ID.
-
-        Returns:
-            PlateWrapper: The validated OMERO plate object corresponding to the provided plate ID.
+    def _check_plate(self) -> None:
+        """Validate the OMERO plate object for the given plate ID.
 
         Raises:
             PlateNotFoundError: If no plate with the specified ID exists in OMERO.
         """
-        plate = self.conn.getObject("Plate", self.plate_id)
+        plate = self._get_plate()
         if plate is None:
             raise PlateNotFoundError(
                 f"A plate with id {self.plate_id} was not found!", logger
@@ -94,7 +90,6 @@ class MetadataParser:
         log_success(
             SUCCESS_STYLE, f"Found plate with id {self.plate_id}", logger
         )
-        return plate
 
     def manage_metadata(self) -> None:
         """Parse, validate, and apply metadata for the OMERO plate.
@@ -112,9 +107,7 @@ class MetadataParser:
         if self.excel_file:  # if excel file is found, add channel and well annotations to plate and delete excel file
             self._add_channel_annotations(self.channel_data)
             self._add_well_annotations(self.well_data)
-            delete_excel_attachment(self.conn, self.plate)
-            # Refresh plate after deletion of annotations
-            self.plate = self.conn.getObject("Plate", self.plate_id)
+            delete_excel_attachment(self.conn, self._get_plate())
             log_success(
                 SUCCESS_STYLE,
                 f"Metadata parsed from Excel file and transferred to plate {self.plate_id}",
@@ -139,7 +132,6 @@ class MetadataParser:
             ChannelAnnotationError: If there are issues with channel annotations.
             WellAnnotationError: If there are issues with well annotations.
         """
-        assert self.plate
         if file_annotations := self._check_excel_file():
             log_success(
                 SUCCESS_STYLE,
@@ -179,7 +171,7 @@ class MetadataParser:
             ExcelParsingError: If multiple Excel file attachments are found on the plate.
         """
         # Plate is already validated in __init__
-        file_annotations = get_file_attachments(self.plate, ".xlsx")
+        file_annotations = get_file_attachments(self._get_plate(), ".xlsx")
         if file_annotations and len(file_annotations) == 1:
             self.excel_file = True
             return file_annotations[0]
@@ -239,8 +231,8 @@ class MetadataParser:
         Args:
             channel_data (dict[str, str]): Dictionary mapping channel names to indices to be added as annotations.
         """
-        delete_map_annotations(self.conn, self.plate)
-        add_map_annotations(self.conn, self.plate, channel_data)
+        delete_map_annotations(self.conn, self._get_plate())
+        add_map_annotations(self.conn, self._get_plate(), channel_data)
 
     def _add_well_annotations(self, well_data: dict[str, Any]) -> None:
         """Replace existing well annotations with new metadata for each well in the plate.
@@ -251,7 +243,7 @@ class MetadataParser:
         Args:
             well_data (dict[str, Any]): Dictionary mapping annotation keys to lists of values for each well.
         """
-        for well in self.plate.listChildren():
+        for well in self._get_plate().listChildren():
             delete_map_annotations(self.conn, well)
             well_name = well.getWellPos()
             well_index = well_data["Well"].index(well_name)
@@ -275,7 +267,7 @@ class MetadataParser:
         Raises:
             ChannelAnnotationError: If no channel annotations are found on the plate.
         """
-        annotations: dict[str, str] = parse_annotations(self.plate)
+        annotations: dict[str, str] = parse_annotations(self._get_plate())
         if len(annotations):
             return annotations
         else:
@@ -298,7 +290,7 @@ class MetadataParser:
         """
         well_data: dict[str, list[Any]] = {"Well": []}
 
-        for well in self.plate.listChildren():
+        for well in self._get_plate().listChildren():
             well_pos = well.getWellPos()
             well_data["Well"].append(well_pos)
 
@@ -520,7 +512,7 @@ class MetadataParser:
         errors = []
         # Get actual well positions from the plate
         actual_wells = [
-            well.getWellPos() for well in self.plate.listChildren()
+            well.getWellPos() for well in self._get_plate().listChildren()
         ]
 
         # Get well positions from metadata
@@ -560,7 +552,7 @@ class MetadataParser:
             MetadataValidationError: If no wells or images are found in the plate.
         """
         # Get the first well
-        first_well = next(self.plate.listChildren(), None)
+        first_well = next(self._get_plate().listChildren(), None)
         if not first_well:
             raise MetadataValidationError("No wells found in plate", logger)
 
@@ -631,3 +623,13 @@ class MetadataParser:
         """
         idx = self.well_data["Well"].index(well_id)
         return {k: v[idx] for k, v in self.well_data.items() if k != "Well"}
+
+    def _get_plate(self) -> PlateWrapper:
+        """Get a refreshed plate object from OMERO.
+
+        This method is used to obtain an updated plate after all modifications to the object.
+
+        Returns:
+            The OMERO plate object
+        """
+        return self.conn.getObject("Plate", self.plate_id)

@@ -114,7 +114,9 @@ def plate_loop(
                 df_final_cc = cellcycle_analysis(df_final, cyto=False)
             else:
                 df_final_cc = cellcycle_analysis(df_final)
-            wells = list(metadata.plate.listChildren())
+            wells = list(
+                conn.getObject("Plate", metadata.plate_id).listChildren()
+            )
             _add_welldata(conn, wells, df_final_cc)
         except Exception as e:  # noqa: BLE001
             logger.exception("Cell cycle analysis failed", e)
@@ -126,7 +128,7 @@ def plate_loop(
         conn, df_final, df_final_cc, df_quality_control, dict_gallery, metadata
     )
     _remove_intermediate_well_results(
-        conn, list(metadata.plate.listChildren())
+        conn, list(conn.getObject("Plate", metadata.plate_id).listChildren())
     )
     return df_final, df_final_cc, df_quality_control, dict_gallery
 
@@ -171,7 +173,7 @@ def process_wells(
             _create_classifier(conn, x, gallery_width, batch_size)
             for x in inference_model_names.split(":")
         ]
-    wells = list(metadata.plate.listChildren())
+    wells = list(conn.getObject("Plate", metadata.plate_id).listChildren())
     for count, well in enumerate(wells):
         ann = parse_annotations(well)
         try:
@@ -367,35 +369,53 @@ def _save_results(
         dict_gallery: Dictionary of inference galleries as matplotlib.figure.Figure (or None)
         metadata: Plate metadata
     """
+    # Note: Retrieve a new (updated) plate object after all steps that modify the plate
+
     logger.info("Removing previous results from OMERO")
     # delete pre-existing data
-    delete_file_attachment(conn, metadata.plate)
-
-    # TODO: should metadata.plate.getName() be prefixed to the attachment names?
-    # TODO: should the CSV files be saved locally to a plate directory?
+    delete_file_attachment(conn, conn.getObject("Plate", metadata.plate_id))
 
     logger.info("Saving results to OMERO")
     # load cell cycle data
     attach_data(
-        conn, df_final, metadata.plate, "final_data", cols=_columns(df_final)
+        conn,
+        df_final,
+        conn.getObject("Plate", metadata.plate_id),
+        "final_data",
+        cols=_columns(df_final),
     )
     if df_final_cc is not None:
         attach_data(
             conn,
             df_final_cc,
-            metadata.plate,
+            conn.getObject("Plate", metadata.plate_id),
             "final_data_cc",
             cols=_columns(df_final),
         )
-    attach_data(conn, df_quality_control, metadata.plate, "quality_ctr")
+    attach_data(
+        conn,
+        df_quality_control,
+        conn.getObject("Plate", metadata.plate_id),
+        "quality_ctr",
+    )
 
     # load quality control figure
     quality_fig = quality_control_fig(df_quality_control)
-    attach_figure(conn, quality_fig, metadata.plate, "quality_ctr")
+    attach_figure(
+        conn,
+        quality_fig,
+        conn.getObject("Plate", metadata.plate_id),
+        "quality_ctr",
+    )
     # load inference gallery
     if dict_gallery is not None:
         for cat, fig in dict_gallery.items():
-            attach_figure(conn, fig, metadata.plate, f"inference_{cat}")
+            attach_figure(
+                conn,
+                fig,
+                conn.getObject("Plate", metadata.plate_id),
+                f"inference_{cat}",
+            )
 
 
 def _columns(df: pd.DataFrame) -> list[str]:

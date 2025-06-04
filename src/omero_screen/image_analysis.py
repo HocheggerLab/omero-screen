@@ -375,7 +375,8 @@ class ImageProperties:
         self._image = image_obj
         self._meta_data = meta_data
 
-        self.plate_name = meta_data.plate.getName()
+        # Assumes the well parent is the plate
+        self.plate_name = well.getParent().getName()
         # Get the dict[str, Any] for the given well
         self._cond_dict = meta_data.well_conditions(well.getWellPos())
         self._overlay = self._overlay_mask()
@@ -431,7 +432,7 @@ class ImageProperties:
         ].copy()
         cond_list = [
             self.plate_name,
-            self._meta_data.plate.getId(),
+            self._meta_data.plate_id,
             self._well.getWellPos(),
             self._well_id,
             self._image.omero_image.getId(),
@@ -599,7 +600,7 @@ class ImageProperties:
         return pd.DataFrame(
             {
                 "experiment": [self.plate_name],
-                "plate_id": [self._meta_data.plate.getId()],
+                "plate_id": [self._meta_data.plate_id],
                 "position": [self._image.well_pos],
                 "image_id": [self._image.omero_image.getId()],
                 "channel": [channel],
