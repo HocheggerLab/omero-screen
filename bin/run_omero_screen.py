@@ -55,7 +55,7 @@ def main() -> None:
     if args.env:
         os.environ["ENV"] = args.env
     if args.inference:
-        os.environ["OMERO_SCREEN_INFERENCE_MODEL"] = args.inference
+        os.environ["OMERO_SCREEN_INFERENCE_MODEL"] = ":".join(args.inference)
     if args.gallery:
         os.environ["OMERO_SCREEN_INFERENCE_GALLERY_WIDTH"] = str(args.gallery)
     if args.batch:
