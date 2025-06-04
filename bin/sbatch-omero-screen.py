@@ -95,7 +95,6 @@ def _create_job_script(args: argparse.Namespace) -> str:
       set -e
       export PYTHONPATH=$(cd ../ && pwd)
       msg PYTHONPATH=$PYTHONPATH
-      runcmd module add proxy
       """
             ),
             file=f,
