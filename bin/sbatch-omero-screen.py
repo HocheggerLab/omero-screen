@@ -125,7 +125,7 @@ def _create_job_script(args: argparse.Namespace) -> str:
             )
         for plate_id in set(args.ID):
             print(
-                f"runcmd uv run python {omero_screen_prog} {prog_options} {plate_id}",
+                f"runcmd uv run python {omero_screen_prog} {plate_id} {prog_options}",
                 file=f,
             )
         # E-mail the user when the job has finished.
