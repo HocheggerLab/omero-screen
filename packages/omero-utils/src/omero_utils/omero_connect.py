@@ -80,6 +80,9 @@ def omero_connect(func: Callable[..., Any]) -> Callable[..., Any]:
                 f"Connected to OMERO server at {host} as {username}",
                 logger,
             )
+            # Default session timeout is 10 minutes. Set keep alive in seconds to a value smaller than the timeout.
+            # keepAlive = conn.getSession().timeToIdle // 10000
+            conn.c.enableKeepAlive(60)
             value = func(*args, **kwargs, conn=conn)
 
         except OmeroConnectionError:
