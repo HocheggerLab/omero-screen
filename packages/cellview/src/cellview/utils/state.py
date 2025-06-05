@@ -110,6 +110,7 @@ class CellViewState:
                 cls._instance.project_name,
                 cls._instance.experiment_name,
                 cls._instance.date,
+                cls._instance.lab_member,
             ) = cls._instance.parse_omero_data(args.plate_id)
         try:
             channels = cls._instance.get_channels()
@@ -173,7 +174,7 @@ class CellViewState:
         self,
         plate_id: int,
         conn: Optional[BlitzGateway] = None,
-    ) -> tuple[pd.DataFrame, Any, Any, Any]:
+    ) -> tuple[pd.DataFrame, Any, Any, Any, Any]:
         """Parse the Omero data for the given plate ID.
 
         Args:
@@ -196,8 +197,10 @@ class CellViewState:
                 context={"plate_id": plate_id},
             )
         df = self._get_plate_df(plate)
-        project, experiment, date = self._get_project_info(plate)
-        return df, project, experiment, date
+        project, experiment, date, owner_fullname = self._get_project_info(
+            plate
+        )
+        return df, project, experiment, date, owner_fullname
 
     def _get_plate_df(
         self,
@@ -258,7 +261,7 @@ class CellViewState:
     def _get_project_info(
         self,
         plate: PlateWrapper,
-    ) -> tuple[Any, Any, Any]:
+    ) -> tuple[Any, Any, Any, Any]:
         """Get the project info for the given plate.
 
         Args:
@@ -271,6 +274,8 @@ class CellViewState:
             DataError: If the plate does not have a parent screen.
         """
         screen = plate.getParent()
+        owner = plate.getOwner()
+        owner_fullname = owner.getFullName()
         if not screen:
             raise DataError(
                 "Plate does not have a parent screen",
@@ -290,7 +295,7 @@ class CellViewState:
         tag = tags[0]
         project_name = tag.getValue()
         plate_date = plate.getDate().strftime("%Y-%m-%d")
-        return project_name, experiment_name, plate_date
+        return project_name, experiment_name, plate_date, owner_fullname
 
     # -----------------methods to get data from CSV-----------------
 

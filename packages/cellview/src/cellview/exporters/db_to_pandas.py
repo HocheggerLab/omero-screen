@@ -143,6 +143,7 @@ class PlateParser:
         ORDER BY c.well, r.repeat_id, m.measurement_id
         """
         df = self.conn.execute(query, [plate_id]).df()
+        print(df.columns)
 
         # Get the channel names for this plate
         channel_names = (
@@ -177,10 +178,8 @@ class PlateParser:
         """
         # Get condition variables as separate columns and variable names
         conditions_df, variable_names = self._get_condition_variables(plate_id)
-
         # Get measurements
         measurements_df = self._get_measurements(plate_id)
-
         if measurements_df.empty:
             self.ui.error(f"No measurements found for plate {plate_id}")
             return pd.DataFrame(), variable_names
@@ -188,7 +187,6 @@ class PlateParser:
         df = pd.merge(
             measurements_df, conditions_df, on=["well", "well_id"], how="left"
         )
-
         self.ui.info(
             f"Retrieved DataFrame with {len(df)} rows and {len(df.columns)} columns"
         )
@@ -212,7 +210,6 @@ def export_pandas_df(
     """
     parser = PlateParser(conn)
     df, variable_names = parser.build_df(plate_id)
-
     # Drop any columns that contain NaN values
     df = df.dropna(axis=1, how="all")
 

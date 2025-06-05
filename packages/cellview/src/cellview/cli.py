@@ -55,7 +55,31 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--projects",
         action="store_true",
-        help="Display information about all projects.",
+        help="Display name, description, and number of experiments for all projects.",
+    )
+
+    parser.add_argument(
+        "--project",
+        type=int,
+        help="Display all experiments and their associated plate_ids for a single project.",
+    )
+
+    parser.add_argument(
+        "--experiment",
+        type=int,
+        help="Display all plates and their associated measurements for a single experiment.",
+    )
+
+    parser.add_argument(
+        "--edit-project",
+        type=int,
+        help="Select a project by its ID and edit its name and description.",
+    )
+
+    parser.add_argument(
+        "--edit-experiment",
+        type=int,
+        help="Select an experiment by its ID and edit its name and description.",
     )
 
     parser.add_argument(

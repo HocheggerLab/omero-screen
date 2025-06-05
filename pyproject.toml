@@ -35,6 +35,8 @@ dependencies = [
     "cellview",
     "jupyter>=1.1.1",
     "opencv-python>=4.11.0.86",
+    "ipykernel>=6.29.5",
+    "omero-screen-plots",
 ]
 
 [project.scripts]
@@ -63,6 +65,7 @@ members = [
 omero-utils = { workspace = true }
 omero-screen-napari = { workspace = true }
 cellview = { workspace = true }
+omero-screen-plots = { path = "../omero-screen-plots", editable = true }
 
 
 [dependency-groups]

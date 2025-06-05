@@ -9,6 +9,7 @@ Main Functions:
 """
 
 import argparse
+import os
 
 
 def main() -> None:
@@ -50,7 +51,6 @@ def main() -> None:
     # Note: Lazy import to speed up parsing errors
 
     # Module initialisation sets the environment variables. Create overrides.
-    import os
 
     if args.env:
         os.environ["ENV"] = args.env
