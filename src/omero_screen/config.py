@@ -212,6 +212,13 @@ def get_logger(name: str) -> logging.Logger:
             )  # Set file handler to desired level
             configure_log_handler(fh, LOG_LEVEL, formatter, root_logger)
 
+    # Suppress external logs
+    logging.getLogger("numba").setLevel(logging.WARNING)
+    logging.getLogger("matplotlib").setLevel(logging.WARNING)
+    logging.getLogger("omero").setLevel(logging.WARNING)
+    logging.getLogger("fontTools").setLevel(logging.WARNING)
+    logging.getLogger("cellpose").setLevel(logging.WARNING)
+
     return logger
 
 
