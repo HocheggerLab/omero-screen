@@ -390,7 +390,7 @@ def _save_results(
             df_final_cc,
             conn.getObject("Plate", metadata.plate_id),
             "final_data_cc",
-            cols=_columns(df_final),
+            cols=_columns(df_final_cc),
         )
     attach_data(
         conn,
