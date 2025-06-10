@@ -58,14 +58,15 @@ packages = ["src/omero_screen", "tests"]
 members = [
     "packages/omero-utils",
     "packages/omero-screen-napari",
+    "packages/omero-screen-plots",
     "packages/cellview",
 ]
 
 [tool.uv.sources]
 omero-utils = { workspace = true }
 omero-screen-napari = { workspace = true }
+omero-screen-plots = { workspace = true }
 cellview = { workspace = true }
-omero-screen-plots = { path = "../omero-screen-plots", editable = true }
 
 
 [dependency-groups]

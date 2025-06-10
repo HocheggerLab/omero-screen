@@ -135,15 +135,16 @@ class PlateParser:
             r.channel_0,
             r.channel_1,
             r.channel_2,
-            r.channel_3
+            r.channel_3,
+            e.experiment_name
         FROM repeats r
         JOIN conditions c ON r.repeat_id = c.repeat_id
         JOIN measurements m ON c.condition_id = m.condition_id
+        JOIN experiments e ON r.experiment_id = e.experiment_id
         WHERE r.plate_id = ?
         ORDER BY c.well, r.repeat_id, m.measurement_id
         """
         df = self.conn.execute(query, [plate_id]).df()
-        print(df.columns)
 
         # Get the channel names for this plate
         channel_names = (
@@ -210,7 +211,7 @@ def export_pandas_df(
     """
     parser = PlateParser(conn)
     df, variable_names = parser.build_df(plate_id)
+    df.rename(columns={"experiment_name": "experiment"}, inplace=True)
     # Drop any columns that contain NaN values
     df = df.dropna(axis=1, how="all")
-
     return df, variable_names

@@ -1,0 +1,97 @@
+# LINES
+# lines.linewidth: 0.5                 # line width in points
+# lines.linestyle: -                 # solid line
+# lines.color: C0                    # has no affect on plot(); see axes.prop_cycle
+# lines.marker: None                 # the default marker
+
+# set  facecolor
+figure.facecolor: white
+axes.facecolor: white
+axes.edgecolor: black
+
+
+# Set custom colors. All colors are in web style hex format.
+axes.prop_cycle: cycler('color', ['1d4289', 'd3273e', '41b6e6', 'dc582a', 'ffc845', '00bfb2', '7F8487', '413F42'])
+
+# Style spines
+
+axes.linewidth:  0.5       # Spine edge line width
+axes.spines.top: False          # Display axis spines (True or False)
+axes.spines.left: True          # We only want the left and bottom spines
+axes.spines.right: False
+axes.spines.bottom: True
+
+# Set text color
+text.color: black
+axes.labelcolor: black
+axes.labelpad: 2
+xtick.color: black
+ytick.color: black
+
+
+
+# Set line styling for line plots
+lines.linewidth: 0.5              # line width in points
+lines.solid_capstyle: butt      # Makes a square ending of the line stopping at datapoint
+
+# Grid style
+axes.grid: false                 # display grid or not
+# axes.grid.axis: y               # which axis the grid should apply to
+# grid.linewidth: 1               # in points
+# grid.color: A5A5A5              # grid color
+# axes.axisbelow: True            # Sets axis gridlines below lines and patches.
+
+# Set spacing for figure and also DPI.
+figure.subplot.left: 0.01       # the left side of the subplots of the figure
+figure.subplot.right: 0.99      # the right side of the subplots of the figure
+figure.subplot.bottom: 0.01     # the bottom of the subplots of the figure
+figure.figsize: 2.4, 1.3        # figure size in inches
+figure.dpi: 150                 # figure dots per inch
+
+
+# Properties for saving the figure. Ensure a high DPI when saving so we have a good resolution.
+savefig.dpi:       300          # figure dots per inch or 'figure'
+savefig.transparent: false        # figure face color when saving
+savefig.bbox:      tight        # {tight, standard}
+savefig.pad_inches:   0.2       # padding when bbox is set to tight
+
+# Legend Styling
+legend.framealpha: 1
+
+# Change overall font style
+pdf.fonttype: 42
+ps.fonttype: 42
+font.family: sans-serif
+font.sans-serif: Arial
+
+# Remove box around legend
+# Use 3 scatter points in points legend
+# Use small font in legend
+legend.frameon: true
+legend.facecolor: 'white'
+legend.scatterpoints: 3
+legend.fontsize: 6
+legend.title_fontsize: 6
+legend.labelspacing:0.25
+
+
+
+# Setting font sizes and spacing
+axes.labelsize: 6              # font size of the x and y labels
+xtick.labelsize: 6            # font size of the x tick labels
+ytick.labelsize: 6             # font size of the y tick labels
+font.size: 6                   # default font size for text, given in points.
+xtick.major.pad: 2              # distance to major tick label in points
+ytick.major.pad: 2             # distance to major tick label in points
+
+# Title styling
+axes.titlelocation: left        # alignment of the title: {left, right, center}
+axes.titlepad: 3               # pad between axes and title in points
+axes.titlesize: 3              # font size of the axes title
+axes.titleweight: regular          # font weight of title
+
+# Remove major and minor ticks except for on the x-axis.
+xtick.major.size: 0          # major tick size in points
+xtick.minor.size: 0             # minor tick size in points
+ytick.major.size: 0
+ytick.minor.size: 0
