@@ -140,7 +140,7 @@ class CellViewDB:
             conn.execute("""
             CREATE TABLE projects (
                 project_id INTEGER PRIMARY KEY DEFAULT nextval('project_id_seq'),
-                project_name TEXT NOT NULL,
+                project_name TEXT NOT NULL UNIQUE,
                 description TEXT
             );
 
