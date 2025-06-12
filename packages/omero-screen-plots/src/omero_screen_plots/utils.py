@@ -137,3 +137,29 @@ def scale_data(
     df[scale_col] = np.clip(df[scale_col], p_low, p_high)
     df[scale_col] = ((df[scale_col] - p_low) / (p_high - p_low)) * 65535
     return df
+
+
+def grouped_x_positions(
+    n_conditions: int,
+    group_size: int = 2,
+    within_group_spacing: float = 0.5,
+    between_group_gap: float = 1.0,
+) -> list[float]:
+    """Generate x-axis positions for grouped plots.
+
+    Parameters:
+    - n_conditions: number of conditions (bars/groups)
+    - group_size: number of conditions per group
+    - within_group_spacing: space between conditions in a group
+    - between_group_gap: extra space between groups
+    Returns a list of x positions for each condition.
+    """
+    x_positions: list[float] = []
+    pos: float = 0.0
+    for i in range(n_conditions):
+        x_positions.append(pos)
+        if (i + 1) % group_size == 0 and (i + 1) < n_conditions:
+            pos += between_group_gap
+        else:
+            pos += within_group_spacing
+    return x_positions
