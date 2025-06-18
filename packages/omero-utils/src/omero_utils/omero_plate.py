@@ -104,6 +104,9 @@ def create_well_with_image(
     well_sample = WellSampleI()
     well_sample.setImage(ImageI(image_id, False))
     well_sample.setPlateAcquisition(plate_acq)
+    sample_pos = LengthI(0.0, UnitsLength.METER)
+    well_sample.setPosX(sample_pos)
+    well_sample.setPosY(sample_pos)
     well.addWellSample(well_sample)
 
     # Save the well which will cascade save the well sample
