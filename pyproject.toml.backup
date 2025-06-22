@@ -1,0 +1,201 @@
+[project]
+name = "omero-screen"
+version = "0.1.5"
+description = "Add your description here"
+readme = "README.md"
+authors = [{ name = "hh65", email = "hh65@sussex.ac.uk" }]
+requires-python = ">=3.12"
+dependencies = [
+    "omero-screen-napari",
+    "omero-utils",
+    "python-dotenv>=1.0.1",
+    # macOS-specific zeroc-ice wheel
+    'zeroc-ice @ https://github.com/glencoesoftware/zeroc-ice-py-macos-universal2/releases/download/20240131/zeroc_ice-3.6.5-cp312-cp312-macosx_11_0_universal2.whl ; sys_platform == "darwin"',
+    # Linux aarch64-specific zeroc-ice wheel
+    'zeroc-ice @ https://github.com/glencoesoftware/zeroc-ice-py-linux-aarch64/releases/download/20240620/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_aarch64.whl ; sys_platform == "linux" and platform_machine == "aarch64"',
+    # Linux x86_64-specific zeroc-ice wheel
+    'zeroc-ice @ https://github.com/glencoesoftware/zeroc-ice-py-linux-x86_64/releases/download/20240202/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_x86_64.whl ; sys_platform == "linux" and platform_machine == "x86_64"',
+    # Default zeroc-ice for other platforms or architectures
+    'zeroc-ice>=3.6.5; sys_platform != "darwin" and platform_machine != "aarch64" and platform_machine != "x86_64"',
+    "omero-py>=5.19.5",
+    "pandas>=2.2.3",
+    "openpyxl>=3.1.5",
+    "rich>=13.9.4",
+    "tifffile>=2025.3.30",
+    "scipy>=1.15.2",
+    "scikit-image>=0.25.2",
+    "cellpose>=3.1.1.1",
+    "ezomero>=3.1.1",
+    "tqdm>=4.67.1",
+    "matplotlib>=3.10.1",
+    "numpy>=1.26.4",
+    "torch>=2.7.0",
+    "seaborn>=0.13.2",
+    "duckdb>=1.2.2",
+    "cellview",
+    "jupyter>=1.1.1",
+    "opencv-python>=4.11.0.86",
+    "ipykernel>=6.29.5",
+    "omero-screen-plots",
+]
+
+[project.scripts]
+omero-screen = "bin.run_omero_screen:main"
+omero-integration-test = "tests.e2e_tests.e2e_run:main"
+cellview = "cellview.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/omero_screen", "tests"]
+
+[tool.uv.workspace]
+members = [
+    "packages/omero-utils",
+    "packages/omero-screen-napari",
+    "packages/omero-screen-plots",
+    "packages/cellview",
+]
+
+[tool.uv.sources]
+omero-utils = { workspace = true }
+omero-screen-napari = { workspace = true }
+omero-screen-plots = { workspace = true }
+cellview = { workspace = true }
+
+
+[dependency-groups]
+dev = [
+    "commitizen>=4.1.0",
+    "mypy>=1.15.0",
+    "pandas-stubs",
+    "typing-extensions>=4.9.0",
+    "pre-commit>=4.0.1",
+    "pytest-mock>=3.14.0",
+    "pytest>=8.3.4",
+    "ruff>=0.9.6",
+]
+
+# ===========================
+# Mypy Configuration Section
+# ===========================
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+explicit_package_bases = true
+namespace_packages = true
+allow_untyped_decorators = true
+exclude = [
+    "tests/.*",
+    ".venv/.*",
+    "venv/.*",
+    "env/.*",
+    "build/.*",
+    "dist/.*",
+    "migrations/.*",
+]
+incremental = true
+cache_dir = ".mypy_cache"
+ignore_missing_imports = true
+pretty = true
+warn_unused_configs = false
+warn_unused_ignores = false
+
+# ===========================
+# Ruff Configuration Section
+# ===========================
+
+[tool.ruff]
+line-length = 79
+lint.select = [
+    "D", "E", "F", "W", #flake8
+    "UP", # pyupgrade
+    "I", # isort
+    "BLE", # flake8-blind-exception
+    "B",   # flake8-bugbear
+    "A",   # flake8-builtins
+    "C4",  # flake8-comprehensions
+    "ISC", # flake8-implicit-str-concat
+    "G",   # flake8-logging-format
+    "PIE", # flake8-pie
+    "SIM", # flake8-simplify
+]
+lint.ignore = [
+    "E501",   # line too long. let black handle this
+    "UP006",
+    "UP007",  # type annotation. As using magicgui require runtime type annotation then we disable this.
+    "SIM117", # flake8-simplify - some of merged with statements are not looking great with black, reanble after drop python 3.9
+    "ISC001", # string concatenation conflicts with formatter
+    "D203",  # conflicting with D211 (Google prefers D211)
+    "D213",  # conflicting with D212 (Google prefers D212)
+]
+
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".mypy_cache",
+    ".pants.d",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    "*vendored*",
+    "*_vendor*",
+    "**/*.ipynb",
+    "tests/",
+    "*/tests/",
+    "*_test.py",
+    "test_*.py"
+]
+
+fix = true
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+
+# ============================
+# Pytest Configuration Section
+# ============================
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --ignore=e2e/"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+
+# ===========================
+# Commitizen Configuration Section
+# ===========================
+
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.5"
+tag_format = "omero-screen-v$version"
+version_files = [
+    "src/omero_screen/__init__.py:__version__",
+    "pyproject.toml:version",
+    "README.md:version-[0-9]+\\.[0-9]+\\.[0-9]+",
+]
+version_provider = "commitizen"
+major_version_zero = true
+bump_message = "bump: version $current_version → $new_version"
+update_changelog_on_bump = true
+annotated_tag = true
