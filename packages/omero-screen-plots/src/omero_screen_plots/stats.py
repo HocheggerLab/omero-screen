@@ -2,7 +2,7 @@
 
 import pandas as pd
 from matplotlib.axes import Axes
-from scipy import stats  # type: ignore
+from scipy import stats
 
 
 def calculate_pvalues(
@@ -15,8 +15,7 @@ def calculate_pvalues(
         for condition in conditions
     ]
     return [
-        stats.ttest_ind(count_list[0], data).pvalue  # type: ignore
-        for data in count_list[1:]
+        stats.ttest_ind(count_list[0], data).pvalue for data in count_list[1:]
     ]
 
 

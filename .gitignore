@@ -264,4 +264,8 @@ scratch/
 # =========================
 # Ignore large image files
 examples/*
+
+# =========================
+# Ignore Claude Code
+*[Cc][Ll][Aa][Uu][Dd][Ee]*
 *.csv

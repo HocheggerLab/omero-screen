@@ -109,50 +109,73 @@ class PlateParser:
         Returns:
             A pandas DataFrame with measurements.
         """
-        # First, get all available intensity columns from the measurements table
-        intensity_columns_query = """
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_name = 'measurements'
-        AND column_name LIKE 'intensity_%'
-        """
-        intensity_cols = (
-            self.conn.execute(intensity_columns_query)
-            .df()["column_name"]
-            .tolist()
-        )
+        # Get available columns in the measurements table
+        table_info = self.conn.execute(
+            "PRAGMA table_info(measurements)"
+        ).fetchdf()
+        available_cols = set(table_info["name"].tolist())
 
-        # Build dynamic column list for the query
-        intensity_cols_str = ", ".join(
-            [f'm."{col}"' for col in intensity_cols]
-        )
-
+        # List of possible columns to select
+        select_cols = [
+            "r.plate_id",
+            "r.repeat_id",
+            "c.well",
+            "c.well_id",
+            "m.measurement_id",
+            "m.condition_id",
+            "m.image_id",
+            "m.timepoint",
+            "m.classifier",
+            "m.cell_cycle",
+            "m.cell_cycle_detailed",
+            "m.label",
+            "m.area_nucleus",
+            'm."centroid-0-nuc"',
+            'm."centroid-1-nuc"',
+            "m.integrated_int_DAPI_norm",
+            "m.intensity_mean_DAPI_nucleus",
+            "m.intensity_mean_DAPI_nucleus_norm",
+            "m.intensity_mean_ch1_nucleus",
+            "m.intensity_mean_ch1_nucleus_norm",
+            "m.intensity_mean_ch2_nucleus",
+            "m.intensity_mean_ch2_nucleus_norm",
+            "m.intensity_mean_ch3_nucleus",
+            "m.intensity_mean_ch3_nucleus_norm",
+            "m.area_cell",
+            'm."centroid-0-cell"',
+            'm."centroid-1-cell"',
+            "r.channel_0",
+            "r.channel_1",
+            "r.channel_2",
+            "r.channel_3",
+            "e.experiment_name",
+        ]
+        # Only keep columns that exist in the measurements table or are from other tables
+        measurement_prefix = "m."
+        always_include = {
+            "r.plate_id",
+            "r.repeat_id",
+            "c.well",
+            "c.well_id",
+            "r.channel_0",
+            "r.channel_1",
+            "r.channel_2",
+            "r.channel_3",
+            "e.experiment_name",
+        }
+        filtered_cols = []
+        for col in select_cols:
+            if col in always_include or not col.startswith(measurement_prefix):
+                filtered_cols.append(col)
+            else:
+                # Remove m. prefix and quotes for checking
+                colname = col[len(measurement_prefix) :].replace('"', "")
+                if colname in available_cols:
+                    filtered_cols.append(col)
+        select_clause = ",\n            ".join(filtered_cols)
         query = f"""
         SELECT
-            r.plate_id,
-            r.repeat_id,
-            c.well,
-            c.well_id,
-            m.measurement_id,
-            m.condition_id,
-            m.image_id,
-            m.timepoint,
-            m.classifier,
-            m.cell_cycle,
-            m.cell_cycle_detailed,
-            m.label,
-            m.area_nucleus,
-            m."centroid-0-nuc",
-            m."centroid-1-nuc",
-            {intensity_cols_str},
-            m.area_cell,
-            m."centroid-0-cell",
-            m."centroid-1-cell",
-            r.channel_0,
-            r.channel_1,
-            r.channel_2,
-            r.channel_3,
-            e.experiment_name
+            {select_clause}
         FROM repeats r
         JOIN conditions c ON r.repeat_id = c.repeat_id
         JOIN measurements m ON c.condition_id = m.condition_id
@@ -162,12 +185,57 @@ class PlateParser:
         """
         df = self.conn.execute(query, [plate_id]).df()
 
-        # Drop the channel name columns (they're just metadata, not needed in final DataFrame)
+        # Get the channel names for this plate from the repeats table columns
+        channel_names = (
+            df[["channel_0", "channel_1", "channel_2", "channel_3"]]
+            .iloc[0]
+            .to_dict()
+        )
+
+        # Remove DAPI from the channel mapping and reassign ch1, ch2, ch3 to the remaining channels in order
+        non_dapi_channels = [
+            name
+            for name in [
+                channel_names["channel_0"],
+                channel_names["channel_1"],
+                channel_names["channel_2"],
+                channel_names["channel_3"],
+            ]
+            if name and name.upper() not in ["DAPI", "HOECHST", "H2B"]
+        ]
+        ch_map = {
+            f"ch{i + 1}": ch_name
+            for i, ch_name in enumerate(non_dapi_channels)
+        }
+
+        # For each chX, prefer normalized version if it exists, otherwise use non-normalized
+        for ch_idx in [1, 2, 3]:
+            ch_key = f"ch{ch_idx}"
+            if ch_name := ch_map.get(ch_key):
+                norm_col = f"intensity_mean_{ch_key}_nucleus_norm"
+                raw_col = f"intensity_mean_{ch_key}_nucleus"
+                if norm_col in df.columns:
+                    df.rename(
+                        columns={
+                            norm_col: f"intensity_mean_{ch_name}_nucleus_norm"
+                        },
+                        inplace=True,
+                    )
+                    if raw_col in df.columns:
+                        df.drop(columns=[raw_col], inplace=True)
+                elif raw_col in df.columns:
+                    df.rename(
+                        columns={raw_col: f"intensity_mean_{ch_name}_nucleus"},
+                        inplace=True,
+                    )
+
+        # Drop the channel name columns
         df = df.drop(
             columns=["channel_0", "channel_1", "channel_2", "channel_3"],
             errors="ignore",  # In case these columns don't exist
         )
 
+        # DAPI columns are already named correctly, so nothing to do for DAPI
         return df
 
     def build_df(self, plate_id: int) -> tuple[pd.DataFrame, list[str]]:

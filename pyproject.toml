@@ -87,7 +87,21 @@ dev = [
 
 [tool.mypy]
 strict = true
-python_version = 3.12
+python_version = "3.12"
+explicit_package_bases = true
+namespace_packages = true
+
+packages = ["src", "packages"]  # Tell mypy these are the package roots
+
+# Only include the src directories in the path
+mypy_path = [
+    "packages/omero-screen-plots/src",
+    "packages/cellview/src", 
+    "packages/omero-utils/src",
+    "packages/omero-screen-napari/src",
+]
+
+
 allow_untyped_decorators = true
 exclude = [
     "tests/.*",
@@ -97,14 +111,46 @@ exclude = [
     "build/.*",
     "dist/.*",
     "migrations/.*",
+    "packages/omero-screen-plots/src/omero_screen_plots/__init__.py",
 ]
-
 incremental = true
 cache_dir = ".mypy_cache"
 ignore_missing_imports = true
 pretty = true
 warn_unused_configs = false
 warn_unused_ignores = false
+mypy_path = [
+    "packages/omero-screen-plots/src",
+    "packages/cellview/src",
+    "packages/omero-utils/src",
+    "packages/omero-screen-napari/src",
+]
+
+# Ignore common scientific packages without stubs
+[[tool.mypy.overrides]]
+module = [
+    "matplotlib.*",
+    "pandas",
+    "seaborn",
+    "scipy.*",
+    "duckdb",
+    "tifffile.*",
+    "skimage.*",
+    "cellpose.*",
+    "ezomero.*",
+    "torch.*",
+    "cv2.*",
+    "IPython.*",
+    "omero.*",
+    "zeroc.*",
+    "Ice.*",
+]
+ignore_missing_imports = true
+
+# Fix the duplicate path issue
+[[tool.mypy.overrides]]
+module = "src.*"
+ignore_errors = true
 
 # ===========================
 # Ruff Configuration Section

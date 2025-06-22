@@ -17,7 +17,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
+from matplotlib.ticker import FuncFormatter
 
+from omero_screen_plots import COLOR
 from omero_screen_plots.stats import (
     set_grouped_significance_marks,
     set_significance_marks,
@@ -32,7 +34,8 @@ from omero_screen_plots.utils import (
 )
 
 warnings.filterwarnings("ignore", category=UserWarning)
-height = 3 / 2.54  # 2 cm
+width = 9 / 2.54  # 9 cm
+height = 4 / 2.54  # 4.5 cm
 current_dir = Path(__file__).parent
 style_path = (current_dir / "../../hhlab_style01.mplstyle").resolve()
 plt.style.use(style_path)
@@ -100,9 +103,9 @@ def feature_plot(
             )
             for body in bodies:
                 body.set_facecolor(color_list[idx])
-                body.set_edgecolor("black")
+                # body.set_edgecolor("black")
                 body.set_alpha(0.75)
-                body.set_linewidth(1.5)
+                # xbody.set_linewidth(5)
             if "cmedians" in vp:
                 vp["cmedians"].set_color(color_list[idx])
                 vp["cmedians"].set_linewidth(2)
@@ -172,6 +175,8 @@ def feature_plot(
             tight_layout=False,
             fig_extension="pdf",
         )
+    # After plotting, format y-axis tick labels to two digits
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x:.2f}"))
 
 
 def draw_violin_or_box(
@@ -193,8 +198,8 @@ def draw_violin_or_box(
         for body in bodies:
             body.set_facecolor(color)
             body.set_edgecolor("black")
-            body.set_alpha(0.75)
-            body.set_linewidth(1.5)
+            body.set_alpha(0.9)
+            body.set_linewidth(0.5)
         if "cmedians" in vp:
             vp["cmedians"].set_color(color)
             vp["cmedians"].set_linewidth(2)
@@ -218,6 +223,7 @@ def draw_violin_or_box(
 
 
 def grouped_feature_plot(
+    ax: Optional[Axes],
     df: pd.DataFrame,
     feature: str,
     conditions: list[str],
@@ -227,9 +233,11 @@ def grouped_feature_plot(
     selector_val: Optional[str] = "",
     ymax: float | tuple[float, float] | None = None,
     legend: Optional[tuple[str, list[str]]] = None,
+    dimensions: tuple[float, float] = (width, height),
     x_label: bool = True,
-    height: float = height,
+    y_label: Optional[str] = None,
     violin: bool = False,
+    color=COLOR.LAVENDER.value,
     title: Optional[str] = None,
     save: bool = False,
     path: Optional[Path] = None,
@@ -249,6 +257,7 @@ def grouped_feature_plot(
     selector_val: Optional[str]
     ymax: float | tuple[float, float] | None
     legend: Optional[tuple[str, list[str]]]
+    dim: tuple[float, float]
     x_label: bool
     height: float
     violin: bool
@@ -256,12 +265,19 @@ def grouped_feature_plot(
     save: bool
     path: Optional[Path]
     """
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(dimensions[0], dimensions[1]))
     # Filter DataFrame using selector_val_filter, as in feature_plot
     df_filtered = selector_val_filter(
         df, selector_col, selector_val, condition_col, conditions
     )
     assert df_filtered is not None, "No data found"
 
+    # Scale the feature data by 100 for percentage-style y-axis
+    # (we need to work on a copy to avoid modifying the caller's DataFrame)
+    df_filtered = df_filtered.copy()
+    df_filtered[feature] = df_filtered[feature] * 100
+    # After scaling the data we continue with the usual plotting workflow
     x_positions = grouped_x_positions(
         len(conditions), group_size=group_size, between_group_gap=0.75
     )
@@ -269,14 +285,12 @@ def grouped_feature_plot(
         df_filtered[df_filtered[condition_col] == cond][feature]
         for cond in conditions
     ]
-    fig, ax = plt.subplots(figsize=(height * 3, height * 1.5))
     for i, (dat, xpos) in enumerate(
         zip(data_for_plot, x_positions, strict=False)
     ):
-        color_idx = i % group_size  # alternate colors within group
-        draw_violin_or_box(ax, dat, xpos, COLORS[color_idx], violin)
+        draw_violin_or_box(ax, dat, xpos, color, violin)
 
-    # Overlay repeat points (medians per plate_id per condition)
+    # Overlay repeat points (medians per plate_id per condition) with different markers
     df_median = (
         df_filtered.groupby(["plate_id", condition_col])[feature]
         .median()
@@ -284,60 +298,95 @@ def grouped_feature_plot(
     )
     # Map condition to x-position
     cond_to_x = dict(zip(conditions, x_positions, strict=False))
+    markers = ["o", "s", "^"]  # circle, square, triangle
+    plate_ids = df_median["plate_id"].unique()
+    plate_id_to_marker = {
+        pid: markers[i % len(markers)] for i, pid in enumerate(plate_ids)
+    }
+    scatter_handles = {}
     for cond in conditions:
         cond_medians = df_median[df_median[condition_col] == cond]
         x_base = np.full(len(cond_medians), cond_to_x[cond])
         jitter = np.random.uniform(-0.05, 0.05, size=len(cond_medians))
         x = x_base + jitter
         y = cond_medians[feature].values
-        ax.scatter(
-            x,
-            y,
-            color="black",
-            edgecolor="white",
-            s=18,
-            zorder=4,
-            label="Repeat medians" if cond == conditions[0] else None,
-        )
+        for i, (xi, yi, pid) in enumerate(
+            zip(x, y, cond_medians["plate_id"], strict=False)
+        ):
+            marker = plate_id_to_marker[pid]
+            handle = ax.scatter(
+                xi,
+                yi,
+                color="black",
+                edgecolor="white",
+                s=18,
+                zorder=4,
+                marker=marker,
+            )
+            # Store one handle per marker for legend
+            if marker not in scatter_handles:
+                scatter_handles[marker] = handle
     ax.set_xticks(x_positions)
     if x_label:
         ax.set_xticklabels(conditions, rotation=45, ha="right")
     else:
         ax.set_xticklabels([])
     ax.set_xlabel("")
-    ax.set_ylabel(feature)
+    if y_label is None:
+        ax.set_ylabel(f"{feature} ×100")
+    else:
+        ax.set_ylabel(y_label)
     if title:
         ax.set_title(title, fontsize=8, weight="bold", y=1.1)
-    # Add legend if provided
-    if legend is not None:
-        legend_title, legend_labels = legend
-        from matplotlib.patches import Patch
+    # Add legend for repeat medians with marker shapes
+    from matplotlib.lines import Line2D
 
-        handles = [
-            Patch(facecolor=COLORS[i % len(COLORS)], label=label)
-            for i, label in enumerate(legend_labels)
-        ]
-        ax.legend(
-            handles=handles,
-            title=legend_title,
-            bbox_to_anchor=(1.05, 1),
-            loc="upper left",
+    marker_labels = ["rep1", "rep2", "rep3"]
+    handles = [
+        Line2D(
+            [0],
+            [0],
+            marker=m,
+            color="black",
+            markerfacecolor="black",
+            markeredgecolor="white",
+            markersize=6,
+            linestyle="None",
+            label=label,
         )
+        for m, label in zip(markers, marker_labels, strict=False)
+    ]
+    ax.legend(
+        handles=handles,
+        title="median",
+        bbox_to_anchor=(0.95, 1),
+        loc="upper left",
+        frameon=False,
+    )
     if ymax:
         if isinstance(ymax, tuple):
             ax.set_ylim(ymax[0], ymax[1])
         else:
             ax.set_ylim(0, ymax)
     plt.tight_layout()
-    if save and path and title:
-        file_name = title.replace(" ", "_")
-        save_fig(
-            fig,
-            path,
-            file_name,
-            tight_layout=False,
-            fig_extension="pdf",
-        )
+
+    # Display the y-axis ticks as whole percentage numbers (0-100)
+    def percent_formatter(x, pos):  # noqa: D401 – simple lambda replacement
+        return f"{x:.0f}"
+
+    ax.yaxis.set_major_formatter(FuncFormatter(percent_formatter))
+    if save and path and title and fig is not None:
+        from matplotlib.figure import Figure as MplFigure
+
+        if isinstance(fig, MplFigure):
+            file_name = title.replace(" ", "_")
+            save_fig(
+                fig,
+                path,
+                file_name,
+                tight_layout=False,
+                fig_extension="pdf",
+            )
     # Annotate pairwise significance for each group
     set_grouped_significance_marks(
         ax,
@@ -349,4 +398,193 @@ def grouped_feature_plot(
         group_size=group_size,
         x_positions=x_positions,
     )
-    plt.show()
+
+
+def featureplot_threshold(
+    ax: Axes,
+    df: pd.DataFrame,
+    conditions: list[str],
+    feature: str,
+    threshold: float,
+    condition_col: str = "condition",
+    selector_col: Optional[str] = "cell_line",
+    selector_val: Optional[str] = "",
+) -> None:
+    """Plot a feature plot with a threshold."""
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(dimensions[0], dimensions[1]))
+    # Filter DataFrame using selector_val_filter, as in feature_plot
+    df_filtered = selector_val_filter(
+        df, selector_col, selector_val, condition_col, conditions
+    )
+    assert df_filtered is not None, "No data found"
+    df_filtered["threshold"] = np.where(df[feature] > threshold, "pos", "neg")
+
+
+def grouped_stacked_threshold_barplot(
+    ax: Optional[Axes],
+    df: pd.DataFrame,
+    conditions: list[str],
+    group_size: int = 2,
+    feature: str = "feature",
+    threshold: float = 0.0,
+    condition_col: str = "condition",
+    selector_col: Optional[str] = "cell_line",
+    selector_val: Optional[str] = None,
+    colors=COLOR,
+    repeat_offset: float = 0.18,
+    dimensions: tuple[float, float] = (width, height),
+    x_label: bool = True,
+    title: Optional[str] = None,
+    save: bool = True,
+    path: Optional[Path] = None,
+) -> None:
+    """Create a grouped stacked barplot for thresholded feature (pos/neg) proportions.
+
+    Args:
+        ax: Matplotlib axis.
+        df: DataFrame containing feature data.
+        conditions: List of condition names to plot.
+        group_size: Number of groups for x-axis grouping.
+        feature: Feature column name.
+        threshold: Threshold value for categorization.
+        condition_col: Column name for experimental condition.
+        selector_col: Column name for selector (e.g., cell line).
+        selector_val: Value to filter selector_col by.
+        colors: List of colors for plotting.
+        repeat_offset: Offset for repeat bars.
+        dimensions: Dimensions of the figure.
+        x_label: Whether to show the x-axis label.
+        title: Plot title.
+        save: Whether to save the figure.
+        path: Path to save the figure.
+    """
+    feature_name = feature.split("_")[2]
+    if ax is None:
+        fig, ax = plt.subplots(figsize=dimensions)
+    else:
+        fig = ax.figure
+    # Filter DataFrame
+    df1 = selector_val_filter(
+        df, selector_col, selector_val, condition_col, conditions
+    )
+    assert df1 is not None
+    # Create thresholded column
+    df1["threshold"] = np.where(df1[feature] > threshold, "pos", "neg")
+    n_repeats = 3
+    repeat_ids = sorted(df1["plate_id"].unique())[:n_repeats]
+    n_conditions = len(conditions)
+    x_base_positions = grouped_x_positions(
+        n_conditions,
+        group_size=group_size,
+        within_group_spacing=0.6,
+        between_group_gap=0.7,
+    )
+    # For each condition and replicate, count pos/neg and plot stacked bars as percentage
+    for cond_idx, cond in enumerate(conditions):
+        for rep_idx, plate_id in enumerate(repeat_ids):
+            xpos = x_base_positions[cond_idx] + (rep_idx - 1) * repeat_offset
+            plate_data = df1[
+                (df1[condition_col] == cond) & (df1["plate_id"] == plate_id)
+            ]
+            if not plate_data.empty:
+                counts = plate_data["threshold"].value_counts()
+                total = counts.get("neg", 0) + counts.get("pos", 0)
+                if total == 0:
+                    neg_pct = pos_pct = 0
+                else:
+                    neg_pct = counts.get("neg", 0) / total * 100
+                    pos_pct = counts.get("pos", 0) / total * 100
+                ax.bar(
+                    xpos,
+                    pos_pct,
+                    width=repeat_offset * 1.05,
+                    color=COLOR.OLIVE.value,
+                    edgecolor="white",
+                    linewidth=0.7,
+                    label="pos" if cond_idx == 0 and rep_idx == 0 else None,
+                )
+                ax.bar(
+                    xpos,
+                    neg_pct,
+                    width=repeat_offset * 1.05,
+                    bottom=pos_pct,
+                    color=COLOR.LIGHT_GREEN.value,
+                    edgecolor="white",
+                    linewidth=0.7,
+                    label="neg" if cond_idx == 0 and rep_idx == 0 else None,
+                )
+    ax.set_xticks(x_base_positions)
+    if x_label:
+        ax.set_xticklabels(conditions, rotation=45, ha="right")
+    else:
+        ax.set_xticklabels([])
+    ax.set_xlabel("")
+    ax.set_ylabel("Percentage")
+    ax.set_ylim(0, 100)
+    # Draw triplicate boxes
+    from matplotlib.patches import Rectangle
+
+    n_repeats = len(repeat_ids)
+    bar_width = repeat_offset * 1.05
+    y_min = 0
+    # Always 100% for the box height
+    y_max_box = 100
+    for cond_idx, cond in enumerate(conditions):
+        trip_xs = [
+            x_base_positions[cond_idx] + (rep_idx - 1) * repeat_offset
+            for rep_idx in range(n_repeats)
+        ]
+        left = min(trip_xs) - bar_width / 2
+        right = max(trip_xs) + bar_width / 2
+        rect = Rectangle(
+            (left, y_min),
+            width=right - left,
+            height=y_max_box - y_min,
+            linewidth=0.5,
+            edgecolor="black",
+            facecolor="none",
+            zorder=10,
+        )
+        ax.add_patch(rect)
+    # Add legend for pos/neg
+    from matplotlib.patches import Patch
+
+    legend_handles = [
+        Patch(
+            facecolor=COLOR.LIGHT_GREEN.value,
+            edgecolor="white",
+            label=f"{feature_name}-",
+        ),
+        Patch(
+            facecolor=COLOR.OLIVE.value,
+            edgecolor="white",
+            label=f"{feature_name}+",
+        ),
+    ]
+    dummy_label = " " * 20
+    legend_handles.append(
+        Patch(facecolor="none", edgecolor="none", label=dummy_label)
+    )
+    ax.legend(
+        handles=legend_handles,
+        title="",
+        bbox_to_anchor=(0.95, 1),
+        loc="upper left",
+        frameon=False,
+    )
+    if title:
+        ax.set_title(title, fontsize=8, weight="bold", y=1.1)
+    plt.tight_layout()
+    if save and path and title and fig is not None:
+        from matplotlib.figure import Figure as MplFigure
+
+        if isinstance(fig, MplFigure):
+            file_name = title.replace(" ", "_")
+            save_fig(
+                fig,
+                path,
+                file_name,
+                tight_layout=False,
+                fig_extension="pdf",
+            )

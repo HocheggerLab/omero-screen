@@ -12,6 +12,7 @@ from matplotlib.figure import Figure
 from matplotlib.gridspec import GridSpec
 
 from omero_screen_plots.cellcycleplot import prop_pivot
+from omero_screen_plots.colors import COLOR
 from omero_screen_plots.utils import save_fig, selector_val_filter
 
 current_dir = Path(__file__).parent
@@ -19,6 +20,7 @@ style_path = (current_dir / "../../hhlab_style01.mplstyle").resolve()
 plt.style.use(style_path)
 prop_cycle = plt.rcParams["axes.prop_cycle"]
 COLORS = prop_cycle.by_key()["color"]
+COLOR_ENUM = COLOR
 pd.options.mode.chained_assignment = None
 
 
@@ -85,13 +87,14 @@ def scatter_plot(
     None
         This function does not return a value.
     """
-    phases = ["Sub-G1", "G1", "S", "G2/M", "Polyploid"]
+    phases = ["Polyploid", "G2/M", "S", "G1", "Sub-G1"]
     sns.scatterplot(
         data=data,
         x="integrated_int_DAPI_norm",
         y="intensity_mean_EdU_nucleus_norm",
         hue="cell_cycle",
         hue_order=phases,
+        palette=colors[: len(phases)],
         s=2,
         alpha=1,
         ax=ax,
@@ -135,7 +138,7 @@ def scatter_plot_feature(
     conditions: list[str],
     col: str,
     y_lim: float,
-    colors: list[str],
+    colors: list[str] = COLORS,
 ) -> None:
     """Plot a scatter plot of the integrated DAPI intensity vs. a specified column.
 
@@ -151,25 +154,32 @@ def scatter_plot_feature(
         The conditions to use for the scatter plot.
     col : str
         The column to plot against the integrated DAPI intensity.
+    y_lim : float
+        The threshold value for color categorization.
     colors : list[str]
         A list of colors to use for the scatter plot.
     """
-    data.loc[:, "color"] = data[col].apply(
-        lambda x: colors[0] if x < y_lim else colors[1]
+    # Create binary categories based on threshold
+    data.loc[:, "threshold_category"] = data[col].apply(
+        lambda x: "below" if x < y_lim else "above"
     )
+
     sns.scatterplot(
         data=data,
         x="integrated_int_DAPI_norm",
         y=col,
-        hue="color",
-        palette=[colors[-1], colors[1]],
-        hue_order=[colors[-1], colors[1]],
+        hue="threshold_category",
+        palette={
+            "below": COLOR_ENUM.LIGHT_BLUE.value,
+            "above": COLOR_ENUM.BLUE.value,
+        },
+        hue_order=["below", "above"],
         s=2,
         alpha=1,
         ax=ax,
     )
     ax.set_xscale("log")
-    ax.set_yscale("log", base=2)
+    # ax.set_yscale("log", base=2)
     ax.grid(False)
     ax.xaxis.set_major_formatter(
         ticker.FuncFormatter(lambda x, pos: str(int(x)))
@@ -178,15 +188,16 @@ def scatter_plot_feature(
     ax.set_xlim(1, 16)
 
     # Set specific y-axis ticks and labels
-    ax.set_yticks([2000, 4000, 8000, 16000])
-    ax.set_yticklabels(["2", "4", "8", "16"])
+    # ax.set_yticks([2000, 4000, 8000, 16000])
+    # ax.set_yticklabels(["2", "4", "8", "16"])
 
     if i == len(conditions) * 2:
-        ax.set_ylabel(col, fontsize=6)
+        y_label = f"{col.split('_')[2]} norm."
+        ax.set_ylabel(y_label, fontsize=6)
         # Custom y-axis formatter to remove zeros
-        ax.yaxis.set_major_formatter(
-            ticker.FuncFormatter(lambda y, _: f"{y / 1000:g}")
-        )
+        # ax.yaxis.set_major_formatter(
+        #     ticker.FuncFormatter(lambda y, _: f"{y / 1000:g}")
+        # )
     else:
         ax.yaxis.set_visible(False)
 
@@ -215,6 +226,8 @@ def comb_plot(
     title: str | None = None,
     cell_number: int | None = None,
     colors: list[str] = COLORS,
+    width: float = 10 / 2.54,
+    height: float = 7 / 2.54,
     save: bool = True,
     path: Path | None = None,
 ) -> None:

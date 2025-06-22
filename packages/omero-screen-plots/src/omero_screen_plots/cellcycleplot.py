@@ -17,7 +17,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 from matplotlib.axes import Axes
-from matplotlib.figure import Figure
 from matplotlib.patches import Patch, Rectangle
 
 from omero_screen_plots.stats import set_significance_marks
@@ -200,6 +199,7 @@ def stacked_barplot(
 
 
 def grouped_stacked_barplot(
+    ax: Optional[Axes],
     df: pd.DataFrame,
     conditions: list[str],
     group_size: int = 2,
@@ -214,12 +214,13 @@ def grouped_stacked_barplot(
     title: Optional[str] = None,
     save: bool = True,
     path: Optional[Path] = None,
-) -> tuple[Figure, Axes]:
+) -> None:
     """Create a grouped stacked barplot for phase proportions.
 
     Group bars on the x-axis by group_size, and center three repeats per condition.
 
     Args:
+        ax: Matplotlib axis.
         df: DataFrame containing cell cycle data.
         conditions: List of condition names to plot.
         group_size: Number of groups for x-axis grouping.
@@ -235,8 +236,13 @@ def grouped_stacked_barplot(
         save: Optional: Whether to save the figure. Needs to be provided for saving!
         path: Path to save the figure.
     """
+    if ax is None:
+        fig, ax = plt.subplots(figsize=dimensions)
     if phases is None:
-        phases = ["Sub-G1", "G1", "S", "G2/M", "Polyploid"]
+        custom_phases = False
+        phases = ["Polyploid", "G2/M", "S", "G1", "Sub-G1"]
+    else:
+        custom_phases = True
     df1 = selector_val_filter(
         df, selector_col, selector_val, condition_col, conditions
     )
@@ -252,7 +258,6 @@ def grouped_stacked_barplot(
         between_group_gap=0.7,
     )
 
-    fig, ax = plt.subplots(figsize=dimensions)
     plot_triplicate_bars(
         ax,
         df1,
@@ -282,11 +287,11 @@ def grouped_stacked_barplot(
         n_repeats,
         condition_col,
     )
-    build_phase_legend(ax, phases, colors)
+    build_phase_legend(ax, phases, colors, custom_phases)
     if title:
-        ax.set_title(title, fontsize=8, weight="bold", y=1.1)
+        ax.set_title(title, fontsize=6, weight="bold", y=1.1)
     plt.tight_layout()
-    if save and path and title:
+    if save and path and title and fig is not None:
         file_name = title.replace(" ", "_")
         save_fig(
             fig,
@@ -295,7 +300,6 @@ def grouped_stacked_barplot(
             tight_layout=False,
             fig_extension="pdf",
         )
-    return fig, ax
 
 
 # ------------------------helper functions-------------------------------
@@ -481,7 +485,9 @@ def draw_triplicate_boxes(
         ax.add_patch(rect)
 
 
-def build_phase_legend(ax: Axes, phases: list[str], colors: list[str]) -> None:
+def build_phase_legend(
+    ax: Axes, phases: list[str], colors: list[str], custom_phases: bool
+) -> None:
     """Build legend for cell cycle phases.
 
     Args:
@@ -489,15 +495,22 @@ def build_phase_legend(ax: Axes, phases: list[str], colors: list[str]) -> None:
         phases: List of cell cycle phases.
         colors: List of colors for phases.
     """
+    labels = ["8N+", "4N", "S", "2N", "2N-"] if not custom_phases else phases
     legend_handles = [
         Patch(
             facecolor=colors[i % len(colors)], edgecolor="white", label=phase
         )
-        for i, phase in enumerate(phases)
+        for i, phase in enumerate(labels)
     ][::-1]
+    # Add a dummy handle with a long invisible label for fixed width
+    dummy_label = " " * 20
+    legend_handles.append(
+        Patch(facecolor="none", edgecolor="none", label=dummy_label)
+    )
     ax.legend(
         handles=legend_handles,
-        title="Phase",
-        bbox_to_anchor=(1.05, 1),
+        title="",
+        bbox_to_anchor=(0.95, 1),
         loc="upper left",
+        frameon=False,
     )
