@@ -91,6 +91,7 @@ python_version = "3.12"
 explicit_package_bases = true
 namespace_packages = true
 allow_untyped_decorators = true
+mypy_path = "src:packages/omero-utils/src:packages/omero-screen-napari/src:packages/omero-screen-plots/src:packages/cellview/src"
 exclude = [
     "tests/.*",
     ".venv/.*",

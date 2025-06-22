@@ -6,7 +6,7 @@ providing common functionality for data validation, styling, and subplot managem
 
 import warnings
 from pathlib import Path
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import pandas as pd
 import seaborn as sns
@@ -32,7 +32,7 @@ class BaseCombPlot(OmeroPlots):
     def __init__(
         self,
         data: pd.DataFrame,
-        conditions: List[str],
+        conditions: list[str],
         cell_number: Optional[int] = None,
         dapi_col: str = "integrated_int_DAPI_norm",
         edu_col: str = "intensity_mean_EdU_nucleus_norm",
@@ -104,10 +104,10 @@ class BaseCombPlot(OmeroPlots):
         self,
         n_rows: int,
         n_cols: int,
-        height_ratios: Optional[List[float]] = None,
-        width_ratios: Optional[List[float]] = None,
+        height_ratios: Optional[list[float]] = None,
+        width_ratios: Optional[list[float]] = None,
         **grid_kwargs: Any,
-    ) -> Tuple[Figure, GridSpec]:
+    ) -> tuple[Figure, GridSpec]:
         """Setup subplot grid layout.
 
         Args:
@@ -143,7 +143,7 @@ class BaseCombPlot(OmeroPlots):
         label: str = "norm. DNA content",
         force_label: bool = True,
         row_position: str = "bottom",
-        target_axes: Optional[List[Axes]] = None,
+        target_axes: Optional[list[Axes]] = None,
     ) -> None:
         """Add common x-axis label to the figure.
 
@@ -246,6 +246,7 @@ class BaseCombPlot(OmeroPlots):
         Args:
             path: Path to save location
             filename: Optional filename. If None, generates descriptive name
+            tight_layout: Whether to apply tight layout
             **kwargs: Additional save parameters
         """
         if filename is None:
@@ -433,6 +434,7 @@ class BaseHistogramPlot(BaseCombPlot):
 
     @property
     def plot_type(self) -> str:
+        """Return the type of plot."""
         return "histogram"
 
     def create_histogram(
@@ -547,12 +549,9 @@ class BaseScatterPlot(BaseCombPlot):
         """
         if "edu" in y_col.lower():
             return "norm. EdU int."
-        else:
-            # Extract meaningful part from column name
-            parts = y_col.split("_")
-            if len(parts) >= 3:
-                return f"{parts[2]} norm."
-            return y_col
+        # Extract meaningful part from column name
+        parts = y_col.split("_")
+        return f"{parts[2]} norm." if len(parts) >= 3 else y_col
 
     def add_kde_overlay(
         self, ax: Axes, data: pd.DataFrame, x_col: str, y_col: str
@@ -575,8 +574,8 @@ class BaseScatterPlot(BaseCombPlot):
                 cmap="rocket_r",
                 ax=ax,
             )
-        except Exception as e:
-            warnings.warn(f"Could not add KDE overlay: {e}")
+        except (ValueError, KeyError, IndexError) as e:
+            warnings.warn(f"Could not add KDE overlay: {e}", stacklevel=2)
 
 
 class BaseCellCycleScatter(BaseScatterPlot):
@@ -584,6 +583,7 @@ class BaseCellCycleScatter(BaseScatterPlot):
 
     @property
     def plot_type(self) -> str:
+        """Return the type of plot."""
         return "cellcycle_scatter"
 
     def create_cellcycle_scatter(
@@ -639,12 +639,13 @@ class BaseFeatureScatter(BaseScatterPlot):
 
     @property
     def plot_type(self) -> str:
+        """Return the type of plot."""
         return "feature_scatter"
 
     def __init__(
         self,
         data: pd.DataFrame,
-        conditions: List[str],
+        conditions: list[str],
         feature_col: str,
         feature_threshold: float,
         **kwargs: Any,

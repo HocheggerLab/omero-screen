@@ -494,6 +494,7 @@ def build_phase_legend(
         ax: Matplotlib axis.
         phases: List of cell cycle phases.
         colors: List of colors for phases.
+        custom_phases: Whether to use custom phases.
     """
     labels = ["8N+", "4N", "S", "2N", "2N-"] if not custom_phases else phases
     legend_handles = [

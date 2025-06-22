@@ -5,7 +5,8 @@ showing the relative proportions of all cell cycle phases in a single chart.
 This view is excellent for comparing overall cell cycle distributions between conditions.
 """
 
-from typing import List, Optional
+from pathlib import Path
+from typing import Any, Optional, Union
 
 import pandas as pd
 from matplotlib.axes import Axes
@@ -31,18 +32,19 @@ class CellCycleStackedPlot(BaseCellCyclePlot):
 
     @property
     def plot_type(self) -> str:
+        """Return the type of plot."""
         return "cellcycle_stacked"
 
     def __init__(
         self,
-        data,
-        conditions: List[str],
-        phases: Optional[List[str]] = None,
+        data: pd.DataFrame,
+        conditions: list[str],
+        phases: Optional[list[str]] = None,
         reverse_stack: bool = False,
         show_legend: bool = True,
         legend_position: str = "right",
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         """Initialize stacked cell cycle plot.
 
         Args:
@@ -79,7 +81,7 @@ class CellCycleStackedPlot(BaseCellCyclePlot):
         self._setup_figure()
 
         # Create axis if we own the figure but don't have one
-        if self.ax is None and self._owns_figure:
+        if self.ax is None and self._owns_figure and self.fig is not None:
             self.ax = self.fig.add_subplot(111)
 
         assert self.ax is not None, "Axis is not set"
@@ -149,7 +151,7 @@ class CellCycleStackedPlot(BaseCellCyclePlot):
         self.ax.spines["top"].set_visible(False)
         self.ax.spines["right"].set_visible(False)
 
-    def _add_legend(self, handles) -> None:
+    def _add_legend(self, handles: list[Any]) -> None:
         """Add legend to the plot.
 
         Args:
@@ -187,14 +189,13 @@ class CellCycleStackedPlot(BaseCellCyclePlot):
 
         self.ax.legend(**legend_kwargs)
 
-    def get_phase_contributions(self) -> dict:
+    def get_phase_contributions(self) -> dict[str, float]:
         """Get the contribution of each phase as percentages.
 
         Returns:
             Dictionary with phase names as keys and their mean contributions as values
         """
         mean_data = self.get_mean_percentages()
-        total_cells = mean_data.sum(axis=1).mean()  # Average across conditions
 
         return {
             phase: mean_data[phase].mean()
@@ -216,7 +217,7 @@ class CellCycleStackedPlot(BaseCellCyclePlot):
         mean_data = self.get_mean_percentages()
 
         for i, condition in enumerate(self.conditions):
-            y_bottom = 0
+            y_bottom = 0.0
             for phase in self.phases:
                 if phase not in mean_data.columns:
                     continue
@@ -237,12 +238,19 @@ class CellCycleStackedPlot(BaseCellCyclePlot):
                     )
                 y_bottom += value
 
-    def save(self, path, filename: Optional[str] = None, **kwargs):
+    def save(
+        self,
+        path: Union[str, Path],
+        filename: Optional[str] = None,
+        tight_layout: bool = True,
+        **kwargs: Any,
+    ) -> None:
         """Save the stacked cell cycle plot.
 
         Args:
             path: Path to save location
             filename: Optional filename. If None, generates descriptive name
+            tight_layout: Whether to apply tight layout
             **kwargs: Additional save parameters
         """
         if filename is None:
@@ -251,21 +259,21 @@ class CellCycleStackedPlot(BaseCellCyclePlot):
             )
             filename = f"cellcycle_stacked{selector_part}.pdf"
 
-        super().save(path, filename, **kwargs)
+        super().save(path, filename, tight_layout=tight_layout, **kwargs)
 
 
 def cellcycle_stacked_plot(
     data: pd.DataFrame,
-    conditions: List[str],
+    conditions: list[str],
     # Base class arguments
     condition_col: str = "condition",
     selector_col: Optional[str] = "cell_line",
     selector_val: Optional[str] = None,
     title: Optional[str] = None,
-    colors: Optional[List[str]] = None,
-    figsize: Optional[tuple] = None,
+    colors: Optional[list[str]] = None,
+    figsize: Optional[tuple[int, int]] = None,
     # CellCycleStackedPlot specific arguments
-    phases: Optional[List[str]] = None,
+    phases: Optional[list[str]] = None,
     reverse_stack: bool = False,
     show_legend: bool = True,
     legend_position: str = "right",
@@ -277,9 +285,9 @@ def cellcycle_stacked_plot(
     filename: Optional[str] = None,
     # Additional matplotlib/save arguments
     dpi: int = 300,
-    format: str = "pdf",
+    file_format: str = "pdf",
     tight_layout: bool = True,
-    **kwargs,
+    **kwargs: Any,
 ) -> Figure:
     """Create a stacked cell cycle plot showing phase proportions.
 
@@ -322,7 +330,7 @@ def cellcycle_stacked_plot(
 
         # Save quality arguments
         dpi: Resolution for saved figure (dots per inch)
-        format: File format ('pdf', 'png', 'svg', etc.)
+        file_format: File format ('pdf', 'png', 'svg', etc.)
         tight_layout: Whether to apply tight layout before saving
 
         **kwargs: Additional arguments passed to the base class
@@ -414,7 +422,7 @@ def cellcycle_stacked_plot(
 
         # Save if requested (only if we own the figure)
         if save and plot._owns_figure:
-            save_path = Path(output_path)
+            save_path = Path(output_path) if output_path else Path(".")
 
             # Auto-generate filename if not provided
             if filename is None:
@@ -434,7 +442,7 @@ def cellcycle_stacked_plot(
                 filename=filename,
                 tight_layout=tight_layout,
                 dpi=dpi,
-                format=format,
+                format=file_format,
             )
 
             print(f"Stacked cell cycle plot saved to: {save_path / filename}")

@@ -11,7 +11,7 @@ The grouped feature plot is the most complex and is the one that is used in the 
 
 import warnings
 from pathlib import Path  # noqa: E402
-from typing import Optional
+from typing import Any, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -237,7 +237,7 @@ def grouped_feature_plot(
     x_label: bool = True,
     y_label: Optional[str] = None,
     violin: bool = False,
-    color=COLOR.LAVENDER.value,
+    color: str = COLOR.LAVENDER.value,
     title: Optional[str] = None,
     save: bool = False,
     path: Optional[Path] = None,
@@ -285,10 +285,10 @@ def grouped_feature_plot(
         df_filtered[df_filtered[condition_col] == cond][feature]
         for cond in conditions
     ]
-    for i, (dat, xpos) in enumerate(
+    for _i, (dat, xpos) in enumerate(
         zip(data_for_plot, x_positions, strict=False)
     ):
-        draw_violin_or_box(ax, dat, xpos, color, violin)
+        draw_violin_or_box(ax, dat.values.tolist(), xpos, color, violin)
 
     # Overlay repeat points (medians per plate_id per condition) with different markers
     df_median = (
@@ -310,7 +310,7 @@ def grouped_feature_plot(
         jitter = np.random.uniform(-0.05, 0.05, size=len(cond_medians))
         x = x_base + jitter
         y = cond_medians[feature].values
-        for i, (xi, yi, pid) in enumerate(
+        for _i, (xi, yi, pid) in enumerate(
             zip(x, y, cond_medians["plate_id"], strict=False)
         ):
             marker = plate_id_to_marker[pid]
@@ -371,7 +371,7 @@ def grouped_feature_plot(
     plt.tight_layout()
 
     # Display the y-axis ticks as whole percentage numbers (0-100)
-    def percent_formatter(x, pos):  # noqa: D401 – simple lambda replacement
+    def percent_formatter(x: float, pos: int) -> str:  # noqa: D401 – simple lambda replacement
         return f"{x:.0f}"
 
     ax.yaxis.set_major_formatter(FuncFormatter(percent_formatter))
@@ -401,7 +401,7 @@ def grouped_feature_plot(
 
 
 def featureplot_threshold(
-    ax: Axes,
+    ax: Optional[Axes],
     df: pd.DataFrame,
     conditions: list[str],
     feature: str,
@@ -409,6 +409,7 @@ def featureplot_threshold(
     condition_col: str = "condition",
     selector_col: Optional[str] = "cell_line",
     selector_val: Optional[str] = "",
+    dimensions: tuple[float, float] = (width, height),
 ) -> None:
     """Plot a feature plot with a threshold."""
     if ax is None:
@@ -431,7 +432,7 @@ def grouped_stacked_threshold_barplot(
     condition_col: str = "condition",
     selector_col: Optional[str] = "cell_line",
     selector_val: Optional[str] = None,
-    colors=COLOR,
+    colors: Any = COLOR,
     repeat_offset: float = 0.18,
     dimensions: tuple[float, float] = (width, height),
     x_label: bool = True,
@@ -463,7 +464,7 @@ def grouped_stacked_threshold_barplot(
     if ax is None:
         fig, ax = plt.subplots(figsize=dimensions)
     else:
-        fig = ax.figure
+        fig = ax.figure  # type: ignore[assignment]
     # Filter DataFrame
     df1 = selector_val_filter(
         df, selector_col, selector_val, condition_col, conditions
@@ -499,7 +500,7 @@ def grouped_stacked_threshold_barplot(
                     xpos,
                     pos_pct,
                     width=repeat_offset * 1.05,
-                    color=COLOR.OLIVE.value,
+                    color=colors.OLIVE.value,
                     edgecolor="white",
                     linewidth=0.7,
                     label="pos" if cond_idx == 0 and rep_idx == 0 else None,
@@ -509,7 +510,7 @@ def grouped_stacked_threshold_barplot(
                     neg_pct,
                     width=repeat_offset * 1.05,
                     bottom=pos_pct,
-                    color=COLOR.LIGHT_GREEN.value,
+                    color=colors.LIGHT_GREEN.value,
                     edgecolor="white",
                     linewidth=0.7,
                     label="neg" if cond_idx == 0 and rep_idx == 0 else None,
@@ -530,7 +531,7 @@ def grouped_stacked_threshold_barplot(
     y_min = 0
     # Always 100% for the box height
     y_max_box = 100
-    for cond_idx, cond in enumerate(conditions):
+    for cond_idx, _cond in enumerate(conditions):
         trip_xs = [
             x_base_positions[cond_idx] + (rep_idx - 1) * repeat_offset
             for rep_idx in range(n_repeats)
@@ -552,12 +553,12 @@ def grouped_stacked_threshold_barplot(
 
     legend_handles = [
         Patch(
-            facecolor=COLOR.LIGHT_GREEN.value,
+            facecolor=colors.LIGHT_GREEN.value,
             edgecolor="white",
             label=f"{feature_name}-",
         ),
         Patch(
-            facecolor=COLOR.OLIVE.value,
+            facecolor=colors.OLIVE.value,
             edgecolor="white",
             label=f"{feature_name}+",
         ),

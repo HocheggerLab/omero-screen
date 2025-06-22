@@ -7,7 +7,7 @@ This module provides the SimpleCombPlot class that creates a 2-row combined plot
 
 import warnings
 from pathlib import Path
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import pandas as pd
 from matplotlib.axes import Axes
@@ -32,12 +32,13 @@ class SimpleCombPlot(BaseCombPlot):
 
     @property
     def plot_type(self) -> str:
+        """Return the type of plot."""
         return "simple_combplot"
 
     def __init__(
         self,
         data: pd.DataFrame,
-        conditions: List[str],
+        conditions: list[str],
         show_h3_phases: bool = False,
         **kwargs: Any,
     ) -> None:
@@ -55,7 +56,8 @@ class SimpleCombPlot(BaseCombPlot):
         # Validate additional required columns for stacked bar
         if "plate_id" not in self.data.columns:
             warnings.warn(
-                "'plate_id' column not found. Stacked bar plot may not work correctly."
+                "'plate_id' column not found. Stacked bar plot may not work correctly.",
+                stacklevel=2,
             )
 
     def generate(self) -> Figure:
@@ -211,8 +213,10 @@ class SimpleCombPlot(BaseCombPlot):
                 frameon=False,
             )
 
-        except Exception as e:
-            warnings.warn(f"Could not create stacked bar plot: {e}")
+        except (ValueError, KeyError, IndexError) as e:
+            warnings.warn(
+                f"Could not create stacked bar plot: {e}", stacklevel=2
+            )
             ax.text(
                 0.5,
                 0.5,
@@ -268,12 +272,10 @@ class SimpleCombPlot(BaseCombPlot):
                     phase_counts = plate_data["cell_cycle"].value_counts()
                     total_cells = len(plate_data)
 
-                    phase_props = {}
-                    for phase in phases:
-                        phase_props[phase] = (
-                            phase_counts.get(phase, 0) / total_cells
-                        ) * 100
-
+                    phase_props = {
+                        phase: (phase_counts.get(phase, 0) / total_cells) * 100
+                        for phase in phases
+                    }
                     phase_props["condition"] = condition
                     phase_props["plate_id"] = plate_id
                     proportions.append(phase_props)
@@ -282,12 +284,10 @@ class SimpleCombPlot(BaseCombPlot):
                 phase_counts = condition_data["cell_cycle"].value_counts()
                 total_cells = len(condition_data)
 
-                phase_props = {}
-                for phase in phases:
-                    phase_props[phase] = (
-                        phase_counts.get(phase, 0) / total_cells
-                    ) * 100
-
+                phase_props = {
+                    phase: (phase_counts.get(phase, 0) / total_cells) * 100
+                    for phase in phases
+                }
                 phase_props["condition"] = condition
                 proportions.append(phase_props)
 
@@ -316,6 +316,7 @@ class SimpleCombPlot(BaseCombPlot):
         Args:
             path: Path to save location
             filename: Optional filename. If None, generates descriptive name
+            tight_layout: Whether to apply tight layout
             **kwargs: Additional save parameters
         """
         if filename is None:
@@ -330,14 +331,14 @@ class SimpleCombPlot(BaseCombPlot):
 
 def simple_combplot(
     data: pd.DataFrame,
-    conditions: List[str],
+    conditions: list[str],
     # Base class arguments
     condition_col: str = "condition",
     selector_col: Optional[str] = "cell_line",
     selector_val: Optional[str] = None,
     title: Optional[str] = None,
-    colors: Optional[List[str]] = None,
-    figsize: Optional[Tuple[float, float]] = None,
+    colors: Optional[list[str]] = None,
+    figsize: Optional[tuple[float, float]] = None,
     # Simple combplot specific arguments
     cell_number: Optional[int] = None,
     dapi_col: str = "integrated_int_DAPI_norm",
@@ -351,7 +352,7 @@ def simple_combplot(
     filename: Optional[str] = None,
     # Additional matplotlib/save arguments
     dpi: int = 300,
-    format: str = "png",
+    file_format: str = "png",
     tight_layout: bool = False,
     **kwargs: Any,
 ) -> Figure:
@@ -396,7 +397,7 @@ def simple_combplot(
 
         # Save quality arguments
         dpi: Resolution for saved figure (dots per inch)
-        format: File format ('png', 'pdf', 'svg', etc.)
+        file_format: File format ('png', 'pdf', 'svg', etc.)
         tight_layout: Whether to apply tight layout (False recommended for combplots)
 
         **kwargs: Additional arguments passed to the base class
@@ -500,7 +501,7 @@ def simple_combplot(
                 filename=filename,
                 tight_layout=tight_layout,
                 dpi=dpi,
-                format=format,
+                format=file_format,
             )
 
             print(f"Simple combined plot saved to: {save_path / filename}")

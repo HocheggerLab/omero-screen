@@ -5,7 +5,8 @@ showing the percentage of cells in each cell cycle phase (G1, S, G2/M, Polyploid
 as separate bar plots with individual data points and significance testing.
 """
 
-from typing import List, Optional
+from pathlib import Path
+from typing import Any, Optional, Union
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -30,17 +31,18 @@ class CellCyclePlot(BaseCellCyclePlot):
 
     @property
     def plot_type(self) -> str:
+        """Return the type of plot."""
         return "cellcycle_standard"
 
     def __init__(
         self,
-        data,
-        conditions: List[str],
-        phases: Optional[List[str]] = None,
+        data: pd.DataFrame,
+        conditions: list[str],
+        phases: Optional[list[str]] = None,
         show_significance: bool = True,
         show_points: bool = True,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         """Initialize standard cell cycle plot.
 
         Args:
@@ -107,7 +109,7 @@ class CellCyclePlot(BaseCellCyclePlot):
 
         return self.fig
 
-    def _plot_phase(self, ax, phase: str, phase_index: int) -> None:
+    def _plot_phase(self, ax: Any, phase: str, phase_index: int) -> None:
         """Plot data for a single cell cycle phase.
 
         Args:
@@ -154,7 +156,7 @@ class CellCyclePlot(BaseCellCyclePlot):
                     y_col="percent",
                     ax=ax,
                 )
-            except Exception as e:
+            except (ValueError, KeyError, IndexError) as e:
                 print(f"Warning: Could not add repeat points for {phase}: {e}")
 
         # Add significance markers if requested and sufficient replicates
@@ -179,12 +181,19 @@ class CellCyclePlot(BaseCellCyclePlot):
         )
         ax.set_ylim(0, y_max)
 
-    def save(self, path, filename: Optional[str] = None, **kwargs):
+    def save(
+        self,
+        path: Union[str, Path],
+        filename: Optional[str] = None,
+        tight_layout: bool = True,
+        **kwargs: Any,
+    ) -> None:
         """Save the cell cycle plot.
 
         Args:
             path: Path to save location
             filename: Optional filename. If None, generates descriptive name
+            tight_layout: Whether to apply tight layout
             **kwargs: Additional save parameters
         """
         if filename is None:
@@ -194,21 +203,21 @@ class CellCyclePlot(BaseCellCyclePlot):
             )
             filename = f"cellcycle_standard{selector_part}.pdf"
 
-        super().save(path, filename, **kwargs)
+        super().save(path, filename, tight_layout=tight_layout, **kwargs)
 
 
 def cellcycle_standard_plot(
     data: pd.DataFrame,
-    conditions: List[str],
+    conditions: list[str],
     # Base class arguments
     condition_col: str = "condition",
     selector_col: Optional[str] = "cell_line",
     selector_val: Optional[str] = None,
     title: Optional[str] = None,
-    colors: Optional[List[str]] = None,
-    figsize: Optional[tuple] = None,
+    colors: Optional[list[str]] = None,
+    figsize: Optional[tuple[int, int]] = None,
     # CellCyclePlot specific arguments
-    phases: Optional[List[str]] = None,
+    phases: Optional[list[str]] = None,
     show_significance: bool = True,
     show_points: bool = True,
     # Output arguments
@@ -217,9 +226,9 @@ def cellcycle_standard_plot(
     filename: Optional[str] = None,
     # Additional matplotlib/save arguments
     dpi: int = 300,
-    format: str = "pdf",
+    file_format: str = "pdf",
     tight_layout: bool = True,
-    **kwargs,
+    **kwargs: Any,
 ) -> Figure:
     """Create a standard cell cycle plot with 2x2 subplot grid.
 
@@ -257,7 +266,7 @@ def cellcycle_standard_plot(
 
         # Save quality arguments
         dpi: Resolution for saved figure (dots per inch)
-        format: File format ('pdf', 'png', 'svg', etc.)
+        file_format: File format ('pdf', 'png', 'svg', etc.)
         tight_layout: Whether to apply tight layout before saving
 
         **kwargs: Additional arguments passed to the base class
@@ -342,7 +351,7 @@ def cellcycle_standard_plot(
 
         # Save if requested
         if save:
-            save_path = Path(output_path)
+            save_path = Path(output_path) if output_path else Path(".")
 
             # Auto-generate filename if not provided
             if filename is None:
@@ -362,7 +371,7 @@ def cellcycle_standard_plot(
                 filename=filename,
                 tight_layout=tight_layout,
                 dpi=dpi,
-                format=format,
+                format=file_format,
             )
 
             print(f"Cell cycle plot saved to: {save_path / filename}")

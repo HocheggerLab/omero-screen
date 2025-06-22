@@ -1,7 +1,11 @@
+"""Colors for the plots."""
+
 from enum import Enum
 
 
 class COLOR(Enum):
+    """Colors for the plots."""
+
     BLUE = "#526C94"
     YELLOW = "#D8C367"
     LIGHT_BLUE = "#75B1CE"

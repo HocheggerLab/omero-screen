@@ -12,6 +12,7 @@ Available functions:
 
 """
 
+import itertools
 import os
 from typing import Any, Optional
 
@@ -134,7 +135,7 @@ def _create_img(
     rng = np.random.default_rng()
     for x in range(cell_radius, dim[1] - cell_radius, cell_radius * 2):
         for y in range(cell_radius, dim[0] - cell_radius, cell_radius * 2):
-            rr, cc = ellipse(
+            rr, cc = ellipse(  # type: ignore[no-untyped-call]
                 x,
                 y,
                 cell_radius,
@@ -144,7 +145,7 @@ def _create_img(
             )
             mask[1, rr, cc] = 1
             mask[2, rr, cc] = 1
-            rr, cc = ellipse(
+            rr, cc = ellipse(  # type: ignore[no-untyped-call]
                 x,
                 y,
                 nucleus_radius * rng.uniform(0.7, 1.2),
@@ -159,17 +160,16 @@ def _create_img(
         # Random pixel values within the mask
         indices = mask[c] != 0
         count = indices.sum()
-        for t in range(size_t):
-            for z in range(size_z):
-                i = img[t][c][z]
-                i[indices] = rng.uniform(128, 235, count)
-                # Add noise
-                np.clip(
-                    i + rng.normal(20, 2, size=dim).astype(np.uint16),
-                    a_min=0,
-                    a_max=255,
-                    out=i,
-                )
+        for t, z in itertools.product(range(size_t), range(size_z)):
+            i = img[t][c][z]
+            i[indices] = rng.uniform(128, 235, count)
+            # Add noise
+            np.clip(
+                i + rng.normal(20, 2, size=dim).astype(np.uint16),
+                a_min=0,
+                a_max=255,
+                out=i,
+            )
     return img
 
 

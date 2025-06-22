@@ -4,7 +4,8 @@ This module provides the HistogramPlot class that creates histograms showing
 the distribution of normalized DAPI intensity (DNA content) for different conditions.
 """
 
-from typing import List, Optional
+from pathlib import Path
+from typing import Any, Optional, Union
 
 import pandas as pd
 from matplotlib.axes import Axes
@@ -25,6 +26,7 @@ class HistogramPlot(BaseHistogramPlot):
 
     @property
     def plot_type(self) -> str:
+        """Return the type of plot."""
         return "histogram"
 
     def generate(self) -> Figure:
@@ -42,7 +44,8 @@ class HistogramPlot(BaseHistogramPlot):
                 import warnings
 
                 warnings.warn(
-                    f"Multiple conditions provided but only one axis. Plotting only '{self.conditions[0]}'."
+                    f"Multiple conditions provided but only one axis. Plotting only '{self.conditions[0]}'.",
+                    stacklevel=2,
                 )
 
             condition = self.conditions[0]
@@ -59,7 +62,7 @@ class HistogramPlot(BaseHistogramPlot):
             else:
                 self.ax.set_title(condition, size=8, weight="regular")
 
-            return self.ax.figure
+            return self.ax.figure  # type: ignore[return-value]
 
         # No axis provided - create our own figure with subplots
         # Determine x-axis labeling strategy
@@ -96,12 +99,19 @@ class HistogramPlot(BaseHistogramPlot):
 
         return fig
 
-    def save(self, path, filename: Optional[str] = None, **kwargs):
+    def save(
+        self,
+        path: Union[str, Path],
+        filename: Optional[str] = None,
+        tight_layout: bool = True,
+        **kwargs: Any,
+    ) -> None:
         """Save the histogram plot.
 
         Args:
             path: Path to save location
             filename: Optional filename. If None, generates descriptive name
+            tight_layout: Whether to apply tight layout
             **kwargs: Additional save parameters
         """
         if filename is None:
@@ -110,19 +120,19 @@ class HistogramPlot(BaseHistogramPlot):
             )
             filename = f"histogram{selector_part}.png"
 
-        super().save(path, filename, **kwargs)
+        super().save(path, filename, tight_layout=tight_layout, **kwargs)
 
 
 def histogram_plot(
     data: pd.DataFrame,
-    conditions: List[str],
+    conditions: list[str],
     # Base class arguments
     condition_col: str = "condition",
     selector_col: Optional[str] = "cell_line",
     selector_val: Optional[str] = None,
     title: Optional[str] = None,
-    colors: Optional[List[str]] = None,
-    figsize: Optional[tuple] = None,
+    colors: Optional[list[str]] = None,
+    figsize: Optional[tuple[int, int]] = None,
     # Histogram specific arguments
     cell_number: Optional[int] = None,
     dapi_col: str = "integrated_int_DAPI_norm",
@@ -134,9 +144,9 @@ def histogram_plot(
     filename: Optional[str] = None,
     # Additional matplotlib/save arguments
     dpi: int = 300,
-    format: str = "png",
+    file_format: str = "png",
     tight_layout: bool = True,
-    **kwargs,
+    **kwargs: Any,
 ) -> Figure:
     """Create a histogram plot of DAPI intensity distribution.
 
@@ -174,7 +184,7 @@ def histogram_plot(
 
         # Save quality arguments
         dpi: Resolution for saved figure (dots per inch)
-        format: File format ('png', 'pdf', 'svg', etc.)
+        file_format: File format ('png', 'pdf', 'svg', etc.)
         tight_layout: Whether to apply tight layout before saving
 
         **kwargs: Additional arguments passed to the base class
@@ -253,7 +263,7 @@ def histogram_plot(
 
         # Save if requested (only if we own the figure)
         if save and plot._owns_figure:
-            save_path = Path(output_path)
+            save_path = Path(output_path) if output_path else Path(".")
 
             # Auto-generate filename if not provided
             if filename is None:
@@ -271,7 +281,7 @@ def histogram_plot(
                 filename=filename,
                 tight_layout=tight_layout,
                 dpi=dpi,
-                format=format,
+                format=file_format,
             )
 
             print(f"Histogram plot saved to: {save_path / filename}")

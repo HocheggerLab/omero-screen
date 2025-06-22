@@ -42,7 +42,7 @@ def find_intensity_mode(data: pd.Series[float], n_bins: int = 5000) -> float:
     max_idx = np.argmax(smoothed_counts)
     mode_value = bin_centers[max_idx]
 
-    return mode_value
+    return float(mode_value)
 
 
 def normalize_by_mode(
@@ -82,7 +82,7 @@ def normalize_by_mode(
             group_data = df.loc[group_mask, intensity_column]
 
             try:
-                mode_value = find_intensity_mode(group_data)
+                mode_value = find_intensity_mode(group_data)  # type: ignore[arg-type]
 
                 # Normalize: divide by mode so peak becomes 1.0
                 valid_mask = (
@@ -91,14 +91,15 @@ def normalize_by_mode(
                     & (df[intensity_column] > 0)
                 )
                 df_result.loc[valid_mask, normalized_column] = (
-                    df.loc[valid_mask, intensity_column] / mode_value
+                    df.loc[valid_mask, intensity_column] / mode_value  # type: ignore[operator]
                 )
 
                 print(f"Group {group_value}: mode = {mode_value:.0f}")
 
             except ValueError as e:
                 warnings.warn(
-                    f"Normalization failed for {group_column}={group_value}: {e}"
+                    f"Normalization failed for {group_column}={group_value}: {e}",
+                    stacklevel=2,
                 )
                 # Use raw values as fallback
                 df_result.loc[group_mask, normalized_column] = df.loc[
@@ -108,20 +109,20 @@ def normalize_by_mode(
     else:
         # Normalize entire dataset
         try:
-            mode_value = find_intensity_mode(df[intensity_column])
+            mode_value = find_intensity_mode(df[intensity_column])  # type: ignore[arg-type]
 
             # Normalize: divide by mode so peak becomes 1.0
             valid_mask = np.isfinite(df[intensity_column]) & (
                 df[intensity_column] > 0
             )
             df_result.loc[valid_mask, normalized_column] = (
-                df.loc[valid_mask, intensity_column] / mode_value
+                df.loc[valid_mask, intensity_column] / mode_value  # type: ignore[operator]
             )
 
             print(f"Dataset mode = {mode_value:.0f}")
 
         except ValueError as e:
-            warnings.warn(f"Normalization failed: {e}")
+            warnings.warn(f"Normalization failed: {e}", stacklevel=2)
             # Use raw values as fallback
             df_result[normalized_column] = df[intensity_column]
 
@@ -133,7 +134,7 @@ def plot_normalization_result(
     original_column: str,
     normalized_column: str,
     group_column: Optional[str] = None,
-    figsize: tuple = (15, 5),
+    figsize: tuple[int, int] = (15, 5),
 ) -> None:
     """Plot before and after normalization distributions.
 
@@ -221,11 +222,11 @@ def plot_normalization_result(
                     f"Mean: {mean_norm:.2f}\\nMedian: {median_norm:.2f}",
                     transform=axes[1, i].transAxes,
                     verticalalignment="top",
-                    bbox=dict(
-                        boxstyle="round,pad=0.3",
-                        facecolor="lightyellow",
-                        alpha=0.8,
-                    ),
+                    bbox={
+                        "boxstyle": "round,pad=0.3",
+                        "facecolor": "lightyellow",
+                        "alpha": 0.8,
+                    },
                 )
 
     else:
@@ -290,11 +291,11 @@ def plot_normalization_result(
                 f"Mean: {mean_norm:.2f}\\nMedian: {median_norm:.2f}\\n>1.5: {pos_pct:.1f}%",
                 transform=axes[1].transAxes,
                 verticalalignment="top",
-                bbox=dict(
-                    boxstyle="round,pad=0.3",
-                    facecolor="lightyellow",
-                    alpha=0.8,
-                ),
+                bbox={
+                    "boxstyle": "round,pad=0.3",
+                    "facecolor": "lightyellow",
+                    "alpha": 0.8,
+                },
             )
 
     plt.tight_layout()
@@ -359,7 +360,19 @@ def normalize_and_plot(
     return df_normalized
 
 
-def set_threshold_categories(df: pd.DataFrame, norm_feat: str, threshold=1.5):
+def set_threshold_categories(
+    df: pd.DataFrame, norm_feat: str, threshold: float = 1.5
+) -> pd.DataFrame:
+    """Set threshold categories for a normalized feature.
+
+    Args:
+        df: Input dataframe
+        norm_feat: Name of normalized feature
+        threshold: Threshold value
+
+    Returns:
+        DataFrame with threshold categories added
+    """
     feature = norm_feat.split("_")[2]
     df[f"{feature} %"] = np.where(
         df[norm_feat] > threshold, f"{feature}+", f"{feature}-"

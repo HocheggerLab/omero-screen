@@ -1,7 +1,7 @@
 """Module for classification plotting."""
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -164,7 +164,7 @@ def grouped_stacked_classification_barplot(
     condition_col: str = "condition",
     selector_col: str | None = "cell_line",
     selector_val: str | None = None,
-    colors=COLOR,
+    colors: Any = COLOR,
     repeat_offset: float = 0.18,
     dimensions: tuple[float, float] = (6, 4),
     x_label: bool = True,
@@ -203,7 +203,7 @@ def grouped_stacked_classification_barplot(
     if ax is None:
         fig, ax = plt.subplots(figsize=dimensions)
     else:
-        fig = ax.figure
+        fig = ax.figure  # type: ignore[assignment]
     df1 = selector_val_filter(
         df, selector_col, selector_val, condition_col, conditions
     )
@@ -270,7 +270,7 @@ def grouped_stacked_classification_barplot(
     # Draw triplicate boxes
     y_min = 0
     y_max_box = 100
-    for cond_idx, cond in enumerate(conditions):
+    for cond_idx, _cond in enumerate(conditions):
         trip_xs = [
             x_base_positions[cond_idx] + (rep_idx - 1) * repeat_offset
             for rep_idx in range(n_repeats)

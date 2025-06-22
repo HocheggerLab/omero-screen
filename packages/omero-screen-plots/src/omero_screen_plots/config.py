@@ -5,7 +5,7 @@ for consistent plot generation across all plot types.
 """
 
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -38,7 +38,7 @@ class PlotConfig:
     # Statistical significance thresholds
     P_VALUE_THRESHOLDS = {0.001: "***", 0.01: "**", 0.05: "*", 1.0: "ns"}
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize plot configuration with style setup."""
         self._setup_style()
         self._setup_colors()
@@ -64,7 +64,7 @@ class PlotConfig:
 
     def get_figure_size(
         self, plot_type: str = "default"
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """Get figure size for specific plot type."""
         size_map = {
             "default": (self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT),
@@ -73,7 +73,7 @@ class PlotConfig:
         }
         return size_map.get(plot_type, size_map["default"])
 
-    def get_save_params(self, **kwargs) -> Dict[str, Any]:
+    def get_save_params(self, **kwargs: Any) -> dict[str, Any]:
         """Get parameters for saving figures."""
         params = {
             "dpi": self.DEFAULT_DPI,
@@ -86,4 +86,4 @@ class PlotConfig:
 
 
 # Global configuration instance
-CONFIG = PlotConfig()
+CONFIG: PlotConfig = PlotConfig()

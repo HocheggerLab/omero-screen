@@ -6,9 +6,10 @@ including data processing, percentage calculations, and common validation.
 
 import warnings
 from abc import abstractmethod
-from typing import List, Optional
+from typing import Any, Optional
 
 import pandas as pd
+from matplotlib.figure import Figure
 
 from ...base import OmeroPlots
 
@@ -26,10 +27,10 @@ class BaseCellCyclePlot(OmeroPlots):
     def __init__(
         self,
         data: pd.DataFrame,
-        conditions: List[str],
-        phases: Optional[List[str]] = None,
-        **kwargs,
-    ):
+        conditions: list[str],
+        phases: Optional[list[str]] = None,
+        **kwargs: Any,
+    ) -> None:
         """Initialize base cell cycle plot.
 
         Args:
@@ -66,7 +67,7 @@ class BaseCellCyclePlot(OmeroPlots):
         if self.data["cell_cycle"].isna().all():
             raise ValueError("No cell cycle data found (all values are NaN)")
 
-    def _get_default_phases(self) -> List[str]:
+    def _get_default_phases(self) -> list[str]:
         """Get default cell cycle phases.
 
         Can be overridden by subclasses for different phase sets.
@@ -186,7 +187,9 @@ class BaseCellCyclePlot(OmeroPlots):
         return self._extracted_from_get_std_percentages_24(std_data)
 
     # TODO Rename this here and in `get_mean_percentages` and `get_std_percentages`
-    def _extracted_from_get_std_percentages_24(self, arg0):
+    def _extracted_from_get_std_percentages_24(
+        self, arg0: pd.DataFrame
+    ) -> pd.DataFrame:
         for phase in self.phases:
             if phase not in arg0.columns:
                 arg0[phase] = 0
@@ -203,10 +206,10 @@ class BaseCellCyclePlot(OmeroPlots):
         Returns:
             True if sufficient replicates are available
         """
-        return self.processed_data.plate_id.nunique() >= min_replicates
+        return int(self.processed_data.plate_id.nunique()) >= min_replicates
 
     def add_significance_markers_to_axis(
-        self, ax, phase_data: pd.DataFrame, column: str = "percent"
+        self, ax: Any, phase_data: pd.DataFrame, column: str = "percent"
     ) -> None:
         """Add significance markers to a specific axis for cell cycle data.
 
@@ -227,7 +230,7 @@ class BaseCellCyclePlot(OmeroPlots):
             )
             y_max = ax.get_ylim()[1]
 
-            for i, condition in enumerate(self.conditions[1:], start=1):
+            for i, _condition in enumerate(self.conditions[1:], start=1):
                 if i - 1 < len(pvalues):
                     p_value = pvalues[i - 1]
                     significance = get_significance_marker(p_value)
@@ -245,9 +248,11 @@ class BaseCellCyclePlot(OmeroPlots):
                         fontweight="bold",
                     )
 
-        except Exception as e:
+        except (ValueError, KeyError, IndexError) as e:
             # Skip significance markers if calculation fails
-            warnings.warn(f"Could not calculate significance markers: {e}")
+            warnings.warn(
+                f"Could not calculate significance markers: {e}", stacklevel=2
+            )
 
     @property
     def plot_type(self) -> str:
@@ -255,5 +260,5 @@ class BaseCellCyclePlot(OmeroPlots):
         return "cellcycle_base"
 
     @abstractmethod
-    def generate(self):
+    def generate(self) -> Figure:
         """Generate the plot. Must be implemented by subclasses."""

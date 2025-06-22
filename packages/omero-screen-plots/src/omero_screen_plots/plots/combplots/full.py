@@ -7,7 +7,7 @@ This module provides the FullCombPlot class that creates a 3-row combined plot w
 """
 
 from pathlib import Path
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import pandas as pd
 from matplotlib.axes import Axes
@@ -32,12 +32,13 @@ class FullCombPlot(BaseCombPlot):
 
     @property
     def plot_type(self) -> str:
+        """Return the type of plot."""
         return "full_combplot"
 
     def __init__(
         self,
         data: pd.DataFrame,
-        conditions: List[str],
+        conditions: list[str],
         feature_col: str,
         feature_threshold: float,
         **kwargs: Any,
@@ -242,12 +243,11 @@ class FullCombPlot(BaseCombPlot):
         """
         if "edu" in y_col.lower():
             return "norm. EdU int."
-        else:
-            # Extract meaningful part from column name
-            parts = y_col.split("_")
-            if len(parts) >= 3:
-                return f"{parts[2]} norm."
-            return y_col.replace("_", " ").title()
+        # Extract meaningful part from column name
+        parts = y_col.split("_")
+        if len(parts) >= 3:
+            return f"{parts[2]} norm."
+        return y_col.replace("_", " ").title()
 
     def save(
         self,
@@ -261,6 +261,7 @@ class FullCombPlot(BaseCombPlot):
         Args:
             path: Path to save location
             filename: Optional filename. If None, generates descriptive name
+            tight_layout: Whether to apply tight layout
             **kwargs: Additional save parameters
         """
         if filename is None:
@@ -279,7 +280,7 @@ class FullCombPlot(BaseCombPlot):
 
 def full_combplot(
     data: pd.DataFrame,
-    conditions: List[str],
+    conditions: list[str],
     feature_col: str,
     feature_threshold: float,
     # Base class arguments
@@ -287,8 +288,8 @@ def full_combplot(
     selector_col: Optional[str] = "cell_line",
     selector_val: Optional[str] = None,
     title: Optional[str] = None,
-    colors: Optional[List[str]] = None,
-    figsize: Optional[Tuple[float, float]] = None,
+    colors: Optional[list[str]] = None,
+    figsize: Optional[tuple[float, float]] = None,
     # Full combplot specific arguments
     cell_number: Optional[int] = None,
     dapi_col: str = "integrated_int_DAPI_norm",
@@ -301,7 +302,7 @@ def full_combplot(
     filename: Optional[str] = None,
     # Additional matplotlib/save arguments
     dpi: int = 300,
-    format: str = "png",
+    file_format: str = "png",
     tight_layout: bool = False,
     **kwargs: Any,
 ) -> Figure:
@@ -347,7 +348,7 @@ def full_combplot(
 
         # Save quality arguments
         dpi: Resolution for saved figure (dots per inch)
-        format: File format ('png', 'pdf', 'svg', etc.)
+        file_format: File format ('png', 'pdf', 'svg', etc.)
         tight_layout: Whether to apply tight layout (False recommended for combplots)
 
         **kwargs: Additional arguments passed to the base class
@@ -473,7 +474,7 @@ def full_combplot(
                 filename=filename,
                 tight_layout=tight_layout,
                 dpi=dpi,
-                format=format,
+                format=file_format,
             )
 
             print(f"Full combined plot saved to: {save_path / filename}")

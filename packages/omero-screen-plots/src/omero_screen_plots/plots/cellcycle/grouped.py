@@ -5,7 +5,8 @@ bar plot showing individual replicates as separate bars within condition groups.
 This provides the most detailed view of variability between replicates.
 """
 
-from typing import List, Optional
+from pathlib import Path
+from typing import Any, Optional, Union
 
 import pandas as pd
 from matplotlib.axes import Axes
@@ -33,21 +34,22 @@ class CellCycleGroupedPlot(BaseCellCyclePlot):
 
     @property
     def plot_type(self) -> str:
+        """Return the type of plot."""
         return "cellcycle_grouped"
 
     def __init__(
         self,
-        data,
-        conditions: List[str],
-        phases: Optional[List[str]] = None,
+        data: pd.DataFrame,
+        conditions: list[str],
+        phases: Optional[list[str]] = None,
         group_size: int = 2,
         n_repeats: int = 3,
         repeat_offset: float = 0.18,
         bar_width: Optional[float] = None,
         show_group_boxes: bool = True,
         show_legend: bool = True,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         """Initialize grouped cell cycle plot.
 
         Args:
@@ -79,7 +81,7 @@ class CellCycleGroupedPlot(BaseCellCyclePlot):
         # Get available replicates
         self.repeat_ids = self._get_repeat_ids()
 
-    def _get_repeat_ids(self) -> List[str]:
+    def _get_repeat_ids(self) -> list[str]:
         """Get list of available replicate IDs, limited to n_repeats."""
         available_ids = sorted(self.processed_data["plate_id"].unique())
         return available_ids[: self.n_repeats]
@@ -94,7 +96,7 @@ class CellCycleGroupedPlot(BaseCellCyclePlot):
         self._setup_figure()
 
         # Create axis if we own the figure but don't have one
-        if self.ax is None and self._owns_figure:
+        if self.ax is None and self._owns_figure and self.fig is not None:
             self.ax = self.fig.add_subplot(111)
 
         # Calculate x positions for groups
@@ -124,7 +126,7 @@ class CellCycleGroupedPlot(BaseCellCyclePlot):
 
         return self.fig  # type: ignore
 
-    def _plot_replicate_bars(self, x_base_positions: List[float]) -> None:
+    def _plot_replicate_bars(self, x_base_positions: list[float]) -> None:
         """Plot stacked bars for each replicate.
 
         Args:
@@ -147,7 +149,9 @@ class CellCycleGroupedPlot(BaseCellCyclePlot):
                 if not replicate_data.empty:
                     self._plot_single_replicate_bar(x_pos, replicate_data)
 
-    def _plot_single_replicate_bar(self, x_pos: float, replicate_data) -> None:
+    def _plot_single_replicate_bar(
+        self, x_pos: float, replicate_data: pd.DataFrame
+    ) -> None:
         """Plot a stacked bar for a single replicate.
 
         Args:
@@ -177,7 +181,7 @@ class CellCycleGroupedPlot(BaseCellCyclePlot):
             )
             y_bottom += value
 
-    def _customize_axes(self, x_base_positions: List[float]) -> None:
+    def _customize_axes(self, x_base_positions: list[float]) -> None:
         """Customize axis appearance and labels.
 
         Args:
@@ -197,14 +201,14 @@ class CellCycleGroupedPlot(BaseCellCyclePlot):
         self.ax.grid(True, alpha=0.3, axis="y")
         self.ax.set_axisbelow(True)
 
-    def _draw_group_boxes(self, x_base_positions: List[float]) -> None:
+    def _draw_group_boxes(self, x_base_positions: list[float]) -> None:
         """Draw boxes around replicate groups.
 
         Args:
             x_base_positions: X-axis positions for each condition
         """
         assert self.ax is not None, "Axis is not set"
-        for cond_idx, condition in enumerate(self.conditions):
+        for cond_idx, _condition in enumerate(self.conditions):
             x_center = x_base_positions[cond_idx]
 
             # Calculate box dimensions
@@ -250,7 +254,7 @@ class CellCycleGroupedPlot(BaseCellCyclePlot):
         if not self.fig:
             raise ValueError("Must call generate() before adding labels")
 
-    def get_replicate_variability(self) -> dict:
+    def get_replicate_variability(self) -> dict[str, dict[str, float]]:
         """Calculate coefficient of variation for each condition and phase.
 
         Returns:
@@ -292,12 +296,19 @@ class CellCycleGroupedPlot(BaseCellCyclePlot):
         # This would add visual indicators for outlier replicates
         # Implementation depends on specific requirements
 
-    def save(self, path, filename: Optional[str] = None, **kwargs):
+    def save(
+        self,
+        path: Union[str, Path],
+        filename: Optional[str] = None,
+        tight_layout: bool = True,
+        **kwargs: Any,
+    ) -> None:
         """Save the grouped cell cycle plot.
 
         Args:
             path: Path to save location
             filename: Optional filename. If None, generates descriptive name
+            tight_layout: Whether to apply tight layout
             **kwargs: Additional save parameters
         """
         if filename is None:
@@ -306,21 +317,21 @@ class CellCycleGroupedPlot(BaseCellCyclePlot):
             )
             filename = f"cellcycle_grouped{selector_part}.pdf"
 
-        super().save(path, filename, **kwargs)
+        super().save(path, filename, tight_layout=tight_layout, **kwargs)
 
 
 def cellcycle_grouped_plot(
     data: pd.DataFrame,
-    conditions: List[str],
+    conditions: list[str],
     # Base class arguments
     condition_col: str = "condition",
     selector_col: Optional[str] = "cell_line",
     selector_val: Optional[str] = None,
     title: Optional[str] = None,
-    colors: Optional[List[str]] = None,
-    figsize: Optional[tuple] = None,
+    colors: Optional[list[str]] = None,
+    figsize: Optional[tuple[int, int]] = None,
     # CellCycleGroupedPlot specific arguments
-    phases: Optional[List[str]] = None,
+    phases: Optional[list[str]] = None,
     group_size: int = 2,
     n_repeats: int = 3,
     repeat_offset: float = 0.18,
@@ -335,9 +346,9 @@ def cellcycle_grouped_plot(
     filename: Optional[str] = None,
     # Additional matplotlib/save arguments
     dpi: int = 300,
-    format: str = "pdf",
+    file_format: str = "pdf",
     tight_layout: bool = True,
-    **kwargs,
+    **kwargs: Any,
 ) -> Figure:
     """Create a grouped cell cycle plot showing individual replicates.
 
@@ -383,7 +394,7 @@ def cellcycle_grouped_plot(
 
         # Save quality arguments
         dpi: Resolution for saved figure (dots per inch)
-        format: File format ('pdf', 'png', 'svg', etc.)
+        file_format: File format ('pdf', 'png', 'svg', etc.)
         tight_layout: Whether to apply tight layout before saving
 
         **kwargs: Additional arguments passed to the base class
@@ -481,7 +492,7 @@ def cellcycle_grouped_plot(
 
         # Save if requested (only if we own the figure)
         if save and plot._owns_figure:
-            save_path = Path(output_path)
+            save_path = Path(output_path) if output_path else Path(".")
 
             # Auto-generate filename if not provided
             if filename is None:
@@ -500,7 +511,7 @@ def cellcycle_grouped_plot(
                 filename=filename,
                 tight_layout=tight_layout,
                 dpi=dpi,
-                format=format,
+                format=file_format,
             )
 
             print(f"Grouped cell cycle plot saved to: {save_path / filename}")

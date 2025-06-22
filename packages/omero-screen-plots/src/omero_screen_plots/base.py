@@ -7,7 +7,7 @@ providing common functionality for data validation, styling, and figure manageme
 import warnings
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, List, Optional, Tuple, Union, cast
+from typing import Any, Optional, Union, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -35,13 +35,13 @@ class OmeroPlots(ABC):
     def __init__(
         self,
         data: pd.DataFrame,
-        conditions: List[str],
+        conditions: list[str],
         condition_col: str = "condition",
         selector_col: Optional[str] = "cell_line",
         selector_val: Optional[str] = None,
         title: Optional[str] = None,
-        colors: Optional[List[str]] = None,
-        figsize: Optional[Tuple[float, float]] = None,
+        colors: Optional[list[str]] = None,
+        figsize: Optional[tuple[float, float]] = None,
         ax: Optional[Axes] = None,
         **kwargs: Any,
     ) -> None:
@@ -88,8 +88,8 @@ class OmeroPlots(ABC):
         """Return the plot type identifier for configuration."""
 
     def _cm_to_inches(
-        self, figsize_cm: Optional[Tuple[float, float]]
-    ) -> Optional[Tuple[float, float]]:
+        self, figsize_cm: Optional[tuple[float, float]]
+    ) -> Optional[tuple[float, float]]:
         """Convert figsize from cm to inches."""
         if figsize_cm is None:
             return None
@@ -98,7 +98,7 @@ class OmeroPlots(ABC):
     def _validate_and_filter_data(
         self,
         data: pd.DataFrame,
-        conditions: List[str],
+        conditions: list[str],
         condition_col: str,
         selector_col: Optional[str],
         selector_val: Optional[str],
@@ -158,21 +158,23 @@ class OmeroPlots(ABC):
         Args:
             fig: Figure to apply title to. If None, uses self.fig
         """
-        if self.title:
-            if figure := fig or self.fig:
-                y_pos = 1.16 if "\n" in self.title else 1.08
-                figure.suptitle(
-                    self.title, fontsize=7, weight="regular", y=y_pos, x=0.5
-                )
+        if self.title and (figure := fig or self.fig):
+            y_pos = 1.16 if "\n" in self.title else 1.08
+            figure.suptitle(
+                self.title, fontsize=7, weight="regular", y=y_pos, x=0.5
+            )
 
-    def calculate_statistics(self, column: str) -> List[float]:
+    def calculate_statistics(self, column: str) -> list[float]:
         """Calculate p-values for statistical significance."""
         try:
             return calculate_pvalues(
                 self.data, self.conditions, self.condition_col, column
             )
-        except Exception as e:
-            warnings.warn(f"Could not calculate statistics for {column}: {e}")
+        except (ValueError, KeyError, IndexError) as e:
+            warnings.warn(
+                f"Could not calculate statistics for {column}: {e}",
+                stacklevel=2,
+            )
             return []
 
     def add_significance_markers(self, column: str, y_max: float) -> None:
@@ -181,7 +183,7 @@ class OmeroPlots(ABC):
             return
 
         pvalues = self.calculate_statistics(column)
-        for i, condition in enumerate(self.conditions[1:], start=1):
+        for i, _condition in enumerate(self.conditions[1:], start=1):
             p_value = pvalues[i - 1]
             significance = get_significance_marker(p_value)
 
@@ -265,10 +267,10 @@ class OmeroCombPlots:
 
     def __init__(
         self,
-        plots: List[OmeroPlots],
-        layout: Optional[Tuple[int, int]] = None,
-        figsize: Optional[Tuple[float, float]] = None,
-        titles: Optional[List[Optional[str]]] = None,
+        plots: list[OmeroPlots],
+        layout: Optional[tuple[int, int]] = None,
+        figsize: Optional[tuple[float, float]] = None,
+        titles: Optional[list[Optional[str]]] = None,
         **kwargs: Any,
     ) -> None:
         """Initialize composite plot manager.
@@ -287,9 +289,9 @@ class OmeroCombPlots:
         self.subplot_config = kwargs
 
         self.fig: Optional[Figure] = None
-        self.axes: List[Axes] = []
+        self.axes: list[Axes] = []
 
-    def _calculate_layout(self, n_plots: int) -> Tuple[int, int]:
+    def _calculate_layout(self, n_plots: int) -> tuple[int, int]:
         """Calculate optimal grid layout for n plots."""
         if n_plots == 1:
             return (1, 1)
@@ -305,7 +307,7 @@ class OmeroCombPlots:
             rows = (n_plots + cols - 1) // cols
             return (rows, cols)
 
-    def _calculate_figsize(self) -> Tuple[float, float]:
+    def _calculate_figsize(self) -> tuple[float, float]:
         """Calculate figure size based on layout and individual plot sizes."""
         rows, cols = self.layout
 
@@ -331,12 +333,8 @@ class OmeroCombPlots:
         )
 
         # Ensure axes is a flat list
-        axes: List[Axes]
-        if isinstance(axs, np.ndarray):
-            axes = axs.flatten().tolist()
-        else:
-            axes = [axs]
-
+        axes: list[Axes]
+        axes = axs.flatten().tolist() if isinstance(axs, np.ndarray) else [axs]
         self.axes = axes
 
         # Generate each plot on its assigned axes
