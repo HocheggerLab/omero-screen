@@ -89,7 +89,7 @@ def _main() -> None:
         t = t.to(device)
         mem("t.to(device)")
 
-        info(t)
+        info(str(t))
 
         if args.convolution:
             import torch.nn as nn
