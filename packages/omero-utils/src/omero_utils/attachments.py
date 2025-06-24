@@ -270,7 +270,7 @@ def attach_data(
     """
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = os.path.join(temp_dir, f"{title}.csv")
-        df.to_csv(temp_path, columns=cols)
+        df.to_csv(temp_path, columns=cols, index=False)
 
         # Create and attach file annotation
         file_ann = conn.createFileAnnfromLocalFile(
