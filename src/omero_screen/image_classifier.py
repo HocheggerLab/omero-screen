@@ -335,9 +335,10 @@ class ImageClassifier:
 
             batch = []
             for i in range(start, stop):
-                # Center the crop around the centroid coordinates
+                # Center the crop around the centroid coordinates.
+                # Cell analysis results from cell and cyto masks are merged: _x is cell; _y is cyto.
                 centroid_x = image_df["centroid-1_x"].iloc[i]
-                centroid_y = image_df["centroid-0_y"].iloc[i]
+                centroid_y = image_df["centroid-0_x"].iloc[i]
 
                 x0 = int(max(0, centroid_x - half_crop))
                 x1 = int(min(max_length_x, centroid_x + half_crop))
