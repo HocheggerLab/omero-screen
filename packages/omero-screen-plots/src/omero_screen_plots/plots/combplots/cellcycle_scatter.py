@@ -59,11 +59,8 @@ class CellCycleScatterPlot(BaseCellCycleScatter):
             self.ax.set_xlabel("norm. DNA content", fontsize=6)
             self.ax.xaxis.set_visible(True)
 
-            # Add title to the individual axis
-            if self.title:
-                self.ax.set_title(self.title, size=7, y=1.15)
-            else:
-                self.ax.set_title(condition, size=7, y=1.15)
+            # Apply title using base class helper
+            self._apply_title()
 
             return self.ax.figure  # type: ignore[return-value]
 

@@ -79,6 +79,16 @@ dev = [
     "pytest-mock>=3.14.0",
     "pytest>=8.3.4",
     "ruff>=0.9.6",
+    "nbstripout",
+    "jupytext",
+]
+
+docs = [ # installed only when we build docs
+  "sphinx~=7.2",
+  "myst-parser",
+  "sphinx-rtd-theme",
+  "sphinx-autodoc-typehints",
+  "sphinxcontrib-napoleon",
 ]
 
 # ===========================
@@ -100,6 +110,9 @@ exclude = [
     "build/.*",
     "dist/.*",
     "migrations/.*",
+    ".*/(examples|docs|notebooks)/.*",    # Multiple dirs in one pattern
+    ".*_nb\\.py$",                        # Jupytext files with _nb suffix
+    ".*\\.ipynb$",
 ]
 incremental = true
 cache_dir = ".mypy_cache"
@@ -162,6 +175,12 @@ exclude = [
     "*/tests/",
     "*_test.py",
     "test_*.py"
+]
+
+extend-exclude = [
+    "**/examples/**",          # Everything in any examples dir
+    "**/docs/**",              # Everything in any docs dir
+    "**/notebooks/**",         # Everything in any notebooks dir
 ]
 
 fix = true

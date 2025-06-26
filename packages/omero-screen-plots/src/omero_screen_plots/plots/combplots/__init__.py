@@ -47,7 +47,7 @@ from .full import FullCombPlot, full_combplot
 from .histogram import HistogramPlot, histogram_plot
 
 # Import combined plot classes and functions
-from .simple import SimpleCombPlot, simple_combplot
+from .simple import StandardCombPlot, simple_combplot
 
 __all__ = [
     # Base classes
@@ -61,7 +61,7 @@ __all__ = [
     "CellCycleScatterPlot",
     "FeatureScatterPlot",
     # Combined plot classes
-    "SimpleCombPlot",
+    "StandardCombPlot",
     "FullCombPlot",
     # User-facing functions
     "histogram_plot",
@@ -69,4 +69,9 @@ __all__ = [
     "feature_scatter_plot",
     "simple_combplot",
     "full_combplot",
+    # Legacy aliases for backward compatibility
+    "SimpleCombPlot",
 ]
+
+# Backward compatibility aliases
+SimpleCombPlot = StandardCombPlot

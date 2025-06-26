@@ -3,6 +3,8 @@
 This module provides the CellCyclePlot class that creates a 2x2 subplot grid
 showing the percentage of cells in each cell cycle phase (G1, S, G2/M, Polyploid)
 as separate bar plots with individual data points and significance testing.
+This plot type cannot be intergrated into other larger plots and doesnt axcept an ax argument.
+Use CellCycleStackedPlot for single-axis integration.
 """
 
 from pathlib import Path
@@ -17,7 +19,7 @@ from ...utils import show_repeat_points
 from .base import BaseCellCyclePlot
 
 
-class CellCyclePlot(BaseCellCyclePlot):
+class StandardCellCyclePlot(BaseCellCyclePlot):
     """Standard cell cycle plot with 2x2 subplot grid.
 
     Creates individual bar plots for each cell cycle phase, showing:
@@ -98,9 +100,8 @@ class CellCyclePlot(BaseCellCyclePlot):
         for i in range(len(self.phases), len(ax_list)):
             ax_list[i].set_visible(False)
 
-        # Apply overall title if specified
-        if self.title:
-            self.fig.suptitle(self.title, fontweight="bold", y=1.05)
+        # Apply overall title using base class helper
+        self._apply_figure_title()
 
         # Adjust layout
         plt.tight_layout()
@@ -164,14 +165,21 @@ class CellCyclePlot(BaseCellCyclePlot):
             self.add_significance_markers_to_axis(ax, phase_data, "percent")
 
         # Customize axis
-        ax.set_title(phase, fontweight="bold", fontsize=6)
+        ax.set_title(phase, fontweight="regular", fontsize=6, y=1.05)
         ax.set_xlabel("")
         ax.set_ylabel("% of population")
 
-        # Rotate x-axis labels if they're long
-        max_label_length = max(len(str(cond)) for cond in self.conditions)
-        if max_label_length > 6:
-            ax.tick_params(axis="x", rotation=45)
+        if phase_index in {1, 3}:
+            ax.set_ylabel(None)
+        if phase_index in {0, 1}:
+            ax.set_xticklabels([])
+        else:
+            ax.set_xticks(range(len(self.conditions)))
+            max_label_length = max(len(str(cond)) for cond in self.conditions)
+            if max_label_length > 6:
+                ax.set_xticklabels(self.conditions, rotation=45, ha="right")
+            else:
+                ax.set_xticklabels(self.conditions, ha="right")
 
         # Set y-axis limits to ensure consistency and room for significance markers
         y_max = (
@@ -330,7 +338,7 @@ def cellcycle_standard_plot(
         title = "Cell Cycle Analysis"
 
     # Create the plot instance
-    plot = CellCyclePlot(
+    plot = StandardCellCyclePlot(
         data=data,
         conditions=conditions,
         condition_col=condition_col,

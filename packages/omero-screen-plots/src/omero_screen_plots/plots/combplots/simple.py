@@ -16,7 +16,7 @@ from matplotlib.figure import Figure
 from .base import BaseCombPlot
 
 
-class SimpleCombPlot(BaseCombPlot):
+class StandardCombPlot(BaseCombPlot):
     """Simple combined plot with histogram, scatter, and bar chart.
 
     Creates a 2-row combined visualization that includes:
@@ -457,7 +457,7 @@ def simple_combplot(
         title = "Cell Cycle Analysis"
 
     # Create the plot instance
-    plot = SimpleCombPlot(
+    plot = StandardCombPlot(
         data=data,
         conditions=conditions,
         condition_col=condition_col,

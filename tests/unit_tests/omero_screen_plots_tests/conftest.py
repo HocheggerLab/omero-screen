@@ -21,7 +21,23 @@ def cell_cycle_data():
 def filtered_data(cell_cycle_data):
     """Pre-filtered dataset with specific conditions"""
     conditions = ["ctr", "palb"]
-    return cell_cycle_data[cell_cycle_data.condition.isin(conditions)]
+    data = cell_cycle_data[cell_cycle_data.condition.isin(conditions)].copy()
+
+    # Add normalized columns expected by some plots if they don't exist
+    if 'integrated_int_DAPI_norm' not in data.columns:
+        # Use an existing numeric column as proxy
+        if 'intensity_mean_DAPI_nucleus' in data.columns:
+            data['integrated_int_DAPI_norm'] = data['intensity_mean_DAPI_nucleus'] / data['intensity_mean_DAPI_nucleus'].mean()
+        else:
+            data['integrated_int_DAPI_norm'] = 1.0
+
+    if 'intensity_mean_EdU_nucleus_norm' not in data.columns:
+        if 'intensity_mean_EdU_nucleus' in data.columns:
+            data['intensity_mean_EdU_nucleus_norm'] = data['intensity_mean_EdU_nucleus'] / data['intensity_mean_EdU_nucleus'].mean()
+        else:
+            data['intensity_mean_EdU_nucleus_norm'] = 1.0
+
+    return data
 
 
 @pytest.fixture

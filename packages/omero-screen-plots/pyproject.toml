@@ -39,6 +39,9 @@ exclude = [
     "build/.*",
     "dist/.*",
     "migrations/.*",
+    ".*/(examples|docs|notebooks)/.*",    # Multiple dirs in one pattern
+    ".*_nb\\.py$",                        # Jupytext files with _nb suffix
+    ".*\\.ipynb$",
 ]
 
 incremental = true
@@ -58,6 +61,12 @@ ignore_missing_imports = true
 
 ["tool.mypy.another_untyped_package.*"]
 ignore_missing_imports = true
+
+[dependency-groups]
+dev = [
+    "jupytext>=1.17.2",
+    "nbstripout>=0.8.1",
+]
 
 
 # ===========================
@@ -106,6 +115,12 @@ exclude = [
     "venv",
     "*vendored*",
     "*_vendor*",
+]
+
+extend-exclude = [
+    "**/examples/**",          # Everything in any examples dir
+    "**/docs/**",              # Everything in any docs dir
+    "**/notebooks/**",         # Everything in any notebooks dir
 ]
 
 fix = true

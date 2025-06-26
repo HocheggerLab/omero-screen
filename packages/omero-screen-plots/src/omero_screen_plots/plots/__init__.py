@@ -8,12 +8,13 @@ the base classes defined in the base module.
 from .cellcycle import (
     BaseCellCyclePlot,
     CellCycleGroupedPlot,
+    # Legacy aliases
     CellCyclePlot,
     CellCycleStackedPlot,
+    GroupedCellCyclePlot,
+    StackedCellCyclePlot,
+    StandardCellCyclePlot,
 )
-
-# Legacy import for backward compatibility
-from .cellcycle.standard import CellCyclePlot as CellCyclePlotLegacy
 
 # Import from combplots submodule
 from .combplots import (
@@ -26,16 +27,21 @@ from .combplots import (
     FeatureScatterPlot,
     FullCombPlot,
     HistogramPlot,
+    # Legacy aliases
     SimpleCombPlot,
+    StandardCombPlot,
 )
 
 __all__ = [
     # Cell cycle plots
     "BaseCellCyclePlot",
+    "StandardCellCyclePlot",
+    "StackedCellCyclePlot",
+    "GroupedCellCyclePlot",
+    # Legacy aliases
     "CellCyclePlot",
     "CellCycleStackedPlot",
     "CellCycleGroupedPlot",
-    "CellCyclePlotLegacy",  # For backward compatibility
     # Combined plots
     "BaseCombPlot",
     "BaseHistogramPlot",
@@ -45,6 +51,8 @@ __all__ = [
     "HistogramPlot",
     "CellCycleScatterPlot",
     "FeatureScatterPlot",
-    "SimpleCombPlot",
+    "StandardCombPlot",
     "FullCombPlot",
+    # Legacy aliases
+    "SimpleCombPlot",
 ]

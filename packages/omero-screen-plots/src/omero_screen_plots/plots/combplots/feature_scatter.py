@@ -59,20 +59,8 @@ class FeatureScatterPlot(BaseFeatureScatter):
             self.ax.set_xlabel("norm. DNA content", fontsize=6)
             self.ax.xaxis.set_visible(True)
 
-            # Add title to the individual axis
-            if self.title:
-                self.ax.set_title(self.title, size=8, weight="bold")
-            else:
-                feature_name = (
-                    self.feature_col.split("_")[-1]
-                    if "_" in self.feature_col
-                    else self.feature_col
-                )
-                self.ax.set_title(
-                    f"{feature_name.title()} vs DNA - {condition}",
-                    size=8,
-                    weight="regular",
-                )
+            # Apply title using base class helper
+            self._apply_title()
 
             return self.ax.figure  # type: ignore[return-value]
 

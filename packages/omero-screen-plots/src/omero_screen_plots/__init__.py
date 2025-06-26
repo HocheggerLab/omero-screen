@@ -15,7 +15,11 @@ from .cellcycleplot import cellcycle_plot
 from .colors import COLOR
 from .combplot import histogram_plot, scatter_plot
 from .countplot import count_plot
-from .featureplot import feature_plot
+from .featureplot import feature_plot as legacy_feature_plot
+from .featureplot import grouped_feature_plot as legacy_grouped_feature_plot
+from .featureplot import (
+    grouped_stacked_threshold_barplot as legacy_grouped_stacked_threshold_barplot,
+)
 from .plots import (
     BaseCellCyclePlot,
     # Combined plot classes
@@ -44,6 +48,17 @@ from .plots.combplots import (
 )
 from .plots.combplots import histogram_plot as new_histogram_plot
 
+# Import new modular feature plot functions
+from .plots.featureplots import (
+    # Classes for advanced usage
+    FeaturePlot,
+    GroupedFeaturePlot,
+    GroupedStackedThresholdBarplot,
+    feature_plot,
+    grouped_feature_plot,
+    grouped_stacked_threshold_barplot,
+)
+
 __all__ = [
     "COLOR",
     "OmeroPlots",
@@ -70,9 +85,19 @@ __all__ = [
     "feature_scatter_plot",
     "simple_combplot",
     "full_combplot",
+    # Feature plot classes
+    "FeaturePlot",
+    "GroupedFeaturePlot",
+    "GroupedStackedThresholdBarplot",
+    # User-facing feature plot functions
+    "feature_plot",
+    "grouped_feature_plot",
+    "grouped_stacked_threshold_barplot",
     # Legacy functions
     "cellcycle_plot",
-    "feature_plot",
+    "legacy_feature_plot",
+    "legacy_grouped_feature_plot",
+    "legacy_grouped_stacked_threshold_barplot",
     "histogram_plot",
     "scatter_plot",
     "count_plot",

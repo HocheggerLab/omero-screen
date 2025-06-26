@@ -55,7 +55,7 @@ class OmeroPlots(ABC):
             selector_val: Value to select from selector_col
             title: Plot title
             colors: Custom color palette
-            figsize: Figure size as (width, height) in inches
+            figsize: Figure size as (width, height) given in cm and automatically converted to inches, if not provided, the default figure size is used (see CONFIG.get_figure_size())
             ax: Optional axes to plot on (for integration into larger figures)
             **kwargs: Additional configuration options
         """

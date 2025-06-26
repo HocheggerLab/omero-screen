@@ -56,11 +56,8 @@ class HistogramPlot(BaseHistogramPlot):
                 self.ax, data, 0, show_individual_xlabel=True
             )
 
-            # Add title to the individual axis
-            if self.title:
-                self.ax.set_title(self.title, size=8, weight="bold")
-            else:
-                self.ax.set_title(condition, size=8, weight="regular")
+            # Apply title using base class helper
+            self._apply_title()
 
             return self.ax.figure  # type: ignore[return-value]
 

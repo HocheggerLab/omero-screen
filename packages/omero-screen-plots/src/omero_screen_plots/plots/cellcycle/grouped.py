@@ -17,7 +17,7 @@ from ...utils import grouped_x_positions
 from .base import BaseCellCyclePlot
 
 
-class CellCycleGroupedPlot(BaseCellCyclePlot):
+class GroupedCellCyclePlot(BaseCellCyclePlot):
     """Grouped stacked bar plot with individual replicates.
 
     Creates a grouped bar chart where:
@@ -48,6 +48,8 @@ class CellCycleGroupedPlot(BaseCellCyclePlot):
         bar_width: Optional[float] = None,
         show_group_boxes: bool = True,
         show_legend: bool = True,
+        within_group_spacing: float = 0.6,
+        between_group_gap: float = 0.7,
         **kwargs: Any,
     ) -> None:
         """Initialize grouped cell cycle plot.
@@ -62,6 +64,8 @@ class CellCycleGroupedPlot(BaseCellCyclePlot):
             bar_width: Width of individual bars (auto-calculated if None)
             show_group_boxes: Whether to draw boxes around condition groups
             show_legend: Whether to show phase legend
+            within_group_spacing: Space between conditions inside a group
+            between_group_gap: Extra space between consecutive groups
             **kwargs: Additional arguments passed to base class
         """
         # Default phases for grouped plot
@@ -74,6 +78,8 @@ class CellCycleGroupedPlot(BaseCellCyclePlot):
         self.group_size = group_size
         self.n_repeats = n_repeats
         self.repeat_offset = repeat_offset
+        self.within_group_spacing = within_group_spacing
+        self.between_group_gap = between_group_gap
         self.bar_width = bar_width or repeat_offset * 1.05
         self.show_group_boxes = show_group_boxes
         self.show_legend = show_legend
@@ -103,8 +109,8 @@ class CellCycleGroupedPlot(BaseCellCyclePlot):
         x_base_positions = grouped_x_positions(
             len(self.conditions),
             group_size=self.group_size,
-            within_group_spacing=0.6,
-            between_group_gap=0.7,
+            within_group_spacing=self.within_group_spacing,
+            between_group_gap=self.between_group_gap,
         )
 
         # Plot replicate bars
@@ -244,9 +250,9 @@ class CellCycleGroupedPlot(BaseCellCyclePlot):
             labels=list(reversed(self.phases)),
             bbox_to_anchor=(1.05, 1),
             loc="upper left",
-            frameon=True,
-            fancybox=True,
-            shadow=True,
+            # frameon=True,
+            # fancybox=True,
+            # shadow=True,
         )
 
     def add_replicate_labels(self) -> None:
@@ -338,6 +344,8 @@ def cellcycle_grouped_plot(
     bar_width: Optional[float] = None,
     show_group_boxes: bool = True,
     show_legend: bool = True,
+    within_group_spacing: float = 0.6,
+    between_group_gap: float = 0.7,
     # Integration arguments
     ax: Optional[Axes] = None,
     # Output arguments
@@ -383,6 +391,8 @@ def cellcycle_grouped_plot(
         bar_width: Width of individual replicate bars. If None, auto-calculated
         show_group_boxes: Whether to draw boxes around condition groups
         show_legend: Whether to show the phase legend
+        within_group_spacing: Space between conditions inside a group
+        between_group_gap: Extra space between consecutive groups
 
         # Integration arguments
         ax: Optional matplotlib axes to plot on. If provided, creates subplot
@@ -466,7 +476,7 @@ def cellcycle_grouped_plot(
         title = "Cell Cycle Analysis (Individual Replicates)"
 
     # Create the plot instance
-    plot = CellCycleGroupedPlot(
+    plot = GroupedCellCyclePlot(
         data=data,
         conditions=conditions,
         condition_col=condition_col,
@@ -482,6 +492,8 @@ def cellcycle_grouped_plot(
         bar_width=bar_width,
         show_group_boxes=show_group_boxes,
         show_legend=show_legend,
+        within_group_spacing=within_group_spacing,
+        between_group_gap=between_group_gap,
         ax=ax,
         **kwargs,
     )
