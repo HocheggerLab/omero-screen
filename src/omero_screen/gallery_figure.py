@@ -10,12 +10,17 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Polygon
 
 
-def create_gallery(images: list[npt.NDArray[Any]], grid_size: int) -> Figure:
+def create_gallery(
+    images: list[npt.NDArray[Any]], grid_size: int, show_contours: bool = True
+) -> Figure:
     """Generates a gallery figure of the images in a grid.
 
     Args:
         images: List of numpy image arrays
         grid_size: Edge length of the grid
+        show_contours: Set to True to find contours on the first channel assuming it is masked
+            (non-zero pixels are foreground)
+
     Returns:
         gallery figure
     """
@@ -28,6 +33,8 @@ def create_gallery(images: list[npt.NDArray[Any]], grid_size: int) -> Figure:
         if idx < len(images):
             im = _create_image(images[idx])
             ax.imshow(im)
+            if not show_contours:
+                continue
             # Create contours using first channel and assuming non-masked pixels are > 0
             if len(im.shape) == 3:
                 im = im[:, :, 0]
