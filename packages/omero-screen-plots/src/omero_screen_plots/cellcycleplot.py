@@ -36,6 +36,7 @@ style_path = (current_dir / "../../hhlab_style01.mplstyle").resolve()
 plt.style.use(style_path)
 prop_cycle = plt.rcParams["axes.prop_cycle"]
 COLORS = prop_cycle.by_key()["color"]
+print(COLORS)
 pd.options.mode.chained_assignment = None
 
 
@@ -46,10 +47,14 @@ def cellcycle_plot(
     selector_col: str | None = "cell_line",
     selector_val: str | None = None,
     title: str | None = None,
+    fig_size: tuple[float, float] = (6, 6),
+    size_units: str = "cm",
     colors: list[str] = COLORS,
     save: bool = True,
     path: Path | None = None,
-    dimensions: tuple[float, float] = (height * 0.7, height),
+    tight_layout: bool = False,
+    file_format: str = "pdf",
+    dpi: int = 300,
 ) -> None:
     """Plot the cell cycle phases for each condition.
 
@@ -60,18 +65,24 @@ def cellcycle_plot(
         selector_col: Column name for selector (e.g., cell line).
         selector_val: Value to filter selector_col by.
         title: Plot title.
+        fig_size: Dimensions of the figure. Default is 6 cm wide and 4 cm high.
+        size_units: Units of the figure size. Default is "cm".
         colors: List of colors for plotting.
         save: Whether to save the figure.
         path: Path to save the figure.
-        dimensions: Dimensions of the figure. Default is 6 cm wide and 4 cm high.
+        tight_layout: Whether to use tight layout. Default is False.
+        file_format: Format of the figure. Default is "pdf".
+        dpi: Resolution of the figure. Default is 300.
     """
     print(f"Plotting cell cycle quantifications for {selector_val}")
+    if size_units == "cm":
+        fig_size = (fig_size[0] / 2.54, fig_size[1] / 2.54)
     df1 = selector_val_filter(
         df, selector_col, selector_val, condition_col, conditions
     )
     assert df1 is not None
     df1 = cc_phase(df1, condition=condition_col)
-    fig, ax = plt.subplots(2, 2, figsize=dimensions)
+    fig, ax = plt.subplots(2, 2, figsize=fig_size)
     ax_list = [ax[0, 0], ax[0, 1], ax[1, 0], ax[1, 1]]
     cellcycle = ["G1", "S", "G2/M", "Polyploid"]
     for i, phase in enumerate(cellcycle):
@@ -121,23 +132,35 @@ def cellcycle_plot(
             fig,
             path,
             fig_title,
-            tight_layout=False,
-            fig_extension="pdf",
+            tight_layout=tight_layout,
+            fig_extension=file_format,
+            resolution=dpi,
         )
 
 
-def stacked_barplot(
+def cellcycle_stacked(
     df: pd.DataFrame,
     conditions: list[str],
     condition_col: str = "condition",
     selector_col: Optional[str] = "cell_line",
     selector_val: Optional[str] = None,
+    y_err: bool = True,
     H3: bool = False,
     title: str | None = None,
+    fig_size: tuple[float, float] = (6, 6),
+    size_units: str = "cm",
+    colors: list[str] = COLORS,
     save: bool = True,
     path: Path | None = None,
+    tight_layout: bool = False,
+    file_format: str = "pdf",
+    dpi: int = 300,
+    group_size: int = 1,
+    within_group_spacing: float = 0.2,
+    between_group_gap: float = 0.5,
+    bar_width: float = 0.5,
 ) -> None:
-    """Create a stacked barplot for cell cycle phase proportions.
+    """Create a stacked barplot for cell cycle phase proportions, with optional grouping of conditions on the x-axis.
 
     Args:
         df: DataFrame containing cell cycle data.
@@ -145,61 +168,95 @@ def stacked_barplot(
         condition_col: Column name for experimental condition.
         selector_col: Column name for selector (e.g., cell line).
         selector_val: Value to filter selector_col by.
+        y_err: Whether to show error bars. Default is True.
         H3: Whether to use H3 phase naming.
         title: Plot title.
+        fig_size: Dimensions of the figure. Default is 6 cm wide and 4 cm high.
+        size_units: Units of the figure size. Default is "cm".
+        colors: List of colors for plotting.
         save: Whether to save the figure.
         path: Path to save the figure.
+        tight_layout: Whether to use tight layout. Default is False.
+        file_format: Format of the figure. Default is "pdf".
+        dpi: Resolution of the figure. Default is 300.
+        group_size: Number of conditions per group on the x-axis (default 1 = no grouping).
+        within_group_spacing: Spacing between bars within a group (default 0.5).
+        between_group_gap: Spacing between groups (default 1.0).
+        bar_width: Width of each bar (default 0.5).
     """
+    if size_units == "cm":
+        fig_size = (fig_size[0] / 2.54, fig_size[1] / 2.54)
     df1 = selector_val_filter(
         df, selector_col, selector_val, condition_col, conditions
     )
     assert df1 is not None
     df_mean, df_std = prop_pivot(df1, condition_col, conditions, H3)
-    fig, ax = plt.subplots()
-    df_mean.plot(kind="bar", stacked=True, yerr=df_std, width=0.75, ax=ax)
-    ax.set_ylim(0, 110)
-    ax.set_xticklabels(conditions, rotation=30, ha="right")
-    ax.set_xlabel("")
+    n_conditions = len(conditions)
     if H3:
-        legend = ax.legend(
-            ["Sub-G1", "G1", "S", "G2", "M", "Polyploid"],
-            title="CellCyclePhase",
-        )
-        ax.set_ylabel("% of population")
+        phases = ["Polyploid", "M", "G2", "S", "G1", "Sub-G1"]
     else:
-        legend = ax.legend(
-            ["Sub-G1", "G1", "S", "G2/M", "Polyploid"], title="CellCyclePhase"
+        phases = ["Polyploid", "G2/M", "S", "G1", "Sub-G1"]
+    # Use grouped_x_positions for x-axis positions
+    x_positions = grouped_x_positions(
+        n_conditions,
+        group_size=group_size,
+        bar_width=bar_width,
+        within_group_spacing=within_group_spacing,
+        between_group_gap=between_group_gap,
+    )
+    x_labels = conditions
+    fig, ax = plt.subplots(figsize=fig_size)
+    bottoms = [0] * len(x_positions)
+    for k, phase in enumerate(phases):
+        values = df_mean[phase].values
+        ax.bar(
+            x_positions,
+            values,
+            bar_width,
+            bottom=bottoms,
+            color=colors[k],
+            label=phase,
+            edgecolor="white",
+            linewidth=0.2,
+            alpha=0.9,
+            yerr=df_std[phase].values,
         )
+        bottoms = [
+            bottoms[i] + (values[i] if not pd.isna(values[i]) else 0)
+            for i in range(len(values))
+        ]
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(x_labels, rotation=30, ha="right")
+    ax.set_xlabel(condition_col)
+    ax.set_ylabel("% of population")
+    ax.set_ylim(0, 110)
+    # Legend
     handles, labels = ax.get_legend_handles_labels()
     handles, labels = handles[::-1], labels[::-1]
-    legend.remove()
-    legend = ax.legend(
+    ax.legend(
         handles,
         labels,
         title="CellCyclePhase",
         bbox_to_anchor=(1.25, 1),
         loc="upper right",
     )
-    frame = legend.get_frame()
-    frame.set_alpha(0.5)
-    ax.set_ylabel("% of population")
     ax.grid(False)
     if not title:
         title = f"stackedbarplot_{selector_val}"
-    fig.suptitle(title, fontsize=8, weight="bold", x=0, y=1.05, ha="left")
+    fig.suptitle(title, fontsize=8, weight="bold", x=0, y=1.01, ha="left")
     fig_title = title.replace(" ", "_")
     if save and path:
         save_fig(
             fig,
             path,
             fig_title,
-            tight_layout=False,
-            fig_extension="pdf",
+            tight_layout=tight_layout,
+            fig_extension=file_format,
+            resolution=dpi,
         )
 
 
-def grouped_stacked_barplot(
-    ax: Optional[Axes],
+def cellcycle_grouped(
     df: pd.DataFrame,
     conditions: list[str],
     group_size: int = 2,
@@ -207,37 +264,53 @@ def grouped_stacked_barplot(
     selector_col: Optional[str] = "cell_line",
     selector_val: Optional[str] = None,
     phases: Optional[list[str]] = None,
-    colors: list[str] = COLORS,
-    repeat_offset: float = 0.18,
-    dimensions: tuple[float, float] = (width, height),
-    x_label: bool = True,
     title: Optional[str] = None,
+    ax: Optional[Axes] = None,
+    x_label: bool = True,
+    fig_size: tuple[float, float] = (6, 6),
+    size_units: str = "cm",
+    colors: list[str] = COLORS,
     save: bool = True,
     path: Optional[Path] = None,
+    tight_layout: bool = False,
+    file_format: str = "pdf",
+    dpi: int = 300,
+    repeat_offset: float = 0.18,
+    within_group_spacing: float = 0.2,
+    between_group_gap: float = 0.5,
 ) -> None:
-    """Create a grouped stacked barplot for phase proportions.
+    """Create a grouped stacked barplot for phase proportions, with triplicates boxed and grouped on the x-axis.
 
-    Group bars on the x-axis by group_size, and center three repeats per condition.
+    Group bars on the x-axis by group_size, and center three repeats per condition. Larger groups of conditions can be created using group_size, within_group_spacing, and between_group_gap.
 
     Args:
-        ax: Matplotlib axis.
         df: DataFrame containing cell cycle data.
         conditions: List of condition names to plot.
-        group_size: Number of groups for x-axis grouping.
+        group_size: Number of conditions per group on the x-axis.
         condition_col: Column name for experimental condition.
         selector_col: Column name for selector (e.g., cell line).
         selector_val: Value to filter selector_col by.
         phases: List of cell cycle phases.
-        colors: List of colors for plotting.
-        repeat_offset: Offset for repeat bars.
-        dimensions: Dimensions of the figure. Default is 9 cm wide and 6 cm high.
+        title: Plot title.
+        ax: Matplotlib axis. If None, a new figure is created.
         x_label: Whether to show the x-axis label. Default is True.
-        title: Optional: Plot title. Needs to be provided for saving!
-        save: Optional: Whether to save the figure. Needs to be provided for saving!
+        fig_size: Dimensions of the figure. Default is 6 cm wide and 4 cm high.
+        size_units: Units of the figure size. Default is "cm".
+        colors: List of colors for plotting.
+        save: Whether to save the figure.
         path: Path to save the figure.
+        tight_layout: Whether to use tight layout. Default is False.
+        file_format: Format of the figure. Default is "pdf".
+        dpi: Resolution of the figure. Default is 300.
+        repeat_offset: Offset for repeat bars.
+        within_group_spacing: Spacing between bars within a group.
+        between_group_gap: Spacing between groups.
+        x_label: Whether to show the x-axis label. Default is True.
     """
+    if size_units == "cm":
+        fig_size = (fig_size[0] / 2.54, fig_size[1] / 2.54)
     if ax is None:
-        fig, ax = plt.subplots(figsize=dimensions)
+        fig, ax = plt.subplots(figsize=fig_size)
     if phases is None:
         custom_phases = False
         phases = ["Polyploid", "G2/M", "S", "G1", "Sub-G1"]
@@ -251,11 +324,12 @@ def grouped_stacked_barplot(
     n_repeats = 3
     repeat_ids = sorted(df1["plate_id"].unique())[:n_repeats]
     n_conditions = len(conditions)
+    # Use grouped_x_positions for x-axis positions of each condition group
     x_base_positions = grouped_x_positions(
         n_conditions,
         group_size=group_size,
-        within_group_spacing=0.6,
-        between_group_gap=0.7,
+        within_group_spacing=within_group_spacing,
+        between_group_gap=between_group_gap,
     )
 
     plot_triplicate_bars(
@@ -288,17 +362,19 @@ def grouped_stacked_barplot(
         condition_col,
     )
     build_phase_legend(ax, phases, colors, custom_phases)
-    if title:
-        ax.set_title(title, fontsize=6, weight="bold", y=1.1)
-    plt.tight_layout()
-    if save and path and title and fig is not None:
-        file_name = title.replace(" ", "_")
+
+    if not title:
+        title = f"cellcycle grouped plot {selector_val}"
+    fig.suptitle(title, fontsize=8, weight="bold", x=0, y=1.01, ha="left")
+    fig_title = title.replace(" ", "_")
+    if save and path:
         save_fig(
             fig,
             path,
-            file_name,
-            tight_layout=False,
-            fig_extension="pdf",
+            fig_title,
+            tight_layout=tight_layout,
+            fig_extension=file_format,
+            resolution=dpi,
         )
 
 

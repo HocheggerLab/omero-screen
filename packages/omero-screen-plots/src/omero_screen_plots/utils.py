@@ -21,7 +21,7 @@ def save_fig(
     fig: Figure,
     path: Path,
     fig_id: str,
-    tight_layout: bool = True,
+    tight_layout: bool = False,
     fig_extension: str = "pdf",
     resolution: int = 300,
 ) -> None:
@@ -142,6 +142,7 @@ def scale_data(
 def grouped_x_positions(
     n_conditions: int,
     group_size: int = 2,
+    bar_width: float = 0.5,
     within_group_spacing: float = 0.5,
     between_group_gap: float = 1.0,
 ) -> list[float]:
@@ -150,16 +151,17 @@ def grouped_x_positions(
     Parameters:
     - n_conditions: number of conditions (bars/groups)
     - group_size: number of conditions per group
-    - within_group_spacing: space between conditions in a group
-    - between_group_gap: extra space between groups
-    Returns a list of x positions for each condition.
+    - bar_width: width of each bar
+    - within_group_spacing: space between conditions in a group (distance between bar edges)
+    - between_group_gap: extra space between groups (distance between bar edges)
+    Returns a list of x positions for each condition (bar center).
     """
     x_positions: list[float] = []
     pos: float = 0.0
     for i in range(n_conditions):
         x_positions.append(pos)
         if (i + 1) % group_size == 0 and (i + 1) < n_conditions:
-            pos += between_group_gap
+            pos += bar_width + between_group_gap
         else:
-            pos += within_group_spacing
+            pos += bar_width + within_group_spacing
     return x_positions
