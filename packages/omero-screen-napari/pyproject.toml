@@ -9,6 +9,11 @@ authors = [
 requires-python = ">=3.12"
 dependencies = []
 
+[project.entry-points."napari.manifest"]
+omero-screen-napari = "omero_screen_napari:napari.yaml"
+
+
+
 [project.scripts]
 omero-screen-napari = "omero_screen_napari:main"
 
