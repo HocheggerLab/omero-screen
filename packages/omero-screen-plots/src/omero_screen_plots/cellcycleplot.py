@@ -18,6 +18,7 @@ import pandas as pd
 import seaborn as sns
 from matplotlib.axes import Axes
 from matplotlib.patches import Patch, Rectangle
+from omero_screen.config import get_logger
 
 from omero_screen_plots.stats import set_significance_marks
 from omero_screen_plots.utils import (
@@ -26,6 +27,9 @@ from omero_screen_plots.utils import (
     selector_val_filter,
     show_repeat_points,
 )
+
+logger = get_logger(__name__)
+
 
 # Define figure size in inches
 width = 9 / 2.54  # 10 cm
@@ -442,7 +446,8 @@ def prop_pivot(
     )
     df_mean.columns = df_mean.columns.droplevel(0)
     df_mean = df_mean[cc_phases]
-    if len(df_prop1.plate_id.unique()) > 1:
+    repeats_check = df_prop1.groupby(["time"])["plate_id"].nunique()
+    if repeats_check.min() != 1:
         df_std = (
             df_prop1.groupby([condition, "cell_cycle"], observed=False)[
                 "percent"
@@ -457,6 +462,7 @@ def prop_pivot(
         df_std.columns = df_std.columns.droplevel(0)
         df_std = df_std[cc_phases]
     else:
+        logger.info("No repeats found, setting std to 0")
         df_std = pd.DataFrame(0, index=df_mean.index, columns=df_mean.columns)
     return df_mean, df_std
 

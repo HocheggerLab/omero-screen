@@ -366,6 +366,7 @@ def _plot_stacked_bar(
         ax=ax_bar,
         color=colors[: df_mean.shape[1]],
     )
+
     ax_bar.set_ylim(0, 110)
     ax_bar.set_xticklabels(conditions, rotation=30, ha="right")
     ax_bar.set_xlabel("")
