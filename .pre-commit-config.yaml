@@ -42,3 +42,9 @@ repos:
         additional_dependencies: ["pandas>=2.2.3"]
         exclude: ^tests/
         args: ["--config-file=pyproject.toml"]
+
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.6.1
+    hooks:
+      - id: nbstripout
+        args: [--drop-empty-cells]

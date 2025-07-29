@@ -192,7 +192,8 @@ def scatter_plot_feature(
     # ax.set_yticklabels(["2", "4", "8", "16"])
 
     if i == len(conditions) * 2:
-        y_label = f"{col.split('_')[2]} norm."
+        # Handle different column name formats
+        y_label = col  # Use full column name as fallback
         ax.set_ylabel(y_label, fontsize=6)
         # Custom y-axis formatter to remove zeros
         # ax.yaxis.set_major_formatter(
@@ -226,12 +227,37 @@ def comb_plot(
     title: str | None = None,
     cell_number: int | None = None,
     colors: list[str] = COLORS,
-    width: float = 10 / 2.54,
-    height: float = 7 / 2.54,
+    fig_size: tuple[float, float] = (10, 7),
+    size_units: str = "cm",
     save: bool = True,
     path: Path | None = None,
 ) -> None:
-    """Plot a combined histogram and scatter plot."""
+    """Plot a combined histogram and scatter plot.
+
+    Args:
+        df: pd.DataFrame containing the data to plot.
+        conditions: list[str] containing the conditions to plot.
+        feature_col: str containing the column to plot.
+        feature_y_lim: float containing the threshold for color categorization.
+        condition_col: str containing the column indicating experimental condition.
+        selector_col: Optional[str] containing the column indicating the cell line.
+        df: pd.DataFrame containing the data to plot.
+        conditions: list[str] containing the conditions to plot.
+        feature_col: str containing the column to plot.
+        feature_y_lim: float containing the threshold for color categorization.
+        condition_col: str containing the column indicating experimental condition.
+        selector_col: Optional[str] containing the column indicating the cell line.
+        selector_val: Optional[str] containing the value of the cell line to plot.
+        title: str | None containing the title of the plot.
+        cell_number: int | None containing the number of cells to plot.
+        colors: list[str] containing the colors to use for the plot.
+        fig_size: tuple[float, float] containing the size of the figure.
+        size_units: str containing the units of the figure size.
+        save: bool containing whether to save the plot.
+        path: Path | None containing the path to save the plot.
+    """
+    if size_units == "cm":
+        fig_size = (fig_size[0] / 2.54, fig_size[1] / 2.54)
     col_number = len(conditions)
     df1 = selector_val_filter(
         df, selector_col, selector_val, condition_col, conditions
@@ -239,7 +265,7 @@ def comb_plot(
     assert df1 is not None  # tells type checker df1 is definitely not None
     condition_list = conditions * 3
 
-    fig = plt.figure(figsize=(width, height))
+    fig = plt.figure(figsize=fig_size)
     gs = GridSpec(3, col_number, height_ratios=[1, 3, 3], hspace=0.05)
     ax_list = [(i, j) for i in range(3) for j in range(col_number)]
     y_max = df["intensity_mean_EdU_nucleus_norm"].quantile(0.99) * 1.5
@@ -410,24 +436,44 @@ def combplot_simple(
     title: str | None = None,
     cell_number: int | None = None,
     colors: list[str] = COLORS,
+    fig_size: tuple[float, float] = (10, 7),
+    size_units: str = "cm",
     save: bool = True,
     path: Path | None = None,
     H3: bool = False,
 ) -> None:
-    """Plot a combined histogram, scatter plot, and a stacked barplot as the last column."""
+    """Plot a combined histogram, scatter plot, and a stacked barplot as the last column.
+
+    Args:
+        df: pd.DataFrame containing the data to plot.
+        conditions: list[str] containing the conditions to plot.
+        condition_col: str containing the column indicating experimental condition.
+        selector_col: Optional[str] containing the column indicating the cell line.
+        selector_val: Optional[str] containing the value of the cell line to plot.
+        title: str | None containing the title of the plot.
+        cell_number: int | None containing the number of cells to plot.
+        colors: list[str] containing the colors to use for the plot.
+        fig_size: tuple[float, float] containing the size of the figure.
+        size_units: str containing the units of the figure size.
+        save: bool containing whether to save the plot.
+        path: Path | None containing the path to save the plot.
+        H3: bool containing whether to use H3 cell cycle phases.
+    """
+    if size_units == "cm":
+        fig_size = (fig_size[0] / 2.54, fig_size[1] / 2.54)
     col_number = len(conditions)
     df1 = selector_val_filter(
         df, selector_col, selector_val, condition_col, conditions
     )
     assert df1 is not None  # tells type checker df1 is definitely not None
-    fig = plt.figure(figsize=(width + 2, height * 2 / 3))  # wider for barplot
+    fig = plt.figure(figsize=fig_size)  # wider for barplot
     gs = GridSpec(
         2,
         col_number + 1,
         height_ratios=[1, 3],
-        width_ratios=[1] * col_number + [0.7],
+        width_ratios=[1] * col_number + [1.5],
         hspace=0.05,
-        wspace=0.25,
+        wspace=0.5,
     )
     y_max = df["intensity_mean_EdU_nucleus_norm"].quantile(0.99) * 1.5
     y_min = df["intensity_mean_EdU_nucleus_norm"].quantile(0.01) * 0.8

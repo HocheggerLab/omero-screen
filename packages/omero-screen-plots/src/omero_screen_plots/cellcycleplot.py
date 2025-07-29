@@ -40,7 +40,6 @@ style_path = (current_dir / "../../hhlab_style01.mplstyle").resolve()
 plt.style.use(style_path)
 prop_cycle = plt.rcParams["axes.prop_cycle"]
 COLORS = prop_cycle.by_key()["color"]
-print(COLORS)
 pd.options.mode.chained_assignment = None
 
 
@@ -223,7 +222,7 @@ def cellcycle_stacked(
             edgecolor="white",
             linewidth=0.2,
             alpha=0.9,
-            yerr=df_std[phase].values,
+            yerr=df_std[phase].values if y_err else None,
         )
         bottoms = [
             bottoms[i] + (values[i] if not pd.isna(values[i]) else 0)
@@ -426,9 +425,9 @@ def prop_pivot(
     """
     df_prop = cc_phase(df, condition=condition)
     cc_phases = (
-        ["Sub-G1", "G1", "S", "G2/M", "Polyploid"]
+        ["Polyploid", "G2/M", "S", "G1", "Sub-G1"]
         if not H3
-        else ["Sub-G1", "G1", "S", "G2", "M", "Polyploid"]
+        else ["Polyploid", "M", "G2", "S", "G1", "Sub-G1"]
     )
     df_prop1 = df_prop.copy()
     df_prop1[condition] = pd.Categorical(
@@ -446,7 +445,7 @@ def prop_pivot(
     )
     df_mean.columns = df_mean.columns.droplevel(0)
     df_mean = df_mean[cc_phases]
-    repeats_check = df_prop1.groupby(["time"])["plate_id"].nunique()
+    repeats_check = df_prop1.groupby([condition])["plate_id"].nunique()
     if repeats_check.min() != 1:
         df_std = (
             df_prop1.groupby([condition, "cell_cycle"], observed=False)[
