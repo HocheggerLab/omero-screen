@@ -149,6 +149,8 @@ def cellcycle_stacked(
     selector_val: Optional[str] = None,
     y_err: bool = True,
     H3: bool = False,
+    ax: Optional[Axes] = None,
+    x_label: bool = True,
     title: str | None = None,
     fig_size: tuple[float, float] = (6, 6),
     size_units: str = "cm",
@@ -173,6 +175,8 @@ def cellcycle_stacked(
         selector_val: Value to filter selector_col by.
         y_err: Whether to show error bars. Default is True.
         H3: Whether to use H3 phase naming.
+        ax: Matplotlib axis. If None, a new figure is created.
+        x_label: Whether to show the x-axis label. Default is True.
         title: Plot title.
         fig_size: Dimensions of the figure. Default is 6 cm wide and 4 cm high.
         size_units: Units of the figure size. Default is "cm".
@@ -207,8 +211,11 @@ def cellcycle_stacked(
         within_group_spacing=within_group_spacing,
         between_group_gap=between_group_gap,
     )
-    x_labels = conditions
-    fig, ax = plt.subplots(figsize=fig_size)
+    x_labels = conditions if x_label else []
+    if ax is None:
+        fig, ax = plt.subplots(figsize=fig_size)
+    else:
+        fig = ax.get_figure()
     bottoms = [0] * len(x_positions)
     for k, phase in enumerate(phases):
         values = df_mean[phase].values
@@ -230,7 +237,7 @@ def cellcycle_stacked(
         ]
     ax.set_xticks(x_positions)
     ax.set_xticklabels(x_labels, rotation=30, ha="right")
-    ax.set_xlabel(condition_col)
+    ax.set_xlabel(condition_col) if x_label else ax.set_xlabel("")
     ax.set_ylabel("% of population")
     ax.set_ylim(0, 110)
     # Legend
@@ -244,19 +251,22 @@ def cellcycle_stacked(
         loc="upper right",
     )
     ax.grid(False)
-    if not title:
-        title = f"stackedbarplot_{selector_val}"
-    fig.suptitle(title, fontsize=8, weight="bold", x=0, y=1.01, ha="left")
-    fig_title = title.replace(" ", "_")
-    if save and path:
-        save_fig(
-            fig,
-            path,
-            fig_title,
-            tight_layout=tight_layout,
-            fig_extension=file_format,
-            resolution=dpi,
-        )
+
+    # Only set title and save if we created our own figure (ax was None originally)
+    if ax is None:
+        if not title:
+            title = f"stackedbarplot_{selector_val}"
+        fig.suptitle(title, fontsize=8, weight="bold", x=0, y=1.01, ha="left")
+        fig_title = title.replace(" ", "_")
+        if save and path:
+            save_fig(
+                fig,
+                path,
+                fig_title,
+                tight_layout=tight_layout,
+                fig_extension=file_format,
+                resolution=dpi,
+            )
 
 
 def cellcycle_grouped(
@@ -445,7 +455,9 @@ def prop_pivot(
     )
     df_mean.columns = df_mean.columns.droplevel(0)
     df_mean = df_mean[cc_phases]
-    repeats_check = df_prop1.groupby([condition])["plate_id"].nunique()
+    repeats_check = df_prop1.groupby([condition], observed=False)[
+        "plate_id"
+    ].nunique()
     if repeats_check.min() != 1:
         df_std = (
             df_prop1.groupby([condition, "cell_cycle"], observed=False)[

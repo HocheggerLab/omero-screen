@@ -4,13 +4,19 @@ Simple, production-ready functions for normalizing IF intensity data
 by setting the peak (mode) to 1.0.
 """
 
+from __future__ import annotations
+
 import warnings
+from pathlib import Path
 from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.axes import Axes
 from scipy.ndimage import gaussian_filter1d
+
+from omero_screen_plots.utils import save_fig
 
 
 def find_intensity_mode(data: pd.Series[float], n_bins: int = 5000) -> float:
@@ -135,6 +141,8 @@ def plot_normalization_result(
     normalized_column: str,
     group_column: Optional[str] = None,
     figsize: tuple[int, int] = (15, 5),
+    save: bool = False,
+    path: Optional[Path] = None,
 ) -> None:
     """Plot before and after normalization distributions.
 
@@ -144,12 +152,84 @@ def plot_normalization_result(
         normalized_column: Name of normalized intensity column
         group_column: Optional grouping column for separate plots
         figsize: Figure size tuple
+        save: Whether to save the plot
+        path: Path to save the plot
 
     Example:
         plot_normalization_result(df, 'intensity_mean_p21_nucleus',
                                  'intensity_mean_p21_nucleus_norm', 'plate_id')
     """
-    if group_column is not None:
+    if group_column is None:
+        # Single plot for entire dataset
+        fig, axes = plt.subplots(1, 2, figsize=figsize)
+
+        # Original distribution
+        clean_original = df[original_column].dropna()
+        clean_original = clean_original[clean_original > 0]
+        if len(clean_original) > 0:
+            hist_range = np.percentile(clean_original, [1, 99])
+            axes[0].hist(
+                clean_original,
+                bins=50,
+                alpha=0.7,
+                color="skyblue",
+                density=True,
+                range=hist_range,
+            )
+            _extracted_from_plot_normalization_result_122(
+                axes, 0, "Original Distribution", "Raw Intensity"
+            )
+        # Normalized distribution
+        clean_normalized = df[normalized_column].dropna()
+        clean_normalized = clean_normalized[clean_normalized > 0]
+        if len(clean_normalized) > 0:
+            axes[1].hist(
+                clean_normalized,
+                bins=50,
+                alpha=0.7,
+                color="lightcoral",
+                density=True,
+                range=(0, 4),
+            )
+            axes[1].axvline(
+                1.0,
+                color="black",
+                linestyle="--",
+                linewidth=2,
+                label="Mode = 1.0",
+            )
+            axes[1].axvline(
+                1.5,
+                color="red",
+                linestyle="--",
+                linewidth=1,
+                label="Suggested Threshold",
+            )
+            _extracted_from_plot_normalization_result_122(
+                axes,
+                1,
+                "Normalized Distribution",
+                "Normalized Intensity (Mode = 1.0)",
+            )
+            axes[1].legend()
+
+            # Add statistics
+            mean_norm = clean_normalized.mean()
+            median_norm = clean_normalized.median()
+            pos_pct = np.mean(clean_normalized > 1.5) * 100
+            axes[1].text(
+                0.02,
+                0.98,
+                f"Mean: {mean_norm:.2f}\\nMedian: {median_norm:.2f}\\n>1.5: {pos_pct:.1f}%",
+                transform=axes[1].transAxes,
+                verticalalignment="top",
+                bbox={
+                    "boxstyle": "round,pad=0.3",
+                    "facecolor": "lightyellow",
+                    "alpha": 0.8,
+                },
+            )
+    else:
         # Plot by group
         groups = df[group_column].unique()
         n_groups = len(groups)
@@ -229,75 +309,8 @@ def plot_normalization_result(
                     },
                 )
 
-    else:
-        # Single plot for entire dataset
-        fig, axes = plt.subplots(1, 2, figsize=figsize)
-
-        # Original distribution
-        clean_original = df[original_column].dropna()
-        clean_original = clean_original[clean_original > 0]
-        if len(clean_original) > 0:
-            hist_range = np.percentile(clean_original, [1, 99])
-            axes[0].hist(
-                clean_original,
-                bins=50,
-                alpha=0.7,
-                color="skyblue",
-                density=True,
-                range=hist_range,
-            )
-            axes[0].set_title("Original Distribution")
-            axes[0].set_xlabel("Raw Intensity")
-            axes[0].set_ylabel("Density")
-
-        # Normalized distribution
-        clean_normalized = df[normalized_column].dropna()
-        clean_normalized = clean_normalized[clean_normalized > 0]
-        if len(clean_normalized) > 0:
-            axes[1].hist(
-                clean_normalized,
-                bins=50,
-                alpha=0.7,
-                color="lightcoral",
-                density=True,
-                range=(0, 4),
-            )
-            axes[1].axvline(
-                1.0,
-                color="black",
-                linestyle="--",
-                linewidth=2,
-                label="Mode = 1.0",
-            )
-            axes[1].axvline(
-                1.5,
-                color="red",
-                linestyle="--",
-                linewidth=1,
-                label="Suggested Threshold",
-            )
-            axes[1].set_title("Normalized Distribution")
-            axes[1].set_xlabel("Normalized Intensity (Mode = 1.0)")
-            axes[1].set_ylabel("Density")
-            axes[1].legend()
-
-            # Add statistics
-            mean_norm = clean_normalized.mean()
-            median_norm = clean_normalized.median()
-            pos_pct = np.mean(clean_normalized > 1.5) * 100
-            axes[1].text(
-                0.02,
-                0.98,
-                f"Mean: {mean_norm:.2f}\\nMedian: {median_norm:.2f}\\n>1.5: {pos_pct:.1f}%",
-                transform=axes[1].transAxes,
-                verticalalignment="top",
-                bbox={
-                    "boxstyle": "round,pad=0.3",
-                    "facecolor": "lightyellow",
-                    "alpha": 0.8,
-                },
-            )
-
+    if save and path is not None:
+        save_fig(fig, path, "normalisation_result")
     plt.tight_layout()
     plt.show()
 
@@ -322,12 +335,23 @@ def plot_normalization_result(
     print("Suggested threshold: 1.5 (50% above background)")
 
 
+# TODO Rename this here and in `plot_normalization_result`
+def _extracted_from_plot_normalization_result_122(
+    axes: Axes, arg1: int, arg2: str, arg3: str
+) -> None:
+    axes[arg1].set_title(arg2)
+    axes[arg1].set_xlabel(arg3)
+    axes[arg1].set_ylabel("Density")
+
+
 # Convenience function for complete workflow
 def normalize_and_plot(
     df: pd.DataFrame,
     intensity_column: str,
     group_column: Optional[str] = None,
     plot: bool = True,
+    save: bool = False,
+    path: Optional[Path] = None,
 ) -> pd.DataFrame:
     """Complete workflow: normalize by mode and optionally plot results.
 
@@ -336,6 +360,8 @@ def normalize_and_plot(
         intensity_column: Column to normalize
         group_column: Optional grouping column
         plot: Whether to generate plots
+        save: Whether to save the plot
+        path: Path to save the plot
 
     Returns:
         DataFrame with normalized column added
@@ -351,7 +377,12 @@ def normalize_and_plot(
     # Plot if requested
     if plot:
         plot_normalization_result(
-            df_normalized, intensity_column, normalized_column, group_column
+            df_normalized,
+            intensity_column,
+            normalized_column,
+            group_column,
+            save=save,
+            path=path,
         )
 
     print(f"\\n✅ Added column: '{normalized_column}'")

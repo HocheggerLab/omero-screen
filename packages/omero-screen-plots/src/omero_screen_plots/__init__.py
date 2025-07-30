@@ -16,11 +16,16 @@ from omero_screen_plots.cellcycleplot import (
     cellcycle_plot,
     cellcycle_stacked,
 )
-from omero_screen_plots.featureplot import standard_feature_plot
+from omero_screen_plots.featureplot import feature_plot, feature_plot_simple
+from omero_screen_plots.utils import (
+    save_fig,
+)
 
 __all__ = [
     "cellcycle_plot",
     "cellcycle_stacked",
     "cellcycle_grouped",
-    "standard_feature_plot",
+    "feature_plot",
+    "feature_plot_simple",
+    "save_fig",
 ]

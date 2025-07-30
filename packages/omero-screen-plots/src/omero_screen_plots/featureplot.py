@@ -14,7 +14,9 @@ from pathlib import Path  # noqa: E402
 from typing import Optional
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+import seaborn as sns
 from matplotlib.axes import Axes
 from matplotlib.ticker import FuncFormatter
 
@@ -22,6 +24,7 @@ from omero_screen_plots.stats import (
     set_significance_marks,
 )
 from omero_screen_plots.utils import (
+    grouped_x_positions,
     save_fig,
     scale_data,
     select_datapoints,
@@ -30,8 +33,6 @@ from omero_screen_plots.utils import (
 )
 
 warnings.filterwarnings("ignore", category=UserWarning)
-width = 9 / 2.54  # 9 cm
-height = 4 / 2.54  # 4.5 cm
 current_dir = Path(__file__).parent
 style_path = (current_dir / "../../hhlab_style01.mplstyle").resolve()
 plt.style.use(style_path)
@@ -39,7 +40,216 @@ prop_cycle = plt.rcParams["axes.prop_cycle"]
 COLORS = prop_cycle.by_key()["color"]
 
 
-def standard_feature_plot(
+def feature_plot(
+    df: pd.DataFrame,
+    feature: str,
+    conditions: list[str],
+    ax: Optional[Axes] = None,
+    x_label: bool = True,
+    ymax: float | tuple[float, float] | None = None,
+    condition_col: str = "condition",
+    selector_col: Optional[str] = "cell_line",
+    selector_val: Optional[str] = "",
+    title: Optional[str] = "",
+    colors: list[str] = COLORS,
+    fig_size: tuple[float, float] = (5, 5),
+    size_units: str = "cm",
+    scale: bool = False,
+    group_size: int = 1,
+    within_group_spacing: float = 0.2,
+    between_group_gap: float = 0.5,
+    save: bool = True,
+    path: Optional[Path] = None,
+    tight_layout: bool = False,
+    file_format: str = "pdf",
+    dpi: int = 300,
+) -> None:
+    """Plot a feature plot.
+
+    The feature plot is a boxenplot with swarmplot points overlaid.
+    Also showing the median points repeat points and significance marks when group_size = 1.
+    When group_size > 1, only boxplots and scatterplots are shown without statistical analysis.
+
+    Parameters:
+    df: pd.DataFrame - the dataframe to plot
+    feature: str - the feature to plot
+    conditions: list[str] - the conditions to plot
+    ax: Optional[Axes] - the axis to plot on
+    x_label: bool - whether to show the x-label
+    ymax: float | tuple[float, float] | None - the y-axis maximum value
+    condition_col: str - the column name for the conditions
+    selector_col: Optional[str] - the column name for the selector
+    selector_val: Optional[str] - the value of the selector
+    title: Optional[str] - the title of the plot
+    colors: list[str] - the colors to use for the plot
+    fig_size: tuple[float, float] - the size of the figure
+    size_units: str - the units of the figure size
+    scale: bool - whether to scale the data
+    group_size: int - the number of conditions to group
+    within_group_spacing: float - the spacing between conditions within a group
+    between_group_gap: float - the gap between groups
+    save: bool - whether to save the plot
+    path: Optional[Path] - the path to save the plot
+    tight_layout: bool - whether to use tight layout
+    file_format: str - the format of the saved figure
+    dpi: int - the resolution of the saved figure
+    """
+    if size_units == "cm":
+        fig_size = (fig_size[0] / 2.54, fig_size[1] / 2.54)
+    df_filtered = selector_val_filter(
+        df, selector_col, selector_val, condition_col, conditions
+    )
+    assert df_filtered is not None, "No data found"
+    if scale:
+        df_filtered = scale_data(df_filtered, feature)
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=fig_size)
+    else:
+        fig = ax.get_figure()
+
+    # Use grouped positions only if group_size > 1
+    if group_size > 1:
+        # Get x positions for grouping
+        n_conditions = len(conditions)
+        x_positions = grouped_x_positions(
+            n_conditions,
+            group_size=group_size,
+            within_group_spacing=within_group_spacing,
+            between_group_gap=between_group_gap,
+        )
+
+        # Map conditions to x positions
+        cond_to_x = dict(zip(conditions, x_positions, strict=False))
+
+        # Create boxplots manually at grouped positions
+        df_sampled = select_datapoints(df_filtered, conditions, condition_col)
+        for idx, condition in enumerate(conditions):
+            cond_data = df_filtered[df_filtered[condition_col] == condition]
+            if not cond_data.empty:
+                ax.boxplot(
+                    [cond_data[feature]],
+                    positions=[x_positions[idx]],
+                    widths=0.5,
+                    showfliers=False,
+                    patch_artist=True,
+                    boxprops={
+                        "facecolor": colors[-1],
+                        "edgecolor": "black",
+                        "linewidth": 0.5,
+                        "alpha": 0.75,
+                    },
+                    medianprops={"color": colors[-1], "linewidth": 2},
+                    whiskerprops={"color": "black", "linewidth": 1.2},
+                    capprops={"color": "black", "linewidth": 1.2},
+                )
+
+        # Add swarmplot points
+        color_list = [colors[2], colors[3], colors[4], colors[5]]
+        plate_ids = df_filtered.plate_id.unique()
+        for idx, plate_id in enumerate(plate_ids):
+            plate_data = df_sampled[df_sampled.plate_id == plate_id]
+            for condition in conditions:
+                cond_plate_data = plate_data[
+                    plate_data[condition_col] == condition
+                ]
+                if not cond_plate_data.empty:
+                    x_base = cond_to_x[condition]
+                    y_values = cond_plate_data[feature].values
+                    # Add slight jitter for visibility
+                    x_jittered = x_base + np.random.uniform(
+                        -0.1, 0.1, size=len(y_values)
+                    )
+                    ax.scatter(
+                        x_jittered,
+                        y_values,
+                        color=color_list[idx % len(color_list)],
+                        alpha=0.8,
+                        s=7,
+                        edgecolor=None,
+                        linewidth=0.5,
+                        zorder=3,
+                    )
+    else:
+        # Use standard seaborn plotting when no grouping
+        x_positions = list(range(len(conditions)))
+        sns.boxenplot(
+            data=df_filtered,
+            x=condition_col,
+            y=feature,
+            color=colors[-1],
+            order=conditions,
+            showfliers=False,
+            ax=ax,
+        )
+        color_list = [colors[2], colors[3], colors[4], colors[5]]
+        plate_ids = df_filtered.plate_id.unique()
+        df_sampled = select_datapoints(df_filtered, conditions, condition_col)
+        for idx, plate_id in enumerate(plate_ids):
+            plate_data = df_sampled[df_sampled.plate_id == plate_id]
+            sns.swarmplot(
+                data=plate_data,
+                x=condition_col,
+                y=feature,
+                color=color_list[idx],  # Use color from palette
+                alpha=1,
+                size=2,
+                edgecolor="white",
+                dodge=True,
+                order=conditions,
+                ax=ax,
+            )
+    if ymax:
+        if isinstance(ymax, tuple):
+            ax.set_ylim(ymax[0], ymax[1])  # unpack tuple into min and max
+        else:
+            ax.set_ylim(
+                0, ymax
+            )  # assume 0 as minimum if single value provided
+    df_median = (
+        df_filtered.groupby(["plate_id", condition_col])[feature]
+        .median()
+        .reset_index()
+    )
+
+    # Only show repeat points and significance marks when group_size = 1
+    if group_size == 1:
+        show_repeat_points(df_median, conditions, condition_col, feature, ax)
+        if len(df.plate_id.unique()) >= 3:
+            set_significance_marks(
+                ax,
+                df_median,
+                conditions,
+                condition_col,
+                feature,
+                ax.get_ylim()[1],
+            )
+
+    ax.set_ylabel(feature)
+    ax.set_xlabel("")
+    if x_label:
+        ax.set_xticks(x_positions)
+        ax.set_xticklabels(conditions, rotation=45, ha="right")
+    else:
+        ax.set_xticks(x_positions)
+        ax.set_xticklabels([])
+    if not title:
+        title = feature
+    if ax is None:
+        fig.suptitle(title, fontsize=7, weight="bold", x=0, y=1.05, ha="left")
+    file_name = title.replace(" ", "_")
+    if save and path:
+        save_fig(
+            fig,
+            path,
+            file_name,
+            tight_layout=tight_layout,
+            fig_extension=file_format,
+            resolution=dpi,
+        )
+
+
+def feature_plot_simple(
     df: pd.DataFrame,
     feature: str,
     conditions: list[str],
@@ -48,28 +258,48 @@ def standard_feature_plot(
     selector_col: Optional[str] = "cell_line",
     selector_val: Optional[str] = "",
     title: Optional[str] = "",
+    ax: Optional[Axes] = None,
+    x_label: bool = True,
     colors: list[str] = COLORS,
     scale: bool = False,
-    save: bool = True,
-    path: Optional[Path] = None,
     legend: Optional[
         tuple[str, list[str]]
     ] = None,  # (legend_title, [label, ...])
-    height: float = height,
+    fig_size: tuple[float, float] = (5, 5),
+    size_units: str = "cm",
     violin: bool = False,
+    save: bool = True,
+    path: Optional[Path] = None,
+    group_size: int = 1,
+    within_group_spacing: float = 0.2,
+    between_group_gap: float = 0.5,
 ) -> None:
     """Plot a feature plot.
 
     Optionally add a legend: legend=(legend_title, [label, ...])
     Colors are assigned automatically from the COLORS list.
     Parameters:
-    df: pd.DataFrame
-    feature: str
-    conditions: list[str]
-    ymax: float | tuple[float, float] | None
-    condition_col: str
-    selector_col: Optional[str]
+    df: pd.DataFrame - the dataframe to plot
+    feature: str - the feature to plot
+    conditions: list[str] - the conditions to plot
+    ymax: float | tuple[float, float] | None - the y-axis maximum value
+    condition_col: str - the column name for the conditions
+    selector_col: Optional[str] - the column name for the selector
+    selector_val: Optional[str] - the value of the selector
+    title: Optional[str] - the title of the plot
+    ax: Optional[Axes] - the axis to plot on
+    x_label: bool - whether to show the x-label
+    colors: list[str] - the colors to use for the plot
+    scale: bool - whether to scale the data
+    legend: Optional[tuple[str, list[str]]] - the legend for the plot
+    fig_size: tuple[float, float] - the size of the figure
+    size_units: str - the units of the figure size
+    violin: bool - whether to use a violin plot
+    save: bool - whether to save the plot
+    path: Optional[Path] - the path to save the plot
     """
+    if size_units == "cm":
+        fig_size = (fig_size[0] / 2.54, fig_size[1] / 2.54)
     df_filtered = selector_val_filter(
         df, selector_col, selector_val, condition_col, conditions
     )
@@ -77,16 +307,30 @@ def standard_feature_plot(
     if scale:
         df_filtered = scale_data(df_filtered, feature)
 
-    fig, ax = plt.subplots(figsize=(height, height))
-    color_list = [colors[2], colors[3], colors[4], colors[5]]
-    plate_ids = df_filtered.plate_id.unique()
+    if ax is None:
+        fig, ax = plt.subplots(figsize=fig_size)
+    else:
+        fig = ax.get_figure()
+
+    # Get x positions based on grouping
+    if group_size > 1:
+        n_conditions = len(conditions)
+        x_positions = grouped_x_positions(
+            n_conditions,
+            group_size=group_size,
+            within_group_spacing=within_group_spacing,
+            between_group_gap=between_group_gap,
+        )
+    else:
+        x_positions = list(range(len(conditions)))
+
     df_sampled = select_datapoints(df_filtered, conditions, condition_col)
-    for idx, plate_id in enumerate(plate_ids):
-        plate_data = df_sampled[df_sampled.plate_id == plate_id]
+    for idx, condition in enumerate(conditions):
+        plate_data = df_sampled[df_sampled[condition_col] == condition]
         if violin:
             vp = ax.violinplot(
                 [plate_data[feature]],
-                positions=[idx],
+                positions=[x_positions[idx]],
                 widths=0.5,
                 showmeans=False,
                 showmedians=True,
@@ -98,27 +342,27 @@ def standard_feature_plot(
                 else [vp["bodies"]]
             )
             for body in bodies:
-                body.set_facecolor(color_list[idx])
-                # body.set_edgecolor("black")
+                body.set_facecolor(colors[-1])
+                body.set_edgecolor("black")
                 body.set_alpha(0.75)
-                # xbody.set_linewidth(5)
+                body.set_linewidth(0.5)
             if "cmedians" in vp:
-                vp["cmedians"].set_color(color_list[idx])
+                vp["cmedians"].set_color(colors[-1])
                 vp["cmedians"].set_linewidth(2)
         else:
             ax.boxplot(
                 [plate_data[feature]],
-                positions=[idx],
+                positions=[x_positions[idx]],
                 widths=0.5,
                 showfliers=False,
                 patch_artist=True,
                 boxprops={
-                    "facecolor": color_list[idx],
+                    "facecolor": colors[-1],
                     "edgecolor": "black",
-                    "linewidth": 1.5,
+                    "linewidth": 0.5,
                     "alpha": 0.75,
                 },
-                medianprops={"color": color_list[idx], "linewidth": 2},
+                medianprops={"color": colors[-1], "linewidth": 2},
                 whiskerprops={"color": "black", "linewidth": 1.2},
                 capprops={"color": "black", "linewidth": 1.2},
             )
@@ -135,15 +379,26 @@ def standard_feature_plot(
         .reset_index()
     )
 
-    show_repeat_points(df_median, conditions, condition_col, feature, ax)
-    if len(df.plate_id.unique()) >= 3:
-        set_significance_marks(
-            ax, df_median, conditions, condition_col, feature, ax.get_ylim()[1]
-        )
+    # Only show repeat points and significance marks when group_size = 1
+    if group_size == 1:
+        show_repeat_points(df_median, conditions, condition_col, feature, ax)
+        if len(df.plate_id.unique()) >= 3:
+            set_significance_marks(
+                ax,
+                df_median,
+                conditions,
+                condition_col,
+                feature,
+                ax.get_ylim()[1],
+            )
+
     ax.set_ylabel(feature)
     ax.set_xlabel("")
-    ax.set_xticks(range(len(conditions)))
-    ax.set_xticklabels(conditions, rotation=45, ha="right")
+    if x_label:
+        ax.set_xticks(x_positions)
+        ax.set_xticklabels(conditions, rotation=45, ha="right")
+    else:
+        ax.set_xticklabels([])
     if not title:
         title = feature
     fig.suptitle(title, fontsize=7, weight="bold", x=0, y=1.05, ha="left")

@@ -2,7 +2,10 @@
 
 import pandas as pd
 from matplotlib.axes import Axes
+from omero_screen.config import get_logger
 from scipy import stats
+
+logger = get_logger(__name__)
 
 
 def calculate_pvalues(
@@ -14,6 +17,7 @@ def calculate_pvalues(
         df2[df2[condition_col] == condition][column].tolist()
         for condition in conditions
     ]
+    logger.debug("count_list: %s", count_list)
     return [
         stats.ttest_ind(count_list[0], data).pvalue for data in count_list[1:]
     ]
@@ -42,6 +46,7 @@ def set_significance_marks(
 ) -> None:
     """Set the significance marks on the axes."""
     pvalues = calculate_pvalues(df, conditions, condition_col, y_col)
+    logger.info("pvalues: %s", pvalues)
     for i, _ in enumerate(conditions[1:], start=1):
         p_value = pvalues[i - 1]  # Adjust index for p-values list
         significance = get_significance_marker(p_value)
