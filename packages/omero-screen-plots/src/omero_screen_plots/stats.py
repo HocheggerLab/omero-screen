@@ -1,5 +1,6 @@
 """Module for statistical analysis functions."""
 
+import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
 from omero_screen.config import get_logger
@@ -18,9 +19,37 @@ def calculate_pvalues(
         for condition in conditions
     ]
     logger.debug("count_list: %s", count_list)
-    return [
-        stats.ttest_ind(count_list[0], data).pvalue for data in count_list[1:]
-    ]
+
+    pvalues = []
+    for data in count_list[1:]:
+        try:
+            # Check for sufficient variance and sample size
+            if len(count_list[0]) < 2 or len(data) < 2:
+                logger.warning(
+                    "Insufficient sample size for t-test, setting p-value to 1.0"
+                )
+                pvalues.append(1.0)
+            elif np.var(count_list[0]) == 0 and np.var(data) == 0:
+                # Both groups have zero variance - no meaningful difference
+                pvalues.append(1.0)
+            else:
+                import warnings
+
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore",
+                        category=RuntimeWarning,
+                        message=".*catastrophic cancellation.*",
+                    )
+                    p_value = stats.ttest_ind(count_list[0], data).pvalue
+                    pvalues.append(p_value)
+        except (ValueError, RuntimeError, stats.LinAlgError) as e:
+            logger.warning(
+                "Error in t-test calculation: %s, setting p-value to 1.0", e
+            )
+            pvalues.append(1.0)
+
+    return pvalues
 
 
 def get_significance_marker(p: float) -> str:
@@ -65,6 +94,96 @@ def set_significance_marks(
             va="bottom",
             fontsize=6,
         )
+
+
+def calculate_grouped_pvalues(
+    df: pd.DataFrame,
+    conditions: list[str],
+    condition_col: str,
+    column: str,
+    group_size: int = 2,
+) -> list[tuple[int, float]]:
+    """Calculate p-values within each group against the first condition of that group.
+
+    Args:
+        df: DataFrame containing the data
+        conditions: List of all conditions
+        condition_col: Column name containing condition values
+        column: Column name for the data to compare
+        group_size: Number of conditions per group
+
+    Returns:
+        List of tuples (condition_index, p_value) for non-reference conditions
+    """
+    df_filtered = df[df[condition_col].isin(conditions)]
+    results = []
+
+    for group_start in range(0, len(conditions), group_size):
+        group_conditions = conditions[group_start : group_start + group_size]
+
+        if len(group_conditions) < 2:
+            continue
+
+        # Get reference data (first condition in group)
+        reference_condition = group_conditions[0]
+        reference_data = df_filtered[
+            df_filtered[condition_col] == reference_condition
+        ][column].tolist()
+
+        # Compare other conditions in group to reference
+        for i, condition in enumerate(group_conditions[1:], start=1):
+            condition_data = df_filtered[
+                df_filtered[condition_col] == condition
+            ][column].tolist()
+
+            if len(reference_data) > 0 and len(condition_data) > 0:
+                try:
+                    # Check for sufficient variance and sample size
+                    if len(reference_data) < 2 or len(condition_data) < 2:
+                        logger.warning(
+                            "Insufficient sample size for t-test: %s vs %s",
+                            reference_condition,
+                            condition,
+                        )
+                        p_value = 1.0
+                    elif (
+                        np.var(reference_data) == 0
+                        and np.var(condition_data) == 0
+                    ):
+                        # Both groups have zero variance - no meaningful difference
+                        p_value = 1.0
+                    else:
+                        import warnings
+
+                        with warnings.catch_warnings():
+                            warnings.filterwarnings(
+                                "ignore",
+                                category=RuntimeWarning,
+                                message=".*catastrophic cancellation.*",
+                            )
+                            p_value = stats.ttest_ind(
+                                reference_data, condition_data
+                            ).pvalue
+
+                    global_index = group_start + i
+                    results.append((global_index, p_value))
+                except (ValueError, RuntimeError, stats.LinAlgError) as e:
+                    logger.warning(
+                        "Error in t-test calculation for %s vs %s: %s",
+                        reference_condition,
+                        condition,
+                        e,
+                    )
+                    global_index = group_start + i
+                    results.append((global_index, 1.0))
+            else:
+                logger.warning(
+                    "No data found for comparison: %s vs %s",
+                    reference_condition,
+                    condition,
+                )
+
+    return results
 
 
 def set_grouped_significance_marks(
@@ -120,3 +239,96 @@ def set_grouped_significance_marks(
                 va="bottom",
                 fontsize=6,
             )
+
+
+def set_grouped_within_significance_marks(
+    axes: Axes,
+    df: pd.DataFrame,
+    conditions: list[str],
+    condition_col: str,
+    y_col: str,
+    y_max: float,
+    group_size: int = 2,
+    x_positions: list[float] | None = None,
+) -> None:
+    """Set significance marks comparing conditions within each group to the group's first condition.
+
+    Args:
+        axes: Matplotlib axes object
+        df: DataFrame containing the data
+        conditions: List of all conditions
+        condition_col: Column name containing condition values
+        y_col: Column name for the data to compare
+        y_max: Y-axis maximum for positioning marks
+        group_size: Number of conditions per group
+        x_positions: Optional custom x-axis positions
+    """
+    if x_positions is None:
+        x_positions = [float(i) for i in range(len(conditions))]
+    elif not isinstance(x_positions, list):
+        x_positions = list(x_positions)
+
+    # Get p-values for within-group comparisons
+    pvalue_results = calculate_grouped_pvalues(
+        df, conditions, condition_col, y_col, group_size
+    )
+
+    logger.info("grouped pvalues: %s", pvalue_results)
+
+    # Annotate significance marks
+    for condition_index, p_value in pvalue_results:
+        significance = get_significance_marker(p_value)
+        x = x_positions[condition_index]
+
+        axes.annotate(
+            significance,
+            xy=(x, y_max),
+            xycoords="data",
+            ha="center",
+            va="bottom",
+            fontsize=6,
+        )
+
+
+def set_significance_marks_adaptive(
+    axes: Axes,
+    df: pd.DataFrame,
+    conditions: list[str],
+    condition_col: str,
+    y_col: str,
+    y_max: float,
+    group_size: int = 1,
+    x_positions: list[float] | None = None,
+) -> None:
+    """Adaptively set significance marks based on group_size.
+
+    - If group_size = 1: Use traditional comparison (all vs first condition)
+    - If group_size > 1: Use within-group comparison (each condition vs group reference)
+
+    Args:
+        axes: Matplotlib axes object
+        df: DataFrame containing the data
+        conditions: List of all conditions
+        condition_col: Column name containing condition values
+        y_col: Column name for the data to compare
+        y_max: Y-axis maximum for positioning marks
+        group_size: Number of conditions per group
+        x_positions: Optional custom x-axis positions
+    """
+    if group_size == 1:
+        # Traditional behavior: compare all to first condition
+        set_significance_marks(
+            axes, df, conditions, condition_col, y_col, y_max
+        )
+    else:
+        # New behavior: compare within groups to group reference
+        set_grouped_within_significance_marks(
+            axes,
+            df,
+            conditions,
+            condition_col,
+            y_col,
+            y_max,
+            group_size,
+            x_positions,
+        )

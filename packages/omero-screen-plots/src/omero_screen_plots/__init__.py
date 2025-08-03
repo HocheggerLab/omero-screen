@@ -10,18 +10,20 @@ __version__ = "0.1.2"
 
 
 # Import user-facing plot functions
-
 from omero_screen_plots.cellcycleplot import (
     cellcycle_grouped,
     cellcycle_plot,
     cellcycle_stacked,
 )
+from omero_screen_plots.countplot import PlotType, count_plot
 from omero_screen_plots.featureplot import feature_plot, feature_plot_simple
 from omero_screen_plots.utils import (
     save_fig,
 )
 
 __all__ = [
+    "count_plot",
+    "PlotType",
     "cellcycle_plot",
     "cellcycle_stacked",
     "cellcycle_grouped",

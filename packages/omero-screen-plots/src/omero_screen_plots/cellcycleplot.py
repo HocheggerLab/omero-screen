@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from matplotlib.patches import Patch, Rectangle
 from omero_screen.config import get_logger
 
@@ -149,13 +150,13 @@ def cellcycle_stacked(
     selector_val: Optional[str] = None,
     y_err: bool = True,
     H3: bool = False,
-    ax: Optional[Axes] = None,
+    axes: Optional[Axes] = None,
     x_label: bool = True,
     title: str | None = None,
     fig_size: tuple[float, float] = (6, 6),
     size_units: str = "cm",
     colors: list[str] = COLORS,
-    save: bool = True,
+    save: bool = False,
     path: Path | None = None,
     tight_layout: bool = False,
     file_format: str = "pdf",
@@ -164,7 +165,7 @@ def cellcycle_stacked(
     within_group_spacing: float = 0.2,
     between_group_gap: float = 0.5,
     bar_width: float = 0.5,
-) -> None:
+) -> tuple[Figure, Axes]:
     """Create a stacked barplot for cell cycle phase proportions, with optional grouping of conditions on the x-axis.
 
     Args:
@@ -175,7 +176,7 @@ def cellcycle_stacked(
         selector_val: Value to filter selector_col by.
         y_err: Whether to show error bars. Default is True.
         H3: Whether to use H3 phase naming.
-        ax: Matplotlib axis. If None, a new figure is created.
+        axes: Matplotlib axis. If None, a new figure is created.
         x_label: Whether to show the x-axis label. Default is True.
         title: Plot title.
         fig_size: Dimensions of the figure. Default is 6 cm wide and 4 cm high.
@@ -212,10 +213,10 @@ def cellcycle_stacked(
         between_group_gap=between_group_gap,
     )
     x_labels = conditions if x_label else []
-    if ax is None:
+    if axes is None:
         fig, ax = plt.subplots(figsize=fig_size)
     else:
-        fig = ax.get_figure()
+        fig = axes.get_figure()
     bottoms = [0] * len(x_positions)
     for k, phase in enumerate(phases):
         values = df_mean[phase].values
@@ -253,20 +254,21 @@ def cellcycle_stacked(
     ax.grid(False)
 
     # Only set title and save if we created our own figure (ax was None originally)
-    if ax is None:
+    if axes is None:
         if not title:
             title = f"stackedbarplot_{selector_val}"
         fig.suptitle(title, fontsize=8, weight="bold", x=0, y=1.01, ha="left")
         fig_title = title.replace(" ", "_")
-        if save and path:
-            save_fig(
-                fig,
-                path,
-                fig_title,
-                tight_layout=tight_layout,
-                fig_extension=file_format,
-                resolution=dpi,
-            )
+    if save and path:
+        save_fig(
+            fig,
+            path,
+            fig_title,
+            tight_layout=tight_layout,
+            fig_extension=file_format,
+            resolution=dpi,
+        )
+    return fig, ax
 
 
 def cellcycle_grouped(
