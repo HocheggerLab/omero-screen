@@ -1,8 +1,12 @@
 # omero-screen-plots
 
 Plotting Functions for Omero-Screen Immuno-Fluorescence Data.
-## Status
 
+## Recent Updates
+
+**v0.1.3+**: The package has been refactored to use a simplified single-class architecture for better performance and maintainability. The main plotting functions maintain backward compatibility while providing improved error handling and validation.
+
+## Status
 
 Version: ![version](https://img.shields.io/badge/version-0.1.2-blue)
 
@@ -11,7 +15,7 @@ Version: ![version](https://img.shields.io/badge/version-0.1.2-blue)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ## Features
-Examples for each plot can be found in jupyter notebooks in tests/examples.
+Examples for each plot can be found in jupyter notebooks in examples/ and comprehensive documentation in docs/.
 ### combplot
 Cell Cycle analysis with one selected feature column
 platted as a scatterplot along the DAPI axis. (Requires EdU labelling data and cell cycle analysis in the csv file)
@@ -80,34 +84,43 @@ stacked_barplot(
 
 ### count_plot
 
+**Architecture Update**: The count_plot function has been refactored to use a simplified single-class architecture that provides better performance and maintainability while maintaining backward compatibility.
+
 Provides either relative counts (default) using a given norm_control,
 or absolute counts based on an enum PlotType (NORMALISED or ABSOLUTE).
-Doesnt require EdU data. Stats are calculated and displayed when three
+Doesn't require EdU data. Stats are calculated and displayed when three
 or more plates are analysed.
 
 ```python
-from omero_screen_plots.countplot import PlotType, count_plot
-count_plot(
+import pandas as pd
+from omero_screen_plots.countplot_api import count_plot
+from omero_screen_plots.countplot_factory import PlotType
+
+# Load your data
+df = pd.read_csv("your_data.csv")
+
+# Normalized count plot (default)
+fig, ax = count_plot(
     df=df,
-    norm_control="ctr",
-    conditions=conditions,
+    norm_control="DMSO",
+    conditions=["DMSO", "Treatment1", "Treatment2"],
     condition_col="condition",
     selector_col="cell_line",
-    selector_val="RPE1wt",
-    #plot_type = PlotType.NORMALISED, # this is the default!
-    title="test rel counts 3 repeats",
+    selector_val="MCF10A",
+    title="Normalized Cell Counts",
     save=False,
 )
 
-count_plot(
+# Absolute count plot
+fig, ax = count_plot(
     df=df,
-    norm_control="ctr",
-    conditions=conditions,
+    norm_control="DMSO",  # Still required for data processing
+    conditions=["DMSO", "Treatment1", "Treatment2"],
     condition_col="condition",
     selector_col="cell_line",
-    selector_val="RPE1wt",
+    selector_val="MCF10A",
     plot_type=PlotType.ABSOLUTE,
-    title="test abs counts 3 repeats",
+    title="Absolute Cell Counts",
     save=False,
 )
 ```

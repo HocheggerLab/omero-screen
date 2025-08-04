@@ -5,6 +5,8 @@ OmeroScreen Plots Documentation
 
 **OmeroScreen Plots** is a comprehensive visualization and analysis package for high-content screening data from OMERO. It provides standardized, publication-ready plots for immunofluorescence microscopy data with built-in statistical analysis.
 
+**Recent Architecture Update**: The package has been refactored from a complex multi-class factory pattern to a simplified single-class architecture, providing better performance, maintainability, and error handling while maintaining full backward compatibility.
+
 .. image:: https://img.shields.io/badge/python-3.12-blue.svg
    :target: https://www.python.org/downloads/
    :alt: Python Version
@@ -27,17 +29,25 @@ Quick Start
 
 .. code-block:: python
 
-   from omero_screen_plots.featureplot import FeaturePlot
+   import pandas as pd
+   from omero_screen_plots.countplot_api import count_plot
+   from omero_screen_plots.countplot_factory import PlotType
 
-   # Create a simple feature plot
-   plot = FeaturePlot(
-       data_path="path/to/data.csv",
-       y_feature="intensity_mean_dapi_nucleus",
-       conditions=["Control", "Treatment"],
-       condition_col="condition"
+   # Load your data
+   df = pd.read_csv("path/to/data.csv")
+
+   # Create a count plot (simplified architecture)
+   fig, ax = count_plot(
+       df=df,
+       norm_control="DMSO",
+       conditions=["DMSO", "Treatment1", "Treatment2"],
+       condition_col="condition",
+       selector_col="cell_line",
+       selector_val="MCF10A",
+       title="Cell Count Analysis",
+       save=True,
+       path="output/"
    )
-   plot.plot()
-   plot.save("output_path")
 
 .. toctree::
    :maxdepth: 2
@@ -63,6 +73,7 @@ Quick Start
    :maxdepth: 2
    :caption: Examples
 
+   count_plot_examples
    examples/basic_plots
    examples/advanced_analysis
    examples/custom_styling

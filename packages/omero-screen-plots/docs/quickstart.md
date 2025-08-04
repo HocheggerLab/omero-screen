@@ -43,31 +43,32 @@ The example data includes these key columns:
 
 ## Plot Types
 
-We have build a variety of function for standardized single cell analysis.
-This included plotting measurments of specific aparmeters such as mean intensity or cell area
-as well as cellcycle and cell count plotting. These types of plots include
-statistical analysis if at least three diferent data sets are present in the dataframe.
-Combined plots display cell cycle profiles in more detail using scatterplots.
+We have built a variety of functions for standardized single-cell analysis. This includes plotting measurements of specific parameters such as mean intensity or cell area, as well as cell cycle and cell count plotting. These plot types include statistical analysis when at least three different datasets are present in the dataframe. Combined plots display cell cycle profiles in greater detail using scatterplots.
 
 ### 1. Count Plots
 
-Count plots are the simplest type of analysis of the OmeroScreen IF data. They simply
-display the differences in cell count and provide a statistical analysis.
+Count plots are the simplest type of analysis of the OmeroScreen IF data. They simply display the differences in cell count and provide a statistical analysis, if ,ore than 3 repeats are available.
 
 ```python
-from omero_screen_plots import count_plot
+import pandas as pd
+from omero_screen_plots.countplot_api import count_plot
+from omero_screen_plots.countplot_factory import PlotType
 
-# Generate count plot
+# Load your data
+df = pd.read_csv("sample_plate_data.csv")
+
+# Generate absolute count plot
 fig, ax = count_plot(
     df=df,
-    norm_control="control",
+    norm_control="control",  # Still required for data processing
     conditions=['control', 'cond01', 'cond02', 'cond03'],
     condition_col="condition",
     selector_col='cell_line',
     selector_val='MCF10A',
-    title="Cell Count per Condition",
+    plot_type=PlotType.ABSOLUTE,
+    title="Absolute Cell Counts per Condition",
     save=True,
-    path="_static"  # Save to docs _static directory
+    path="_static"
 )
 ```
 
