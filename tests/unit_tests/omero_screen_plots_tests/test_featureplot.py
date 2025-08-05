@@ -206,7 +206,7 @@ class TestFeaturePlotBasicFunctionality:
             df=synthetic_plate_data,
             feature="area_nucleus",
             conditions=["control", "treatment1", "treatment2"],
-            legend=("Plates", ["Plate 1001", "Plate 1002", "Plate 1003"]),
+            legend=True,  # Now uses boolean to enable default plate legend
             selector_col=None,
         )
 
@@ -215,7 +215,24 @@ class TestFeaturePlotBasicFunctionality:
         # Check if legend was added
         legend = ax.get_legend()
         if legend:
-            assert "Plates" in legend.get_title().get_text()
+            assert "Plate ID" in legend.get_title().get_text()  # Default legend title is "Plate ID"
+
+    @patch('matplotlib.pyplot.show')
+    def test_feature_plot_without_legend(self, mock_show, synthetic_plate_data):
+        """Test feature_plot with legend disabled."""
+        fig, ax = feature_plot(
+            df=synthetic_plate_data,
+            feature="area_nucleus",
+            conditions=["control", "treatment1", "treatment2"],
+            legend=False,  # Disable legend
+            selector_col=None,
+        )
+
+        assert isinstance(fig, Figure)
+        assert isinstance(ax, Axes)
+        # Check that no legend was added
+        legend = ax.get_legend()
+        assert legend is None
 
 
 class TestFeaturePlotEdgeCases:

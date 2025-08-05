@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 import pandas as pd
 import matplotlib.pyplot as plt
-from omero_screen_plots import count_plot, feature_plot, cellcycle_stacked, save_fig, PlotType
+from omero_screen_plots import count_plot, feature_plot, feature_norm_plot, cellcycle_stacked, save_fig, PlotType
 from conf import get_example_data
 
 # Setup paths
@@ -32,6 +32,7 @@ def main() -> None:
         quickstart_examples(df, static_dir)
         count_plot_examples(df, static_dir)
         feature_plot_examples(df, static_dir)
+        feature_norm_plot_examples(df, static_dir)
 
         print(f"✅ All plots generated in {static_dir.absolute()}")
 
@@ -312,6 +313,159 @@ def feature_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
         save_fig(fig, static_dir, "feature_plot_comparison", tight_layout=False, fig_extension="svg", resolution=300)
 
         print(f"✅ All feature plot examples generated in {static_dir.absolute()}")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+
+def feature_norm_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
+    """Generate feature norm plot examples."""
+    try:
+        conditions = ['control', 'cond01', 'cond02', 'cond03']
+
+        # Basic feature norm plot (default green scheme)
+        print("  - feature norm plot basic")
+        feature_norm_plot(
+            df=df,
+            feature="intensity_mean_p21_nucleus",
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            color_scheme="green",
+            title="feature norm plot basic",
+            show_error_bars=True,
+            fig_size=(5, 4),
+            save=True,
+            file_format="svg",
+            path=static_dir
+        )
+
+        # Feature norm plot with triplicates (blue scheme)
+        print("  - feature norm plot triplicates")
+        feature_norm_plot(
+            df=df,
+            feature="intensity_mean_p21_nucleus",
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            color_scheme="blue",
+            title="feature norm plot triplicates",
+            show_triplicates=True,
+            show_boxes=True,
+            threshold=1.5,
+            group_size=1,
+            fig_size=(5, 4),
+            save=True,
+            file_format="svg",
+            path=static_dir
+        )
+
+        # Feature norm plot with grouped layout (purple scheme)
+        print("  - feature norm plot grouped")
+        feature_norm_plot(
+            df=df,
+            feature="intensity_mean_p21_nucleus",
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            color_scheme="purple",
+            title="feature norm plot grouped",
+            show_triplicates=True,
+            show_boxes=True,
+            threshold=1.5,
+            group_size=2,
+            within_group_spacing=0.2,
+            between_group_gap=0.4,
+            fig_size=(5, 4),
+            save=True,
+            file_format="svg",
+            path=static_dir
+        )
+
+        # Feature norm plot with different threshold
+        print("  - feature norm plot threshold")
+        feature_norm_plot(
+            df=df,
+            feature="intensity_mean_p21_nucleus",
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            color_scheme="green",
+            title="feature norm plot threshold",
+            threshold=2.0,  # Higher threshold
+            show_triplicates=True,
+            show_boxes=True,
+            fig_size=(5, 4),
+            save=True,
+            file_format="svg",
+            path=static_dir
+        )
+
+        # Combined feature plots comparison (like in the notebook)
+        print("  - feature norm plot comparison")
+        fig, ax = plt.subplots(3, 1, figsize=(2, 6))
+
+        # Standard feature plot
+        feature_plot(
+            df=df,
+            feature="intensity_mean_p21_nucleus",
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            x_label=False,
+            group_size=2,
+            within_group_spacing=0.2,
+            between_group_gap=0.4,
+            axes=ax[0],
+        )
+        ax[0].set_title("p21 feature plot", fontsize=7, y=1.05, x=0, weight="bold")
+
+        # Feature norm plot
+        feature_norm_plot(
+            df=df,
+            feature="intensity_mean_p21_nucleus",
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            x_label=False,
+            axes=ax[1],
+            group_size=2,
+            within_group_spacing=0.2,
+            between_group_gap=0.4,
+            show_triplicates=True,
+            show_boxes=True,
+            threshold=1.5,
+        )
+        ax[1].set_title("p21 feature norm plot", fontsize=7, y=1.05, x=0, weight="bold")
+
+        # Violin plot for comparison
+        feature_plot(
+            df=df,
+            feature="area_cell",
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            x_label=True,
+            violin=True,
+            show_scatter=False,
+            ymax=10000,
+            axes=ax[2],
+            group_size=2,
+            within_group_spacing=0.2,
+            between_group_gap=0.4,
+        )
+        ax[2].set_title("area cell violin", fontsize=7, y=1.05, x=0, weight="bold")
+
+        fig.suptitle("feature norm plot comparison", fontsize=8, weight="bold", x=0.2)
+        save_fig(fig, static_dir, "feature_norm_plot_comparison", fig_extension="svg", resolution=300)
+
+        print(f"✅ All feature norm plot examples generated in {static_dir.absolute()}")
     except Exception as e:
         print(f"❌ Error: {e}")
 

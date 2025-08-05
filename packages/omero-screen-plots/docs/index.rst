@@ -63,6 +63,7 @@ Quick Start
    :caption: API Reference
 
    api/featureplot
+   api/featurenormplot
    api/cellcycleplot
    api/combplot
    api/countplot
