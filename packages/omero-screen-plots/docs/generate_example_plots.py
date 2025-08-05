@@ -31,6 +31,7 @@ def main() -> None:
 
         quickstart_examples(df, static_dir)
         count_plot_examples(df, static_dir)
+        feature_plot_examples(df, static_dir)
 
         print(f"✅ All plots generated in {static_dir.absolute()}")
 
@@ -194,6 +195,123 @@ def count_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
         save_fig(fig, static_dir, "count_plot_with_axes", fig_extension="svg")
 
         print(f"✅ All count plot examples generated in {static_dir.absolute()}")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+def feature_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
+    """Generate feature plot examples."""
+    try:
+        # Basic feature plot with boxplots
+        print("  - feature plot basic")
+        feature_plot(
+            df=df,
+            feature="intensity_mean_p21_nucleus",
+            conditions=['control', 'cond01', 'cond02', 'cond03'],
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            title="feature plot basic",
+            fig_size=(5, 5),
+            save=True,
+            file_format="svg",
+            path=static_dir
+        )
+
+        # Feature plot with grouped layout
+        print("  - feature plot grouped")
+        feature_plot(
+            df=df,
+            feature="intensity_mean_p21_nucleus",
+            conditions=['control', 'cond01', 'cond02', 'cond03'],
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            title="feature plot grouped",
+            group_size=2,
+            within_group_spacing=0.2,
+            between_group_gap=0.5,
+            fig_size=(6, 4),
+            save=True,
+            file_format="svg",
+            path=static_dir
+        )
+
+        # Feature plot with violin plots
+        print("  - feature plot violin")
+        feature_plot(
+            df=df,
+            feature="intensity_mean_p21_nucleus",
+            conditions=['control', 'cond01', 'cond02', 'cond03'],
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            title="feature plot violin",
+            violin=True,
+            ymax=20000,
+            fig_size=(5, 5),
+            save=True,
+            file_format="svg",
+            path=static_dir
+        )
+
+        # Feature plot without scatter points
+        print("  - feature plot no scatter")
+        feature_plot(
+            df=df,
+            feature="intensity_mean_p21_nucleus",
+            conditions=['control', 'cond01', 'cond02', 'cond03'],
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            title="feature plot no scatter",
+            violin=True,
+            show_scatter=False,
+            ymax=(2000, 12000),
+            group_size=2,
+            fig_size=(5, 5),
+            save=True,
+            file_format="svg",
+            path=static_dir
+        )
+
+        # Combined feature plots on subplot
+        print("  - feature plot comparison")
+        fig, axes = plt.subplots(2, 1, figsize=(2, 4))
+        fig.suptitle("feature plot comparison", fontsize=8, weight="bold", x=0.2, y=1)
+
+        # First subplot - p21 intensity
+        feature_plot(
+            df=df,
+            feature="intensity_mean_p21_nucleus",
+            conditions=['control', 'cond01', 'cond02', 'cond03'],
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            axes=axes[0],
+            group_size=2,
+            x_label=False,
+        )
+        axes[0].set_title("mean nuc. p21 intensity", fontsize=7, y=1.05, x=0, weight="bold")
+
+        # Second subplot - cell area
+        feature_plot(
+            df=df,
+            feature="area_cell",
+            conditions=['control', 'cond01', 'cond02', 'cond03'],
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            violin=True,
+            show_scatter=False,
+            ymax=10000,
+            axes=axes[1],
+            group_size=2,
+        )
+        axes[1].set_title("area cell", fontsize=7, y=1.05, x=0, weight="bold")
+
+        save_fig(fig, static_dir, "feature_plot_comparison", tight_layout=False, fig_extension="svg", resolution=300)
+
+        print(f"✅ All feature plot examples generated in {static_dir.absolute()}")
     except Exception as e:
         print(f"❌ Error: {e}")
 

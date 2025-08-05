@@ -16,3 +16,4 @@ class COLOR(Enum):
     OLIVE = "#889466"
     LAVENDER = "#C6B2D1"
     PURPLE = "#654875"
+    DARKGREY = "#4A4A4A"

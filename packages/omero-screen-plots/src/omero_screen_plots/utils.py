@@ -185,15 +185,16 @@ def show_repeat_points_adaptive(
 def select_datapoints(
     df: pd.DataFrame, conditions: list[str], condition_col: str, n: int = 30
 ) -> pd.DataFrame:
-    """Select 30 random datapoints per category and plate-id."""
+    """Select up to n random datapoints per category and plate-id."""
     df_sampled = pd.DataFrame()
     for condition in conditions:
         for plate_id in df.plate_id.unique():
             df_sub = df[
                 (df[condition_col] == condition) & (df.plate_id == plate_id)
             ]
-            if len(df_sub) > n:
-                df_sub = df_sub.sample(n=n, random_state=1)
+            if len(df_sub) > 0:  # Include data if any exists
+                if len(df_sub) > n:
+                    df_sub = df_sub.sample(n=n, random_state=1)
                 df_sampled = pd.concat([df_sampled, df_sub])
     return df_sampled
 
@@ -352,7 +353,7 @@ def create_standard_boxplot(
             "linewidth": linewidth,
             "alpha": alpha,
         },
-        medianprops={"color": color, "linewidth": 2},
+        medianprops={"color": "black", "linewidth": 1.2},
         whiskerprops={"color": "black", "linewidth": 1.2},
         capprops={"color": "black", "linewidth": 1.2},
         **kwargs,
@@ -401,9 +402,23 @@ def create_standard_violin(
         body.set_alpha(alpha)
         body.set_linewidth(linewidth)
 
+    # Style the median line
     if "cmedians" in vp:
-        vp["cmedians"].set_color(color)
-        vp["cmedians"].set_linewidth(2)
+        vp["cmedians"].set_color("black")
+        vp["cmedians"].set_linewidth(1.5)
+
+    # Style the whiskers (vertical lines)
+    if "cbars" in vp:
+        vp["cbars"].set_color("black")
+        vp["cbars"].set_linewidth(0.5)
+
+    # Style the caps (horizontal lines at whisker ends)
+    if "cmins" in vp:
+        vp["cmins"].set_color("black")
+        vp["cmins"].set_linewidth(0.5)
+    if "cmaxes" in vp:
+        vp["cmaxes"].set_color("black")
+        vp["cmaxes"].set_linewidth(0.5)
 
 
 def set_y_limits(ax: Axes, ymax: float | tuple[float, float] | None) -> None:

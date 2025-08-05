@@ -4,7 +4,7 @@ OmeroScreen Plots uses a custom matplotlib style (`hhlab_style01.mplstyle`) that
 
 ## Default Color Palette
 
-The package uses a carefully curated 10-color palette designed for scientific visualization:
+The package uses a carefully curated 11-color palette designed for scientific visualization:
 
 | Color Name | Hex Code | RGB | Preview |
 |------------|----------|-----|---------|
@@ -18,6 +18,7 @@ The package uses a carefully curated 10-color palette designed for scientific vi
 | Olive | `#889466` | (136, 148, 102) | <span style="color:#889466">████</span> |
 | Lavender | `#C6B2D1` | (198, 178, 209) | <span style="color:#C6B2D1">████</span> |
 | Purple | `#654875` | (101, 72, 117) | <span style="color:#654875">████</span> |
+| Dark Grey | `#4A4A4A` | (74, 74, 74) | <span style="color:#4A4A4A">████</span> |
 
 ### Using Colors in Code
 
