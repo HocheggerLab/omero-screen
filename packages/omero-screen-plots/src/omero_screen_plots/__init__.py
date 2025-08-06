@@ -12,9 +12,9 @@ __version__ = "0.1.2"
 # Import user-facing plot functions
 from omero_screen_plots.cellcycleplot import (
     cellcycle_grouped,
-    cellcycle_plot,
     cellcycle_stacked,
 )
+from omero_screen_plots.cellcycleplot_api import cellcycle_plot
 from omero_screen_plots.countplot_api import count_plot
 from omero_screen_plots.countplot_factory import PlotType
 from omero_screen_plots.featureplot_api import feature_norm_plot, feature_plot

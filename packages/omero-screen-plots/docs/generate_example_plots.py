@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 import pandas as pd
 import matplotlib.pyplot as plt
-from omero_screen_plots import count_plot, feature_plot, feature_norm_plot, cellcycle_stacked, save_fig, PlotType
+from omero_screen_plots import count_plot, feature_plot, feature_norm_plot, cellcycle_plot, cellcycle_stacked, save_fig, PlotType
 from conf import get_example_data
 
 # Setup paths
@@ -33,6 +33,7 @@ def main() -> None:
         count_plot_examples(df, static_dir)
         feature_plot_examples(df, static_dir)
         feature_norm_plot_examples(df, static_dir)
+        cellcycle_plot_examples(df, static_dir)
 
         print(f"✅ All plots generated in {static_dir.absolute()}")
 
@@ -466,6 +467,121 @@ def feature_norm_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
         save_fig(fig, static_dir, "feature_norm_plot_comparison", fig_extension="svg", resolution=300)
 
         print(f"✅ All feature norm plot examples generated in {static_dir.absolute()}")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+
+def cellcycle_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
+    """Generate cellcycle plot examples."""
+    try:
+        conditions = ['control', 'cond01', 'cond02', 'cond03']
+
+        # Basic cellcycle plot (default - show all phases including Sub-G1)
+        print("  - cellcycle plot default")
+        fig, axes = cellcycle_plot(
+            df=df,
+            conditions=conditions,
+            selector_val="MCF10A",
+            title="cellcycle plot default",
+            show_subG1=True,  # Show all phases including Sub-G1
+            save=True,
+            path=static_dir,
+            file_format="svg",
+            dpi=300,
+        )
+
+        # DNA content terminology
+        print("  - cellcycle plot DNA content")
+        fig, axes = cellcycle_plot(
+            df=df,
+            conditions=conditions,
+            selector_val="MCF10A",
+            title="cellcycle plot DNA content",
+            cc_phases=False,  # Use DNA content terminology
+            save=True,
+            path=static_dir,
+            file_format="svg",
+            dpi=300,
+        )
+
+        # No Sub-G1 phase (2x2 layout)
+        print("  - cellcycle plot no SubG1")
+        fig, axes = cellcycle_plot(
+            df=df,
+            conditions=conditions,
+            selector_val="MCF10A",
+            title="cellcycle plot no SubG1",
+            show_subG1=False,  # Hide Sub-G1 phase
+            save=True,
+            path=static_dir,
+            file_format="svg",
+            dpi=300,
+        )
+
+        # With plate legend
+        print("  - cellcycle plot with legend")
+        fig, axes = cellcycle_plot(
+            df=df,
+            conditions=conditions,
+            selector_val="MCF10A",
+            title="cellcycle plot with legend",
+            show_repeat_points=True,
+            show_plate_legend=True,  # Show plate shapes legend
+            save=True,
+            path=static_dir,
+            file_format="svg",
+            dpi=300,
+        )
+
+        # No statistics (clean look)
+        print("  - cellcycle plot clean")
+        fig, axes = cellcycle_plot(
+            df=df,
+            conditions=conditions,
+            selector_val="MCF10A",
+            title="cellcycle plot clean",
+            show_repeat_points=False,  # Hide repeat points
+            show_significance=False,   # Hide significance marks
+            save=True,
+            path=static_dir,
+            file_format="svg",
+            dpi=300,
+        )
+
+        # Custom colors
+        print("  - cellcycle plot custom colors")
+        fig, axes = cellcycle_plot(
+            df=df,
+            conditions=conditions,
+            selector_val="MCF10A",
+            title="cellcycle plot custom colors",
+            colors=["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7"],
+            fig_size=(8, 6),
+            rotation=0,  # No rotation for x-labels
+            save=True,
+            path=static_dir,
+            file_format="svg",
+            dpi=300,
+        )
+
+        # Combined features
+        print("  - cellcycle plot combined")
+        fig, axes = cellcycle_plot(
+            df=df,
+            conditions=conditions,
+            selector_val="MCF10A",
+            title="cellcycle plot combined",
+            cc_phases=False,         # DNA terminology
+            show_subG1=False,       # No Sub-G1
+            show_plate_legend=True, # Show legend
+            fig_size=(6, 5),
+            save=True,
+            path=static_dir,
+            file_format="svg",
+            dpi=300,
+        )
+
+        print(f"✅ All cellcycle plot examples generated in {static_dir.absolute()}")
     except Exception as e:
         print(f"❌ Error: {e}")
 
