@@ -3,20 +3,19 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
+from omero_screen_plots.base import BasePlotBuilder, BasePlotConfig
 from omero_screen_plots.colors import COLOR
 from omero_screen_plots.stats import set_significance_marks_adaptive
 from omero_screen_plots.utils import (
-    convert_size_to_inches,
     finalize_plot_with_title,
     grouped_x_positions,
-    save_fig,
     show_repeat_points_adaptive,
 )
 
@@ -29,21 +28,21 @@ class PlotType(Enum):
 
 
 @dataclass
-class CountPlotConfig:
+class CountPlotConfig(BasePlotConfig):
     """Configuration for count plots."""
 
-    # Figure settings
+    # Figure settings (inherited from BasePlotConfig)
     fig_size: tuple[float, float] = (7, 7)
     size_units: str = "cm"
     dpi: int = 300
 
-    # Save settings
+    # Save settings (inherited from BasePlotConfig)
     save: bool = False
     file_format: str = "pdf"
     tight_layout: bool = False
     path: Path | None = None
 
-    # Display settings
+    # Display settings (inherited from BasePlotConfig)
     title: str | None = None
     colors: list[str] = field(default_factory=list)
 
@@ -56,18 +55,16 @@ class CountPlotConfig:
     rotation: int = 45
 
 
-class CountPlot:
+class CountPlot(BasePlotBuilder):
     """Simplified count plot implementation combining config, processing, and plotting."""
 
     PLOT_TYPE_NAME = "count"
+    config: CountPlotConfig  # Type annotation for mypy
 
     def __init__(self, config: CountPlotConfig | None = None):
         """Initialize with configuration."""
-        self.config = config or CountPlotConfig()
-        self.fig: Figure | None = None
-        self.ax: Axes | None = None
+        super().__init__(config or CountPlotConfig())
         self._axes_provided: bool = False
-        self._filename: str | None = None
 
     def create_plot(
         self,
@@ -114,16 +111,18 @@ class CountPlot:
         )
 
         # Create figure
-        self._create_figure(axes)
+        self._setup_figure(axes)
 
         # Build plot
-        self._build_plot(processed_data, conditions, condition_col)
+        self.build_plot(
+            processed_data, conditions=conditions, condition_col=condition_col
+        )
 
         # Finalize
         self._finalize_plot(selector_val)
 
         # Save if configured
-        self._save_figure()
+        self._save_plot()
 
         assert self.fig is not None and self.ax is not None, (
             "Figure and axes should be created"
@@ -271,23 +270,25 @@ class CountPlot:
             how="left",
         )
 
-    def _create_figure(self, axes: Axes | None) -> None:
-        """Create or use existing figure."""
+    def _setup_figure(self, axes: Axes | None) -> None:
+        """Setup figure using parent's create_figure method."""
         if axes:
             self.fig = axes.figure  # type: ignore[assignment]
             self.ax = axes
             self._axes_provided = True
         else:
-            fig_inches = convert_size_to_inches(
-                self.config.fig_size, self.config.size_units
-            )
-            self.fig, self.ax = plt.subplots(figsize=fig_inches)
+            # Use parent's create_figure method
+            self.create_figure(axes)
             self._axes_provided = False
 
-    def _build_plot(
-        self, data: pd.DataFrame, conditions: list[str], condition_col: str
-    ) -> None:
+    def build_plot(
+        self, data: pd.DataFrame, **kwargs: Any
+    ) -> "BasePlotBuilder":
         """Build the count plot with bars and points."""
+        # Extract required parameters from kwargs
+        conditions = kwargs.get("conditions")
+        condition_col = kwargs.get("condition_col")
+        assert conditions is not None and condition_col is not None
         # Determine which column to plot
         count_col = (
             "normalized_count"
@@ -363,6 +364,8 @@ class CountPlot:
         # Format axes
         self._format_axes(conditions, count_col, x_positions)
 
+        return self
+
     def _format_axes(
         self, conditions: list[str], count_col: str, x_positions: list[float]
     ) -> None:
@@ -400,15 +403,7 @@ class CountPlot:
             self.fig, title, default_title, self._axes_provided
         )
 
-    def _save_figure(self) -> None:
-        """Save figure if configured."""
-        if self.config.save and self.config.path:
-            assert self.fig is not None
-            save_fig(
-                self.fig,
-                self.config.path,
-                self._filename or "countplot",
-                tight_layout=self.config.tight_layout,
-                fig_extension=self.config.file_format,
-                resolution=self.config.dpi,
-            )
+    def _save_plot(self) -> None:
+        """Save figure using parent's save_figure method."""
+        # Use parent's save_figure method with our filename
+        self.save_figure(self._filename or "countplot")

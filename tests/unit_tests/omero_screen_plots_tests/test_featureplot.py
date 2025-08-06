@@ -582,8 +582,9 @@ class TestFeaturePlotFactory:
         # BaseFeaturePlot is abstract and should not be instantiated directly
         # But we can instantiate it for testing abstract method behavior
         class TestFeaturePlot(BaseFeaturePlot):
-            def _build_plot(self, data, feature, conditions, condition_col, x_positions):
+            def build_plot(self, data, **kwargs):
                 pass  # Minimal implementation for testing
+                return self
 
         plot = TestFeaturePlot(config)
         assert plot.config == config

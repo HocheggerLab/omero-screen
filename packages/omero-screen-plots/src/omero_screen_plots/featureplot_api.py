@@ -131,7 +131,6 @@ def feature_plot(
         between_group_gap=between_group_gap,
         show_x_labels=x_label,
         rotation=45,
-        plot_style="standard",
         show_significance=True,
         show_repeat_points=True,
     )
@@ -322,7 +321,6 @@ def feature_norm_plot(
         between_group_gap=between_group_gap,
         show_x_labels=x_label,
         rotation=45,
-        plot_style="norm",
         repeat_offset=0.18,
         max_repeats=3,
     )

@@ -4,22 +4,20 @@ import warnings
 from abc import abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from omero_screen_plots.base import BasePlotConfig
+from omero_screen_plots.base import BasePlotBuilder, BasePlotConfig
 from omero_screen_plots.colors import COLOR
 from omero_screen_plots.stats import set_significance_marks_adaptive
 from omero_screen_plots.utils import (
-    convert_size_to_inches,
     finalize_plot_with_title,
     grouped_x_positions,
     prepare_plot_data,
-    save_fig,
     set_y_limits,
 )
 
@@ -57,7 +55,6 @@ class FeaturePlotConfig(BasePlotConfig):
     rotation: int = 45
 
     # Plot style settings
-    plot_style: str = "standard"  # "standard", "simple", "threshold"
     violin: bool = False  # Use violin plots instead of box plots
     show_scatter: bool = True  # Show scatter points overlay
     threshold: float = 1.5  # for threshold plots (default 1.5x mode)
@@ -77,18 +74,16 @@ class FeaturePlotConfig(BasePlotConfig):
     show_boxes: bool = True  # Draw boxes around triplicates
 
 
-class BaseFeaturePlot:
+class BaseFeaturePlot(BasePlotBuilder):
     """Base class for feature plots with common functionality."""
 
     PLOT_TYPE_NAME = "feature"
+    config: FeaturePlotConfig  # Type annotation for mypy
 
     def __init__(self, config: FeaturePlotConfig | None = None):
         """Initialize with configuration."""
-        self.config = config or FeaturePlotConfig()
-        self.fig: Figure | None = None
-        self.ax: Axes | None = None
+        super().__init__(config or FeaturePlotConfig())
         self._axes_provided: bool = False
-        self._filename: str | None = None
 
     def create_plot(
         self,
@@ -135,14 +130,18 @@ class BaseFeaturePlot:
         )
 
         # Create figure
-        self._create_figure(axes)
+        self._setup_figure(axes)
 
         # Get x positions for plotting
         x_positions = self._get_x_positions(conditions)
 
         # Build plot (delegated to subclasses) - pass x_positions
-        self._build_plot(
-            processed_data, feature, conditions, condition_col, x_positions
+        self.build_plot(
+            processed_data,
+            feature=feature,
+            conditions=conditions,
+            condition_col=condition_col,
+            x_positions=x_positions,
         )
 
         # Add statistical elements (repeat points and significance marks)
@@ -157,7 +156,7 @@ class BaseFeaturePlot:
         self._finalize_plot(feature, selector_val)
 
         # Save if configured
-        self._save_figure()
+        self._save_plot()
 
         assert self.fig is not None and self.ax is not None, (
             "Figure and axes should be created"
@@ -260,28 +259,23 @@ class BaseFeaturePlot:
 
         return processed_data
 
-    def _create_figure(self, axes: Axes | None) -> None:
-        """Create or use existing figure."""
+    def _setup_figure(self, axes: Axes | None) -> None:
+        """Setup figure using parent's create_figure method."""
         if axes:
             self.fig = axes.figure  # type: ignore[assignment]
             self.ax = axes
             self._axes_provided = True
         else:
-            fig_inches = convert_size_to_inches(
-                self.config.fig_size, self.config.size_units
-            )
-            self.fig, self.ax = plt.subplots(figsize=fig_inches)
+            # Use parent's create_figure method
+            self.create_figure(axes)
             self._axes_provided = False
 
     @abstractmethod
-    def _build_plot(
+    def build_plot(
         self,
         data: pd.DataFrame,
-        feature: str,
-        conditions: list[str],
-        condition_col: str,
-        x_positions: list[float],
-    ) -> None:
+        **kwargs: Any,
+    ) -> "BasePlotBuilder":
         """Build the specific feature plot type. Implemented by subclasses."""
 
     def _get_x_positions(self, conditions: list[str]) -> list[float]:
@@ -440,18 +434,10 @@ class BaseFeaturePlot:
             self.fig, title, default_title, self._axes_provided
         )
 
-    def _save_figure(self) -> None:
-        """Save figure if configured."""
-        if self.config.save and self.config.path:
-            assert self.fig is not None
-            save_fig(
-                self.fig,
-                self.config.path,
-                self._filename or "featureplot",
-                tight_layout=self.config.tight_layout,
-                fig_extension=self.config.file_format,
-                resolution=self.config.dpi,
-            )
+    def _save_plot(self) -> None:
+        """Save figure using parent's save_figure method."""
+        # Use parent's save_figure method with our filename
+        self.save_figure(self._filename or "featureplot")
 
 
 class StandardFeaturePlot(BaseFeaturePlot):
@@ -459,15 +445,18 @@ class StandardFeaturePlot(BaseFeaturePlot):
 
     PLOT_TYPE_NAME = "feature"
 
-    def _build_plot(
+    def build_plot(
         self,
         data: pd.DataFrame,
-        feature: str,
-        conditions: list[str],
-        condition_col: str,
-        x_positions: list[float],
-    ) -> None:
+        **kwargs: Any,
+    ) -> "BasePlotBuilder":
         """Build unified feature plot with box/violin plots and optional scatter points."""
+        # Extract required parameters from kwargs
+        feature = kwargs["feature"]
+        conditions = kwargs["conditions"]
+        condition_col = kwargs["condition_col"]
+        x_positions = kwargs["x_positions"]
+
         assert self.ax is not None
 
         # Create the base plots (box or violin)
@@ -494,6 +483,8 @@ class StandardFeaturePlot(BaseFeaturePlot):
             and self._has_multiple_plates(data)
         ):
             self._add_plate_legend(data)
+
+        return self
 
     def _add_repeat_points_with_shapes(
         self,
@@ -851,15 +842,18 @@ class NormFeaturePlot(BaseFeaturePlot):
 
         return pd.DataFrame(proportions)
 
-    def _build_plot(
+    def build_plot(
         self,
         data: pd.DataFrame,
-        feature: str,
-        conditions: list[str],
-        condition_col: str,
-        x_positions: list[float],
-    ) -> None:
+        **kwargs: Any,
+    ) -> "BasePlotBuilder":
         """Build normalized feature plot with stacked bars."""
+        # Extract required parameters from kwargs
+        # feature is passed but not used in normalized plots (already processed in data)
+        conditions = kwargs["conditions"]
+        condition_col = kwargs["condition_col"]
+        x_positions = kwargs["x_positions"]
+
         assert self.ax is not None
 
         # Check if we should show triplicates
@@ -876,6 +870,8 @@ class NormFeaturePlot(BaseFeaturePlot):
 
         # Add legend
         self._add_threshold_legend()
+
+        return self
 
     def _build_summary_plot(
         self,
