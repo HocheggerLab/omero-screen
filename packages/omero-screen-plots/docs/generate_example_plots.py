@@ -34,6 +34,7 @@ def main() -> None:
         feature_plot_examples(df, static_dir)
         feature_norm_plot_examples(df, static_dir)
         cellcycle_plot_examples(df, static_dir)
+        cellcycle_stacked_examples(df, static_dir)
 
         print(f"✅ All plots generated in {static_dir.absolute()}")
 
@@ -89,7 +90,7 @@ def quickstart_examples(df: pd.DataFrame, static_dir: Path) -> None:
             condition_col="condition",
             selector_col='cell_line',
             selector_val='MCF10A',
-            y_err=True,
+            show_error_bars=True,
             title="qs cellcycle plot",  # Use simple filename
             fig_size=(7, 4),
             size_units="cm",
@@ -582,6 +583,195 @@ def cellcycle_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
         )
 
         print(f"✅ All cellcycle plot examples generated in {static_dir.absolute()}")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+
+def cellcycle_stacked_examples(df: pd.DataFrame, static_dir: Path) -> None:
+    """Generate cellcycle stacked plot examples."""
+    try:
+        conditions = ['control', 'cond01', 'cond02', 'cond03']
+
+        # Basic stacked plot (summary with error bars)
+        print("  - cellcycle stacked default")
+        fig, ax = cellcycle_stacked(
+            df=df,
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            title="cellcycle stacked default",
+            fig_size=(7, 5),
+            save=True,
+            path=static_dir,
+            file_format="svg",
+        )
+
+        # Without error bars
+        print("  - cellcycle stacked no errorbars")
+        fig, ax = cellcycle_stacked(
+            df=df,
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            title="cellcycle stacked no errorbars",
+            show_error_bars=False,
+            fig_size=(7, 5),
+            save=True,
+            path=static_dir,
+            file_format="svg",
+        )
+
+        # Triplicates with boxes
+        print("  - cellcycle stacked triplicates")
+        fig, ax = cellcycle_stacked(
+            df=df,
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            title="cellcycle stacked triplicates",
+            show_triplicates=True,
+            group_size=2,
+            fig_size=(7, 6),
+            save=True,
+            path=static_dir,
+            file_format="svg",
+        )
+
+        # DNA content terminology
+        print("  - cellcycle stacked DNA content")
+        fig, ax = cellcycle_stacked(
+            df=df,
+            conditions=["control", "cond01", "cond02"],
+            selector_val="MCF10A",
+            cc_phases=False,  # Use DNA content terminology
+            title="cellcycle stacked DNA content",
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        # Custom phase selection
+        print("  - cellcycle stacked custom phases")
+        fig, ax = cellcycle_stacked(
+            df=df,
+            conditions=["control", "cond01", "cond02"],
+            selector_val="MCF10A",
+            phase_order=["G1", "S", "G2/M"],  # Exclude Sub-G1 and Polyploid
+            title="cellcycle stacked custom phases",
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        # Without legend
+        print("  - cellcycle stacked no legend")
+        fig, ax = cellcycle_stacked(
+            df=df,
+            conditions=["control", "cond01"],
+            selector_val="MCF10A",
+            show_legend=False,  # Remove legend
+            title="cellcycle stacked no legend",
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        # Triplicates without boxes
+        print("  - cellcycle stacked triplicates no boxes")
+        fig, ax = cellcycle_stacked(
+            df=df,
+            conditions=["control", "cond01"],
+            selector_val="MCF10A",
+            show_triplicates=True,  # Show individual bars
+            show_boxes=False,       # But don't draw boxes
+            title="cellcycle stacked triplicates no boxes",
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        # Custom colors
+        print("  - cellcycle stacked custom colors")
+        custom_colors = [
+            "#FFB6C1",  # Light pink for Sub-G1
+            "#87CEEB",  # Sky blue for G1
+            "#98FB98",  # Pale green for S
+            "#F0E68C",  # Khaki for G2/M
+            "#DDA0DD",  # Plum for Polyploid
+        ]
+
+        fig, ax = cellcycle_stacked(
+            df=df,
+            conditions=["control", "cond01", "cond02"],
+            selector_val="MCF10A",
+            colors=custom_colors,
+            title="cellcycle stacked custom colors",
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        # Advanced grouping with triplicates
+        print("  - cellcycle stacked advanced grouping")
+        fig, ax = cellcycle_stacked(
+            df=df,
+            conditions=conditions,
+            selector_val="MCF10A",
+            show_triplicates=True,     # Individual bars per plate
+            show_boxes=True,          # Boxes around triplicates
+            group_size=2,             # Group in pairs
+            within_group_spacing=0.01, # Space between bars within group
+            between_group_gap=0.1,    # Gap between groups
+            repeat_offset=0.15,       # Closer spacing for triplicates
+            title="cellcycle stacked advanced grouping",
+            fig_size=(8, 6),         # Wider figure for complex layout
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        # Combined with feature plot
+        print("  - cellcycle stacked combined")
+        fig, ax = plt.subplots(nrows=2, figsize=(2, 5))
+
+        feature_norm_plot(
+            df=df,
+            feature="area_cell",
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            title="feature norm plot",
+            show_triplicates=True,
+            group_size=2,
+            within_group_spacing=0.1,
+            between_group_gap=0.2,
+            x_label=False,
+            axes=ax[0],
+        )
+        ax[0].set_title("feature norm plot", fontsize=8, y=1.05, x=0, weight="bold")
+
+        cellcycle_stacked(
+            df=df,
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            show_triplicates=True,
+            group_size=2,
+            within_group_spacing=0.1,  # Match feature plot spacing
+            between_group_gap=0.2,      # Match feature plot spacing
+            axes=ax[1],
+        )
+        ax[1].set_title("cellcycle stacked plot", fontsize=8, y=1.05, x=0, weight="bold")
+
+        fig.suptitle("cellcycle stacked combined", fontsize=8, weight="bold", x=0.2)
+        save_fig(fig, static_dir, "cellcycle_stacked_combined", fig_extension="svg", resolution=300)
+
+        print(f"✅ All cellcycle stacked examples generated in {static_dir.absolute()}")
     except Exception as e:
         print(f"❌ Error: {e}")
 

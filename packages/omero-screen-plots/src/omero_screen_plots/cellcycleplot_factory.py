@@ -11,6 +11,7 @@ import pandas as pd
 import seaborn as sns
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from numpy.typing import NDArray
 
 from omero_screen_plots.base import BasePlotBuilder, BasePlotConfig
 from omero_screen_plots.colors import COLOR
@@ -69,6 +70,7 @@ class BaseCellCyclePlot(BasePlotBuilder):
         self.axes: list[Axes] | None = (
             None  # Cell cycle plots use multiple axes
         )
+        self._axes_provided: bool = False  # Track if axes were provided
 
     def create_plot(
         self,
@@ -301,7 +303,8 @@ class BaseCellCyclePlot(BasePlotBuilder):
                 }
 
         # Define color mapping for data phases (always use data phase names as keys)
-        color_mapping = {
+        # Default color mapping - preserve original phase-specific colors
+        default_color_mapping = {
             "Sub-G1": COLOR.GREY.value,
             "G1": COLOR.PINK.value,
             "S": COLOR.LIGHT_BLUE.value,
@@ -310,6 +313,20 @@ class BaseCellCyclePlot(BasePlotBuilder):
             "M": COLOR.TURQUOISE.value,
             "Polyploid": COLOR.BLUE.value,
         }
+
+        # If custom colors provided, map them to the phases in order
+        if self.config.colors:
+            color_mapping = {
+                phase: (
+                    self.config.colors[color_idx]
+                    if color_idx < len(self.config.colors)
+                    else default_color_mapping.get(phase, COLOR.GREY.value)
+                )
+                for color_idx, phase in enumerate(data_phases)
+            }
+        else:
+            # Use default color mapping
+            color_mapping = default_color_mapping
 
         return data_phases, display_mapping, color_mapping
 
@@ -333,12 +350,13 @@ class BaseCellCyclePlot(BasePlotBuilder):
         # Use provided title, config title, or default
         title = self.config.title or default_title
 
-        # Apply title to figure
+        # Use utility function for consistent formatting with feature plots
         assert self.fig is not None
-        self.fig.suptitle(
-            title, fontsize=8, weight="bold", x=0, y=1.05, ha="left"
+        from omero_screen_plots.utils import finalize_plot_with_title
+
+        self._filename = finalize_plot_with_title(
+            self.fig, title, default_title, self._axes_provided
         )
-        self._filename = title.replace(" ", "_")
 
     def _save_plot(self) -> None:
         """Save figure using parent's save_figure method."""
@@ -386,6 +404,9 @@ class StandardCellCyclePlot(BaseCellCyclePlot):
 
         # Create figure with variable subplots
         self.fig, ax_array = plt.subplots(nrows, ncols, figsize=fig_size)
+
+        # StandardCellCyclePlot always creates its own figure
+        self._axes_provided = False
 
         # Handle different subplot layouts
         if n_phases <= 4:
@@ -640,3 +661,475 @@ class StandardCellCyclePlot(BaseCellCyclePlot):
     def _has_multiple_plates(self, data: pd.DataFrame) -> bool:
         """Check if data contains multiple plates."""
         return bool(data["plate_id"].nunique() > 1)
+
+
+@dataclass
+class StackedCellCyclePlotConfig(CellCyclePlotConfig):
+    """Configuration for stacked cell cycle plots."""
+
+    # Display mode
+    show_triplicates: bool = (
+        False  # False=summary bars, True=individual triplicates
+    )
+
+    # Grouping settings
+    group_size: int = 1
+    within_group_spacing: float = 0.2
+    between_group_gap: float = 0.5
+
+    # Bar appearance
+    bar_width: float = 0.5
+    bar_alpha: float = 0.9
+    bar_edgecolor: str = "white"
+    bar_linewidth: float = 0.2
+
+    # Triplicate-specific settings
+    repeat_offset: float = 0.18
+    max_repeats: int = 3
+    show_boxes: bool = True
+    box_linewidth: float = 0.5
+    box_color: str = "black"
+
+    # Error bars
+    show_error_bars: bool = True
+    error_capsize: int = 3
+
+    # Phase settings
+    phase_order: list[str] | None = None  # Custom phase ordering
+
+    # Legend settings
+    show_legend: bool = True
+    legend_position: tuple[float, float] = (1.05, 1)  # Match feature plots
+    legend_title: str | None = "Cell Cycle Phase"
+
+    # Y-axis settings
+    y_max: float = 110
+
+
+class StackedCellCyclePlot(BaseCellCyclePlot):
+    """Unified stacked cell cycle plot supporting both summary and triplicate modes."""
+
+    PLOT_TYPE_NAME = "cellcycle_stacked"
+    config: StackedCellCyclePlotConfig  # Type annotation for specific config
+
+    def __init__(self, config: StackedCellCyclePlotConfig | None = None):
+        """Initialize with stacked-specific configuration."""
+        super().__init__(config or StackedCellCyclePlotConfig())
+
+    def create_plot(
+        self,
+        df: pd.DataFrame,
+        conditions: list[str],
+        condition_col: str = "condition",
+        selector_col: str | None = None,
+        selector_val: str | None = None,
+        axes: Axes | None = None,
+    ) -> tuple[Figure, Axes]:
+        """Create complete stacked cell cycle plot.
+
+        Args:
+            df: Input dataframe
+            conditions: List of conditions to plot
+            condition_col: Column name containing conditions
+            selector_col: Optional column for filtering
+            selector_val: Value to filter by if selector_col provided
+            axes: Optional existing axes to plot on
+
+        Returns:
+            Tuple of (Figure, Axes) - consistent with other plot types
+        """
+        # Validate inputs
+        self._validate_inputs(
+            df,
+            conditions,
+            condition_col,
+            selector_col,
+            selector_val,
+        )
+
+        # Filter and process data
+        processed_data = self._process_data(
+            df,
+            conditions,
+            condition_col,
+            selector_col,
+            selector_val,
+        )
+
+        # Setup figure
+        self._setup_figure(axes)
+
+        # Build plot, passing original df for phase detection
+        self.build_plot(
+            processed_data,
+            conditions=conditions,
+            condition_col=condition_col,
+            original_df=df,
+        )
+
+        # Finalize
+        self._finalize_plot(selector_val)
+
+        # Save if configured
+        self._save_plot()
+
+        assert self.fig is not None and self.ax is not None, (
+            "Figure and axes should be created"
+        )
+        return self.fig, self.ax
+
+    def _setup_figure(self, axes: Axes | None) -> None:
+        """Setup figure for stacked plots."""
+        if axes:
+            self.fig = axes.figure
+            self.ax = axes
+            self._axes_provided = True
+        else:
+            # Convert fig_size if needed
+            if self.config.size_units == "cm":
+                fig_size = (
+                    self.config.fig_size[0] / 2.54,
+                    self.config.fig_size[1] / 2.54,
+                )
+            else:
+                fig_size = self.config.fig_size
+
+            self.fig, self.ax = plt.subplots(figsize=fig_size)
+            self._axes_provided = False
+
+        # Set axes to None for compatibility
+        self.axes = None
+
+    def build_plot(
+        self,
+        data: pd.DataFrame,
+        **kwargs: Any,
+    ) -> "BasePlotBuilder":
+        """Build stacked cell cycle plot based on configuration."""
+        conditions = kwargs["conditions"]
+        condition_col = kwargs["condition_col"]
+        original_df = kwargs["original_df"]
+
+        # Determine phases and colors based on original data and configuration
+        # The base class handles cc_phases, M-phase detection, and display mapping
+        data_phases, display_mapping, color_mapping = (
+            self._get_phases_and_colors(original_df)
+        )
+
+        # Override with custom phase order if provided
+        if self.config.phase_order:
+            data_phases = [
+                p for p in self.config.phase_order if p in data_phases
+            ]
+
+        # Reverse phases for stacking (bottom to top)
+        stacking_phases = list(reversed(data_phases))
+
+        # Get x positions based on grouping configuration
+        x_positions = self._get_x_positions_for_stacked(conditions)
+
+        # Build appropriate plot type
+        if self.config.show_triplicates:
+            self._build_triplicate_plot(
+                data,
+                conditions,
+                condition_col,
+                x_positions,
+                stacking_phases,
+                display_mapping,
+                color_mapping,
+            )
+        else:
+            self._build_summary_plot(
+                data,
+                conditions,
+                condition_col,
+                x_positions,
+                stacking_phases,
+                display_mapping,
+                color_mapping,
+            )
+
+        # Format axes
+        self._format_stacked_axes(conditions, x_positions)
+
+        # Add legend if enabled
+        if self.config.show_legend:
+            self._add_stacked_legend(
+                stacking_phases, display_mapping, color_mapping
+            )
+
+        return self
+
+    def _get_x_positions_for_stacked(
+        self, conditions: list[str]
+    ) -> NDArray[np.floating[Any]]:
+        """Calculate x positions for stacked bars based on grouping configuration."""
+        from omero_screen_plots.utils import grouped_x_positions
+
+        return np.array(
+            grouped_x_positions(
+                len(conditions),
+                group_size=self.config.group_size,
+                bar_width=self.config.bar_width,
+                within_group_spacing=self.config.within_group_spacing,
+                between_group_gap=self.config.between_group_gap,
+            ),
+            dtype=np.float64,
+        )
+
+    def _build_summary_plot(
+        self,
+        data: pd.DataFrame,
+        conditions: list[str],
+        condition_col: str,
+        x_positions: NDArray[np.floating[Any]],
+        phases: list[str],
+        display_mapping: dict[str, str],
+        color_mapping: dict[str, str],
+    ) -> None:
+        """Build summary stacked bar plot with optional error bars."""
+        # Prepare mean and std data
+        df_mean, df_std = self._prepare_stacked_data(
+            data, conditions, condition_col
+        )
+
+        assert self.ax is not None
+
+        # Initialize bottoms for stacking
+        bottoms = np.zeros(len(x_positions))
+
+        # Plot each phase
+        for phase in phases:
+            if phase in df_mean.columns:
+                values = df_mean[phase].values
+
+                # Handle error bars if enabled
+                yerr = None
+                if self.config.show_error_bars and phase in df_std.columns:
+                    yerr = df_std[phase].values
+
+                self.ax.bar(
+                    x_positions,
+                    values,
+                    self.config.bar_width,
+                    bottom=bottoms,
+                    color=color_mapping.get(phase, COLOR.GREY.value),
+                    label=display_mapping.get(phase, phase),
+                    edgecolor=self.config.bar_edgecolor,
+                    linewidth=self.config.bar_linewidth,
+                    alpha=self.config.bar_alpha,
+                    yerr=yerr,
+                    capsize=self.config.error_capsize
+                    if yerr is not None
+                    else 0,
+                )
+
+                # Update bottoms for next phase
+                bottoms = bottoms + np.nan_to_num(values, nan=0.0)
+
+    def _build_triplicate_plot(
+        self,
+        data: pd.DataFrame,
+        conditions: list[str],
+        condition_col: str,
+        x_positions: NDArray[np.floating[Any]],
+        phases: list[str],
+        display_mapping: dict[str, str],
+        color_mapping: dict[str, str],
+    ) -> None:
+        """Build triplicate stacked bar plot with individual bars for each plate."""
+        assert self.ax is not None
+
+        # Get repeat plate IDs (limit to max_repeats)
+        repeat_ids = sorted(data["plate_id"].unique())[
+            : self.config.max_repeats
+        ]
+
+        # Plot triplicates for each condition
+        for cond_idx, condition in enumerate(conditions):
+            x_base = x_positions[cond_idx]
+
+            # Plot each repeat
+            for rep_idx, plate_id in enumerate(repeat_ids):
+                # Calculate x position for this replicate (matches original implementation)
+                x_pos = x_base + (rep_idx - 1) * self.config.repeat_offset
+
+                # Get data for this condition and plate
+                plate_cond_data = data[
+                    (data[condition_col] == condition)
+                    & (data["plate_id"] == plate_id)
+                ]
+
+                if not plate_cond_data.empty:
+                    # Sum percentages for each phase (in case of duplicates)
+                    pivot = plate_cond_data.groupby("cell_cycle")[
+                        "percent"
+                    ].sum()
+                    y_bottom = 0
+
+                    # Plot each phase
+                    for phase in phases:
+                        val = pivot.get(phase, 0)
+                        # Ensure val is scalar - get first value if it's a Series
+                        if isinstance(val, pd.Series):
+                            val = val.iloc[0] if len(val) > 0 else 0
+                        if val > 0:
+                            self.ax.bar(
+                                x_pos,
+                                val,
+                                width=self.config.repeat_offset
+                                * 1.05,  # Match original width calculation
+                                bottom=y_bottom,
+                                color=color_mapping.get(
+                                    phase, COLOR.GREY.value
+                                ),
+                                edgecolor=self.config.bar_edgecolor,
+                                linewidth=self.config.bar_linewidth,
+                                alpha=self.config.bar_alpha,
+                            )
+                            y_bottom += val
+
+        # Draw boxes around triplicates if enabled (after all conditions are plotted)
+        if self.config.show_boxes and len(repeat_ids) > 1:
+            self._draw_all_triplicate_boxes(
+                data, conditions, repeat_ids, x_positions, condition_col
+            )
+
+    def _draw_all_triplicate_boxes(
+        self,
+        data: pd.DataFrame,
+        conditions: list[str],
+        repeat_ids: list[str],
+        x_base_positions: NDArray[np.floating[Any]],
+        condition_col: str,
+    ) -> None:
+        """Draw boxes around triplicate bars matching original implementation exactly."""
+        from matplotlib.patches import Rectangle
+
+        assert self.ax is not None
+
+        y_min = 0
+        n_repeats = len(repeat_ids)
+        bar_width = (
+            self.config.repeat_offset * 1.05
+        )  # Match the bar width used
+
+        for cond_idx, cond in enumerate(conditions):
+            # Calculate x positions for all triplicates of this condition
+            trip_xs = [
+                x_base_positions[cond_idx]
+                + (rep_idx - 1) * self.config.repeat_offset
+                for rep_idx in range(n_repeats)
+            ]
+
+            # Get condition data
+            trip_data = data[data[condition_col] == cond]
+
+            # Calculate max height across all plates for this condition
+            trip_max = max(
+                (
+                    trip_data[trip_data["plate_id"] == plate_id][
+                        "percent"
+                    ].sum()
+                    for plate_id in repeat_ids
+                ),
+                default=0,
+            )
+
+            y_max_box = trip_max
+            left = min(trip_xs) - bar_width / 2
+            right = max(trip_xs) + bar_width / 2
+
+            rect = Rectangle(
+                (left, y_min),
+                width=right - left,
+                height=y_max_box - y_min,
+                linewidth=self.config.box_linewidth,
+                edgecolor=self.config.box_color,
+                facecolor="none",
+                zorder=10,
+            )
+            self.ax.add_patch(rect)
+
+    def _prepare_stacked_data(
+        self, df: pd.DataFrame, conditions: list[str], condition_col: str
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Prepare mean and std data for stacked plots."""
+        # Pivot data to get mean and std for each phase per condition
+        summary = df.pivot_table(
+            values="percent",
+            index=condition_col,
+            columns="cell_cycle",
+            aggfunc=["mean", "std"],
+            fill_value=0,
+        )
+
+        # Reindex to ensure all conditions are present
+        summary = summary.reindex(conditions)
+
+        # Extract mean and std dataframes
+        df_mean = summary["mean"].fillna(0)
+        df_std = summary["std"].fillna(0)
+
+        return df_mean, df_std
+
+    def _format_stacked_axes(
+        self, conditions: list[str], x_positions: NDArray[np.floating[Any]]
+    ) -> None:
+        """Format axes for stacked plots."""
+        assert self.ax is not None
+
+        # Set x-axis
+        self.ax.set_xticks(x_positions)
+        self.ax.set_xticklabels(
+            conditions, rotation=self.config.rotation, ha="right"
+        )
+        self.ax.set_xlabel("")
+
+        # Set y-axis
+        self.ax.set_ylabel("% of population")
+        self.ax.set_ylim(0, self.config.y_max)
+
+        # Remove grid
+        self.ax.grid(False)
+
+    def _add_stacked_legend(
+        self,
+        phases: list[str],
+        display_mapping: dict[str, str],
+        color_mapping: dict[str, str],
+    ) -> None:
+        """Add legend for stacked plot."""
+        assert self.ax is not None
+
+        if self.config.show_triplicates:
+            # For triplicates, create custom legend
+            from matplotlib.patches import Patch
+
+            handles = []
+            for phase in reversed(phases):  # Reverse to match visual order
+                patch = Patch(
+                    color=color_mapping.get(phase, COLOR.GREY.value),
+                    label=display_mapping.get(phase, phase),
+                )
+                handles.append(patch)
+
+            self.ax.legend(
+                handles=handles,
+                title=self.config.legend_title,
+                bbox_to_anchor=self.config.legend_position,
+                loc="upper left",  # Match feature plots
+            )
+        else:
+            # For summary plot, use automatic legend from bar labels
+            handles, labels = self.ax.get_legend_handles_labels()
+            # Reverse to match visual stacking order
+            handles, labels = handles[::-1], labels[::-1]
+            self.ax.legend(
+                handles,
+                labels,
+                title=self.config.legend_title,
+                bbox_to_anchor=self.config.legend_position,
+                loc="upper left",  # Match feature plots
+            )

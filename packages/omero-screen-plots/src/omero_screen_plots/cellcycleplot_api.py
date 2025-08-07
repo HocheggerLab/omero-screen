@@ -8,6 +8,8 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
 from omero_screen_plots.cellcycleplot_factory import (
+    StackedCellCyclePlot,
+    StackedCellCyclePlotConfig,
     StandardCellCyclePlot,
     StandardCellCyclePlotConfig,
 )
@@ -150,4 +152,279 @@ def cellcycle_plot(
         condition_col=condition_col,
         selector_col=selector_col,
         selector_val=selector_val,
+    )
+
+
+def cellcycle_stacked(
+    df: pd.DataFrame,
+    conditions: list[str],
+    condition_col: str = "condition",
+    selector_col: str | None = "cell_line",
+    selector_val: str | None = None,
+    axes: Axes | None = None,
+    title: str | None = None,
+    fig_size: tuple[float, float] = (6, 6),
+    size_units: str = "cm",
+    colors: list[str] | None = None,
+    save: bool = False,
+    path: Path | None = None,
+    tight_layout: bool = False,
+    file_format: str = "pdf",
+    dpi: int = 300,
+    # Display options
+    show_triplicates: bool = False,
+    show_error_bars: bool = True,
+    show_boxes: bool = True,
+    # Phase options
+    cc_phases: bool = True,
+    phase_order: list[str] | None = None,
+    # Grouping options
+    group_size: int = 1,
+    within_group_spacing: float = 0.2,
+    between_group_gap: float = 0.5,
+    # Bar options
+    bar_width: float = 0.5,
+    repeat_offset: float = 0.18,
+    max_repeats: int = 3,
+    # Axis options
+    x_label: bool = True,
+    rotation: int = 45,
+    # Legend options
+    show_legend: bool = True,
+) -> tuple[Figure, Axes]:
+    """Create a stacked barplot for cell cycle phase proportions with flexible display modes.
+
+    This is a unified wrapper around the new StackedCellCyclePlot class that can create
+    either summary stacked bars (with error bars) or individual triplicate bars (with boxes).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing cell cycle data with required columns:
+        'cell_cycle', 'plate_id', and condition_col.
+    conditions : list[str]
+        List of condition names to plot.
+    condition_col : str, default="condition"
+        Column name for experimental condition.
+    selector_col : str | None, default="cell_line"
+        Column name for selector (e.g., cell line).
+    selector_val : str | None, default=None
+        Value to filter selector_col by.
+    axes : Axes | None, default=None
+        Matplotlib axis. If None, a new figure is created.
+    title : str | None, default=None
+        Plot title.
+    fig_size : tuple[float, float], default=(6, 6)
+        Dimensions of the figure.
+    size_units : str, default="cm"
+        Units of the figure size ("cm" or "inch").
+    colors : list[str] | None, default=None
+        List of colors for plotting phases.
+    save : bool, default=False
+        Whether to save the figure.
+    path : Path | None, default=None
+        Path to save the figure.
+    tight_layout : bool, default=False
+        Whether to use tight layout.
+    file_format : str, default="pdf"
+        Format of the figure.
+    dpi : int, default=300
+        Resolution of the figure.
+
+    Display Options
+    ---------------
+    show_triplicates : bool, default=False
+        If True, show individual bars for each replicate/plate with boxes.
+        If False, show summary bars with optional error bars.
+    show_error_bars : bool, default=True
+        Whether to show error bars (only applies when show_triplicates=False).
+    show_boxes : bool, default=True
+        Whether to draw boxes around triplicates (only applies when show_triplicates=True).
+
+    Phase Options
+    -------------
+    cc_phases : bool, default=True
+        If True, use cell cycle terminology {Sub-G1, G1, S, G2/M, Polyploid}.
+        If False, use DNA content terminology {<2N, 2N, S, 4N, >4N}.
+    phase_order : list[str] | None, default=None
+        Custom list of cell cycle phases to plot. If None, uses all available phases.
+
+    Grouping Options
+    ----------------
+    group_size : int, default=1
+        Number of conditions per group on the x-axis (1 = no grouping).
+    within_group_spacing : float, default=0.2
+        Spacing between bars within a group.
+    between_group_gap : float, default=0.5
+        Spacing between groups.
+
+    Bar Options
+    -----------
+    bar_width : float, default=0.5
+        Width of each bar.
+    repeat_offset : float, default=0.18
+        Offset between replicate bars (only applies when show_triplicates=True).
+    max_repeats : int, default=3
+        Maximum number of replicates to show (only applies when show_triplicates=True).
+
+    Axis Options
+    ------------
+    x_label : bool, default=True
+        Whether to show the x-axis labels.
+    rotation : int, default=45
+        Rotation angle for x-axis labels.
+
+    Legend Options
+    --------------
+    show_legend : bool, default=True
+        Whether to show the legend with cell cycle phase colors.
+
+    Returns:
+    -------
+    tuple[Figure, Axes]
+        The figure and axes objects.
+
+    Examples:
+    --------
+    >>> # Simple summary stacked plot with error bars
+    >>> fig, ax = cellcycle_stacked(
+    ...     df=data,
+    ...     conditions=["control", "treatment"],
+    ...     selector_val="MCF10A"
+    ... )
+
+    >>> # Triplicate stacked plot with boxes
+    >>> fig, ax = cellcycle_stacked(
+    ...     df=data,
+    ...     conditions=["control", "treatment"],
+    ...     show_triplicates=True,
+    ...     selector_val="MCF10A"
+    ... )
+
+    >>> # Grouped stacked plot with custom phases
+    >>> fig, ax = cellcycle_stacked(
+    ...     df=data,
+    ...     conditions=["ctrl", "drug1", "drug2", "drug3"],
+    ...     group_size=2,  # Group in pairs
+    ...     cc_phases=True,  # Use cell cycle terminology
+    ...     phase_order=["G1", "S", "G2/M"]  # Exclude Sub-G1 and Polyploid
+    ... )
+
+    >>> # Plot without legend (for subplots or custom legends)
+    >>> fig, ax = cellcycle_stacked(
+    ...     df=data,
+    ...     conditions=["control", "treatment"],
+    ...     show_legend=False
+    ... )
+    """
+    # Don't set default colors here - let the factory handle it
+    # Only pass colors if explicitly provided by the user
+
+    # Create configuration with explicit parameters to avoid typing issues
+    config = StackedCellCyclePlotConfig(
+        fig_size=fig_size,
+        size_units=size_units,
+        dpi=dpi,
+        save=save,
+        file_format=file_format,
+        tight_layout=tight_layout,
+        path=path,
+        title=title,
+        colors=colors or [],
+        # Display options
+        show_triplicates=show_triplicates,
+        show_error_bars=show_error_bars,
+        show_boxes=show_boxes,
+        # Phase options
+        cc_phases=cc_phases,
+        phase_order=phase_order,
+        # Grouping options
+        group_size=group_size,
+        within_group_spacing=within_group_spacing,
+        between_group_gap=between_group_gap,
+        # Bar options
+        bar_width=bar_width,
+        repeat_offset=repeat_offset,
+        max_repeats=max_repeats,
+        # Axis options
+        rotation=rotation if x_label else 0,
+        # Legend options
+        show_legend=show_legend,
+    )
+
+    # Use StackedCellCyclePlot class
+    plot = StackedCellCyclePlot(config)
+    return plot.create_plot(
+        df=df,
+        conditions=conditions,
+        condition_col=condition_col,
+        selector_col=selector_col,
+        selector_val=selector_val,
+        axes=axes,
+    )
+
+
+# Backward compatibility alias
+def cellcycle_grouped(
+    df: pd.DataFrame,
+    conditions: list[str],
+    group_size: int = 2,
+    condition_col: str = "condition",
+    selector_col: str | None = "cell_line",
+    selector_val: str | None = None,
+    phases: list[str] | None = None,
+    title: str | None = None,
+    ax: Axes | None = None,
+    x_label: bool = True,
+    fig_size: tuple[float, float] = (6, 6),
+    size_units: str = "cm",
+    colors: list[str] | None = None,
+    save: bool = True,
+    path: Path | None = None,
+    tight_layout: bool = False,
+    file_format: str = "pdf",
+    dpi: int = 300,
+    repeat_offset: float = 0.18,
+    within_group_spacing: float = 0.2,
+    between_group_gap: float = 0.5,
+) -> tuple[Figure, Axes]:
+    """Create a grouped stacked barplot with triplicates boxed.
+
+    DEPRECATED: Use cellcycle_stacked with show_triplicates=True instead.
+
+    This function is maintained for backward compatibility and calls
+    cellcycle_stacked with show_triplicates=True.
+    """
+    import warnings
+
+    warnings.warn(
+        "cellcycle_grouped is deprecated. Use cellcycle_stacked with show_triplicates=True instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
+    return cellcycle_stacked(
+        df=df,
+        conditions=conditions,
+        condition_col=condition_col,
+        selector_col=selector_col,
+        selector_val=selector_val,
+        axes=ax,
+        title=title,
+        fig_size=fig_size,
+        size_units=size_units,
+        colors=colors,
+        save=save,
+        path=path,
+        tight_layout=tight_layout,
+        file_format=file_format,
+        dpi=dpi,
+        show_triplicates=True,  # Key difference - enable triplicate mode
+        show_boxes=True,
+        group_size=group_size,
+        repeat_offset=repeat_offset,
+        within_group_spacing=within_group_spacing,
+        between_group_gap=between_group_gap,
+        phase_order=phases,
+        x_label=x_label,
     )

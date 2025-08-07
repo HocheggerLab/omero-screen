@@ -65,6 +65,7 @@ Quick Start
    api/featureplot
    api/featurenormplot
    api/cellcycleplot
+   api/cellcyclestacked
    api/combplot
    api/countplot
    api/normalise
