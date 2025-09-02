@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 from cellview.importers.projects import ProjectManager
-from cellview.utils import CellViewState
+from cellview.utils.state import create_cellview_state
 from cellview.utils.error_classes import DBError, StateError
 
 
@@ -129,19 +129,13 @@ def test_project_selection_existing_name(mock_prompt, db, test_projects):
 
 def test_select_or_create_project_no_projects(db, sample_data_path):
     """Test project selection when no projects exist."""
-    # Reset state to ensure clean slate
-    state = CellViewState.get_instance()
-    state.reset()
-
-    manager = ProjectManager(db.conn)
-
     # Create args with required fields
     args = argparse.Namespace()
     args.csv = sample_data_path  # Use the sample data path
 
-    # Initialize state properly
-    state = CellViewState.get_instance(args)
-    manager.state = state
+    # Create state using dependency injection
+    state = create_cellview_state(args)
+    manager = ProjectManager(db.conn, state)
 
     with patch("rich.prompt.Prompt.ask", return_value="First Project"):
         _project_id = manager.select_or_create_project()

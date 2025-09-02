@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 from cellview.importers.repeats import RepeatsManager
 from cellview.utils.error_classes import DataError, StateError
-from cellview.utils.state import CellViewState
+from cellview.utils.state import create_cellview_state
 
 
 def normalize_sql(sql: str) -> str:
@@ -29,7 +29,7 @@ def mock_db():
 @pytest.fixture
 def mock_state():
     """Create a mock state object."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.experiment_id = 1
     state.plate_id = 1
     state.date = "2024-03-26"
@@ -44,11 +44,7 @@ def mock_state():
 @pytest.fixture
 def repeats_manager(mock_db, mock_state):
     """Create a RepeatsManager instance with mocked dependencies."""
-    with patch(
-        "cellview.utils.state.CellViewState.get_instance",
-        return_value=mock_state,
-    ):
-        return RepeatsManager(mock_db)
+    return RepeatsManager(mock_db, mock_state)
 
 
 def test_fetch_existing_repeats(repeats_manager, mock_db):
@@ -168,8 +164,8 @@ def test_create_new_repeat_success(repeats_manager, mock_db):
     # Setup mock data
     mock_db.execute.return_value.fetchone.return_value = (1,)
 
-    # Setup state
-    state = CellViewState.get_instance()
+    # Setup state using dependency injection
+    state = create_cellview_state()
     state.experiment_id = 1
     state.plate_id = 1
     state.date = "2024-03-26"
@@ -178,6 +174,9 @@ def test_create_new_repeat_success(repeats_manager, mock_db):
     state.channel_1 = "Tub"
     state.channel_2 = "p21"
     state.channel_3 = "EdU"
+
+    # Pass state to manager
+    repeats_manager.state = state
 
     # Test the function
     repeat_id = repeats_manager._create_new_repeat()

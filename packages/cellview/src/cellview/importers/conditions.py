@@ -1,14 +1,15 @@
 """Module for parsing well level experimental conditions from omero screen csv files."""
 
 import logging
+from typing import Optional
 
 import duckdb
 import pandas as pd
-from omero_screen.config import get_logger
 from rich.console import Console
 
 from cellview.utils.error_classes import DataError
-from cellview.utils.state import CellViewState
+from cellview.utils.state import CellViewState, CellViewStateCore
+from omero_screen.config import get_logger
 
 # Initialize logger with the module's name
 logger = get_logger(__name__)
@@ -26,14 +27,22 @@ class ConditionManager:
         per_well_constant_cols: The columns that are constant per well.
     """
 
-    def __init__(self, db_conn: duckdb.DuckDBPyConnection) -> None:
+    def __init__(
+        self,
+        db_conn: duckdb.DuckDBPyConnection,
+        state: Optional[CellViewStateCore] = None,
+    ) -> None:
         """Initialize the ConditionManager.
 
         Args:
             db_conn: The DuckDB connection.
+            state: The CellView state instance (optional, falls back to singleton if not provided).
         """
         self.db_conn: duckdb.DuckDBPyConnection = db_conn
-        self.state: CellViewState = CellViewState.get_instance()
+        # Support both dependency injection and backward compatibility with singleton
+        self.state = (
+            state if state is not None else CellViewState.get_instance()
+        )
         self.logger: logging.Logger = get_logger(__name__)
         self.logger.debug(
             "State initialized with repeat_id: %s", self.state.repeat_id
@@ -361,12 +370,16 @@ class ConditionManager:
     #     self.console.print(table)
 
 
-def import_conditions(db_conn: duckdb.DuckDBPyConnection) -> None:
+def import_conditions(
+    db_conn: duckdb.DuckDBPyConnection,
+    state: Optional[CellViewStateCore] = None,
+) -> None:
     """Function that instantiates a ConditionManager and populates the conditions table.
 
     Args:
         db_conn: The DuckDB connection.
+        state: The CellView state instance (optional, falls back to singleton if not provided).
     """
-    condition_manager = ConditionManager(db_conn)
+    condition_manager = ConditionManager(db_conn, state)
     condition_id_map = condition_manager.define_per_well_conditions()
     condition_manager.populate_condition_variables(condition_id_map)

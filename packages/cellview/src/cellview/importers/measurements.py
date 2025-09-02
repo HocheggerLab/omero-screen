@@ -4,13 +4,15 @@ This module provides a class for managing single cell measurements import operat
 to populate the measurements table.
 """
 
+from typing import Optional
+
 import duckdb
 import pandas as pd
-from omero_screen.config import get_logger
 from rich.console import Console
 
 from cellview.utils.error_classes import MeasurementError
-from cellview.utils.state import CellViewState
+from cellview.utils.state import CellViewState, CellViewStateCore
+from omero_screen.config import get_logger
 
 # Initialize logger with the module's name
 logger = get_logger(__name__)
@@ -26,15 +28,23 @@ class MeasurementsManager:
         logger: The logger.
     """
 
-    def __init__(self, db_conn: duckdb.DuckDBPyConnection) -> None:
+    def __init__(
+        self,
+        db_conn: duckdb.DuckDBPyConnection,
+        state: Optional[CellViewStateCore] = None,
+    ) -> None:
         """Initialize the MeasurementsManager.
 
         Args:
             db_conn: The DuckDB connection.
+            state: The CellView state instance (optional, falls back to singleton if not provided).
         """
         self.db_conn: duckdb.DuckDBPyConnection = db_conn
         self.console = Console()
-        self.state = CellViewState.get_instance()
+        # Support both dependency injection and backward compatibility with singleton
+        self.state = (
+            state if state is not None else CellViewState.get_instance()
+        )
         self.logger = get_logger(__name__)
 
     def import_measurements(self) -> None:
@@ -182,11 +192,18 @@ class MeasurementsManager:
 
             # Add missing columns
             for col in intensity_columns_to_add:
+                # Validate column name for security (prevent SQL injection)
+                if not self._validate_intensity_column_name(col):
+                    raise MeasurementError(
+                        f"Invalid column name format: {col}"
+                    )
+
                 self.logger.info(
                     "Adding missing column to measurements table: %s", col
                 )
+                # Use string formatting for DDL since parameterized queries don't work for column names
                 self.db_conn.execute(
-                    'ALTER TABLE measurements ADD COLUMN "%s" FLOAT', col
+                    f'ALTER TABLE measurements ADD COLUMN "{col}" FLOAT'
                 )
 
         except Exception as err:
@@ -194,12 +211,30 @@ class MeasurementsManager:
                 f"Failed to add dynamic columns to measurements table: {err}"
             ) from err
 
+    def _validate_intensity_column_name(self, column_name: str) -> bool:
+        """Validate that an intensity column name is safe for SQL DDL operations.
 
-def import_measurements(conn: duckdb.DuckDBPyConnection) -> None:
+        Args:
+            column_name: The column name to validate
+
+        Returns:
+            True if the column name is valid, False otherwise
+        """
+        import re
+
+        # Must start with intensity_ and contain only alphanumeric characters and underscores
+        pattern = r"^intensity_[a-zA-Z0-9_]+$"
+        return bool(re.match(pattern, column_name))
+
+
+def import_measurements(
+    conn: duckdb.DuckDBPyConnection, state: Optional[CellViewStateCore] = None
+) -> None:
     """Instantiate a MeasurementsManager and import measurements.
 
     Args:
         conn: The DuckDB connection.
+        state: The CellView state instance (optional, falls back to singleton if not provided).
     """
-    measurements_manager = MeasurementsManager(conn)
+    measurements_manager = MeasurementsManager(conn, state)
     measurements_manager.import_measurements()

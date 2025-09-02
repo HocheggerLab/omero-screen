@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
 
-from cellview.utils.state import CellViewState
+from cellview.utils.state import CellViewState, CellViewStateCore
 from cellview.utils.ui import CellViewUI
 
 
@@ -24,15 +24,23 @@ class ExperimentManager:
         ui: The CellView UI.
     """
 
-    def __init__(self, db_conn: duckdb.DuckDBPyConnection) -> None:
+    def __init__(
+        self,
+        db_conn: duckdb.DuckDBPyConnection,
+        state: Optional[CellViewStateCore] = None,
+    ) -> None:
         """Initialize the ExperimentManager.
 
         Args:
             db_conn: The DuckDB connection.
+            state: The CellView state instance (optional, falls back to singleton if not provided).
         """
         self.db_conn: duckdb.DuckDBPyConnection = db_conn
         self.console = Console()
-        self.state = CellViewState.get_instance()
+        # Support both dependency injection and backward compatibility with singleton
+        self.state = (
+            state if state is not None else CellViewState.get_instance()
+        )
         self.ui = CellViewUI()
 
     def select_or_create_experiment(self) -> int:
@@ -208,12 +216,18 @@ class ExperimentManager:
             return self._create_new_experiment(choice)
 
 
-def select_or_create_experiment(db_conn: duckdb.DuckDBPyConnection) -> None:
+def select_or_create_experiment(
+    db_conn: duckdb.DuckDBPyConnection,
+    state: Optional[CellViewStateCore] = None,
+) -> None:
     """Function that instantiates an ExperimentManager instance and supplies data to state.
 
     Args:
         db_conn: The DuckDB connection.
+        state: The CellView state instance (optional, falls back to singleton if not provided).
     """
-    manager = ExperimentManager(db_conn)
-    state = CellViewState.get_instance()
-    state.experiment_id = manager.select_or_create_experiment()
+    manager = ExperimentManager(db_conn, state)
+    state_instance = (
+        state if state is not None else CellViewState.get_instance()
+    )
+    state_instance.experiment_id = manager.select_or_create_experiment()

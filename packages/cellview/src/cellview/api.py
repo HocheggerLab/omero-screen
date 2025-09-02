@@ -11,14 +11,61 @@ import pandas as pd
 from cellview.db.db import CellViewDB
 from cellview.exporters.db_to_pandas import export_pandas_df
 from cellview.importers.import_functions import import_data
-from cellview.utils.state import CellViewState
+from cellview.utils.state import CellViewState, create_cellview_state
+
+
+def cellview_load_data_with_injection(
+    *plate_ids: int,
+) -> tuple[pd.DataFrame, list[str]]:
+    """Load data from plates using dependency injection (preferred approach).
+
+    This function loads data from one or more plates using dependency injection
+    instead of the singleton pattern, providing better testability and thread safety.
+
+    Args:
+        *plate_ids: The plate IDs to load data from.
+
+    Returns:
+        A tuple containing a pandas DataFrame and a list of variable names.
+    """
+    db = CellViewDB()
+    df_list = []
+    for plate_id in plate_ids:
+        conn = db.connect()
+        if not _check_plate_exists(plate_id, conn):
+            args = argparse.Namespace(plate_id=plate_id, csv=None)
+            # Use dependency injection to create state
+            state = create_cellview_state(args)
+            import_data(db, state, conn=conn)
+        df, variable_names = export_pandas_df(plate_id, conn)
+        df_list.append(df)
+    conn.close()
+    return pd.concat(df_list), variable_names
 
 
 def cellview_load_data(*plate_ids: int) -> tuple[pd.DataFrame, list[str]]:
-    # sourcery skip: hoist-statement-from-if, inline-immediately-returned-variable
-    """Load data from a plate or a CSV file into the database.
+    """Load data from a plate or a CSV file into the database (dependency injection version).
 
-    This function loads data from a plate or a CSV file into the database.
+    This function loads data from a plate or a CSV file into the database using
+    dependency injection for better testability and thread safety.
+
+    Args:
+        *plate_ids: The plate IDs to load data from.
+
+    Returns:
+        A tuple containing a pandas DataFrame and a list of variable names.
+    """
+    return cellview_load_data_with_injection(*plate_ids)
+
+
+def cellview_load_data_legacy(
+    *plate_ids: int,
+) -> tuple[pd.DataFrame, list[str]]:
+    # sourcery skip: hoist-statement-from-if, inline-immediately-returned-variable
+    """Load data from a plate or a CSV file into the database (legacy singleton version).
+
+    This function loads data from a plate or a CSV file into the database using
+    the singleton pattern. Kept for backward compatibility.
 
     Args:
         *plate_ids: The plate IDs to load data from.

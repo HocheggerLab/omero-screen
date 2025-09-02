@@ -15,30 +15,31 @@ from typing import Any, Optional
 import duckdb
 import pandas as pd
 from omero.gateway import BlitzGateway, PlateWrapper, TagAnnotationWrapper
-from omero_screen.config import get_logger
 from omero_utils.attachments import get_file_attachments, parse_csv_data
 from omero_utils.omero_connect import omero_connect
 from rich.console import Console
 
 from cellview.utils.error_classes import DataError, DBError, StateError
 from cellview.utils.ui import CellViewUI
+from omero_screen.config import get_logger
 
 # Initialize logger with the module's name
 logger = get_logger(__name__)
 
 
 @dataclass
-class CellViewState:
-    """Singleton state manager for CellView application.
+class CellViewStateCore:
+    """Core state manager for CellView application (dependency-injectable).
 
     This class maintains the state of data that need to be tracked
-    across different operations in the application.
+    across different operations in the application. This version is designed
+    for dependency injection and does not use singleton pattern.
 
     Attributes:
         ui: The user interface object.
         csv_path: The path to the CSV file for import.
         df: The dataframe loaded from the imported CSV file.
-        plate_id: The omero plate ID asscoaited with the imported CSV file.
+        plate_id: The omero plate ID associated with the imported CSV file.
         project_name: The project name.
         experiment_name: The experiment name.
         project_id: The project ID.
@@ -52,10 +53,12 @@ class CellViewState:
         channel_2: The third channel.
         channel_3: The fourth channel.
         db_conn: The database connection.
+        console: The console for output.
+        logger: The logger instance.
     """
 
-    # Class attributes with default values
-    ui: CellViewUI = CellViewUI()
+    # Instance attributes with default values
+    ui: CellViewUI
     csv_path: Optional[Path] = None
     df: Optional[pd.DataFrame] = None
     plate_id: Optional[int] = None
@@ -71,101 +74,91 @@ class CellViewState:
     channel_1: Optional[str] = None
     channel_2: Optional[str] = None
     channel_3: Optional[str] = None
-    db_conn: Optional[duckdb.DuckDBPyConnection] = (
-        None  # Add database connection
-    )
+    db_conn: Optional[duckdb.DuckDBPyConnection] = None
+    console: Console = Console()
+    logger: Any = None
 
-    # Singleton instance
-    _instance = None
-
-    def __init__(self) -> None:
-        """Initialize a new instance."""
-        self.console = Console()
-        self.ui = CellViewUI()
-        self.logger = get_logger(__name__)
+    def __post_init__(self) -> None:
+        """Initialize logger and console after dataclass initialization."""
+        if self.logger is None:
+            self.logger = get_logger(__name__)
 
     @classmethod
-    def get_instance(
-        cls,
-        args: Optional[argparse.Namespace] = None,
-    ) -> "CellViewState":
-        """Get the singleton instance of CellViewState."""
-        if cls._instance is None:
-            # Create new instance
-            instance = cls()
-            cls._instance = instance
+    def create_from_args(
+        cls, args: Optional[argparse.Namespace] = None
+    ) -> "CellViewStateCore":
+        """Create a new CellViewStateCore instance from command line arguments.
 
-        # Initialize with args if provided
+        Args:
+            args: Command line arguments containing csv or plate_id
+
+        Returns:
+            Initialized CellViewStateCore instance
+
+        Raises:
+            DataError: If there are issues reading CSV data or processing
+        """
+        instance = cls(
+            ui=CellViewUI(), console=Console(), logger=get_logger(__name__)
+        )
+
+        # Initialize from args if provided
         if args and args.csv:
-            cls._instance.csv_path = args.csv
-            cls._instance.df = pd.read_csv(args.csv)
-            cls._instance.date = cls._instance.extract_date_from_filename(
-                args.csv.name
-            )
-            cls._instance.plate_id = cls._instance.get_plate_id()
+            instance.csv_path = args.csv
+            instance.df = pd.read_csv(args.csv)
+            instance.date = instance.extract_date_from_filename(args.csv.name)
+            instance.plate_id = instance.get_plate_id()
         elif args and args.plate_id:
-            cls._instance.plate_id = args.plate_id
+            instance.plate_id = args.plate_id
             (
-                cls._instance.df,
-                cls._instance.project_name,
-                cls._instance.experiment_name,
-                cls._instance.date,
-                cls._instance.lab_member,
-            ) = cls._instance.parse_omero_data(args.plate_id)
-        try:
-            channels = cls._instance.get_channels()
-            cls._instance.channel_0 = channels[0] if channels else None
-            cls._instance.channel_1 = (
-                channels[1] if len(channels) > 1 else None
-            )
-            cls._instance.channel_2 = (
-                channels[2] if len(channels) > 2 else None
-            )
-            cls._instance.channel_3 = (
-                channels[3] if len(channels) > 3 else None
-            )
-        except (
-            pd.errors.EmptyDataError,
-            pd.errors.ParserError,
-        ) as err:
-            raise DataError(
-                f"Error reading CSV file: {err}",
-                # context={"csv_path": str(args.csv)},
-            ) from err
-        except KeyError as err:
-            raise DataError(
-                f"Required column missing in CSV: {err}",
-                context={
-                    # "csv_path": str(args.csv),
-                    "missing_column": str(err),
-                },
-            ) from err
-        except ValueError as err:
-            raise DataError(
-                f"Error processing data: {err}",
-                # context={"csv_path": str(args.csv)},
-            ) from err
-        return cls._instance
+                instance.df,
+                instance.project_name,
+                instance.experiment_name,
+                instance.date,
+                instance.lab_member,
+            ) = instance.parse_omero_data(args.plate_id)
 
-    @classmethod
-    def reset(cls) -> None:
-        """Reset the state to default values."""
-        cls._instance = None
-        cls._instance = cls()
-        cls._instance.console = Console()
-        cls._instance.logger = get_logger(__name__)
-        cls._instance.df = None
-        cls._instance.plate_id = None
-        cls._instance.project_id = None
-        cls._instance.experiment_id = None
-        cls._instance.repeat_id = None
-        cls._instance.condition_id_map = None
-        cls._instance.lab_member = None
-        cls._instance.date = None
-        cls._instance.channel_0 = None
-        cls._instance.channel_1 = None
-        cls._instance.channel_2 = None
-        cls._instance.channel_3 = None
+        # Set up channels if we have data
+        if instance.df is not None:
+            try:
+                channels = instance.get_channels()
+                instance.channel_0 = channels[0] if channels else None
+                instance.channel_1 = channels[1] if len(channels) > 1 else None
+                instance.channel_2 = channels[2] if len(channels) > 2 else None
+                instance.channel_3 = channels[3] if len(channels) > 3 else None
+            except (
+                pd.errors.EmptyDataError,
+                pd.errors.ParserError,
+            ) as err:
+                raise DataError(
+                    f"Error reading CSV file: {err}",
+                    context={
+                        "csv_path": str(args.csv)
+                        if args and args.csv
+                        else None
+                    },
+                ) from err
+            except KeyError as err:
+                raise DataError(
+                    f"Required column missing in CSV: {err}",
+                    context={
+                        "csv_path": str(args.csv)
+                        if args and args.csv
+                        else None,
+                        "missing_column": str(err),
+                    },
+                ) from err
+            except ValueError as err:
+                raise DataError(
+                    f"Error processing data: {err}",
+                    context={
+                        "csv_path": str(args.csv)
+                        if args and args.csv
+                        else None
+                    },
+                ) from err
+
+        return instance
 
     # -----------------methods to get data from Omero-----------------
 
@@ -705,3 +698,72 @@ class CellViewState:
             self.console.print(
                 "No classifier column found in the file", style="yellow"
             )
+
+
+# Convenience function for creating state instances
+def create_cellview_state(
+    args: Optional[argparse.Namespace] = None,
+) -> CellViewStateCore:
+    """Create a new CellViewStateCore instance (dependency-injectable version).
+
+    This is the preferred way to create state instances for dependency injection.
+
+    Args:
+        args: Command line arguments containing csv or plate_id
+
+    Returns:
+        Initialized CellViewStateCore instance
+
+    Raises:
+        DataError: If there are issues reading CSV data or processing
+    """
+    return CellViewStateCore.create_from_args(args)
+
+
+# Backward compatibility wrapper for CellViewState
+class CellViewState(CellViewStateCore):
+    """Backward compatibility wrapper that maintains the same interface as the old singleton."""
+
+    def __init__(self) -> None:
+        """Initialize with default values for backward compatibility."""
+        super().__init__(ui=CellViewUI())
+
+    @classmethod
+    def get_instance(
+        cls, args: Optional[argparse.Namespace] = None
+    ) -> "CellViewState":
+        """Backward compatibility method that creates new instances instead of singleton.
+
+        Note: This no longer returns a singleton - each call creates a new instance.
+        For proper dependency injection, use create_cellview_state() instead.
+        """
+        if args:
+            # Use the new create_from_args method
+            core_state = CellViewStateCore.create_from_args(args)
+            # Wrap in our compatibility class
+            state = cls()
+            # Copy all attributes from the core state
+            for field in core_state.__dataclass_fields__:
+                setattr(state, field, getattr(core_state, field))
+            return state
+        else:
+            return cls()
+
+    def reset(self) -> None:
+        """Reset state to default values for backward compatibility."""
+        self.csv_path = None
+        self.df = None
+        self.plate_id = None
+        self.project_name = None
+        self.experiment_name = None
+        self.project_id = None
+        self.experiment_id = None
+        self.repeat_id = None
+        self.condition_id_map = None
+        self.lab_member = None
+        self.date = None
+        self.channel_0 = None
+        self.channel_1 = None
+        self.channel_2 = None
+        self.channel_3 = None
+        self.db_conn = None

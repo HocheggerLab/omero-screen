@@ -4,14 +4,14 @@ This module provides a class for managing repeat selection and creation operatio
 """
 
 import io
-from typing import cast
+from typing import Optional, cast
 
 import duckdb
-from omero_screen.config import get_logger
 from rich.console import Console
 
 from cellview.utils.error_classes import DataError, DBError, StateError
-from cellview.utils.state import CellViewState
+from cellview.utils.state import CellViewState, CellViewStateCore
+from omero_screen.config import get_logger
 
 # Initialize logger with the module's name
 logger = get_logger(__name__)
@@ -27,15 +27,23 @@ class RepeatsManager:
         logger: The logger.
     """
 
-    def __init__(self, db_conn: duckdb.DuckDBPyConnection) -> None:
+    def __init__(
+        self,
+        db_conn: duckdb.DuckDBPyConnection,
+        state: Optional[CellViewStateCore] = None,
+    ) -> None:
         """Initialize the RepeatsManager.
 
         Args:
             db_conn: The DuckDB connection.
+            state: The CellView state instance (optional, falls back to singleton if not provided).
         """
         self.db_conn: duckdb.DuckDBPyConnection = db_conn
         self.console = Console()
-        self.state = CellViewState.get_instance()
+        # Support both dependency injection and backward compatibility with singleton
+        self.state = (
+            state if state is not None else CellViewState.get_instance()
+        )
         self.logger = get_logger(__name__)
 
     def _fetch_existing_repeats(
@@ -209,11 +217,15 @@ class RepeatsManager:
         self.state.repeat_id = repeat_id
 
 
-def create_new_repeat(db_conn: duckdb.DuckDBPyConnection) -> None:
+def create_new_repeat(
+    db_conn: duckdb.DuckDBPyConnection,
+    state: Optional[CellViewStateCore] = None,
+) -> None:
     """Function that creates a RepeatsManager instance and calls its main method.
 
     Args:
         db_conn: The DuckDB connection.
+        state: The CellView state instance (optional, falls back to singleton if not provided).
     """
-    manager = RepeatsManager(db_conn)
+    manager = RepeatsManager(db_conn, state)
     manager.create_new_repeat()

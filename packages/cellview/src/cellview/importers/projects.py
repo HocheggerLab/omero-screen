@@ -7,14 +7,14 @@ table.
 from typing import Literal, Optional, cast
 
 import duckdb
-from omero_screen.config import get_logger
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
 
 from cellview.utils.error_classes import DBError, StateError
-from cellview.utils.state import CellViewState
+from cellview.utils.state import CellViewState, CellViewStateCore
 from cellview.utils.ui import CellViewUI
+from omero_screen.config import get_logger
 
 JustifyMethod = Literal["default", "left", "center", "right", "full"]
 
@@ -32,16 +32,24 @@ class ProjectManager:
         ui: The CellView UI.
     """
 
-    def __init__(self, db_conn: duckdb.DuckDBPyConnection) -> None:
+    def __init__(
+        self,
+        db_conn: duckdb.DuckDBPyConnection,
+        state: Optional[CellViewStateCore] = None,
+    ) -> None:
         """Initialize the ProjectManager.
 
         Args:
             db_conn: The DuckDB connection.
+            state: The CellView state instance (optional, falls back to singleton if not provided).
         """
         self.db_conn: duckdb.DuckDBPyConnection = db_conn
         self.console = Console()
         self.logger = get_logger(__name__)
-        self.state = CellViewState.get_instance()
+        # Support both dependency injection and backward compatibility with singleton
+        self.state = (
+            state if state is not None else CellViewState.get_instance()
+        )
         self.ui = CellViewUI()
 
     def select_or_create_project(self) -> None:
@@ -287,11 +295,15 @@ class ProjectManager:
             return self._create_new_project(choice)
 
 
-def select_or_create_project(db_conn: duckdb.DuckDBPyConnection) -> None:
+def select_or_create_project(
+    db_conn: duckdb.DuckDBPyConnection,
+    state: Optional[CellViewStateCore] = None,
+) -> None:
     """Function that creates a ProjectManager instance and calls its main method.
 
     Args:
         db_conn: The DuckDB connection.
+        state: The CellView state instance (optional, falls back to singleton if not provided).
     """
-    manager = ProjectManager(db_conn)
+    manager = ProjectManager(db_conn, state)
     manager.select_or_create_project()

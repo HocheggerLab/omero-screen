@@ -6,25 +6,17 @@ from unittest import mock
 import pandas as pd
 import pytest
 from cellview.utils.error_classes import DataError, StateError
-from cellview.utils.state import CellViewState
+from cellview.utils.state import CellViewState, create_cellview_state
 
 
-def test_state_singleton_initialization(sample_data_path):
-    """Test that CellViewState singleton is properly initialized with valid data."""
-    # Reset state to ensure clean slate
-    state = CellViewState.get_instance()
-    state.reset()
-
+def test_state_initialization_with_dependency_injection(sample_data_path):
+    """Test that CellViewState is properly initialized with dependency injection."""
     # Create args with sample data path
     args = argparse.Namespace()
     args.csv = sample_data_path
 
-    # Get instance with args
-    state = CellViewState.get_instance(args)
-
-    # Test singleton behavior - should be same instance
-    state2 = CellViewState.get_instance()
-    assert state is state2
+    # Create state using dependency injection
+    state = create_cellview_state(args)
 
     # Test basic attributes are set correctly
     assert state.csv_path == sample_data_path
@@ -57,10 +49,27 @@ def test_state_singleton_initialization(sample_data_path):
     assert state.df.plate_id.unique()[0] == 1
 
 
+def test_state_isolation_with_dependency_injection():
+    """Test that different state instances don't interfere with each other."""
+    # Create two separate state instances
+    state1 = create_cellview_state()
+    state2 = create_cellview_state()
+
+    # They should be different objects
+    assert state1 is not state2
+
+    # Modifying one shouldn't affect the other
+    state1.plate_id = 123
+    state2.plate_id = 456
+
+    assert state1.plate_id == 123
+    assert state2.plate_id == 456
+
+
 def test_get_plate_id_success():
     """Test that get_plate_id returns correct plate ID for valid data."""
     # Create state instance directly
-    state = CellViewState()
+    state = create_cellview_state()
 
     # Set up test DataFrame with single plate_id
     state.df = pd.DataFrame({"plate_id": [1, 1, 1], "well_id": [1, 2, 3]})
@@ -70,7 +79,7 @@ def test_get_plate_id_success():
 
 def test_get_plate_id_multiple_plates_error():
     """Test that get_plate_id raises error when multiple plate IDs are found."""
-    state = CellViewState()
+    state = create_cellview_state()
 
     # Set up test DataFrame with multiple plate_ids
     state.df = pd.DataFrame({"plate_id": [1, 2, 1], "well_id": [1, 2, 3]})
@@ -84,7 +93,7 @@ def test_get_plate_id_multiple_plates_error():
 
 def test_get_plate_id_no_data():
     """Test that get_plate_id returns None when no DataFrame is set."""
-    state = CellViewState()
+    state = create_cellview_state()
 
     with pytest.raises(
         StateError,  # Added error check
@@ -95,7 +104,7 @@ def test_get_plate_id_no_data():
 
 def test_extract_date_from_filename_valid():
     """Test date extraction from filenames with valid dates."""
-    state = CellViewState()
+    state = create_cellview_state()
     test_cases = [
         ("240326_test_data.csv", "2024-03-26"),
         ("data_230115_analysis.csv", "2023-01-15"),
@@ -109,7 +118,7 @@ def test_extract_date_from_filename_valid():
 
 def test_extract_date_from_filename_invalid():
     """Test date extraction from filenames without valid dates."""
-    state = CellViewState()
+    state = create_cellview_state()
     invalid_filenames = [
         "no_date.csv",
         "190523_old_date.csv",  # Starts with 19, not 2
@@ -125,7 +134,7 @@ def test_extract_date_from_filename_invalid():
 
 def test_get_channels_success():
     """Test that get_channels correctly extracts channel names from column headers."""
-    state = CellViewState()
+    state = create_cellview_state()
 
     # Set up test DataFrame with various intensity measurements
     state.df = pd.DataFrame(
@@ -145,14 +154,14 @@ def test_get_channels_success():
 
 def test_get_channels_no_data():
     """Test that get_channels returns empty list when DataFrame is None."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = None
     assert state.get_channels() == []
 
 
 def test_get_channels_no_intensity_columns():
     """Test that get_channels returns empty list when no intensity columns exist."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = pd.DataFrame(
         {"plate_id": [], "well_id": [], "other_column": []}
     )
@@ -161,7 +170,7 @@ def test_get_channels_no_intensity_columns():
 
 def test_get_channels_order_preservation():
     """Test that get_channels preserves order of first appearance."""
-    state = CellViewState()
+    state = create_cellview_state()
 
     # Create columns where channels appear in different orders
     state.df = pd.DataFrame(
@@ -184,7 +193,7 @@ def test_get_channels_order_preservation():
 def test_find_measurement_cols():
     """Test that _find_measurement_cols correctly identifies variable columns."""
     # Create sample data with 4 wells and some variable/non-variable columns
-    state = CellViewState()
+    state = create_cellview_state()
     df = pd.DataFrame(
         {
             "well": ["A1", "A1", "A2", "A2", "B1", "B1", "B2", "B2"],
@@ -365,7 +374,7 @@ def test_find_measurement_cols():
 )
 def test_find_measurement_cols_parametrized(test_df, expected_cols):
     """Test _find_measurement_cols with various DataFrame inputs."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = test_df
     result = state._find_measurement_cols()
     assert sorted(result) == sorted(expected_cols)
@@ -373,7 +382,7 @@ def test_find_measurement_cols_parametrized(test_df, expected_cols):
 
 def test_find_measurement_cols_missing_well_column():
     """Test that _find_measurement_cols handles missing 'well' column correctly."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = pd.DataFrame(
         {
             "image_id": [1, 2],  # Added image_id column
@@ -392,7 +401,7 @@ def test_find_measurement_cols_missing_well_column():
 
 def test_find_measurement_cols_none_df():
     """Test that _find_measurement_cols raises error when df is None."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = None
 
     with pytest.raises(AssertionError):
@@ -401,7 +410,7 @@ def test_find_measurement_cols_none_df():
 
 def test_find_measurement_cols_with_unnamed():
     """Test that Unnamed columns are properly filtered out."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = pd.DataFrame(
         {
             "well": ["A1", "A1", "A2", "A2", "A1", "A1", "A2", "A2"],
@@ -430,7 +439,7 @@ def test_find_measurement_cols_with_unnamed():
 
 def test_trim_df_normal_case():
     """Test that _trim_df correctly trims the DataFrame to include only necessary columns."""
-    state = CellViewState()
+    state = create_cellview_state()
     # Create a DataFrame with required and measurement columns
     state.df = pd.DataFrame(
         {
@@ -460,7 +469,7 @@ def test_trim_df_normal_case():
 
 def test_trim_df_missing_required_column():
     """Test that _trim_df raises StateError when required columns are missing."""
-    state = CellViewState()
+    state = create_cellview_state()
     # Create a DataFrame missing some required columns
     state.df = pd.DataFrame(
         {
@@ -481,7 +490,7 @@ def test_trim_df_missing_required_column():
 
 def test_trim_df_empty_measurement_cols():
     """Test that _trim_df works with empty measurement columns list."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = pd.DataFrame(
         {
             "well": [1, 2, 3],
@@ -502,7 +511,7 @@ def test_trim_df_empty_measurement_cols():
 
 def test_trim_df_none_df():
     """Test that _trim_df raises StateError when df is None."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = None
 
     with pytest.raises(StateError, match="No dataframe loaded in state"):
@@ -563,7 +572,7 @@ def test_trim_df_parametrized(
     test_df, measurement_cols, expected_cols, should_raise
 ):
     """Test _trim_df with various DataFrame inputs."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = test_df
 
     if should_raise:
@@ -578,7 +587,7 @@ def test_trim_df_parametrized(
 
 def test_get_channel_list_normal_case():
     """Test that _get_channel_list correctly extracts channels from column names."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = pd.DataFrame(
         {
             "intensity_max_DAPI_nucleus": [1, 2, 3],
@@ -594,7 +603,7 @@ def test_get_channel_list_normal_case():
 
 def test_get_channel_list_order_preservation():
     """Test that _get_channel_list preserves order of first appearance."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = pd.DataFrame(
         {
             "intensity_mean_Ch2_cell": [1, 2, 3],  # Ch2 appears first
@@ -614,7 +623,7 @@ def test_get_channel_list_order_preservation():
 
 def test_get_channel_list_no_intensity_columns():
     """Test that _get_channel_list returns empty list when no intensity columns exist."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = pd.DataFrame(
         {
             "well": [1, 2, 3],
@@ -629,7 +638,7 @@ def test_get_channel_list_no_intensity_columns():
 
 def test_get_channel_list_empty_df():
     """Test that _get_channel_list handles empty DataFrames correctly."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = pd.DataFrame(
         columns=["intensity_max_DAPI_nucleus", "intensity_mean_GFP_cell"]
     )
@@ -640,7 +649,7 @@ def test_get_channel_list_empty_df():
 
 def test_get_channel_list_none_df():
     """Test that _get_channel_list returns empty list when df is None."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = None
 
     channels = state._get_channel_list()
@@ -649,7 +658,7 @@ def test_get_channel_list_none_df():
 
 def test_get_channel_list_invalid_column_names():
     """Test that _get_channel_list ignores columns not matching the expected pattern."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = pd.DataFrame(
         {
             "intensity_wrong_DAPI_nucleus": [1, 2, 3],  # Wrong measure type
@@ -716,7 +725,7 @@ def test_get_channel_list_invalid_column_names():
 )
 def test_get_channel_list_parametrized(test_df, expected_channels):
     """Test _get_channel_list with various DataFrame inputs."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = test_df
     result = state._get_channel_list()
     assert result == expected_channels
@@ -724,7 +733,7 @@ def test_get_channel_list_parametrized(test_df, expected_channels):
 
 def test_validate_channels_matching():
     """Test that _validate_channels passes when DAPI is present."""
-    state = CellViewState()
+    state = create_cellview_state()
 
     # Should pass without raising an exception as long as DAPI is present
     state._validate_channels(["DAPI", "GFP", "RFP"])
@@ -738,7 +747,7 @@ def test_validate_channels_matching():
 
 def test_validate_channels_mismatch():
     """Test that _validate_channels passes regardless of order as long as DAPI is present."""
-    state = CellViewState()
+    state = create_cellview_state()
 
     # Should pass regardless of order - new flexible validation
     state._validate_channels(["DAPI", "RFP", "GFP"])
@@ -752,7 +761,7 @@ def test_validate_channels_mismatch():
 
 def test_validate_channels_not_enough_extracted():
     """Test that _validate_channels passes with any number of channels as long as DAPI is present."""
-    state = CellViewState()
+    state = create_cellview_state()
 
     # Should pass and update state channels dynamically
     state._validate_channels(["DAPI", "GFP"])
@@ -766,7 +775,7 @@ def test_validate_channels_not_enough_extracted():
 
 def test_validate_channels_extra_extracted():
     """Test that _validate_channels handles any number of channels dynamically."""
-    state = CellViewState()
+    state = create_cellview_state()
 
     # Should pass and handle any number of channels
     state._validate_channels(["DAPI", "GFP", "RFP"])
@@ -780,7 +789,7 @@ def test_validate_channels_extra_extracted():
 
 def test_validate_channels_empty_state():
     """Test that _validate_channels handles empty channels but requires DAPI."""
-    state = CellViewState()
+    state = create_cellview_state()
 
     # Empty channels should raise error (no DAPI)
     with pytest.raises(StateError, match="DAPI channel is required but not found in data"):
@@ -794,7 +803,7 @@ def test_validate_channels_empty_state():
 
 def test_validate_channels_empty_extracted():
     """Test that _validate_channels requires DAPI even if state has channels."""
-    state = CellViewState()
+    state = create_cellview_state()
 
     # Should raise error even if state has channels set (no DAPI in input)
     with pytest.raises(StateError, match="DAPI channel is required but not found in data"):
@@ -826,7 +835,7 @@ def test_validate_channels_parametrized(
     state_channels, extracted_channels, should_raise
 ):
     """Test _validate_channels with various inputs - now flexible validation."""
-    state = CellViewState()
+    state = create_cellview_state()
 
     if should_raise:
         with pytest.raises(StateError, match="DAPI channel is required"):
@@ -844,7 +853,7 @@ def test_validate_channels_parametrized(
 
 def test_rename_channel_columns_mixed_channels():
     """Test that _rename_channel_columns correctly renames non-DAPI channel columns."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = pd.DataFrame(
         {
             "intensity_max_DAPI_nucleus": [1, 2],
@@ -872,7 +881,7 @@ def test_rename_channel_columns_mixed_channels():
 
 def test_rename_channel_columns_only_non_dapi():
     """Test that _rename_channel_columns works with only non-DAPI channels."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = pd.DataFrame(
         {
             "intensity_max_GFP_nucleus": [1, 2],
@@ -898,7 +907,7 @@ def test_rename_channel_columns_only_non_dapi():
 
 def test_rename_channel_columns_implementation():
     """Test the actual implementation of _rename_channel_columns to identify possible bugs."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = pd.DataFrame({"col_GFP_name": [1, 2]})
 
     # Before renaming
@@ -944,7 +953,7 @@ def test_rename_channel_columns_with_patcher():
     """Test the _rename_channel_columns method with patched regex functionality."""
     # This test will investigate why the regex isn't working as expected
 
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = pd.DataFrame(
         {"intensity_max_GFP_nucleus": [1, 2], "other_column": [3, 4]}
     )
@@ -1019,7 +1028,7 @@ def test_rename_channel_columns_simplified(
     initial_columns, channels, expected_checks
 ):
     """Simplified test for _rename_channel_columns that checks core functionality."""
-    state = CellViewState()
+    state = create_cellview_state()
 
     # For debugging purposes, let's patch the re.sub function
     def print_sub_args(pattern, replacement, string):
@@ -1054,7 +1063,7 @@ def test_rename_channel_columns_simplified(
 
 def test_rename_centroid_cols():
     """Test centroid column renaming functionality."""
-    state = CellViewState()
+    state = create_cellview_state()
 
     # Test case 1: All columns present
     state.df = pd.DataFrame(
@@ -1100,7 +1109,7 @@ def test_rename_centroid_cols():
 
 def test_optimize_measurement_types():
     """Test that numeric columns are optimized to appropriate types."""
-    state = CellViewState()
+    state = create_cellview_state()
     state.df = pd.DataFrame(
         {
             "well": ["A1", "A1", "A2", "A2"],
