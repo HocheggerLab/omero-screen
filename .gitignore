@@ -264,3 +264,4 @@ scratch/
 # =========================
 # Ignore large image files
 examples/*
+*.csv

@@ -202,19 +202,6 @@ class CellViewDB:
                 intensity_max_DAPI_nucleus FLOAT NOT NULL,
                 integrated_int_DAPI_norm FLOAT,
 
-                intensity_min_ch1_nucleus FLOAT,
-                intensity_mean_ch1_nucleus FLOAT,
-                intensity_max_ch1_nucleus FLOAT,
-
-                intensity_min_ch2_nucleus FLOAT,
-                intensity_mean_ch2_nucleus FLOAT,
-                intensity_max_ch2_nucleus FLOAT,
-
-                intensity_min_ch3_nucleus FLOAT,
-                intensity_mean_ch3_nucleus FLOAT,
-                intensity_max_ch3_nucleus FLOAT,
-                intensity_mean_ch3_nucleus_norm FLOAT,
-
                 Cyto_ID INTEGER,
                 area_cell FLOAT,
                 "centroid-0-cell" FLOAT,
@@ -224,35 +211,11 @@ class CellViewDB:
                 intensity_mean_DAPI_cell FLOAT,
                 intensity_max_DAPI_cell FLOAT,
 
-                intensity_min_ch1_cell FLOAT,
-                intensity_mean_ch1_cell FLOAT,
-                intensity_max_ch1_cell FLOAT,
-
-                intensity_min_ch2_cell FLOAT,
-                intensity_mean_ch2_cell FLOAT,
-                intensity_max_ch2_cell FLOAT,
-
-                intensity_min_ch3_cell FLOAT,
-                intensity_mean_ch3_cell FLOAT,
-                intensity_max_ch3_cell FLOAT,
-
                 area_cyto FLOAT,
 
                 intensity_min_DAPI_cyto FLOAT,
                 intensity_mean_DAPI_cyto FLOAT,
-                intensity_max_DAPI_cyto FLOAT,
-
-                intensity_min_ch1_cyto FLOAT,
-                intensity_mean_ch1_cyto FLOAT,
-                intensity_max_ch1_cyto FLOAT,
-
-                intensity_min_ch2_cyto FLOAT,
-                intensity_mean_ch2_cyto FLOAT,
-                intensity_max_ch2_cyto FLOAT,
-
-                intensity_min_ch3_cyto FLOAT,
-                intensity_mean_ch3_cyto FLOAT,
-                intensity_max_ch3_cyto FLOAT
+                intensity_max_DAPI_cyto FLOAT
             );
             """)
 

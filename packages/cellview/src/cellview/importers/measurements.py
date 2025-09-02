@@ -99,6 +99,9 @@ class MeasurementsManager:
         if self.state.condition_id_map is None:
             raise MeasurementError("No condition_id_map available in state")
         self.logger.debug("measurment_cols: %s", measurement_cols)
+
+        # Add any missing intensity columns to the measurements table dynamically
+        self._ensure_intensity_columns_exist(measurement_cols)
         # Add condition_id to the state's DataFrame
         self.state.df["condition_id"] = self.state.df["well"].map(
             self.state.condition_id_map
@@ -146,6 +149,49 @@ class MeasurementsManager:
         except Exception as err:
             raise MeasurementError(
                 "Failed to import measurements into database"
+            ) from err
+
+    def _ensure_intensity_columns_exist(
+        self, measurement_cols: list[str]
+    ) -> None:
+        """Dynamically add missing intensity columns to the measurements table.
+
+        Args:
+            measurement_cols: List of measurement columns from the dataframe
+
+        Raises:
+            MeasurementError: If unable to add columns to database
+        """
+        try:
+            # Get current table columns
+            result = self.db_conn.execute(
+                "PRAGMA table_info(measurements)"
+            ).fetchall()
+            existing_columns = {
+                row[1] for row in result
+            }  # row[1] is column name
+
+            # Find intensity columns that need to be added
+            intensity_columns_to_add = []
+            for col in measurement_cols:
+                if (
+                    col.startswith("intensity_")
+                    and col not in existing_columns
+                ):
+                    intensity_columns_to_add.append(col)
+
+            # Add missing columns
+            for col in intensity_columns_to_add:
+                self.logger.info(
+                    "Adding missing column to measurements table: %s", col
+                )
+                self.db_conn.execute(
+                    'ALTER TABLE measurements ADD COLUMN "%s" FLOAT', col
+                )
+
+        except Exception as err:
+            raise MeasurementError(
+                f"Failed to add dynamic columns to measurements table: {err}"
             ) from err
 
 

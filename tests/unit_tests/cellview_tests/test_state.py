@@ -723,118 +723,123 @@ def test_get_channel_list_parametrized(test_df, expected_channels):
 
 
 def test_validate_channels_matching():
-    """Test that _validate_channels passes when channels match."""
+    """Test that _validate_channels passes when DAPI is present."""
     state = CellViewState()
-    state.channel_0 = "DAPI"
-    state.channel_1 = "GFP"
-    state.channel_2 = "RFP"
-    state.channel_3 = None
 
-    # This should pass without raising an exception
+    # Should pass without raising an exception as long as DAPI is present
     state._validate_channels(["DAPI", "GFP", "RFP"])
+
+    # Check that state channels are updated dynamically
+    assert state.channel_0 == "DAPI"
+    assert state.channel_1 == "GFP"
+    assert state.channel_2 == "RFP"
+    assert state.channel_3 is None
 
 
 def test_validate_channels_mismatch():
-    """Test that _validate_channels raises an error when channels don't match."""
+    """Test that _validate_channels passes regardless of order as long as DAPI is present."""
     state = CellViewState()
-    state.channel_0 = "DAPI"
-    state.channel_1 = "GFP"
-    state.channel_2 = "RFP"
-    state.channel_3 = None
 
-    with pytest.raises(StateError, match="Channels do not match"):
-        state._validate_channels(["DAPI", "RFP", "GFP"])  # Order mismatch
+    # Should pass regardless of order - new flexible validation
+    state._validate_channels(["DAPI", "RFP", "GFP"])
+
+    # Check that state channels are updated dynamically based on input order
+    assert state.channel_0 == "DAPI"
+    assert state.channel_1 == "RFP"
+    assert state.channel_2 == "GFP"
+    assert state.channel_3 is None
 
 
 def test_validate_channels_not_enough_extracted():
-    """Test that _validate_channels warns when there are not enough extracted channels."""
+    """Test that _validate_channels passes with any number of channels as long as DAPI is present."""
     state = CellViewState()
-    state.channel_0 = "DAPI"
-    state.channel_1 = "GFP"
-    state.channel_2 = "RFP"
-    state.channel_3 = None
 
-    # Should log a warning but not raise an exception
-    state._validate_channels(["DAPI", "GFP"])  # Missing RFP
+    # Should pass and update state channels dynamically
+    state._validate_channels(["DAPI", "GFP"])
+
+    # Check that state channels are updated correctly
+    assert state.channel_0 == "DAPI"
+    assert state.channel_1 == "GFP"
+    assert state.channel_2 is None
+    assert state.channel_3 is None
 
 
 def test_validate_channels_extra_extracted():
-    """Test that _validate_channels raises an error when there are extra extracted channels."""
+    """Test that _validate_channels handles any number of channels dynamically."""
     state = CellViewState()
-    state.channel_0 = "DAPI"
-    state.channel_1 = "GFP"
-    state.channel_2 = None
-    state.channel_3 = None
 
-    with pytest.raises(StateError, match="Channels do not match"):
-        state._validate_channels(["DAPI", "GFP", "RFP"])  # Extra RFP
+    # Should pass and handle any number of channels
+    state._validate_channels(["DAPI", "GFP", "RFP"])
+
+    # Check that state channels are updated to accommodate extra channels
+    assert state.channel_0 == "DAPI"
+    assert state.channel_1 == "GFP"
+    assert state.channel_2 == "RFP"
+    assert state.channel_3 is None
 
 
 def test_validate_channels_empty_state():
-    """Test that _validate_channels handles empty state channels correctly."""
+    """Test that _validate_channels handles empty channels but requires DAPI."""
     state = CellViewState()
-    state.channel_0 = None
-    state.channel_1 = None
-    state.channel_2 = None
-    state.channel_3 = None
 
-    # Empty state channels should match empty extracted channels
-    state._validate_channels([])
+    # Empty channels should raise error (no DAPI)
+    with pytest.raises(StateError, match="DAPI channel is required but not found in data"):
+        state._validate_channels([])
 
-    # Should raise an error if extracted channels are not empty
-    with pytest.raises(StateError, match="Channels do not match"):
-        state._validate_channels(["DAPI"])
+    # Should pass if DAPI is present
+    state._validate_channels(["DAPI"])
+    assert state.channel_0 == "DAPI"
+    assert state.channel_1 is None
 
 
 def test_validate_channels_empty_extracted():
-    """Test that _validate_channels handles empty extracted channels correctly."""
+    """Test that _validate_channels requires DAPI even if state has channels."""
     state = CellViewState()
-    state.channel_0 = "DAPI"
-    state.channel_1 = None
-    state.channel_2 = None
-    state.channel_3 = None
 
-    # Should log a warning since state has more channels than extracted
-    state._validate_channels([])
+    # Should raise error even if state has channels set (no DAPI in input)
+    with pytest.raises(StateError, match="DAPI channel is required but not found in data"):
+        state._validate_channels([])
 
 
 @pytest.mark.parametrize(
     "state_channels, extracted_channels, should_raise",
     [
-        # Case 1: Exact match
+        # Case 1: Has DAPI - should pass
         (["DAPI", "GFP", "RFP", None], ["DAPI", "GFP", "RFP"], False),
-        # Case 2: Different order (should raise)
-        (["DAPI", "GFP", "RFP", None], ["DAPI", "RFP", "GFP"], True),
-        # Case 3: Not enough extracted channels (should warn but not raise)
+        # Case 2: Has DAPI, different order - should pass (flexible now)
+        (["DAPI", "GFP", "RFP", None], ["DAPI", "RFP", "GFP"], False),
+        # Case 3: Has DAPI, fewer channels - should pass
         (["DAPI", "GFP", "RFP", None], ["DAPI", "GFP"], False),
-        # Case 4: Extra extracted channels (should raise)
-        (["DAPI", "GFP", None, None], ["DAPI", "GFP", "RFP"], True),
-        # Case 5: Empty state, empty extracted (should pass)
-        ([None, None, None, None], [], False),
-        # Case 6: Empty state, non-empty extracted (should raise)
-        ([None, None, None, None], ["DAPI"], True),
-        # Case 7: Non-empty state, empty extracted (should warn but not raise)
-        (["DAPI", None, None, None], [], False),
-        # Case 8: Different channel names (should raise)
-        (["DAPI", "GFP", "RFP", None], ["DAPI", "GFP", "mCherry"], True),
+        # Case 4: Has DAPI, more channels - should pass (flexible now)
+        (["DAPI", "GFP", None, None], ["DAPI", "GFP", "RFP"], False),
+        # Case 5: No DAPI, empty - should raise
+        ([None, None, None, None], [], True),
+        # Case 6: Has DAPI - should pass
+        ([None, None, None, None], ["DAPI"], False),
+        # Case 7: No DAPI - should raise
+        (["DAPI", None, None, None], [], True),
+        # Case 8: Has DAPI, different names - should pass (flexible now)
+        (["DAPI", "GFP", "RFP", None], ["DAPI", "GFP", "mCherry"], False),
     ],
 )
 def test_validate_channels_parametrized(
     state_channels, extracted_channels, should_raise
 ):
-    """Test _validate_channels with various inputs."""
+    """Test _validate_channels with various inputs - now flexible validation."""
     state = CellViewState()
-    state.channel_0 = state_channels[0]
-    state.channel_1 = state_channels[1]
-    state.channel_2 = state_channels[2]
-    state.channel_3 = state_channels[3]
 
     if should_raise:
-        with pytest.raises(StateError):
+        with pytest.raises(StateError, match="DAPI channel is required"):
             state._validate_channels(extracted_channels)
     else:
         # Should not raise an exception
         state._validate_channels(extracted_channels)
+        # Check that state was updated dynamically if DAPI present
+        if extracted_channels and "DAPI" in extracted_channels:
+            assert state.channel_0 == (extracted_channels[0] if len(extracted_channels) > 0 else None)
+            assert state.channel_1 == (extracted_channels[1] if len(extracted_channels) > 1 else None)
+            assert state.channel_2 == (extracted_channels[2] if len(extracted_channels) > 2 else None)
+            assert state.channel_3 == (extracted_channels[3] if len(extracted_channels) > 3 else None)
 
 
 def test_rename_channel_columns_mixed_channels():

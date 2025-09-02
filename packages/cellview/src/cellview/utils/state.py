@@ -419,7 +419,8 @@ class CellViewState:
         self.df = self._trim_df(meas_cols)
         channels = self._get_channel_list()
         self._validate_channels(channels)
-        self._rename_channel_columns(channels)
+        # Skip channel renaming - keep original antibody names for flexibility
+        # self._rename_channel_columns(channels)  # REMOVED
         self._rename_centroid_cols()
         self._optimize_measurement_types()
         self._set_classifier()
@@ -524,37 +525,26 @@ class CellViewState:
         return channels
 
     def _validate_channels(self, channels: list[str]) -> None:
-        """Compare the channels extracted from the df with the channels in the state.
+        """Validate that DAPI channel exists and log discovered channels.
 
         Raises:
-            StateError: If the channels do not match.
+            StateError: If DAPI channel is missing.
         """
-        # Get non-None state channels
-        state_channels = [
-            ch
-            for ch in [
-                self.channel_0,
-                self.channel_1,
-                self.channel_2,
-                self.channel_3,
-            ]
-            if ch is not None
-        ]
-
-        # Check if we have enough extracted channels
-        if len(state_channels) > len(channels):
-            self.logger.warning("Not enough channels in data to match state")
-            return
-
-        # Check if channels match at each position
-        if channels != state_channels:
+        # DAPI is required
+        if "DAPI" not in channels:
             raise StateError(
-                "Channels do not match",
-                context={
-                    "channels": channels,
-                    "state_channels": state_channels,
-                },
+                "DAPI channel is required but not found in data",
+                context={"channels": channels},
             )
+
+        # Log discovered channels for info
+        self.logger.info("Discovered channels: %s", channels)
+
+        # Update state channels dynamically based on discovered channels
+        self.channel_0 = channels[0] if len(channels) > 0 else None
+        self.channel_1 = channels[1] if len(channels) > 1 else None
+        self.channel_2 = channels[2] if len(channels) > 2 else None
+        self.channel_3 = channels[3] if len(channels) > 3 else None
 
     def _rename_channel_columns(self, channels: list[str]) -> None:
         """Renames non-DAPI channel names in DataFrame columns to ch1, ch2, etc.
