@@ -1,0 +1,529 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Utility Functions &mdash; OmeroScreen Plots 0.1.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/plot_directive.css?v=7f9a90b1" />
+
+
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=a58bc63e"></script>
+      <script src="../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Count Plot Usage Examples" href="../count_plot_examples.html" />
+    <link rel="prev" title="Normalise API" href="normalise.html" />
+</head>
+
+<body class="wy-body-for-nav">
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+
+
+          <a href="../index.html" class="icon icon-home">
+            OmeroScreen Plots
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#install-from-source">Install from Source</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#standalone-installation">Standalone Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#dependencies">Dependencies</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#verify-installation">Verify Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#import-errors">Import Errors</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#missing-dependencies">Missing Dependencies</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#download-example-data">Download Example Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#basic-workflow">Basic Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#data-format">Data Format</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#plot-types">Plot Types</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#count-plots">1. Count Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#feature-plots">2. Feature Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#cell-cycle-plots">3. Cell Cycle Plots</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#running-the-example-notebooks">Running the Example Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#common-parameters">Common Parameters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#statistical-analysis">Statistical Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#customization-examples">Customization Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#custom-colors">Custom Colors</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#grouped-conditions">Grouped Conditions</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#tips-for-using-example-data">Tips for Using Example Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../plot_types.html">Plot Types</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../plot_types.html#featureplot">FeaturePlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#basic-usage">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#key-parameters">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#output">Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_types.html#cellcycleplot">CellCyclePlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#id1">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#id2">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#id3">Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_types.html#combplot">CombPlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#plot-types-available">Plot Types Available</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#id4">Key Parameters</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_types.html#countplot">CountPlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#id5">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#id6">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#id7">Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_types.html#specialized-analysis-functions">Specialized Analysis Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#normalise">Normalise</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#stats-module">Stats Module</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_types.html#choosing-the-right-plot-type">Choosing the Right Plot Type</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_types.html#common-workflow">Common Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_types.html#tips">Tips</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../customization.html">Customization &amp; Styling</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../customization.html#default-color-palette">Default Color Palette</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#using-colors-in-code">Using Colors in Code</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../customization.html#typography-layout">Typography &amp; Layout</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#font-settings">Font Settings</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#figure-dimensions">Figure Dimensions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#axes-styling">Axes Styling</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#legends">Legends</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../customization.html#customizing-colors">Customizing Colors</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#method-1-using-order-and-colors-parameter">Method 1: Using order_and_colors Parameter</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#method-2-using-default-colors-with-custom-order">Method 2: Using Default Colors with Custom Order</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#method-3-grouped-color-schemes">Method 3: Grouped Color Schemes</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../customization.html#style-customization">Style Customization</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#temporary-style-override">Temporary Style Override</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#creating-custom-style-file">Creating Custom Style File</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#modifying-existing-plots">Modifying Existing Plots</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../customization.html#best-practices">Best Practices</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#color-selection">Color Selection</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#typography">Typography</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#layout">Layout</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#file-output">File Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../customization.html#common-customizations">Common Customizations</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#journal-specific-requirements">Journal-Specific Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#high-contrast-mode">High-Contrast Mode</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#presentation-mode">Presentation Mode</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="featureplot.html">FeaturePlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="featureplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="featureplot.html#omero_screen_plots.featureplot_api.feature_plot"><code class="docutils literal notranslate"><span class="pre">feature_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="featureplot.html#examples">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="featureplot.html#basic-box-plot">Basic Box Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="featureplot.html#grouped-layout">Grouped Layout</a></li>
+<li class="toctree-l3"><a class="reference internal" href="featureplot.html#violin-plots">Violin Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="featureplot.html#clean-violin-plots">Clean Violin Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="featureplot.html#combined-subplot-analysis">Combined Subplot Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="featureplot.html#configuration-options">Configuration Options</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="featurenormplot.html">FeatureNormPlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="featurenormplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="featurenormplot.html#omero_screen_plots.featureplot_api.feature_norm_plot"><code class="docutils literal notranslate"><span class="pre">feature_norm_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="featurenormplot.html#id1">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="featurenormplot.html#basic-normalized-plot">Basic Normalized Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="featurenormplot.html#triplicates-with-blue-color-scheme">Triplicates with Blue Color Scheme</a></li>
+<li class="toctree-l3"><a class="reference internal" href="featurenormplot.html#grouped-layout-with-purple-scheme">Grouped Layout with Purple Scheme</a></li>
+<li class="toctree-l3"><a class="reference internal" href="featurenormplot.html#custom-threshold-analysis">Custom Threshold Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="featurenormplot.html#combined-analysis-comparison">Combined Analysis Comparison</a></li>
+<li class="toctree-l3"><a class="reference internal" href="featurenormplot.html#configuration-options">Configuration Options</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="cellcycleplot.html">CellCyclePlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="cellcycleplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#omero_screen_plots.cellcycleplot.cellcycle_plot"><code class="docutils literal notranslate"><span class="pre">cellcycle_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#omero_screen_plots.cellcycleplot.cellcycle_stacked"><code class="docutils literal notranslate"><span class="pre">cellcycle_stacked()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#omero_screen_plots.cellcycleplot.cellcycle_grouped"><code class="docutils literal notranslate"><span class="pre">cellcycle_grouped()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cellcycleplot.html#helper-functions">Helper Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#omero_screen_plots.cellcycleplot.cc_phase"><code class="docutils literal notranslate"><span class="pre">cc_phase()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#omero_screen_plots.cellcycleplot.prop_pivot"><code class="docutils literal notranslate"><span class="pre">prop_pivot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#omero_screen_plots.cellcycleplot.plot_triplicate_bars"><code class="docutils literal notranslate"><span class="pre">plot_triplicate_bars()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#omero_screen_plots.cellcycleplot.draw_triplicate_boxes"><code class="docutils literal notranslate"><span class="pre">draw_triplicate_boxes()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cellcycleplot.html#examples">Examples</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="combplot.html">CombPlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="combplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="combplot.html#omero_screen_plots.combplot.comb_plot"><code class="docutils literal notranslate"><span class="pre">comb_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="combplot.html#omero_screen_plots.combplot.combplot_simple"><code class="docutils literal notranslate"><span class="pre">combplot_simple()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="combplot.html#omero_screen_plots.combplot.histogram_plot"><code class="docutils literal notranslate"><span class="pre">histogram_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="combplot.html#omero_screen_plots.combplot.scatter_plot"><code class="docutils literal notranslate"><span class="pre">scatter_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="combplot.html#omero_screen_plots.combplot.scatter_plot_feature"><code class="docutils literal notranslate"><span class="pre">scatter_plot_feature()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="combplot.html#examples">Examples</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="countplot.html">Count Plots</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="countplot.html#quick-start">Quick Start</a></li>
+<li class="toctree-l2"><a class="reference internal" href="countplot.html#main-function">Main Function</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="countplot.html#omero_screen_plots.count_plot"><code class="docutils literal notranslate"><span class="pre">count_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="countplot.html#plot-types">Plot Types</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="countplot.html#omero_screen_plots.countplot_api.PlotType"><code class="docutils literal notranslate"><span class="pre">PlotType</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="countplot.html#omero_screen_plots.countplot_api.PlotType.NORMALISED"><code class="docutils literal notranslate"><span class="pre">PlotType.NORMALISED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="countplot.html#omero_screen_plots.countplot_api.PlotType.ABSOLUTE"><code class="docutils literal notranslate"><span class="pre">PlotType.ABSOLUTE</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="countplot.html#data-requirements">Data Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="countplot.html#basic-usage-examples">Basic Usage Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="countplot.html#advanced-usage">Advanced Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="countplot.html#complete-parameter-reference">Complete Parameter Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="countplot.html#core-parameters">Core Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="countplot.html#data-filtering">Data Filtering</a></li>
+<li class="toctree-l3"><a class="reference internal" href="countplot.html#plot-configuration">Plot Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="countplot.html#figure-settings">Figure Settings</a></li>
+<li class="toctree-l3"><a class="reference internal" href="countplot.html#layout-and-grouping">Layout and Grouping</a></li>
+<li class="toctree-l3"><a class="reference internal" href="countplot.html#saving-options">Saving Options</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="countplot.html#id1">Returns</a></li>
+<li class="toctree-l2"><a class="reference internal" href="countplot.html#algorithm-details">Algorithm Details</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="countplot.html#count-calculation-process">Count Calculation Process</a></li>
+<li class="toctree-l3"><a class="reference internal" href="countplot.html#statistical-analysis">Statistical Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="countplot.html#error-handling">Error Handling</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="countplot.html#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="normalise.html">Normalise API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="normalise.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="normalise.html#omero_screen_plots.normalise.normalize_by_mode"><code class="docutils literal notranslate"><span class="pre">normalize_by_mode()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="normalise.html#omero_screen_plots.normalise.normalize_and_plot"><code class="docutils literal notranslate"><span class="pre">normalize_and_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="normalise.html#omero_screen_plots.normalise.plot_normalization_result"><code class="docutils literal notranslate"><span class="pre">plot_normalization_result()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="normalise.html#omero_screen_plots.normalise.set_threshold_categories"><code class="docutils literal notranslate"><span class="pre">set_threshold_categories()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="normalise.html#helper-functions">Helper Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="normalise.html#omero_screen_plots.normalise.find_intensity_mode"><code class="docutils literal notranslate"><span class="pre">find_intensity_mode()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="normalise.html#examples">Examples</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Utility Functions</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#functions">Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#omero_screen_plots.utils.save_fig"><code class="docutils literal notranslate"><span class="pre">save_fig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#omero_screen_plots.utils.scale_data"><code class="docutils literal notranslate"><span class="pre">scale_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#omero_screen_plots.utils.selector_val_filter"><code class="docutils literal notranslate"><span class="pre">selector_val_filter()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#omero_screen_plots.utils.get_repeat_points"><code class="docutils literal notranslate"><span class="pre">get_repeat_points()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#omero_screen_plots.utils.show_repeat_points"><code class="docutils literal notranslate"><span class="pre">show_repeat_points()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#omero_screen_plots.utils.select_datapoints"><code class="docutils literal notranslate"><span class="pre">select_datapoints()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#omero_screen_plots.utils.grouped_x_positions"><code class="docutils literal notranslate"><span class="pre">grouped_x_positions()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#examples">Examples</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Examples</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../count_plot_examples.html">Count Plot Usage Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#basic-setup">Basic Setup</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-1-basic-normalized-count-plot">Example 1: Basic Normalized Count Plot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-2-absolute-count-plot">Example 2: Absolute Count Plot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-3-multi-cell-line-comparison">Example 3: Multi-Cell Line Comparison</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-4-grouped-layout-for-many-conditions">Example 4: Grouped Layout for Many Conditions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-5-time-course-analysis">Example 5: Time-Course Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-6-custom-styling-and-colors">Example 6: Custom Styling and Colors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-7-error-handling-and-data-validation">Example 7: Error Handling and Data Validation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-8-batch-analysis">Example 8: Batch Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-9-integration-with-statistical-analysis">Example 9: Integration with Statistical Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-10-memory-efficient-large-dataset-processing">Example 10: Memory-Efficient Large Dataset Processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#key-points-for-effective-usage">Key Points for Effective Usage</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../count_plot_examples.html#data-requirements">Data Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../count_plot_examples.html#performance-tips">Performance Tips</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../count_plot_examples.html#statistical-considerations">Statistical Considerations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../count_plot_examples.html#troubleshooting-common-issues">Troubleshooting Common Issues</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">OmeroScreen Plots</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Utility Functions</li>
+      <li class="wy-breadcrumbs-aside">
+              <a href="https://github.com/Helfrid/omero-screen/blob/main/packages/omero-screen-plots/docs/api/utils.rst" class="fa fa-github"> Edit on GitHub</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+
+  <section id="utility-functions">
+<h1>Utility Functions<a class="headerlink" href="#utility-functions" title="Link to this heading"></a></h1>
+<p>This module provides utility functions used across the plotting package.</p>
+<section id="functions">
+<h2>Functions<a class="headerlink" href="#functions" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="omero_screen_plots.utils.save_fig">
+<span class="sig-prename descclassname"><span class="pre">omero_screen_plots.utils.</span></span><span class="sig-name descname"><span class="pre">save_fig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fig</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://matplotlib.org/stable/api/_as_gen/matplotlib.figure.Figure.html#matplotlib.figure.Figure" title="(in Matplotlib v3.10.5)"><span class="pre">Figure</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.13)"><span class="pre">Path</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">fig_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">tight_layout</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fig_extension</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'pdf'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resolution</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">300</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../_modules/omero_screen_plots/utils.html#save_fig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#omero_screen_plots.utils.save_fig" title="Link to this definition"></a></dt>
+<dd><p>Save a matplotlib figure to a file.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
+</dd>
+</dl>
+<section id="parameters">
+<h3>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt>fig<span class="classifier">Figure</span></dt><dd><p>The figure to save.</p>
+</dd>
+<dt>path<span class="classifier">Path</span></dt><dd><p>The path for saving the figure.</p>
+</dd>
+<dt>fig_id<span class="classifier">str</span></dt><dd><p>The name of the saved figure.</p>
+</dd>
+<dt>tight_layout<span class="classifier">bool, optional</span></dt><dd><p>Whether to use tight layout (default is True).</p>
+</dd>
+<dt>fig_extension<span class="classifier">str, optional</span></dt><dd><p>The file extension for the saved figure (default is ‘pdf’).</p>
+</dd>
+<dt>resolution<span class="classifier">int, optional</span></dt><dd><p>The resolution of the saved figure in dpi (default is 300).</p>
+</dd>
+</dl>
+</section>
+<section id="returns">
+<h3>Returns:<a class="headerlink" href="#returns" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt>None</dt><dd><p>Saves the figure in the specified format.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="omero_screen_plots.utils.scale_data">
+<span class="sig-prename descclassname"><span class="pre">omero_screen_plots.utils.</span></span><span class="sig-name descname"><span class="pre">scale_data</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">df</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v2.3.1)"><span class="pre">DataFrame</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_col</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_min</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_max</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">99.0</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v2.3.1)"><span class="pre">DataFrame</span></a></span></span><a class="reference internal" href="../_modules/omero_screen_plots/utils.html#scale_data"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#omero_screen_plots.utils.scale_data" title="Link to this definition"></a></dt>
+<dd><p>Scale data in the dataframe by the specified column.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v2.3.1)"><code class="xref py py-class docutils literal notranslate"><span class="pre">DataFrame</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="omero_screen_plots.utils.selector_val_filter">
+<span class="sig-prename descclassname"><span class="pre">omero_screen_plots.utils.</span></span><span class="sig-name descname"><span class="pre">selector_val_filter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">df</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v2.3.1)"><span class="pre">DataFrame</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">selector_col</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">selector_val</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">condition_col</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">conditions</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v2.3.1)"><span class="pre">DataFrame</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../_modules/omero_screen_plots/utils.html#selector_val_filter"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#omero_screen_plots.utils.selector_val_filter" title="Link to this definition"></a></dt>
+<dd><p>Check if selector_val is provided for selector_col and filter df.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.13)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v2.3.1)"><code class="xref py py-class docutils literal notranslate"><span class="pre">DataFrame</span></code></a>]</span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="omero_screen_plots.utils.get_repeat_points">
+<span class="sig-prename descclassname"><span class="pre">omero_screen_plots.utils.</span></span><span class="sig-name descname"><span class="pre">get_repeat_points</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">df</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v2.3.1)"><span class="pre">DataFrame</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">condition_col</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">y_col</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v2.3.1)"><span class="pre">DataFrame</span></a></span></span><a class="reference internal" href="../_modules/omero_screen_plots/utils.html#get_repeat_points"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#omero_screen_plots.utils.get_repeat_points" title="Link to this definition"></a></dt>
+<dd><p>Get repeat points for the given condition and y column.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v2.3.1)"><code class="xref py py-class docutils literal notranslate"><span class="pre">DataFrame</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="omero_screen_plots.utils.show_repeat_points">
+<span class="sig-prename descclassname"><span class="pre">omero_screen_plots.utils.</span></span><span class="sig-name descname"><span class="pre">show_repeat_points</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">df</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v2.3.1)"><span class="pre">DataFrame</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">conditions</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">condition_col</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">y_col</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">ax</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://matplotlib.org/stable/api/_as_gen/matplotlib.axes.Axes.html#matplotlib.axes.Axes" title="(in Matplotlib v3.10.5)"><span class="pre">Axes</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../_modules/omero_screen_plots/utils.html#show_repeat_points"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#omero_screen_plots.utils.show_repeat_points" title="Link to this definition"></a></dt>
+<dd><p>Show repeat points.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><code class="xref py py-obj docutils literal notranslate"><span class="pre">None</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="omero_screen_plots.utils.select_datapoints">
+<span class="sig-prename descclassname"><span class="pre">omero_screen_plots.utils.</span></span><span class="sig-name descname"><span class="pre">select_datapoints</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">df</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v2.3.1)"><span class="pre">DataFrame</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">conditions</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">condition_col</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">30</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v2.3.1)"><span class="pre">DataFrame</span></a></span></span><a class="reference internal" href="../_modules/omero_screen_plots/utils.html#select_datapoints"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#omero_screen_plots.utils.select_datapoints" title="Link to this definition"></a></dt>
+<dd><p>Select up to n random datapoints per category and plate-id.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v2.3.1)"><code class="xref py py-class docutils literal notranslate"><span class="pre">DataFrame</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="omero_screen_plots.utils.grouped_x_positions">
+<span class="sig-prename descclassname"><span class="pre">omero_screen_plots.utils.</span></span><span class="sig-name descname"><span class="pre">grouped_x_positions</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_conditions</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">group_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bar_width</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0.5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">within_group_spacing</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0.5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">between_group_gap</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../_modules/omero_screen_plots/utils.html#grouped_x_positions"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#omero_screen_plots.utils.grouped_x_positions" title="Link to this definition"></a></dt>
+<dd><p>Generate x-axis positions for grouped plots.</p>
+<p>Parameters:
+- n_conditions: number of conditions (bars/groups)
+- group_size: number of conditions per group
+- bar_width: width of each bar
+- within_group_spacing: space between conditions in a group (distance between bar edges)
+- between_group_gap: extra space between groups (distance between bar edges)
+Returns a list of x positions for each condition (bar center).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">list</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></a>]</span></p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="examples">
+<h2>Examples<a class="headerlink" href="#examples" title="Link to this heading"></a></h2>
+<p>Scaling immunofluorescence data:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">omero_screen_plots.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">scale_data</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+<span class="c1"># Scale intensity data to 16-bit range</span>
+<span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="s2">&quot;data.csv&quot;</span><span class="p">)</span>
+<span class="n">df_scaled</span> <span class="o">=</span> <span class="n">scale_data</span><span class="p">(</span>
+    <span class="n">df</span><span class="p">,</span>
+    <span class="n">scale_col</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+    <span class="n">scale_min</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>  <span class="c1"># 1st percentile</span>
+    <span class="n">scale_max</span><span class="o">=</span><span class="mf">99.0</span>  <span class="c1"># 99th percentile</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Saving figures with consistent formatting:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">omero_screen_plots.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">save_fig</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+
+<span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">()</span>
+<span class="c1"># ... create your plot ...</span>
+
+<span class="n">save_fig</span><span class="p">(</span>
+    <span class="n">fig</span><span class="o">=</span><span class="n">fig</span><span class="p">,</span>
+    <span class="n">path</span><span class="o">=</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;output&quot;</span><span class="p">),</span>
+    <span class="n">fig_id</span><span class="o">=</span><span class="s2">&quot;my_analysis&quot;</span><span class="p">,</span>
+    <span class="n">fig_extension</span><span class="o">=</span><span class="s2">&quot;pdf&quot;</span><span class="p">,</span>
+    <span class="n">resolution</span><span class="o">=</span><span class="mi">300</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>Filtering data by condition:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">omero_screen_plots.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">selector_val_filter</span>
+
+<span class="c1"># Filter for specific experimental condition</span>
+<span class="n">filtered_df</span> <span class="o">=</span> <span class="n">selector_val_filter</span><span class="p">(</span>
+    <span class="n">df</span><span class="o">=</span><span class="n">data</span><span class="p">,</span>
+    <span class="n">selector_col</span><span class="o">=</span><span class="s2">&quot;cell_line&quot;</span><span class="p">,</span>
+    <span class="n">selector_val</span><span class="o">=</span><span class="s2">&quot;HeLa&quot;</span><span class="p">,</span>
+    <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;treatment&quot;</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;DMSO&quot;</span><span class="p">,</span> <span class="s2">&quot;Nutlin&quot;</span><span class="p">]</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="normalise.html" class="btn btn-neutral float-left" title="Normalise API" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../count_plot_examples.html" class="btn btn-neutral float-right" title="Count Plot Usage Examples" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Helfrid Hochegger.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+</body>
+</html>

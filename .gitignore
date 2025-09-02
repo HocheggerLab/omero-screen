@@ -270,6 +270,7 @@ scratch/
 # Ignore large image files
 examples/*
 *.csv
+packages/omero-screen-plots/examples/data/sample_plate_data.csv
 
 # =========================
 # Ignore Claude Code

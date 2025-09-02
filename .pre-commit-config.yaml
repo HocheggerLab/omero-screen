@@ -21,6 +21,7 @@ repos:
       - id: check-yaml
       - id: check-toml
       - id: check-added-large-files
+        args: ['--maxkb=50000']  # 50MB limit (GitHub's max file size)
       - id: debug-statements
       - id: check-case-conflict
       - id: check-merge-conflict

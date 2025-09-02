@@ -1,0 +1,613 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quick Start Guide &mdash; OmeroScreen Plots 0.1.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/plot_directive.css?v=7f9a90b1" />
+
+
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=a58bc63e"></script>
+      <script src="_static/doctools.js?v=9a2dae69"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Plot Types" href="plot_types.html" />
+    <link rel="prev" title="Installation" href="installation.html" />
+</head>
+
+<body class="wy-body-for-nav">
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+
+
+          <a href="index.html" class="icon icon-home">
+            OmeroScreen Plots
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#install-from-source">Install from Source</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#standalone-installation">Standalone Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#dependencies">Dependencies</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#verify-installation">Verify Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="installation.html#import-errors">Import Errors</a></li>
+<li class="toctree-l3"><a class="reference internal" href="installation.html#missing-dependencies">Missing Dependencies</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Quick Start Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#download-example-data">Download Example Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#basic-workflow">Basic Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#data-format">Data Format</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#plot-types">Plot Types</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#count-plots">1. Count Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#feature-plots">2. Feature Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#cell-cycle-plots">3. Cell Cycle Plots</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#running-the-example-notebooks">Running the Example Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#common-parameters">Common Parameters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#statistical-analysis">Statistical Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#customization-examples">Customization Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#custom-colors">Custom Colors</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#grouped-conditions">Grouped Conditions</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#tips-for-using-example-data">Tips for Using Example Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="plot_types.html">Plot Types</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#featureplot">FeaturePlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#basic-usage">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#key-parameters">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#output">Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#cellcycleplot">CellCyclePlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id1">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id2">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id3">Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#combplot">CombPlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#plot-types-available">Plot Types Available</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id4">Key Parameters</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#countplot">CountPlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id5">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id6">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id7">Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#specialized-analysis-functions">Specialized Analysis Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#normalise">Normalise</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#stats-module">Stats Module</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#choosing-the-right-plot-type">Choosing the Right Plot Type</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#common-workflow">Common Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#tips">Tips</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="customization.html">Customization &amp; Styling</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="customization.html#default-color-palette">Default Color Palette</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#using-colors-in-code">Using Colors in Code</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="customization.html#typography-layout">Typography &amp; Layout</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#font-settings">Font Settings</a></li>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#figure-dimensions">Figure Dimensions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#axes-styling">Axes Styling</a></li>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#legends">Legends</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="customization.html#customizing-colors">Customizing Colors</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#method-1-using-order-and-colors-parameter">Method 1: Using order_and_colors Parameter</a></li>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#method-2-using-default-colors-with-custom-order">Method 2: Using Default Colors with Custom Order</a></li>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#method-3-grouped-color-schemes">Method 3: Grouped Color Schemes</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="customization.html#style-customization">Style Customization</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#temporary-style-override">Temporary Style Override</a></li>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#creating-custom-style-file">Creating Custom Style File</a></li>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#modifying-existing-plots">Modifying Existing Plots</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="customization.html#best-practices">Best Practices</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#color-selection">Color Selection</a></li>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#typography">Typography</a></li>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#layout">Layout</a></li>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#file-output">File Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="customization.html#common-customizations">Common Customizations</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#journal-specific-requirements">Journal-Specific Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#high-contrast-mode">High-Contrast Mode</a></li>
+<li class="toctree-l3"><a class="reference internal" href="customization.html#presentation-mode">Presentation Mode</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api/featureplot.html">FeaturePlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/featureplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#omero_screen_plots.featureplot_api.feature_plot"><code class="docutils literal notranslate"><span class="pre">feature_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/featureplot.html#examples">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#basic-box-plot">Basic Box Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#grouped-layout">Grouped Layout</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#violin-plots">Violin Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#clean-violin-plots">Clean Violin Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#combined-subplot-analysis">Combined Subplot Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#configuration-options">Configuration Options</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/featurenormplot.html">FeatureNormPlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/featurenormplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/featurenormplot.html#omero_screen_plots.featureplot_api.feature_norm_plot"><code class="docutils literal notranslate"><span class="pre">feature_norm_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/featurenormplot.html#id1">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/featurenormplot.html#basic-normalized-plot">Basic Normalized Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featurenormplot.html#triplicates-with-blue-color-scheme">Triplicates with Blue Color Scheme</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featurenormplot.html#grouped-layout-with-purple-scheme">Grouped Layout with Purple Scheme</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featurenormplot.html#custom-threshold-analysis">Custom Threshold Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featurenormplot.html#combined-analysis-comparison">Combined Analysis Comparison</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featurenormplot.html#configuration-options">Configuration Options</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/cellcycleplot.html">CellCyclePlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcycleplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot_api.cellcycle_plot"><code class="docutils literal notranslate"><span class="pre">cellcycle_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcycleplot.html#legacy-functions">Legacy Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot.cellcycle_stacked"><code class="docutils literal notranslate"><span class="pre">cellcycle_stacked()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot.cellcycle_grouped"><code class="docutils literal notranslate"><span class="pre">cellcycle_grouped()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcycleplot.html#id1">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#default-cell-cycle-plot">Default Cell Cycle Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#dna-content-terminology">DNA Content Terminology</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#compact-layout-without-sub-g1">Compact Layout Without Sub-G1</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#plate-identification-with-legend">Plate Identification with Legend</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#clean-visualization">Clean Visualization</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#custom-styling">Custom Styling</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#combined-features">Combined Features</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcycleplot.html#key-features">Key Features</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#automatic-phase-detection">Automatic Phase Detection</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#variable-layouts">Variable Layouts</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#terminology-options">Terminology Options</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#plate-identification">Plate Identification</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#statistical-analysis">Statistical Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#color-scheme">Color Scheme</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcycleplot.html#configuration-options">Configuration Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcycleplot.html#data-requirements">Data Requirements</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/cellcyclestacked.html">CellCycleStacked API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcyclestacked.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#omero_screen_plots.cellcycleplot_api.cellcycle_stacked"><code class="docutils literal notranslate"><span class="pre">cellcycle_stacked()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcyclestacked.html#id1">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#basic-stacked-plot">Basic Stacked Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#stacked-plot-without-error-bars">Stacked Plot without Error Bars</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#triplicates-with-boxes">Triplicates with Boxes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#dna-content-terminology">DNA Content Terminology</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#custom-phase-selection">Custom Phase Selection</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#plot-without-legend">Plot without Legend</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#triplicates-without-boxes">Triplicates without Boxes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#custom-color-scheme">Custom Color Scheme</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#advanced-grouping-with-triplicates">Advanced Grouping with Triplicates</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#combined-analysis-with-other-plots">Combined Analysis with Other Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#configuration-options">Configuration Options</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/combplot.html">CombPlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/combplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/combplot.html#omero_screen_plots.combplot.comb_plot"><code class="docutils literal notranslate"><span class="pre">comb_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/combplot.html#omero_screen_plots.combplot.combplot_simple"><code class="docutils literal notranslate"><span class="pre">combplot_simple()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/combplot.html#omero_screen_plots.combplot.histogram_plot"><code class="docutils literal notranslate"><span class="pre">histogram_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/combplot.html#omero_screen_plots.combplot.scatter_plot"><code class="docutils literal notranslate"><span class="pre">scatter_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/combplot.html#omero_screen_plots.combplot.scatter_plot_feature"><code class="docutils literal notranslate"><span class="pre">scatter_plot_feature()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/combplot.html#examples">Examples</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/countplot.html">CountPlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#omero_screen_plots.countplot_api.count_plot"><code class="docutils literal notranslate"><span class="pre">count_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#examples">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#basic-normalized-count-plot">Basic Normalized Count Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#absolute-count-plot">Absolute Count Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#grouped-layout">Grouped Layout</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#combined-subplot-analysis">Combined Subplot Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#configuration-options">Configuration Options</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/normalise.html">Normalise API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/normalise.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/normalise.html#omero_screen_plots.normalise.normalize_by_mode"><code class="docutils literal notranslate"><span class="pre">normalize_by_mode()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/normalise.html#omero_screen_plots.normalise.normalize_and_plot"><code class="docutils literal notranslate"><span class="pre">normalize_and_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/normalise.html#omero_screen_plots.normalise.plot_normalization_result"><code class="docutils literal notranslate"><span class="pre">plot_normalization_result()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/normalise.html#omero_screen_plots.normalise.set_threshold_categories"><code class="docutils literal notranslate"><span class="pre">set_threshold_categories()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/normalise.html#helper-functions">Helper Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/normalise.html#omero_screen_plots.normalise.find_intensity_mode"><code class="docutils literal notranslate"><span class="pre">find_intensity_mode()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/normalise.html#examples">Examples</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/utils.html">Utility Functions</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/utils.html#functions">Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/utils.html#omero_screen_plots.utils.save_fig"><code class="docutils literal notranslate"><span class="pre">save_fig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/utils.html#omero_screen_plots.utils.scale_data"><code class="docutils literal notranslate"><span class="pre">scale_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/utils.html#omero_screen_plots.utils.selector_val_filter"><code class="docutils literal notranslate"><span class="pre">selector_val_filter()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/utils.html#omero_screen_plots.utils.get_repeat_points"><code class="docutils literal notranslate"><span class="pre">get_repeat_points()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/utils.html#omero_screen_plots.utils.show_repeat_points"><code class="docutils literal notranslate"><span class="pre">show_repeat_points()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/utils.html#omero_screen_plots.utils.select_datapoints"><code class="docutils literal notranslate"><span class="pre">select_datapoints()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/utils.html#omero_screen_plots.utils.grouped_x_positions"><code class="docutils literal notranslate"><span class="pre">grouped_x_positions()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/utils.html#examples">Examples</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Examples</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="count_plot_examples.html">Count Plot Usage Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#basic-setup">Basic Setup</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-1-basic-normalized-count-plot">Example 1: Basic Normalized Count Plot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-2-absolute-count-plot">Example 2: Absolute Count Plot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-3-multi-cell-line-comparison">Example 3: Multi-Cell Line Comparison</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-4-grouped-layout-for-many-conditions">Example 4: Grouped Layout for Many Conditions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-5-time-course-analysis">Example 5: Time-Course Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-6-custom-styling-and-colors">Example 6: Custom Styling and Colors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-7-error-handling-and-data-validation">Example 7: Error Handling and Data Validation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-8-batch-analysis">Example 8: Batch Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-9-integration-with-statistical-analysis">Example 9: Integration with Statistical Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-10-memory-efficient-large-dataset-processing">Example 10: Memory-Efficient Large Dataset Processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#key-points-for-effective-usage">Key Points for Effective Usage</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="count_plot_examples.html#data-requirements">Data Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="count_plot_examples.html#performance-tips">Performance Tips</a></li>
+<li class="toctree-l3"><a class="reference internal" href="count_plot_examples.html#statistical-considerations">Statistical Considerations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="count_plot_examples.html#troubleshooting-common-issues">Troubleshooting Common Issues</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">OmeroScreen Plots</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Quick Start Guide</li>
+      <li class="wy-breadcrumbs-aside">
+              <a href="https://github.com/Helfrid/omero-screen/blob/main/packages/omero-screen-plots/docs/quickstart.md" class="fa fa-github"> Edit on GitHub</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+
+  <section id="quick-start-guide">
+<h1>Quick Start Guide<a class="headerlink" href="#quick-start-guide" title="Link to this heading"></a></h1>
+<p>This guide will help you create your first plots with OmeroScreen Plots using example data.</p>
+<section id="download-example-data">
+<h2>Download Example Data<a class="headerlink" href="#download-example-data" title="Link to this heading"></a></h2>
+<p>First, let’s download the example dataset from Zenodo to test the different plot types:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Navigate to the examples data directory</span>
+<span class="nb">cd</span><span class="w"> </span>packages/omero-screen-plots/src/omero_screen_plots/examples/data
+
+<span class="c1"># Download the example dataset from Zenodo</span>
+wget<span class="w"> </span>https://zenodo.org/records/15728770/files/sample_plate_data.csv
+
+<span class="c1"># Or using curl</span>
+curl<span class="w"> </span>-L<span class="w"> </span>-o<span class="w"> </span>sample_plate_data.csv<span class="w"> </span>https://zenodo.org/records/15728770/files/sample_plate_data.csv
+</pre></div>
+</div>
+<p>This dataset contains single-cell measurements from a high-content screening experiment with multiple conditions and features.</p>
+</section>
+<section id="basic-workflow">
+<h2>Basic Workflow<a class="headerlink" href="#basic-workflow" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Load example data</strong>: Use the downloaded CSV file</p></li>
+<li><p><strong>Choose a plot type</strong>: Based on your analysis needs</p></li>
+<li><p><strong>Create and customize</strong>: Generate publication-ready figures</p></li>
+<li><p><strong>Save and export</strong>: Multiple format options</p></li>
+</ol>
+</section>
+<section id="data-format">
+<h2>Data Format<a class="headerlink" href="#data-format" title="Link to this heading"></a></h2>
+<p>The example data includes these key columns:</p>
+<ul class="simple">
+<li><p><strong>object_id</strong>: Unique identifier for each cell</p></li>
+<li><p><strong>condition</strong>: Experimental condition (e.g., “DMSO”, “Nutlin”, “Etop”, “Noc”)</p></li>
+<li><p><strong>plate_id</strong>: Plate identifier</p></li>
+<li><p><strong>well_name</strong>: Well position (e.g., “C04”, “D04”)</p></li>
+<li><p><strong>Feature columns</strong>: Various measurements including:</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">intensity_mean_dapi_nucleus</span></code>: DAPI intensity</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">intensity_integrated_edu_nucleus</span></code>: EdU incorporation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">intensity_mean_p21_nucleus</span></code>: p21 expression</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">area_nucleus</span></code>: Nuclear area</p></li>
+<li><p>And many more…</p></li>
+</ul>
+</li>
+</ul>
+</section>
+<section id="plot-types">
+<h2>Plot Types<a class="headerlink" href="#plot-types" title="Link to this heading"></a></h2>
+<p>We have built a variety of functions for standardized single-cell analysis. This includes plotting measurements of specific parameters such as mean intensity or cell area, as well as cell cycle and cell count plotting. These plot types include statistical analysis when at least three different datasets are present in the dataframe. Combined plots display cell cycle profiles in greater detail using scatterplots.</p>
+<section id="count-plots">
+<h3>1. Count Plots<a class="headerlink" href="#count-plots" title="Link to this heading"></a></h3>
+<p>Count plots are the simplest type of analysis of the OmeroScreen IF data. They simply display the differences in cell count and provide a statistical analysis, if ,ore than 3 repeats are available.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">omero_screen_plots.countplot_api</span><span class="w"> </span><span class="kn">import</span> <span class="n">count_plot</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">omero_screen_plots.countplot_factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">PlotType</span>
+
+<span class="c1"># Load your data</span>
+<span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="s2">&quot;sample_plate_data.csv&quot;</span><span class="p">)</span>
+
+<span class="c1"># Generate absolute count plot</span>
+<span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">count_plot</span><span class="p">(</span>
+    <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+    <span class="n">norm_control</span><span class="o">=</span><span class="s2">&quot;control&quot;</span><span class="p">,</span>  <span class="c1"># Still required for data processing</span>
+    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;control&#39;</span><span class="p">,</span> <span class="s1">&#39;cond01&#39;</span><span class="p">,</span> <span class="s1">&#39;cond02&#39;</span><span class="p">,</span> <span class="s1">&#39;cond03&#39;</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;condition&quot;</span><span class="p">,</span>
+    <span class="n">selector_col</span><span class="o">=</span><span class="s1">&#39;cell_line&#39;</span><span class="p">,</span>
+    <span class="n">selector_val</span><span class="o">=</span><span class="s1">&#39;MCF10A&#39;</span><span class="p">,</span>
+    <span class="n">plot_type</span><span class="o">=</span><span class="n">PlotType</span><span class="o">.</span><span class="n">ABSOLUTE</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">&quot;Absolute Cell Counts per Condition&quot;</span><span class="p">,</span>
+    <span class="n">save</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">path</span><span class="o">=</span><span class="s2">&quot;_static&quot;</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><img alt="Count Plot Example" src="_images/qs_count_plot.svg" /></p>
+</section>
+<section id="feature-plots">
+<h3>2. Feature Plots<a class="headerlink" href="#feature-plots" title="Link to this heading"></a></h3>
+<p>Feature plots display single cell measurements for a chosen parameter provided by the
+feature argument. Below is a standard example using an overlay of boxen and stripplots
+and also displaying the median of individual repeats in the data set with t-tests performed
+relative to the control (the first column by default)</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">omero_screen_plots</span><span class="w"> </span><span class="kn">import</span> <span class="n">feature_plot</span>
+
+<span class="c1"># Generate feature plot</span>
+<span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">feature_plot</span><span class="p">(</span>
+    <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+    <span class="n">feature</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;control&#39;</span><span class="p">,</span> <span class="s1">&#39;cond01&#39;</span><span class="p">,</span> <span class="s1">&#39;cond02&#39;</span><span class="p">,</span> <span class="s1">&#39;cond03&#39;</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;condition&quot;</span><span class="p">,</span>
+    <span class="n">selector_col</span><span class="o">=</span><span class="s1">&#39;cell_line&#39;</span><span class="p">,</span>
+    <span class="n">selector_val</span><span class="o">=</span><span class="s1">&#39;MCF10A&#39;</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">&quot;p21 Expression by Condition&quot;</span><span class="p">,</span>
+    <span class="n">fig_size</span><span class="o">=</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+    <span class="n">save</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">path</span><span class="o">=</span><span class="s2">&quot;_static&quot;</span>  <span class="c1"># Save to docs _static directory</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><img alt="Feature Plot Example" src="_images/qs_feature_plot.svg" /></p>
+</section>
+<section id="cell-cycle-plots">
+<h3>3. Cell Cycle Plots<a class="headerlink" href="#cell-cycle-plots" title="Link to this heading"></a></h3>
+<p>Cellcycle plots require EdU staining in the dataset, and are calculated using an
+automated normalisation and thresholding procedure. There are several variations in the
+display options, below is a stacked barplot example.</p>
+<p><em>Note: The cell cycle plot requires EdU staining data. If your dataset doesn’t contain the required EdU columns, this plot may not display correctly.</em></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">omero_screen_plots</span><span class="w"> </span><span class="kn">import</span> <span class="n">cellcycle_stacked</span>
+
+<span class="c1"># Generate cell cycle plot (requires EdU data)</span>
+
+<span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">cellcycle_stacked</span><span class="p">(</span>
+    <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;control&#39;</span><span class="p">,</span> <span class="s1">&#39;cond01&#39;</span><span class="p">,</span> <span class="s1">&#39;cond02&#39;</span><span class="p">,</span> <span class="s1">&#39;cond03&#39;</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;condition&quot;</span><span class="p">,</span>
+    <span class="n">selector_col</span><span class="o">=</span><span class="s1">&#39;cell_line&#39;</span><span class="p">,</span>
+    <span class="n">selector_val</span><span class="o">=</span><span class="s1">&#39;MCF10A&#39;</span><span class="p">,</span>
+    <span class="n">y_err</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">&quot;Stacked Cell Cycle Plot&quot;</span><span class="p">,</span>
+    <span class="n">fig_size</span><span class="o">=</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+    <span class="n">size_units</span><span class="o">=</span><span class="s2">&quot;cm&quot;</span><span class="p">,</span>
+    <span class="n">between_group_gap</span><span class="o">=</span><span class="mf">0.4</span><span class="p">,</span>
+    <span class="n">save</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">path</span><span class="o">=</span><span class="s2">&quot;_static&quot;</span>  <span class="c1"># Save to docs _static directory</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p><img alt="Count Plot Example" src="_images/qs_cellcycle_plot.svg" /></p>
+</section>
+</section>
+<section id="running-the-example-notebooks">
+<h2>Running the Example Notebooks<a class="headerlink" href="#running-the-example-notebooks" title="Link to this heading"></a></h2>
+<p>The package includes Jupyter notebooks demonstrating various analyses:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Navigate to the examples directory</span>
+<span class="nb">cd</span><span class="w"> </span>packages/omero-screen-plots/src/omero_screen_plots/examples/notebooks
+
+<span class="c1"># Start Jupyter</span>
+jupyter<span class="w"> </span>notebook
+
+<span class="c1"># Open and run the example notebooks:</span>
+<span class="c1"># - featureplot.ipynb</span>
+<span class="c1"># - cellcycle.ipynb</span>
+<span class="c1"># - combplot.ipynb</span>
+<span class="c1"># - normalise.ipynb</span>
+</pre></div>
+</div>
+</section>
+<section id="common-parameters">
+<h2>Common Parameters<a class="headerlink" href="#common-parameters" title="Link to this heading"></a></h2>
+<p>Most plot classes share these parameters:</p>
+<ul class="simple">
+<li><p><strong>data_path</strong>: Path to your CSV file</p></li>
+<li><p><strong>conditions</strong>: List of conditions to plot</p></li>
+<li><p><strong>condition_col</strong>: Column name containing conditions</p></li>
+<li><p><strong>plate_ids</strong>: Optional list to filter specific plates</p></li>
+<li><p><strong>output_path</strong>: Directory for saving figures</p></li>
+<li><p><strong>fig_format</strong>: Output format (“pdf”, “png”, “svg”)</p></li>
+<li><p><strong>dpi</strong>: Resolution for raster formats</p></li>
+</ul>
+</section>
+<section id="statistical-analysis">
+<h2>Statistical Analysis<a class="headerlink" href="#statistical-analysis" title="Link to this heading"></a></h2>
+<p>The example data demonstrates automatic statistical testing:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Feature plot with statistics</span>
+<span class="n">plot</span> <span class="o">=</span> <span class="n">FeaturePlot</span><span class="p">(</span>
+    <span class="n">data_path</span><span class="o">=</span><span class="s2">&quot;sample_plate_data.csv&quot;</span><span class="p">,</span>
+    <span class="n">y_feature</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;DMSO&quot;</span><span class="p">,</span> <span class="s2">&quot;Nutlin&quot;</span><span class="p">,</span> <span class="s2">&quot;Etop&quot;</span><span class="p">,</span> <span class="s2">&quot;Noc&quot;</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;condition&quot;</span><span class="p">,</span>
+    <span class="n">test_group_pairs</span><span class="o">=</span><span class="p">[(</span><span class="s2">&quot;DMSO&quot;</span><span class="p">,</span> <span class="s2">&quot;Nutlin&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;DMSO&quot;</span><span class="p">,</span> <span class="s2">&quot;Etop&quot;</span><span class="p">),</span> <span class="p">(</span><span class="s2">&quot;DMSO&quot;</span><span class="p">,</span> <span class="s2">&quot;Noc&quot;</span><span class="p">)]</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="customization-examples">
+<h2>Customization Examples<a class="headerlink" href="#customization-examples" title="Link to this heading"></a></h2>
+<section id="custom-colors">
+<h3>Custom Colors<a class="headerlink" href="#custom-colors" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Use custom colors for conditions</span>
+<span class="n">plot</span> <span class="o">=</span> <span class="n">FeaturePlot</span><span class="p">(</span>
+    <span class="n">data_path</span><span class="o">=</span><span class="s2">&quot;sample_plate_data.csv&quot;</span><span class="p">,</span>
+    <span class="n">y_feature</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;DMSO&quot;</span><span class="p">,</span> <span class="s2">&quot;Nutlin&quot;</span><span class="p">,</span> <span class="s2">&quot;Etop&quot;</span><span class="p">,</span> <span class="s2">&quot;Noc&quot;</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;condition&quot;</span><span class="p">,</span>
+    <span class="n">order_and_colors</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">&quot;DMSO&quot;</span><span class="p">:</span> <span class="s2">&quot;#1f77b4&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;Nutlin&quot;</span><span class="p">:</span> <span class="s2">&quot;#ff7f0e&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;Etop&quot;</span><span class="p">:</span> <span class="s2">&quot;#2ca02c&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;Noc&quot;</span><span class="p">:</span> <span class="s2">&quot;#d62728&quot;</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="grouped-conditions">
+<h3>Grouped Conditions<a class="headerlink" href="#grouped-conditions" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Group conditions visually</span>
+<span class="n">plot</span> <span class="o">=</span> <span class="n">FeaturePlot</span><span class="p">(</span>
+    <span class="n">data_path</span><span class="o">=</span><span class="s2">&quot;sample_plate_data.csv&quot;</span><span class="p">,</span>
+    <span class="n">y_feature</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;DMSO&quot;</span><span class="p">,</span> <span class="s2">&quot;Nutlin&quot;</span><span class="p">,</span> <span class="s2">&quot;Etop&quot;</span><span class="p">,</span> <span class="s2">&quot;Noc&quot;</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;condition&quot;</span><span class="p">,</span>
+    <span class="n">grouped</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">group_names</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Control&quot;</span><span class="p">,</span> <span class="s2">&quot;DNA Damage&quot;</span><span class="p">]</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="tips-for-using-example-data">
+<h2>Tips for Using Example Data<a class="headerlink" href="#tips-for-using-example-data" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Explore the data</strong>: Check what features are available in the CSV</p></li>
+<li><p><strong>Try different features</strong>: The example data has many measured parameters</p></li>
+<li><p><strong>Experiment with conditions</strong>: Try different subsets of the four conditions</p></li>
+<li><p><strong>Test plot types</strong>: Each plot type reveals different aspects of the data</p></li>
+<li><p><strong>Check the notebooks</strong>: Example notebooks show real-world usage patterns</p></li>
+</ol>
+</section>
+<section id="next-steps">
+<h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Explore <a class="reference internal" href="plot_types.html"><span class="std std-doc">Plot Types</span></a> for all available visualizations</p></li>
+<li><p>Learn about <a class="reference internal" href="customization.html"><span class="std std-doc">Customization</span></a> options</p></li>
+<li><p>See <a class="reference internal" href="#examples/basic_plots.md"><span class="xref myst">Example Notebooks</span></a> for detailed tutorials</p></li>
+<li><p>Try your own data following the same format as the example dataset</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="installation.html" class="btn btn-neutral float-left" title="Installation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="plot_types.html" class="btn btn-neutral float-right" title="Plot Types" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Helfrid Hochegger.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+</body>
+</html>

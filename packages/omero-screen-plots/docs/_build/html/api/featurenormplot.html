@@ -1,0 +1,697 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FeatureNormPlot API &mdash; OmeroScreen Plots 0.1.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../_static/plot_directive.css?v=7f9a90b1" />
+
+
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=a58bc63e"></script>
+      <script src="../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="CellCyclePlot API" href="cellcycleplot.html" />
+    <link rel="prev" title="FeaturePlot API" href="featureplot.html" />
+</head>
+
+<body class="wy-body-for-nav">
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+
+
+          <a href="../index.html" class="icon icon-home">
+            OmeroScreen Plots
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#install-from-source">Install from Source</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#standalone-installation">Standalone Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#dependencies">Dependencies</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#verify-installation">Verify Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#import-errors">Import Errors</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#missing-dependencies">Missing Dependencies</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#download-example-data">Download Example Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#basic-workflow">Basic Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#data-format">Data Format</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#plot-types">Plot Types</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#count-plots">1. Count Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#feature-plots">2. Feature Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#cell-cycle-plots">3. Cell Cycle Plots</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#running-the-example-notebooks">Running the Example Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#common-parameters">Common Parameters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#statistical-analysis">Statistical Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#customization-examples">Customization Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#custom-colors">Custom Colors</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../quickstart.html#grouped-conditions">Grouped Conditions</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#tips-for-using-example-data">Tips for Using Example Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../plot_types.html">Plot Types</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../plot_types.html#featureplot">FeaturePlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#basic-usage">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#key-parameters">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#output">Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_types.html#cellcycleplot">CellCyclePlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#id1">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#id2">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#id3">Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_types.html#combplot">CombPlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#plot-types-available">Plot Types Available</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#id4">Key Parameters</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_types.html#countplot">CountPlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#id5">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#id6">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#id7">Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_types.html#specialized-analysis-functions">Specialized Analysis Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#normalise">Normalise</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../plot_types.html#stats-module">Stats Module</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_types.html#choosing-the-right-plot-type">Choosing the Right Plot Type</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_types.html#common-workflow">Common Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_types.html#tips">Tips</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../customization.html">Customization &amp; Styling</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../customization.html#default-color-palette">Default Color Palette</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#using-colors-in-code">Using Colors in Code</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../customization.html#typography-layout">Typography &amp; Layout</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#font-settings">Font Settings</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#figure-dimensions">Figure Dimensions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#axes-styling">Axes Styling</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#legends">Legends</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../customization.html#customizing-colors">Customizing Colors</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#method-1-using-order-and-colors-parameter">Method 1: Using order_and_colors Parameter</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#method-2-using-default-colors-with-custom-order">Method 2: Using Default Colors with Custom Order</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#method-3-grouped-color-schemes">Method 3: Grouped Color Schemes</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../customization.html#style-customization">Style Customization</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#temporary-style-override">Temporary Style Override</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#creating-custom-style-file">Creating Custom Style File</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#modifying-existing-plots">Modifying Existing Plots</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../customization.html#best-practices">Best Practices</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#color-selection">Color Selection</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#typography">Typography</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#layout">Layout</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#file-output">File Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../customization.html#common-customizations">Common Customizations</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#journal-specific-requirements">Journal-Specific Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#high-contrast-mode">High-Contrast Mode</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../customization.html#presentation-mode">Presentation Mode</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="featureplot.html">FeaturePlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="featureplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="featureplot.html#omero_screen_plots.featureplot_api.feature_plot"><code class="docutils literal notranslate"><span class="pre">feature_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="featureplot.html#examples">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="featureplot.html#basic-box-plot">Basic Box Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="featureplot.html#grouped-layout">Grouped Layout</a></li>
+<li class="toctree-l3"><a class="reference internal" href="featureplot.html#violin-plots">Violin Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="featureplot.html#clean-violin-plots">Clean Violin Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="featureplot.html#combined-subplot-analysis">Combined Subplot Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="featureplot.html#configuration-options">Configuration Options</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">FeatureNormPlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#omero_screen_plots.featureplot_api.feature_norm_plot"><code class="docutils literal notranslate"><span class="pre">feature_norm_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#id1">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#basic-normalized-plot">Basic Normalized Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#triplicates-with-blue-color-scheme">Triplicates with Blue Color Scheme</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#grouped-layout-with-purple-scheme">Grouped Layout with Purple Scheme</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#custom-threshold-analysis">Custom Threshold Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#combined-analysis-comparison">Combined Analysis Comparison</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#configuration-options">Configuration Options</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="cellcycleplot.html">CellCyclePlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="cellcycleplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#omero_screen_plots.cellcycleplot_api.cellcycle_plot"><code class="docutils literal notranslate"><span class="pre">cellcycle_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cellcycleplot.html#legacy-functions">Legacy Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#omero_screen_plots.cellcycleplot.cellcycle_stacked"><code class="docutils literal notranslate"><span class="pre">cellcycle_stacked()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#omero_screen_plots.cellcycleplot.cellcycle_grouped"><code class="docutils literal notranslate"><span class="pre">cellcycle_grouped()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cellcycleplot.html#id1">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#default-cell-cycle-plot">Default Cell Cycle Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#dna-content-terminology">DNA Content Terminology</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#compact-layout-without-sub-g1">Compact Layout Without Sub-G1</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#plate-identification-with-legend">Plate Identification with Legend</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#clean-visualization">Clean Visualization</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#custom-styling">Custom Styling</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#combined-features">Combined Features</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cellcycleplot.html#key-features">Key Features</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#automatic-phase-detection">Automatic Phase Detection</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#variable-layouts">Variable Layouts</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#terminology-options">Terminology Options</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#plate-identification">Plate Identification</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#statistical-analysis">Statistical Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcycleplot.html#color-scheme">Color Scheme</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cellcycleplot.html#configuration-options">Configuration Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cellcycleplot.html#data-requirements">Data Requirements</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="cellcyclestacked.html">CellCycleStacked API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="cellcyclestacked.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="cellcyclestacked.html#omero_screen_plots.cellcycleplot_api.cellcycle_stacked"><code class="docutils literal notranslate"><span class="pre">cellcycle_stacked()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cellcyclestacked.html#id1">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="cellcyclestacked.html#basic-stacked-plot">Basic Stacked Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcyclestacked.html#stacked-plot-without-error-bars">Stacked Plot without Error Bars</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcyclestacked.html#triplicates-with-boxes">Triplicates with Boxes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcyclestacked.html#dna-content-terminology">DNA Content Terminology</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcyclestacked.html#custom-phase-selection">Custom Phase Selection</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcyclestacked.html#plot-without-legend">Plot without Legend</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcyclestacked.html#triplicates-without-boxes">Triplicates without Boxes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcyclestacked.html#custom-color-scheme">Custom Color Scheme</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcyclestacked.html#advanced-grouping-with-triplicates">Advanced Grouping with Triplicates</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcyclestacked.html#combined-analysis-with-other-plots">Combined Analysis with Other Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cellcyclestacked.html#configuration-options">Configuration Options</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="combplot.html">CombPlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="combplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="combplot.html#omero_screen_plots.combplot.comb_plot"><code class="docutils literal notranslate"><span class="pre">comb_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="combplot.html#omero_screen_plots.combplot.combplot_simple"><code class="docutils literal notranslate"><span class="pre">combplot_simple()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="combplot.html#omero_screen_plots.combplot.histogram_plot"><code class="docutils literal notranslate"><span class="pre">histogram_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="combplot.html#omero_screen_plots.combplot.scatter_plot"><code class="docutils literal notranslate"><span class="pre">scatter_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="combplot.html#omero_screen_plots.combplot.scatter_plot_feature"><code class="docutils literal notranslate"><span class="pre">scatter_plot_feature()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="combplot.html#examples">Examples</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="countplot.html">CountPlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="countplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="countplot.html#omero_screen_plots.countplot_api.count_plot"><code class="docutils literal notranslate"><span class="pre">count_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="countplot.html#examples">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="countplot.html#basic-normalized-count-plot">Basic Normalized Count Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="countplot.html#absolute-count-plot">Absolute Count Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="countplot.html#grouped-layout">Grouped Layout</a></li>
+<li class="toctree-l3"><a class="reference internal" href="countplot.html#combined-subplot-analysis">Combined Subplot Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="countplot.html#configuration-options">Configuration Options</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="normalise.html">Normalise API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="normalise.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="normalise.html#omero_screen_plots.normalise.normalize_by_mode"><code class="docutils literal notranslate"><span class="pre">normalize_by_mode()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="normalise.html#omero_screen_plots.normalise.normalize_and_plot"><code class="docutils literal notranslate"><span class="pre">normalize_and_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="normalise.html#omero_screen_plots.normalise.plot_normalization_result"><code class="docutils literal notranslate"><span class="pre">plot_normalization_result()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="normalise.html#omero_screen_plots.normalise.set_threshold_categories"><code class="docutils literal notranslate"><span class="pre">set_threshold_categories()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="normalise.html#helper-functions">Helper Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="normalise.html#omero_screen_plots.normalise.find_intensity_mode"><code class="docutils literal notranslate"><span class="pre">find_intensity_mode()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="normalise.html#examples">Examples</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="utils.html">Utility Functions</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="utils.html#functions">Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="utils.html#omero_screen_plots.utils.save_fig"><code class="docutils literal notranslate"><span class="pre">save_fig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="utils.html#omero_screen_plots.utils.scale_data"><code class="docutils literal notranslate"><span class="pre">scale_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="utils.html#omero_screen_plots.utils.selector_val_filter"><code class="docutils literal notranslate"><span class="pre">selector_val_filter()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="utils.html#omero_screen_plots.utils.get_repeat_points"><code class="docutils literal notranslate"><span class="pre">get_repeat_points()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="utils.html#omero_screen_plots.utils.show_repeat_points"><code class="docutils literal notranslate"><span class="pre">show_repeat_points()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="utils.html#omero_screen_plots.utils.select_datapoints"><code class="docutils literal notranslate"><span class="pre">select_datapoints()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="utils.html#omero_screen_plots.utils.grouped_x_positions"><code class="docutils literal notranslate"><span class="pre">grouped_x_positions()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="utils.html#examples">Examples</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Examples</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../count_plot_examples.html">Count Plot Usage Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#basic-setup">Basic Setup</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-1-basic-normalized-count-plot">Example 1: Basic Normalized Count Plot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-2-absolute-count-plot">Example 2: Absolute Count Plot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-3-multi-cell-line-comparison">Example 3: Multi-Cell Line Comparison</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-4-grouped-layout-for-many-conditions">Example 4: Grouped Layout for Many Conditions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-5-time-course-analysis">Example 5: Time-Course Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-6-custom-styling-and-colors">Example 6: Custom Styling and Colors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-7-error-handling-and-data-validation">Example 7: Error Handling and Data Validation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-8-batch-analysis">Example 8: Batch Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-9-integration-with-statistical-analysis">Example 9: Integration with Statistical Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#example-10-memory-efficient-large-dataset-processing">Example 10: Memory-Efficient Large Dataset Processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../count_plot_examples.html#key-points-for-effective-usage">Key Points for Effective Usage</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../count_plot_examples.html#data-requirements">Data Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../count_plot_examples.html#performance-tips">Performance Tips</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../count_plot_examples.html#statistical-considerations">Statistical Considerations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../count_plot_examples.html#troubleshooting-common-issues">Troubleshooting Common Issues</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">OmeroScreen Plots</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">FeatureNormPlot API</li>
+      <li class="wy-breadcrumbs-aside">
+              <a href="https://github.com/Helfrid/omero-screen/blob/main/packages/omero-screen-plots/docs/api/featurenormplot.rst" class="fa fa-github"> Edit on GitHub</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+
+  <section id="featurenormplot-api">
+<h1>FeatureNormPlot API<a class="headerlink" href="#featurenormplot-api" title="Link to this heading"></a></h1>
+<p>The feature_norm_plot module provides visualization for normalized feature data with threshold-based analysis. These plots normalize data by mode (peak = 1.0) and display the proportion of cells above/below a customizable threshold as stacked bars. They support triplicate display, multiple color schemes, and normalization QC plots.</p>
+<section id="main-functions">
+<h2>Main Functions<a class="headerlink" href="#main-functions" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="omero_screen_plots.featureplot_api.feature_norm_plot">
+<span class="sig-prename descclassname"><span class="pre">omero_screen_plots.featureplot_api.</span></span><span class="sig-name descname"><span class="pre">feature_norm_plot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">df</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v2.3.1)"><span class="pre">DataFrame</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">feature</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">conditions</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">axes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://matplotlib.org/stable/api/_as_gen/matplotlib.axes.Axes.html#matplotlib.axes.Axes" title="(in Matplotlib v3.10.5)"><span class="pre">Axes</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x_label</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">condition_col</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'condition'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">selector_col</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'cell_line'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">selector_val</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">color_scheme</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'green'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">legend</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fig_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">(8,</span> <span class="pre">6)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">size_units</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'cm'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">normalize_by_plate</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">threshold</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_norm_qc</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_triplicates</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_error_bars</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_boxes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">group_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">within_group_spacing</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0.2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">between_group_gap</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0.5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path" title="(in Python v3.13)"><span class="pre">Path</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tight_layout</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">file_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'pdf'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dpi</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">300</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://matplotlib.org/stable/api/_as_gen/matplotlib.figure.Figure.html#matplotlib.figure.Figure" title="(in Matplotlib v3.10.5)"><span class="pre">Figure</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://matplotlib.org/stable/api/_as_gen/matplotlib.axes.Axes.html#matplotlib.axes.Axes" title="(in Matplotlib v3.10.5)"><span class="pre">Axes</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../_modules/omero_screen_plots/featureplot_api.html#feature_norm_plot"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#omero_screen_plots.featureplot_api.feature_norm_plot" title="Link to this definition"></a></dt>
+<dd><p>Create a normalized feature plot with threshold-based stacked bars.</p>
+<p>This plot normalizes the feature data by mode (peak=1.0) and displays the
+proportion of cells above/below a threshold as stacked bars. Optionally
+shows individual triplicate data with boxes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">tuple</span></code></a>[<a class="reference external" href="https://matplotlib.org/stable/api/_as_gen/matplotlib.figure.Figure.html#matplotlib.figure.Figure" title="(in Matplotlib v3.10.5)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Figure</span></code></a>, <a class="reference external" href="https://matplotlib.org/stable/api/_as_gen/matplotlib.axes.Axes.html#matplotlib.axes.Axes" title="(in Matplotlib v3.10.5)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Axes</span></code></a>]</span></p>
+</dd>
+</dl>
+<section id="parameters">
+<h3>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt>df<span class="classifier">pd.DataFrame</span></dt><dd><p>The dataframe containing single-cell measurements.</p>
+</dd>
+<dt>feature<span class="classifier">str</span></dt><dd><p>The feature column to normalize and plot.</p>
+</dd>
+<dt>conditions<span class="classifier">list[str]</span></dt><dd><p>The conditions to plot.</p>
+</dd>
+<dt>axes<span class="classifier">Optional[Axes], default=None</span></dt><dd><p>The axis to plot on.</p>
+</dd>
+<dt>x_label<span class="classifier">bool, default=True</span></dt><dd><p>Whether to show the x-label.</p>
+</dd>
+<dt>condition_col<span class="classifier">str, default=”condition”</span></dt><dd><p>The column name for the conditions.</p>
+</dd>
+<dt>selector_col<span class="classifier">Optional[str], default=”cell_line”</span></dt><dd><p>The column name for the selector.</p>
+</dd>
+<dt>selector_val<span class="classifier">Optional[str], default=””</span></dt><dd><p>The value of the selector.</p>
+</dd>
+<dt>title<span class="classifier">Optional[str], default=””</span></dt><dd><p>The title of the plot.</p>
+</dd>
+<dt>color_scheme<span class="classifier">str, default=”green”</span></dt><dd><p>Color scheme for positive/negative categories. Options:
+- “green”: Olive (positive) and Light Green (negative)
+- “blue”: Blue (positive) and Light Blue (negative)
+- “purple”: Purple (positive) and Lavender (negative)
+Invalid values default to “green”.</p>
+</dd>
+<dt>legend<span class="classifier">bool, default=False</span></dt><dd><p>Whether to show the default plate legend. Default False since
+norm plots have their own threshold legend.</p>
+</dd>
+<dt>fig_size<span class="classifier">tuple[float, float], default=(8, 6)</span></dt><dd><p>The size of the figure.</p>
+</dd>
+<dt>size_units<span class="classifier">str, default=”cm”</span></dt><dd><p>The units of the figure size.</p>
+</dd>
+<dt>normalize_by_plate<span class="classifier">bool, default=True</span></dt><dd><p>Whether to normalize within each plate.</p>
+</dd>
+<dt>threshold<span class="classifier">float, default=1.5</span></dt><dd><p>The threshold value (times mode).</p>
+</dd>
+<dt>save_norm_qc<span class="classifier">bool, default=False</span></dt><dd><p>Whether to save normalization QC plots. QC plots show the intensity
+distributions before/after normalization to document the process.
+Saved to the same path as the main plot with suffix “_norm_qc”.</p>
+</dd>
+<dt>show_triplicates<span class="classifier">bool, default=False</span></dt><dd><p>Whether to show individual triplicate bars.</p>
+</dd>
+<dt>show_error_bars<span class="classifier">bool, default=True</span></dt><dd><p>Whether to show error bars on summary bars.</p>
+</dd>
+<dt>show_boxes<span class="classifier">bool, default=True</span></dt><dd><p>Whether to draw boxes around triplicates.</p>
+</dd>
+<dt>group_size<span class="classifier">int, default=1</span></dt><dd><p>The number of conditions to group.</p>
+</dd>
+<dt>within_group_spacing<span class="classifier">float, default=0.2</span></dt><dd><p>The spacing between conditions within a group.</p>
+</dd>
+<dt>between_group_gap<span class="classifier">float, default=0.5</span></dt><dd><p>The gap between groups.</p>
+</dd>
+<dt>save<span class="classifier">bool, default=True</span></dt><dd><p>Whether to save the plot.</p>
+</dd>
+<dt>path<span class="classifier">Optional[Path], default=None</span></dt><dd><p>The path to save the plot.</p>
+</dd>
+<dt>tight_layout<span class="classifier">bool, default=False</span></dt><dd><p>Whether to use tight layout.</p>
+</dd>
+<dt>file_format<span class="classifier">str, default=”pdf”</span></dt><dd><p>The format of the saved figure.</p>
+</dd>
+<dt>dpi<span class="classifier">int, default=300</span></dt><dd><p>The resolution of the saved figure.</p>
+</dd>
+</dl>
+</section>
+<section id="returns">
+<h3>Returns:<a class="headerlink" href="#returns" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt>tuple[Figure, Axes]</dt><dd><p>The figure and axes objects.</p>
+</dd>
+</dl>
+</section>
+<section id="examples">
+<h3>Examples:<a class="headerlink" href="#examples" title="Link to this heading"></a></h3>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Basic normalized feature plot with default green scheme</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">feature_norm_plot</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">feature</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;control&quot;</span><span class="p">,</span> <span class="s2">&quot;treatment1&quot;</span><span class="p">,</span> <span class="s2">&quot;treatment2&quot;</span><span class="p">],</span>
+<span class="gp">... </span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Blue color scheme with individual triplicates</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">feature_norm_plot</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">feature</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;control&quot;</span><span class="p">,</span> <span class="s2">&quot;treatment1&quot;</span><span class="p">,</span> <span class="s2">&quot;treatment2&quot;</span><span class="p">],</span>
+<span class="gp">... </span>    <span class="n">color_scheme</span><span class="o">=</span><span class="s2">&quot;blue&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">show_triplicates</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">threshold</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span>  <span class="c1"># Custom threshold at 2x mode</span>
+<span class="gp">... </span><span class="p">)</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Purple color scheme for publication</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">feature_norm_plot</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">feature</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;control&quot;</span><span class="p">,</span> <span class="s2">&quot;treatment1&quot;</span><span class="p">,</span> <span class="s2">&quot;treatment2&quot;</span><span class="p">],</span>
+<span class="gp">... </span>    <span class="n">color_scheme</span><span class="o">=</span><span class="s2">&quot;purple&quot;</span><span class="p">,</span>
+<span class="gp">... </span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</dd></dl>
+
+</section>
+<section id="id1">
+<h2>Examples<a class="headerlink" href="#id1" title="Link to this heading"></a></h2>
+<section id="basic-normalized-plot">
+<h3>Basic Normalized Plot<a class="headerlink" href="#basic-normalized-plot" title="Link to this heading"></a></h3>
+<p>Create a basic normalized feature plot with the default green color scheme:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">omero_screen_plots</span><span class="w"> </span><span class="kn">import</span> <span class="n">feature_norm_plot</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+<span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="s2">&quot;data.csv&quot;</span><span class="p">)</span>
+<span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">feature_norm_plot</span><span class="p">(</span>
+    <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+    <span class="n">feature</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;control&#39;</span><span class="p">,</span> <span class="s1">&#39;cond01&#39;</span><span class="p">,</span> <span class="s1">&#39;cond02&#39;</span><span class="p">,</span> <span class="s1">&#39;cond03&#39;</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;condition&quot;</span><span class="p">,</span>
+    <span class="n">selector_col</span><span class="o">=</span><span class="s2">&quot;cell_line&quot;</span><span class="p">,</span>
+    <span class="n">selector_val</span><span class="o">=</span><span class="s2">&quot;MCF10A&quot;</span><span class="p">,</span>
+    <span class="n">color_scheme</span><span class="o">=</span><span class="s2">&quot;green&quot;</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">&quot;feature norm plot basic&quot;</span><span class="p">,</span>
+    <span class="n">show_error_bars</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">fig_size</span><span class="o">=</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span>
+    <span class="n">save</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">file_format</span><span class="o">=</span><span class="s2">&quot;svg&quot;</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<img alt="../_images/feature_norm_plot_basic.svg" src="../_images/feature_norm_plot_basic.svg" />
+</section>
+<section id="triplicates-with-blue-color-scheme">
+<h3>Triplicates with Blue Color Scheme<a class="headerlink" href="#triplicates-with-blue-color-scheme" title="Link to this heading"></a></h3>
+<p>Show individual triplicate data with boxes using the blue color scheme:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">feature_norm_plot</span><span class="p">(</span>
+    <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+    <span class="n">feature</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;control&#39;</span><span class="p">,</span> <span class="s1">&#39;cond01&#39;</span><span class="p">,</span> <span class="s1">&#39;cond02&#39;</span><span class="p">,</span> <span class="s1">&#39;cond03&#39;</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;condition&quot;</span><span class="p">,</span>
+    <span class="n">selector_col</span><span class="o">=</span><span class="s2">&quot;cell_line&quot;</span><span class="p">,</span>
+    <span class="n">selector_val</span><span class="o">=</span><span class="s2">&quot;MCF10A&quot;</span><span class="p">,</span>
+    <span class="n">color_scheme</span><span class="o">=</span><span class="s2">&quot;blue&quot;</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">&quot;feature norm plot triplicates&quot;</span><span class="p">,</span>
+    <span class="n">show_triplicates</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">show_boxes</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">threshold</span><span class="o">=</span><span class="mf">1.5</span><span class="p">,</span>
+    <span class="n">fig_size</span><span class="o">=</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<img alt="../_images/feature_norm_plot_triplicates.svg" src="../_images/feature_norm_plot_triplicates.svg" />
+</section>
+<section id="grouped-layout-with-purple-scheme">
+<h3>Grouped Layout with Purple Scheme<a class="headerlink" href="#grouped-layout-with-purple-scheme" title="Link to this heading"></a></h3>
+<p>Use grouped layout for better visual organization with the purple color scheme:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">feature_norm_plot</span><span class="p">(</span>
+    <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+    <span class="n">feature</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;control&#39;</span><span class="p">,</span> <span class="s1">&#39;cond01&#39;</span><span class="p">,</span> <span class="s1">&#39;cond02&#39;</span><span class="p">,</span> <span class="s1">&#39;cond03&#39;</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;condition&quot;</span><span class="p">,</span>
+    <span class="n">selector_col</span><span class="o">=</span><span class="s2">&quot;cell_line&quot;</span><span class="p">,</span>
+    <span class="n">selector_val</span><span class="o">=</span><span class="s2">&quot;MCF10A&quot;</span><span class="p">,</span>
+    <span class="n">color_scheme</span><span class="o">=</span><span class="s2">&quot;purple&quot;</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">&quot;feature norm plot grouped&quot;</span><span class="p">,</span>
+    <span class="n">show_triplicates</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">show_boxes</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">threshold</span><span class="o">=</span><span class="mf">1.5</span><span class="p">,</span>
+    <span class="n">group_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">within_group_spacing</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span>
+    <span class="n">between_group_gap</span><span class="o">=</span><span class="mf">0.4</span><span class="p">,</span>
+    <span class="n">fig_size</span><span class="o">=</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<img alt="../_images/feature_norm_plot_grouped.svg" src="../_images/feature_norm_plot_grouped.svg" />
+</section>
+<section id="custom-threshold-analysis">
+<h3>Custom Threshold Analysis<a class="headerlink" href="#custom-threshold-analysis" title="Link to this heading"></a></h3>
+<p>Adjust the threshold for different sensitivity in detecting positive cells:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">feature_norm_plot</span><span class="p">(</span>
+    <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+    <span class="n">feature</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;control&#39;</span><span class="p">,</span> <span class="s1">&#39;cond01&#39;</span><span class="p">,</span> <span class="s1">&#39;cond02&#39;</span><span class="p">,</span> <span class="s1">&#39;cond03&#39;</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;condition&quot;</span><span class="p">,</span>
+    <span class="n">selector_col</span><span class="o">=</span><span class="s2">&quot;cell_line&quot;</span><span class="p">,</span>
+    <span class="n">selector_val</span><span class="o">=</span><span class="s2">&quot;MCF10A&quot;</span><span class="p">,</span>
+    <span class="n">color_scheme</span><span class="o">=</span><span class="s2">&quot;green&quot;</span><span class="p">,</span>
+    <span class="n">title</span><span class="o">=</span><span class="s2">&quot;feature norm plot threshold&quot;</span><span class="p">,</span>
+    <span class="n">threshold</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span>  <span class="c1"># Higher threshold (2x mode instead of 1.5x)</span>
+    <span class="n">show_triplicates</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">show_boxes</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">fig_size</span><span class="o">=</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<img alt="../_images/feature_norm_plot_threshold.svg" src="../_images/feature_norm_plot_threshold.svg" />
+</section>
+<section id="combined-analysis-comparison">
+<h3>Combined Analysis Comparison<a class="headerlink" href="#combined-analysis-comparison" title="Link to this heading"></a></h3>
+<p>Create multi-panel figures comparing different analysis approaches:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">omero_screen_plots</span><span class="w"> </span><span class="kn">import</span> <span class="n">feature_plot</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">omero_screen_plots.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">save_fig</span>
+
+<span class="n">fig</span><span class="p">,</span> <span class="n">axes</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
+<span class="n">fig</span><span class="o">.</span><span class="n">suptitle</span><span class="p">(</span><span class="s2">&quot;feature norm plot comparison&quot;</span><span class="p">,</span> <span class="n">fontsize</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="s2">&quot;bold&quot;</span><span class="p">)</span>
+
+<span class="c1"># Standard feature plot</span>
+<span class="n">feature_plot</span><span class="p">(</span>
+    <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+    <span class="n">feature</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;control&#39;</span><span class="p">,</span> <span class="s1">&#39;cond01&#39;</span><span class="p">,</span> <span class="s1">&#39;cond02&#39;</span><span class="p">,</span> <span class="s1">&#39;cond03&#39;</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;condition&quot;</span><span class="p">,</span>
+    <span class="n">selector_col</span><span class="o">=</span><span class="s2">&quot;cell_line&quot;</span><span class="p">,</span>
+    <span class="n">selector_val</span><span class="o">=</span><span class="s2">&quot;MCF10A&quot;</span><span class="p">,</span>
+    <span class="n">x_label</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">group_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">axes</span><span class="o">=</span><span class="n">axes</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+<span class="p">)</span>
+<span class="n">axes</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="s2">&quot;p21 feature plot&quot;</span><span class="p">,</span> <span class="n">fontsize</span><span class="o">=</span><span class="mi">7</span><span class="p">)</span>
+
+<span class="c1"># Normalized feature plot</span>
+<span class="n">feature_norm_plot</span><span class="p">(</span>
+    <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+    <span class="n">feature</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;control&#39;</span><span class="p">,</span> <span class="s1">&#39;cond01&#39;</span><span class="p">,</span> <span class="s1">&#39;cond02&#39;</span><span class="p">,</span> <span class="s1">&#39;cond03&#39;</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;condition&quot;</span><span class="p">,</span>
+    <span class="n">selector_col</span><span class="o">=</span><span class="s2">&quot;cell_line&quot;</span><span class="p">,</span>
+    <span class="n">selector_val</span><span class="o">=</span><span class="s2">&quot;MCF10A&quot;</span><span class="p">,</span>
+    <span class="n">x_label</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">axes</span><span class="o">=</span><span class="n">axes</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+    <span class="n">group_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">show_triplicates</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">show_boxes</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">threshold</span><span class="o">=</span><span class="mf">1.5</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">axes</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="s2">&quot;p21 feature norm plot&quot;</span><span class="p">,</span> <span class="n">fontsize</span><span class="o">=</span><span class="mi">7</span><span class="p">)</span>
+
+<span class="c1"># Violin plot for comparison</span>
+<span class="n">feature_plot</span><span class="p">(</span>
+    <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+    <span class="n">feature</span><span class="o">=</span><span class="s2">&quot;area_cell&quot;</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;control&#39;</span><span class="p">,</span> <span class="s1">&#39;cond01&#39;</span><span class="p">,</span> <span class="s1">&#39;cond02&#39;</span><span class="p">,</span> <span class="s1">&#39;cond03&#39;</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;condition&quot;</span><span class="p">,</span>
+    <span class="n">selector_col</span><span class="o">=</span><span class="s2">&quot;cell_line&quot;</span><span class="p">,</span>
+    <span class="n">selector_val</span><span class="o">=</span><span class="s2">&quot;MCF10A&quot;</span><span class="p">,</span>
+    <span class="n">x_label</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">violin</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">show_scatter</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">ymax</span><span class="o">=</span><span class="mi">10000</span><span class="p">,</span>
+    <span class="n">axes</span><span class="o">=</span><span class="n">axes</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span>
+    <span class="n">group_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">axes</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="s2">&quot;area cell violin&quot;</span><span class="p">,</span> <span class="n">fontsize</span><span class="o">=</span><span class="mi">7</span><span class="p">)</span>
+
+<span class="n">save_fig</span><span class="p">(</span><span class="n">fig</span><span class="p">,</span> <span class="s2">&quot;output/&quot;</span><span class="p">,</span> <span class="s2">&quot;feature_norm_comparison&quot;</span><span class="p">,</span> <span class="n">fig_extension</span><span class="o">=</span><span class="s2">&quot;svg&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<img alt="../_images/feature_norm_plot_comparison.svg" src="../_images/feature_norm_plot_comparison.svg" />
+</section>
+<section id="configuration-options">
+<h3>Configuration Options<a class="headerlink" href="#configuration-options" title="Link to this heading"></a></h3>
+<p>The feature_norm_plot function supports extensive customization:</p>
+<p><strong>Normalization &amp; Thresholding</strong>:</p>
+<ul class="simple">
+<li><p><strong>Mode normalization</strong>: Data is normalized so the peak (mode) equals 1.0</p></li>
+<li><p><strong>Threshold analysis</strong>: Customizable threshold (default 1.5x mode) for positive/negative classification</p></li>
+<li><p><strong>Plate normalization</strong>: Option to normalize within each plate separately</p></li>
+<li><p><strong>QC plots</strong>: Optional normalization quality control plots showing before/after distributions</p></li>
+</ul>
+<p><strong>Color Schemes</strong>:</p>
+<ul class="simple">
+<li><p><strong>Green</strong> (default): Olive for positive cells, light green for negative cells</p></li>
+<li><p><strong>Blue</strong>: Blue for positive cells, light blue for negative cells</p></li>
+<li><p><strong>Purple</strong>: Purple for positive cells, lavender for negative cells</p></li>
+</ul>
+<p><strong>Display Options</strong>:</p>
+<ul class="simple">
+<li><p><strong>Summary bars</strong>: Show aggregated proportions across replicates with error bars</p></li>
+<li><p><strong>Triplicate display</strong>: Show individual replicate bars with optional box outlines</p></li>
+<li><p><strong>Grouping</strong>: Organize conditions into groups with custom spacing</p></li>
+<li><p><strong>Threshold legend</strong>: Automatic legend showing threshold value and color mapping</p></li>
+</ul>
+<p><strong>Layout &amp; Styling</strong>:</p>
+<ul class="simple">
+<li><p><strong>Figure size</strong>: Control figure dimensions in cm or inches</p></li>
+<li><p><strong>Spacing</strong>: Customize within-group and between-group spacing</p></li>
+<li><p><strong>Labels</strong>: Control axis labels, titles, and legend display</p></li>
+<li><p><strong>Export</strong>: Save in multiple formats (SVG, PDF, PNG) with custom DPI</p></li>
+</ul>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="featureplot.html" class="btn btn-neutral float-left" title="FeaturePlot API" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cellcycleplot.html" class="btn btn-neutral float-right" title="CellCyclePlot API" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Helfrid Hochegger.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+</body>
+</html>

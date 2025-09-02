@@ -1,0 +1,674 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Customization &amp; Styling &mdash; OmeroScreen Plots 0.1.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/plot_directive.css?v=7f9a90b1" />
+
+
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=a58bc63e"></script>
+      <script src="_static/doctools.js?v=9a2dae69"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="FeaturePlot API" href="api/featureplot.html" />
+    <link rel="prev" title="Plot Types" href="plot_types.html" />
+</head>
+
+<body class="wy-body-for-nav">
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+
+
+          <a href="index.html" class="icon icon-home">
+            OmeroScreen Plots
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#install-from-source">Install from Source</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#standalone-installation">Standalone Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#dependencies">Dependencies</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#verify-installation">Verify Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="installation.html#import-errors">Import Errors</a></li>
+<li class="toctree-l3"><a class="reference internal" href="installation.html#missing-dependencies">Missing Dependencies</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="installation.html#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#download-example-data">Download Example Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#basic-workflow">Basic Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#data-format">Data Format</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#plot-types">Plot Types</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="quickstart.html#count-plots">1. Count Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="quickstart.html#feature-plots">2. Feature Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="quickstart.html#cell-cycle-plots">3. Cell Cycle Plots</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#running-the-example-notebooks">Running the Example Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#common-parameters">Common Parameters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#statistical-analysis">Statistical Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#customization-examples">Customization Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="quickstart.html#custom-colors">Custom Colors</a></li>
+<li class="toctree-l3"><a class="reference internal" href="quickstart.html#grouped-conditions">Grouped Conditions</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#tips-for-using-example-data">Tips for Using Example Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="quickstart.html#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="plot_types.html">Plot Types</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#featureplot">FeaturePlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#basic-usage">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#key-parameters">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#output">Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#cellcycleplot">CellCyclePlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id1">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id2">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id3">Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#combplot">CombPlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#plot-types-available">Plot Types Available</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id4">Key Parameters</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#countplot">CountPlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id5">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id6">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id7">Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#specialized-analysis-functions">Specialized Analysis Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#normalise">Normalise</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#stats-module">Stats Module</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#choosing-the-right-plot-type">Choosing the Right Plot Type</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#common-workflow">Common Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#tips">Tips</a></li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Customization &amp; Styling</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#default-color-palette">Default Color Palette</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#using-colors-in-code">Using Colors in Code</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#typography-layout">Typography &amp; Layout</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#font-settings">Font Settings</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#figure-dimensions">Figure Dimensions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#axes-styling">Axes Styling</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#legends">Legends</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#customizing-colors">Customizing Colors</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#method-1-using-order-and-colors-parameter">Method 1: Using order_and_colors Parameter</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#method-2-using-default-colors-with-custom-order">Method 2: Using Default Colors with Custom Order</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#method-3-grouped-color-schemes">Method 3: Grouped Color Schemes</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#style-customization">Style Customization</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#temporary-style-override">Temporary Style Override</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#creating-custom-style-file">Creating Custom Style File</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#modifying-existing-plots">Modifying Existing Plots</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#best-practices">Best Practices</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#color-selection">Color Selection</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#typography">Typography</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#layout">Layout</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#file-output">File Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#common-customizations">Common Customizations</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#journal-specific-requirements">Journal-Specific Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#high-contrast-mode">High-Contrast Mode</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#presentation-mode">Presentation Mode</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api/featureplot.html">FeaturePlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/featureplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#omero_screen_plots.featureplot.feature_plot"><code class="docutils literal notranslate"><span class="pre">feature_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#omero_screen_plots.featureplot.feature_plot_simple"><code class="docutils literal notranslate"><span class="pre">feature_plot_simple()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#omero_screen_plots.featureplot.feature_threshold_plot"><code class="docutils literal notranslate"><span class="pre">feature_threshold_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#omero_screen_plots.featureplot.draw_violin_or_box"><code class="docutils literal notranslate"><span class="pre">draw_violin_or_box()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/featureplot.html#examples">Examples</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/cellcycleplot.html">CellCyclePlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcycleplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot.cellcycle_plot"><code class="docutils literal notranslate"><span class="pre">cellcycle_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot.cellcycle_stacked"><code class="docutils literal notranslate"><span class="pre">cellcycle_stacked()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot.cellcycle_grouped"><code class="docutils literal notranslate"><span class="pre">cellcycle_grouped()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcycleplot.html#helper-functions">Helper Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot.cc_phase"><code class="docutils literal notranslate"><span class="pre">cc_phase()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot.prop_pivot"><code class="docutils literal notranslate"><span class="pre">prop_pivot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot.plot_triplicate_bars"><code class="docutils literal notranslate"><span class="pre">plot_triplicate_bars()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot.draw_triplicate_boxes"><code class="docutils literal notranslate"><span class="pre">draw_triplicate_boxes()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcycleplot.html#examples">Examples</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/combplot.html">CombPlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/combplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/combplot.html#omero_screen_plots.combplot.comb_plot"><code class="docutils literal notranslate"><span class="pre">comb_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/combplot.html#omero_screen_plots.combplot.combplot_simple"><code class="docutils literal notranslate"><span class="pre">combplot_simple()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/combplot.html#omero_screen_plots.combplot.histogram_plot"><code class="docutils literal notranslate"><span class="pre">histogram_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/combplot.html#omero_screen_plots.combplot.scatter_plot"><code class="docutils literal notranslate"><span class="pre">scatter_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/combplot.html#omero_screen_plots.combplot.scatter_plot_feature"><code class="docutils literal notranslate"><span class="pre">scatter_plot_feature()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/combplot.html#examples">Examples</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/countplot.html">Count Plots</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#quick-start">Quick Start</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#main-function">Main Function</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#omero_screen_plots.count_plot"><code class="docutils literal notranslate"><span class="pre">count_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#plot-types">Plot Types</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#omero_screen_plots.countplot_api.PlotType"><code class="docutils literal notranslate"><span class="pre">PlotType</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/countplot.html#omero_screen_plots.countplot_api.PlotType.NORMALISED"><code class="docutils literal notranslate"><span class="pre">PlotType.NORMALISED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/countplot.html#omero_screen_plots.countplot_api.PlotType.ABSOLUTE"><code class="docutils literal notranslate"><span class="pre">PlotType.ABSOLUTE</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#data-requirements">Data Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#basic-usage-examples">Basic Usage Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#advanced-usage">Advanced Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#complete-parameter-reference">Complete Parameter Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#core-parameters">Core Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#data-filtering">Data Filtering</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#plot-configuration">Plot Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#figure-settings">Figure Settings</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#layout-and-grouping">Layout and Grouping</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#saving-options">Saving Options</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#id1">Returns</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#algorithm-details">Algorithm Details</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#count-calculation-process">Count Calculation Process</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#statistical-analysis">Statistical Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#error-handling">Error Handling</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/normalise.html">Normalise API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/normalise.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/normalise.html#omero_screen_plots.normalise.normalize_by_mode"><code class="docutils literal notranslate"><span class="pre">normalize_by_mode()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/normalise.html#omero_screen_plots.normalise.normalize_and_plot"><code class="docutils literal notranslate"><span class="pre">normalize_and_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/normalise.html#omero_screen_plots.normalise.plot_normalization_result"><code class="docutils literal notranslate"><span class="pre">plot_normalization_result()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/normalise.html#omero_screen_plots.normalise.set_threshold_categories"><code class="docutils literal notranslate"><span class="pre">set_threshold_categories()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/normalise.html#helper-functions">Helper Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/normalise.html#omero_screen_plots.normalise.find_intensity_mode"><code class="docutils literal notranslate"><span class="pre">find_intensity_mode()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/normalise.html#examples">Examples</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/utils.html">Utility Functions</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/utils.html#functions">Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/utils.html#omero_screen_plots.utils.save_fig"><code class="docutils literal notranslate"><span class="pre">save_fig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/utils.html#omero_screen_plots.utils.scale_data"><code class="docutils literal notranslate"><span class="pre">scale_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/utils.html#omero_screen_plots.utils.selector_val_filter"><code class="docutils literal notranslate"><span class="pre">selector_val_filter()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/utils.html#omero_screen_plots.utils.get_repeat_points"><code class="docutils literal notranslate"><span class="pre">get_repeat_points()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/utils.html#omero_screen_plots.utils.show_repeat_points"><code class="docutils literal notranslate"><span class="pre">show_repeat_points()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/utils.html#omero_screen_plots.utils.select_datapoints"><code class="docutils literal notranslate"><span class="pre">select_datapoints()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/utils.html#omero_screen_plots.utils.grouped_x_positions"><code class="docutils literal notranslate"><span class="pre">grouped_x_positions()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/utils.html#examples">Examples</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Examples</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="count_plot_examples.html">Count Plot Usage Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#basic-setup">Basic Setup</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-1-basic-normalized-count-plot">Example 1: Basic Normalized Count Plot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-2-absolute-count-plot">Example 2: Absolute Count Plot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-3-multi-cell-line-comparison">Example 3: Multi-Cell Line Comparison</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-4-grouped-layout-for-many-conditions">Example 4: Grouped Layout for Many Conditions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-5-time-course-analysis">Example 5: Time-Course Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-6-custom-styling-and-colors">Example 6: Custom Styling and Colors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-7-error-handling-and-data-validation">Example 7: Error Handling and Data Validation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-8-batch-analysis">Example 8: Batch Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-9-integration-with-statistical-analysis">Example 9: Integration with Statistical Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-10-memory-efficient-large-dataset-processing">Example 10: Memory-Efficient Large Dataset Processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#key-points-for-effective-usage">Key Points for Effective Usage</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="count_plot_examples.html#data-requirements">Data Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="count_plot_examples.html#performance-tips">Performance Tips</a></li>
+<li class="toctree-l3"><a class="reference internal" href="count_plot_examples.html#statistical-considerations">Statistical Considerations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="count_plot_examples.html#troubleshooting-common-issues">Troubleshooting Common Issues</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">OmeroScreen Plots</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Customization &amp; Styling</li>
+      <li class="wy-breadcrumbs-aside">
+              <a href="https://github.com/Helfrid/omero-screen/blob/main/packages/omero-screen-plots/docs/customization.md" class="fa fa-github"> Edit on GitHub</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+
+  <section id="customization-styling">
+<h1>Customization &amp; Styling<a class="headerlink" href="#customization-styling" title="Link to this heading"></a></h1>
+<p>OmeroScreen Plots uses a custom matplotlib style (<code class="docutils literal notranslate"><span class="pre">hhlab_style01.mplstyle</span></code>) that provides consistent, publication-ready formatting for all plots. This page documents the default styling and shows how to customize it.</p>
+<section id="default-color-palette">
+<h2>Default Color Palette<a class="headerlink" href="#default-color-palette" title="Link to this heading"></a></h2>
+<p>The package uses a carefully curated 11-color palette designed for scientific visualization:</p>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Color Name</p></th>
+<th class="head"><p>Hex Code</p></th>
+<th class="head"><p>RGB</p></th>
+<th class="head"><p>Preview</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Blue</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">#526C94</span></code></p></td>
+<td><p>(82, 108, 148)</p></td>
+<td><p><span style="color:#526C94">████</span></p></td>
+</tr>
+<tr class="row-odd"><td><p>Yellow</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">#D8C367</span></code></p></td>
+<td><p>(216, 195, 103)</p></td>
+<td><p><span style="color:#D8C367">████</span></p></td>
+</tr>
+<tr class="row-even"><td><p>Light Blue</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">#75B1CE</span></code></p></td>
+<td><p>(117, 177, 206)</p></td>
+<td><p><span style="color:#75B1CE">████</span></p></td>
+</tr>
+<tr class="row-odd"><td><p>Pink</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">#DC6B83</span></code></p></td>
+<td><p>(220, 107, 131)</p></td>
+<td><p><span style="color:#DC6B83">████</span></p></td>
+</tr>
+<tr class="row-even"><td><p>Grey</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">#D4D3CF</span></code></p></td>
+<td><p>(212, 211, 207)</p></td>
+<td><p><span style="color:#D4D3CF">████</span></p></td>
+</tr>
+<tr class="row-odd"><td><p>Turquoise</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">#00BFB2</span></code></p></td>
+<td><p>(0, 191, 178)</p></td>
+<td><p><span style="color:#00BFB2">████</span></p></td>
+</tr>
+<tr class="row-even"><td><p>Light Green</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">#CCDBA2</span></code></p></td>
+<td><p>(204, 219, 162)</p></td>
+<td><p><span style="color:#CCDBA2">████</span></p></td>
+</tr>
+<tr class="row-odd"><td><p>Olive</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">#889466</span></code></p></td>
+<td><p>(136, 148, 102)</p></td>
+<td><p><span style="color:#889466">████</span></p></td>
+</tr>
+<tr class="row-even"><td><p>Lavender</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">#C6B2D1</span></code></p></td>
+<td><p>(198, 178, 209)</p></td>
+<td><p><span style="color:#C6B2D1">████</span></p></td>
+</tr>
+<tr class="row-odd"><td><p>Purple</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">#654875</span></code></p></td>
+<td><p>(101, 72, 117)</p></td>
+<td><p><span style="color:#654875">████</span></p></td>
+</tr>
+<tr class="row-even"><td><p>Dark Grey</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">#4A4A4A</span></code></p></td>
+<td><p>(74, 74, 74)</p></td>
+<td><p><span style="color:#4A4A4A">████</span></p></td>
+</tr>
+</tbody>
+</table>
+<section id="using-colors-in-code">
+<h3>Using Colors in Code<a class="headerlink" href="#using-colors-in-code" title="Link to this heading"></a></h3>
+<p>Colors are available through the <code class="docutils literal notranslate"><span class="pre">COLOR</span></code> enum:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">omero_screen_plots.colors</span><span class="w"> </span><span class="kn">import</span> <span class="n">COLOR</span>
+
+<span class="c1"># Access individual colors</span>
+<span class="n">blue_color</span> <span class="o">=</span> <span class="n">COLOR</span><span class="o">.</span><span class="n">BLUE</span><span class="o">.</span><span class="n">value</span>        <span class="c1"># &quot;#526C94&quot;</span>
+<span class="n">yellow_color</span> <span class="o">=</span> <span class="n">COLOR</span><span class="o">.</span><span class="n">YELLOW</span><span class="o">.</span><span class="n">value</span>    <span class="c1"># &quot;#D8C367&quot;</span>
+
+<span class="c1"># Use in custom plotting</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">COLOR</span><span class="o">.</span><span class="n">BLUE</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="typography-layout">
+<h2>Typography &amp; Layout<a class="headerlink" href="#typography-layout" title="Link to this heading"></a></h2>
+<section id="font-settings">
+<h3>Font Settings<a class="headerlink" href="#font-settings" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Font Family</strong>: Arial (sans-serif)</p></li>
+<li><p><strong>Default Size</strong>: 6pt</p></li>
+<li><p><strong>Label Size</strong>: 6pt (axes labels)</p></li>
+<li><p><strong>Tick Label Size</strong>: 6pt</p></li>
+<li><p><strong>Legend Size</strong>: 6pt</p></li>
+<li><p><strong>Title Size</strong>: 3pt (positioned left, regular weight)</p></li>
+</ul>
+</section>
+<section id="figure-dimensions">
+<h3>Figure Dimensions<a class="headerlink" href="#figure-dimensions" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Default Size</strong>: 2.4” × 1.3” (publication-ready)</p></li>
+<li><p><strong>DPI</strong>: 150 (display), 300 (saved files)</p></li>
+<li><p><strong>Format</strong>: Tight layout with 0.2” padding</p></li>
+</ul>
+</section>
+<section id="axes-styling">
+<h3>Axes Styling<a class="headerlink" href="#axes-styling" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Spines</strong>: Left and bottom only (top and right hidden)</p></li>
+<li><p><strong>Line Width</strong>: 0.5pt</p></li>
+<li><p><strong>Color</strong>: Black text and axes</p></li>
+<li><p><strong>Ticks</strong>: No tick marks (cleaner appearance)</p></li>
+<li><p><strong>Grid</strong>: Disabled by default</p></li>
+</ul>
+</section>
+<section id="legends">
+<h3>Legends<a class="headerlink" href="#legends" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Background</strong>: White with full opacity</p></li>
+<li><p><strong>Frame</strong>: Visible border</p></li>
+<li><p><strong>Spacing</strong>: Compact (0.25 units)</p></li>
+<li><p><strong>Scatter Points</strong>: 3 points in legend</p></li>
+</ul>
+</section>
+</section>
+<section id="customizing-colors">
+<h2>Customizing Colors<a class="headerlink" href="#customizing-colors" title="Link to this heading"></a></h2>
+<section id="method-1-using-order-and-colors-parameter">
+<h3>Method 1: Using order_and_colors Parameter<a class="headerlink" href="#method-1-using-order-and-colors-parameter" title="Link to this heading"></a></h3>
+<p>Most plot functions accept an <code class="docutils literal notranslate"><span class="pre">order_and_colors</span></code> dictionary:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">omero_screen_plots.featureplot</span><span class="w"> </span><span class="kn">import</span> <span class="n">feature_plot_simple</span>
+
+<span class="c1"># Custom color scheme</span>
+<span class="n">custom_colors</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;Control&quot;</span><span class="p">:</span> <span class="s2">&quot;#1f77b4&quot;</span><span class="p">,</span>      <span class="c1"># Blue</span>
+    <span class="s2">&quot;Treatment_A&quot;</span><span class="p">:</span> <span class="s2">&quot;#ff7f0e&quot;</span><span class="p">,</span>  <span class="c1"># Orange</span>
+    <span class="s2">&quot;Treatment_B&quot;</span><span class="p">:</span> <span class="s2">&quot;#2ca02c&quot;</span><span class="p">,</span>  <span class="c1"># Green</span>
+    <span class="s2">&quot;Treatment_C&quot;</span><span class="p">:</span> <span class="s2">&quot;#d62728&quot;</span>   <span class="c1"># Red</span>
+<span class="p">}</span>
+
+<span class="n">feature_plot_simple</span><span class="p">(</span>
+    <span class="n">data_path</span><span class="o">=</span><span class="s2">&quot;data.csv&quot;</span><span class="p">,</span>
+    <span class="n">y_feature</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Control&quot;</span><span class="p">,</span> <span class="s2">&quot;Treatment_A&quot;</span><span class="p">,</span> <span class="s2">&quot;Treatment_B&quot;</span><span class="p">,</span> <span class="s2">&quot;Treatment_C&quot;</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;condition&quot;</span><span class="p">,</span>
+    <span class="n">order_and_colors</span><span class="o">=</span><span class="n">custom_colors</span><span class="p">,</span>
+    <span class="n">output_path</span><span class="o">=</span><span class="s2">&quot;output/&quot;</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="method-2-using-default-colors-with-custom-order">
+<h3>Method 2: Using Default Colors with Custom Order<a class="headerlink" href="#method-2-using-default-colors-with-custom-order" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">omero_screen_plots.colors</span><span class="w"> </span><span class="kn">import</span> <span class="n">COLOR</span>
+
+<span class="c1"># Use default palette but specify order</span>
+<span class="n">ordered_colors</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;DMSO&quot;</span><span class="p">:</span> <span class="n">COLOR</span><span class="o">.</span><span class="n">BLUE</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+    <span class="s2">&quot;Nutlin&quot;</span><span class="p">:</span> <span class="n">COLOR</span><span class="o">.</span><span class="n">YELLOW</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+    <span class="s2">&quot;Etoptoside&quot;</span><span class="p">:</span> <span class="n">COLOR</span><span class="o">.</span><span class="n">LIGHT_BLUE</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+    <span class="s2">&quot;Nocodazole&quot;</span><span class="p">:</span> <span class="n">COLOR</span><span class="o">.</span><span class="n">PINK</span><span class="o">.</span><span class="n">value</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="method-3-grouped-color-schemes">
+<h3>Method 3: Grouped Color Schemes<a class="headerlink" href="#method-3-grouped-color-schemes" title="Link to this heading"></a></h3>
+<p>For grouped analyses, colors are automatically assigned within groups:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">feature_plot_simple</span><span class="p">(</span>
+    <span class="n">data_path</span><span class="o">=</span><span class="s2">&quot;data.csv&quot;</span><span class="p">,</span>
+    <span class="n">y_feature</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;WT_Control&quot;</span><span class="p">,</span> <span class="s2">&quot;WT_Drug&quot;</span><span class="p">,</span> <span class="s2">&quot;KO_Control&quot;</span><span class="p">,</span> <span class="s2">&quot;KO_Drug&quot;</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;condition&quot;</span><span class="p">,</span>
+    <span class="n">grouped</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">group_names</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Wild Type&quot;</span><span class="p">,</span> <span class="s2">&quot;Knockout&quot;</span><span class="p">],</span>
+    <span class="n">output_path</span><span class="o">=</span><span class="s2">&quot;output/&quot;</span>
+<span class="p">)</span>
+<span class="c1"># Automatically uses alternating colors within each group</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="style-customization">
+<h2>Style Customization<a class="headerlink" href="#style-customization" title="Link to this heading"></a></h2>
+<section id="temporary-style-override">
+<h3>Temporary Style Override<a class="headerlink" href="#temporary-style-override" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+
+<span class="c1"># Temporarily override specific parameters</span>
+<span class="k">with</span> <span class="n">plt</span><span class="o">.</span><span class="n">rc_context</span><span class="p">({</span><span class="s1">&#39;font.size&#39;</span><span class="p">:</span> <span class="mi">8</span><span class="p">,</span> <span class="s1">&#39;axes.labelsize&#39;</span><span class="p">:</span> <span class="mi">8</span><span class="p">}):</span>
+    <span class="n">feature_plot_simple</span><span class="p">(</span>
+        <span class="n">data_path</span><span class="o">=</span><span class="s2">&quot;data.csv&quot;</span><span class="p">,</span>
+        <span class="n">y_feature</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+        <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Control&quot;</span><span class="p">,</span> <span class="s2">&quot;Treatment&quot;</span><span class="p">],</span>
+        <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;condition&quot;</span><span class="p">,</span>
+        <span class="n">output_path</span><span class="o">=</span><span class="s2">&quot;output/&quot;</span>
+    <span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="creating-custom-style-file">
+<h3>Creating Custom Style File<a class="headerlink" href="#creating-custom-style-file" title="Link to this heading"></a></h3>
+<p>Create your own <code class="docutils literal notranslate"><span class="pre">.mplstyle</span></code> file based on <code class="docutils literal notranslate"><span class="pre">hhlab_style01.mplstyle</span></code>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+
+<span class="c1"># Load custom style</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">style</span><span class="o">.</span><span class="n">use</span><span class="p">(</span><span class="s2">&quot;path/to/your/custom_style.mplstyle&quot;</span><span class="p">)</span>
+
+<span class="c1"># Then use plotting functions normally</span>
+<span class="n">feature_plot_simple</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="modifying-existing-plots">
+<h3>Modifying Existing Plots<a class="headerlink" href="#modifying-existing-plots" title="Link to this heading"></a></h3>
+<p>For fine-tuning individual plots:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">omero_screen_plots.featureplot</span><span class="w"> </span><span class="kn">import</span> <span class="n">feature_plot</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+<span class="c1"># Create base plot</span>
+<span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="s2">&quot;data.csv&quot;</span><span class="p">)</span>
+<span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">feature_plot</span><span class="p">(</span>
+    <span class="n">df</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+    <span class="n">y_feature</span><span class="o">=</span><span class="s2">&quot;intensity_mean_p21_nucleus&quot;</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;Control&quot;</span><span class="p">,</span> <span class="s2">&quot;Treatment&quot;</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="o">=</span><span class="s2">&quot;condition&quot;</span>
+<span class="p">)</span>
+
+<span class="c1"># Customize further</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="s2">&quot;Custom Title&quot;</span><span class="p">,</span> <span class="n">fontsize</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+<span class="n">ax</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="kc">True</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="s2">&quot;custom_plot.pdf&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="best-practices">
+<h2>Best Practices<a class="headerlink" href="#best-practices" title="Link to this heading"></a></h2>
+<section id="color-selection">
+<h3>Color Selection<a class="headerlink" href="#color-selection" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Accessibility</strong>: Default palette is colorblind-friendly</p></li>
+<li><p><strong>Contrast</strong>: High contrast against white backgrounds</p></li>
+<li><p><strong>Consistency</strong>: Use same colors for same conditions across figures</p></li>
+<li><p><strong>Limit</strong>: Maximum 10 conditions per plot for clarity</p></li>
+</ul>
+</section>
+<section id="typography">
+<h3>Typography<a class="headerlink" href="#typography" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Size</strong>: Keep text readable at publication scale</p></li>
+<li><p><strong>Hierarchy</strong>: Distinguish between labels, titles, and annotations</p></li>
+<li><p><strong>Consistency</strong>: Use same font sizes across related figures</p></li>
+</ul>
+</section>
+<section id="layout">
+<h3>Layout<a class="headerlink" href="#layout" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Spacing</strong>: Ensure adequate white space around elements</p></li>
+<li><p><strong>Alignment</strong>: Left-align titles for consistent appearance</p></li>
+<li><p><strong>Proportions</strong>: Maintain aspect ratios appropriate for data type</p></li>
+</ul>
+</section>
+<section id="file-output">
+<h3>File Output<a class="headerlink" href="#file-output" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Format</strong>: PDF for publications, PNG for presentations</p></li>
+<li><p><strong>Resolution</strong>: 300 DPI minimum for print quality</p></li>
+<li><p><strong>Size</strong>: Standard figure dimensions for journal requirements</p></li>
+</ul>
+</section>
+</section>
+<section id="common-customizations">
+<h2>Common Customizations<a class="headerlink" href="#common-customizations" title="Link to this heading"></a></h2>
+<section id="journal-specific-requirements">
+<h3>Journal-Specific Requirements<a class="headerlink" href="#journal-specific-requirements" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Nature/Science style (larger fonts)</span>
+<span class="k">with</span> <span class="n">plt</span><span class="o">.</span><span class="n">rc_context</span><span class="p">({</span>
+    <span class="s1">&#39;font.size&#39;</span><span class="p">:</span> <span class="mi">8</span><span class="p">,</span>
+    <span class="s1">&#39;axes.labelsize&#39;</span><span class="p">:</span> <span class="mi">8</span><span class="p">,</span>
+    <span class="s1">&#39;xtick.labelsize&#39;</span><span class="p">:</span> <span class="mi">7</span><span class="p">,</span>
+    <span class="s1">&#39;ytick.labelsize&#39;</span><span class="p">:</span> <span class="mi">7</span><span class="p">,</span>
+    <span class="s1">&#39;legend.fontsize&#39;</span><span class="p">:</span> <span class="mi">7</span>
+<span class="p">}):</span>
+    <span class="n">your_plot_function</span><span class="p">()</span>
+
+<span class="c1"># Cell/Molecular Biology style (smaller, compact)</span>
+<span class="k">with</span> <span class="n">plt</span><span class="o">.</span><span class="n">rc_context</span><span class="p">({</span>
+    <span class="s1">&#39;font.size&#39;</span><span class="p">:</span> <span class="mi">6</span><span class="p">,</span>
+    <span class="s1">&#39;figure.figsize&#39;</span><span class="p">:</span> <span class="p">(</span><span class="mf">2.0</span><span class="p">,</span> <span class="mf">1.5</span><span class="p">)</span>
+<span class="p">}):</span>
+    <span class="n">your_plot_function</span><span class="p">()</span>
+</pre></div>
+</div>
+</section>
+<section id="high-contrast-mode">
+<h3>High-Contrast Mode<a class="headerlink" href="#high-contrast-mode" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Black and white for grayscale printing</span>
+<span class="n">bw_colors</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;Control&quot;</span><span class="p">:</span> <span class="s2">&quot;#000000&quot;</span><span class="p">,</span>      <span class="c1"># Black</span>
+    <span class="s2">&quot;Treatment_1&quot;</span><span class="p">:</span> <span class="s2">&quot;#666666&quot;</span><span class="p">,</span>  <span class="c1"># Dark grey</span>
+    <span class="s2">&quot;Treatment_2&quot;</span><span class="p">:</span> <span class="s2">&quot;#CCCCCC&quot;</span>   <span class="c1"># Light grey</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="presentation-mode">
+<h3>Presentation Mode<a class="headerlink" href="#presentation-mode" title="Link to this heading"></a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Larger sizes for presentations</span>
+<span class="k">with</span> <span class="n">plt</span><span class="o">.</span><span class="n">rc_context</span><span class="p">({</span>
+    <span class="s1">&#39;font.size&#39;</span><span class="p">:</span> <span class="mi">12</span><span class="p">,</span>
+    <span class="s1">&#39;axes.labelsize&#39;</span><span class="p">:</span> <span class="mi">14</span><span class="p">,</span>
+    <span class="s1">&#39;figure.figsize&#39;</span><span class="p">:</span> <span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span>
+    <span class="s1">&#39;figure.dpi&#39;</span><span class="p">:</span> <span class="mi">100</span>
+<span class="p">}):</span>
+    <span class="n">your_plot_function</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>The default styling is optimized for scientific publications but can be easily adapted for different contexts while maintaining the professional appearance and readability that makes OmeroScreen Plots effective for data communication.</p>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="plot_types.html" class="btn btn-neutral float-left" title="Plot Types" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="api/featureplot.html" class="btn btn-neutral float-right" title="FeaturePlot API" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Helfrid Hochegger.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+</body>
+</html>

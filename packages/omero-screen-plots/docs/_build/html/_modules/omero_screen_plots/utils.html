@@ -1,0 +1,871 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>omero_screen_plots.utils &mdash; OmeroScreen Plots 0.1.1 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="../../_static/plot_directive.css?v=7f9a90b1" />
+
+
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=a58bc63e"></script>
+      <script src="../../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+</head>
+
+<body class="wy-body-for-nav">
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+
+
+          <a href="../../index.html" class="icon icon-home">
+            OmeroScreen Plots
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#install-from-source">Install from Source</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#standalone-installation">Standalone Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#dependencies">Dependencies</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#verify-installation">Verify Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../installation.html#import-errors">Import Errors</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../installation.html#missing-dependencies">Missing Dependencies</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../installation.html#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../quickstart.html">Quick Start Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart.html#download-example-data">Download Example Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart.html#basic-workflow">Basic Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart.html#data-format">Data Format</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart.html#plot-types">Plot Types</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../quickstart.html#count-plots">1. Count Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../quickstart.html#feature-plots">2. Feature Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../quickstart.html#cell-cycle-plots">3. Cell Cycle Plots</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart.html#running-the-example-notebooks">Running the Example Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart.html#common-parameters">Common Parameters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart.html#statistical-analysis">Statistical Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart.html#customization-examples">Customization Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../quickstart.html#custom-colors">Custom Colors</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../quickstart.html#grouped-conditions">Grouped Conditions</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart.html#tips-for-using-example-data">Tips for Using Example Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../quickstart.html#next-steps">Next Steps</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../plot_types.html">Plot Types</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../plot_types.html#featureplot">FeaturePlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../plot_types.html#basic-usage">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../plot_types.html#key-parameters">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../plot_types.html#output">Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../plot_types.html#cellcycleplot">CellCyclePlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../plot_types.html#id1">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../plot_types.html#id2">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../plot_types.html#id3">Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../plot_types.html#combplot">CombPlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../plot_types.html#plot-types-available">Plot Types Available</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../plot_types.html#id4">Key Parameters</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../plot_types.html#countplot">CountPlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../plot_types.html#id5">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../plot_types.html#id6">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../plot_types.html#id7">Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../plot_types.html#specialized-analysis-functions">Specialized Analysis Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../plot_types.html#normalise">Normalise</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../plot_types.html#stats-module">Stats Module</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../plot_types.html#choosing-the-right-plot-type">Choosing the Right Plot Type</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../plot_types.html#common-workflow">Common Workflow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../plot_types.html#tips">Tips</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../customization.html">Customization &amp; Styling</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../customization.html#default-color-palette">Default Color Palette</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#using-colors-in-code">Using Colors in Code</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../customization.html#typography-layout">Typography &amp; Layout</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#font-settings">Font Settings</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#figure-dimensions">Figure Dimensions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#axes-styling">Axes Styling</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#legends">Legends</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../customization.html#customizing-colors">Customizing Colors</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#method-1-using-order-and-colors-parameter">Method 1: Using order_and_colors Parameter</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#method-2-using-default-colors-with-custom-order">Method 2: Using Default Colors with Custom Order</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#method-3-grouped-color-schemes">Method 3: Grouped Color Schemes</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../customization.html#style-customization">Style Customization</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#temporary-style-override">Temporary Style Override</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#creating-custom-style-file">Creating Custom Style File</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#modifying-existing-plots">Modifying Existing Plots</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../customization.html#best-practices">Best Practices</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#color-selection">Color Selection</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#typography">Typography</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#layout">Layout</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#file-output">File Output</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../customization.html#common-customizations">Common Customizations</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#journal-specific-requirements">Journal-Specific Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#high-contrast-mode">High-Contrast Mode</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../customization.html#presentation-mode">Presentation Mode</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api/featureplot.html">FeaturePlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../api/featureplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/featureplot.html#omero_screen_plots.featureplot_api.feature_plot"><code class="docutils literal notranslate"><span class="pre">feature_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/featureplot.html#examples">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/featureplot.html#basic-box-plot">Basic Box Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/featureplot.html#grouped-layout">Grouped Layout</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/featureplot.html#violin-plots">Violin Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/featureplot.html#clean-violin-plots">Clean Violin Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/featureplot.html#combined-subplot-analysis">Combined Subplot Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/featureplot.html#configuration-options">Configuration Options</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/featurenormplot.html">FeatureNormPlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../api/featurenormplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/featurenormplot.html#omero_screen_plots.featureplot_api.feature_norm_plot"><code class="docutils literal notranslate"><span class="pre">feature_norm_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/featurenormplot.html#id1">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/featurenormplot.html#basic-normalized-plot">Basic Normalized Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/featurenormplot.html#triplicates-with-blue-color-scheme">Triplicates with Blue Color Scheme</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/featurenormplot.html#grouped-layout-with-purple-scheme">Grouped Layout with Purple Scheme</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/featurenormplot.html#custom-threshold-analysis">Custom Threshold Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/featurenormplot.html#combined-analysis-comparison">Combined Analysis Comparison</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/featurenormplot.html#configuration-options">Configuration Options</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/cellcycleplot.html">CellCyclePlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../api/cellcycleplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/cellcycleplot.html#omero_screen_plots.cellcycleplot.cellcycle_plot"><code class="docutils literal notranslate"><span class="pre">cellcycle_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/cellcycleplot.html#omero_screen_plots.cellcycleplot.cellcycle_stacked"><code class="docutils literal notranslate"><span class="pre">cellcycle_stacked()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/cellcycleplot.html#omero_screen_plots.cellcycleplot.cellcycle_grouped"><code class="docutils literal notranslate"><span class="pre">cellcycle_grouped()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/cellcycleplot.html#helper-functions">Helper Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/cellcycleplot.html#omero_screen_plots.cellcycleplot.cc_phase"><code class="docutils literal notranslate"><span class="pre">cc_phase()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/cellcycleplot.html#omero_screen_plots.cellcycleplot.prop_pivot"><code class="docutils literal notranslate"><span class="pre">prop_pivot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/cellcycleplot.html#omero_screen_plots.cellcycleplot.plot_triplicate_bars"><code class="docutils literal notranslate"><span class="pre">plot_triplicate_bars()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/cellcycleplot.html#omero_screen_plots.cellcycleplot.draw_triplicate_boxes"><code class="docutils literal notranslate"><span class="pre">draw_triplicate_boxes()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/cellcycleplot.html#examples">Examples</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/combplot.html">CombPlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../api/combplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/combplot.html#omero_screen_plots.combplot.comb_plot"><code class="docutils literal notranslate"><span class="pre">comb_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/combplot.html#omero_screen_plots.combplot.combplot_simple"><code class="docutils literal notranslate"><span class="pre">combplot_simple()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/combplot.html#omero_screen_plots.combplot.histogram_plot"><code class="docutils literal notranslate"><span class="pre">histogram_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/combplot.html#omero_screen_plots.combplot.scatter_plot"><code class="docutils literal notranslate"><span class="pre">scatter_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/combplot.html#omero_screen_plots.combplot.scatter_plot_feature"><code class="docutils literal notranslate"><span class="pre">scatter_plot_feature()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/combplot.html#examples">Examples</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/countplot.html">Count Plots</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../api/countplot.html#quick-start">Quick Start</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/countplot.html#main-function">Main Function</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/countplot.html#omero_screen_plots.count_plot"><code class="docutils literal notranslate"><span class="pre">count_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/countplot.html#plot-types">Plot Types</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/countplot.html#omero_screen_plots.countplot_api.PlotType"><code class="docutils literal notranslate"><span class="pre">PlotType</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../api/countplot.html#omero_screen_plots.countplot_api.PlotType.NORMALISED"><code class="docutils literal notranslate"><span class="pre">PlotType.NORMALISED</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../api/countplot.html#omero_screen_plots.countplot_api.PlotType.ABSOLUTE"><code class="docutils literal notranslate"><span class="pre">PlotType.ABSOLUTE</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/countplot.html#data-requirements">Data Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/countplot.html#basic-usage-examples">Basic Usage Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/countplot.html#advanced-usage">Advanced Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/countplot.html#complete-parameter-reference">Complete Parameter Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/countplot.html#core-parameters">Core Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/countplot.html#data-filtering">Data Filtering</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/countplot.html#plot-configuration">Plot Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/countplot.html#figure-settings">Figure Settings</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/countplot.html#layout-and-grouping">Layout and Grouping</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/countplot.html#saving-options">Saving Options</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/countplot.html#id1">Returns</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/countplot.html#algorithm-details">Algorithm Details</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/countplot.html#count-calculation-process">Count Calculation Process</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/countplot.html#statistical-analysis">Statistical Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/countplot.html#error-handling">Error Handling</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/countplot.html#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/normalise.html">Normalise API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../api/normalise.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/normalise.html#omero_screen_plots.normalise.normalize_by_mode"><code class="docutils literal notranslate"><span class="pre">normalize_by_mode()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/normalise.html#omero_screen_plots.normalise.normalize_and_plot"><code class="docutils literal notranslate"><span class="pre">normalize_and_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/normalise.html#omero_screen_plots.normalise.plot_normalization_result"><code class="docutils literal notranslate"><span class="pre">plot_normalization_result()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/normalise.html#omero_screen_plots.normalise.set_threshold_categories"><code class="docutils literal notranslate"><span class="pre">set_threshold_categories()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/normalise.html#helper-functions">Helper Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/normalise.html#omero_screen_plots.normalise.find_intensity_mode"><code class="docutils literal notranslate"><span class="pre">find_intensity_mode()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/normalise.html#examples">Examples</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/utils.html">Utility Functions</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../api/utils.html#functions">Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#omero_screen_plots.utils.save_fig"><code class="docutils literal notranslate"><span class="pre">save_fig()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#omero_screen_plots.utils.scale_data"><code class="docutils literal notranslate"><span class="pre">scale_data()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#omero_screen_plots.utils.selector_val_filter"><code class="docutils literal notranslate"><span class="pre">selector_val_filter()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#omero_screen_plots.utils.get_repeat_points"><code class="docutils literal notranslate"><span class="pre">get_repeat_points()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#omero_screen_plots.utils.show_repeat_points"><code class="docutils literal notranslate"><span class="pre">show_repeat_points()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#omero_screen_plots.utils.select_datapoints"><code class="docutils literal notranslate"><span class="pre">select_datapoints()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../api/utils.html#omero_screen_plots.utils.grouped_x_positions"><code class="docutils literal notranslate"><span class="pre">grouped_x_positions()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/utils.html#examples">Examples</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Examples</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../count_plot_examples.html">Count Plot Usage Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../count_plot_examples.html#basic-setup">Basic Setup</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../count_plot_examples.html#example-1-basic-normalized-count-plot">Example 1: Basic Normalized Count Plot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../count_plot_examples.html#example-2-absolute-count-plot">Example 2: Absolute Count Plot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../count_plot_examples.html#example-3-multi-cell-line-comparison">Example 3: Multi-Cell Line Comparison</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../count_plot_examples.html#example-4-grouped-layout-for-many-conditions">Example 4: Grouped Layout for Many Conditions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../count_plot_examples.html#example-5-time-course-analysis">Example 5: Time-Course Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../count_plot_examples.html#example-6-custom-styling-and-colors">Example 6: Custom Styling and Colors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../count_plot_examples.html#example-7-error-handling-and-data-validation">Example 7: Error Handling and Data Validation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../count_plot_examples.html#example-8-batch-analysis">Example 8: Batch Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../count_plot_examples.html#example-9-integration-with-statistical-analysis">Example 9: Integration with Statistical Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../count_plot_examples.html#example-10-memory-efficient-large-dataset-processing">Example 10: Memory-Efficient Large Dataset Processing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../count_plot_examples.html#key-points-for-effective-usage">Key Points for Effective Usage</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../count_plot_examples.html#data-requirements">Data Requirements</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../count_plot_examples.html#performance-tips">Performance Tips</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../count_plot_examples.html#statistical-considerations">Statistical Considerations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../count_plot_examples.html#troubleshooting-common-issues">Troubleshooting Common Issues</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">OmeroScreen Plots</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">omero_screen_plots.utils</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+
+  <h1>Source code for omero_screen_plots.utils</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Utility functions for OMERO screen plots.&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Optional</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">plt</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy.typing</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">npt</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">seaborn</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sns</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">matplotlib.axes</span><span class="w"> </span><span class="kn">import</span> <span class="n">Axes</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">matplotlib.figure</span><span class="w"> </span><span class="kn">import</span> <span class="n">Figure</span>
+
+<span class="n">current_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span>
+<span class="n">style_path</span> <span class="o">=</span> <span class="p">(</span><span class="n">current_dir</span> <span class="o">/</span> <span class="s2">&quot;../../hhlab_style01.mplstyle&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">style</span><span class="o">.</span><span class="n">use</span><span class="p">(</span><span class="n">style_path</span><span class="p">)</span>
+<span class="n">prop_cycle</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">rcParams</span><span class="p">[</span><span class="s2">&quot;axes.prop_cycle&quot;</span><span class="p">]</span>
+<span class="n">COLORS</span> <span class="o">=</span> <span class="n">prop_cycle</span><span class="o">.</span><span class="n">by_key</span><span class="p">()[</span><span class="s2">&quot;color&quot;</span><span class="p">]</span>
+
+
+<div class="viewcode-block" id="save_fig">
+<a class="viewcode-back" href="../../api/utils.html#omero_screen_plots.utils.save_fig">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">save_fig</span><span class="p">(</span>
+    <span class="n">fig</span><span class="p">:</span> <span class="n">Figure</span><span class="p">,</span>
+    <span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="n">fig_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">tight_layout</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">fig_extension</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;pdf&quot;</span><span class="p">,</span>
+    <span class="n">resolution</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">300</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Save a matplotlib figure to a file.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    fig : Figure</span>
+<span class="sd">        The figure to save.</span>
+<span class="sd">    path : Path</span>
+<span class="sd">        The path for saving the figure.</span>
+<span class="sd">    fig_id : str</span>
+<span class="sd">        The name of the saved figure.</span>
+<span class="sd">    tight_layout : bool, optional</span>
+<span class="sd">        Whether to use tight layout (default is True).</span>
+<span class="sd">    fig_extension : str, optional</span>
+<span class="sd">        The file extension for the saved figure (default is &#39;pdf&#39;).</span>
+<span class="sd">    resolution : int, optional</span>
+<span class="sd">        The resolution of the saved figure in dpi (default is 300).</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">    -------</span>
+<span class="sd">    None</span>
+<span class="sd">        Saves the figure in the specified format.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">dest</span> <span class="o">=</span> <span class="n">path</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">fig_id</span><span class="si">}</span><span class="s2">.</span><span class="si">{</span><span class="n">fig_extension</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Saving figure&quot;</span><span class="p">,</span> <span class="n">fig_id</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">tight_layout</span><span class="p">:</span>
+        <span class="n">fig</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
+    <span class="n">fig</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span>
+        <span class="nb">str</span><span class="p">(</span><span class="n">dest</span><span class="p">),</span>
+        <span class="nb">format</span><span class="o">=</span><span class="n">fig_extension</span><span class="p">,</span>
+        <span class="n">dpi</span><span class="o">=</span><span class="n">resolution</span><span class="p">,</span>
+        <span class="n">facecolor</span><span class="o">=</span><span class="s2">&quot;white&quot;</span><span class="p">,</span>
+        <span class="n">edgecolor</span><span class="o">=</span><span class="s2">&quot;white&quot;</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="selector_val_filter">
+<a class="viewcode-back" href="../../api/utils.html#omero_screen_plots.utils.selector_val_filter">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">selector_val_filter</span><span class="p">(</span>
+    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">selector_col</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">selector_val</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">conditions</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Check if selector_val is provided for selector_col and filter df.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">condition_col</span> <span class="ow">and</span> <span class="n">conditions</span><span class="p">:</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">df</span><span class="p">[</span><span class="n">condition_col</span><span class="p">]</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">conditions</span><span class="p">)]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">selector_col</span> <span class="ow">and</span> <span class="n">selector_val</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">df</span><span class="p">[</span><span class="n">df</span><span class="p">[</span><span class="n">selector_col</span><span class="p">]</span> <span class="o">==</span> <span class="n">selector_val</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="k">elif</span> <span class="n">selector_col</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;selector_val for </span><span class="si">{</span><span class="n">selector_col</span><span class="si">}</span><span class="s2"> must be provided&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">df</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="get_repeat_points">
+<a class="viewcode-back" href="../../api/utils.html#omero_screen_plots.utils.get_repeat_points">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_repeat_points</span><span class="p">(</span>
+    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span> <span class="n">condition_col</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">y_col</span><span class="p">:</span> <span class="nb">str</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Get repeat points for the given condition and y column.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">df</span><span class="o">.</span><span class="n">groupby</span><span class="p">([</span><span class="s2">&quot;plate_id&quot;</span><span class="p">,</span> <span class="n">condition_col</span><span class="p">])[</span><span class="n">y_col</span><span class="p">]</span><span class="o">.</span><span class="n">count</span><span class="p">()</span><span class="o">.</span><span class="n">reset_index</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="show_repeat_points">
+<a class="viewcode-back" href="../../api/utils.html#omero_screen_plots.utils.show_repeat_points">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">show_repeat_points</span><span class="p">(</span>
+    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">y_col</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">ax</span><span class="p">:</span> <span class="n">Axes</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Show repeat points.&quot;&quot;&quot;</span>
+    <span class="n">sns</span><span class="o">.</span><span class="n">stripplot</span><span class="p">(</span>
+        <span class="n">data</span><span class="o">=</span><span class="n">df</span><span class="p">,</span>
+        <span class="n">x</span><span class="o">=</span><span class="n">condition_col</span><span class="p">,</span>
+        <span class="n">y</span><span class="o">=</span><span class="n">y_col</span><span class="p">,</span>
+        <span class="n">marker</span><span class="o">=</span><span class="s2">&quot;o&quot;</span><span class="p">,</span>
+        <span class="n">size</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+        <span class="n">color</span><span class="o">=</span><span class="s2">&quot;lightgray&quot;</span><span class="p">,</span>
+        <span class="n">dodge</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">legend</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="n">order</span><span class="o">=</span><span class="n">conditions</span><span class="p">,</span>
+        <span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span>
+        <span class="n">edgecolor</span><span class="o">=</span><span class="s2">&quot;black&quot;</span><span class="p">,</span>
+        <span class="n">linewidth</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">show_repeat_points_grouped</span><span class="p">(</span>
+    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">y_col</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">ax</span><span class="p">:</span> <span class="n">Axes</span><span class="p">,</span>
+    <span class="n">x_positions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span>
+    <span class="n">jitter_width</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.07</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Show repeat points with custom x-positions for grouped layouts.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        df: DataFrame containing the data</span>
+<span class="sd">        conditions: List of condition names</span>
+<span class="sd">        condition_col: Column name containing condition values</span>
+<span class="sd">        y_col: Column name for y-axis values</span>
+<span class="sd">        ax: Matplotlib axes</span>
+<span class="sd">        x_positions: Custom x-axis positions for each condition</span>
+<span class="sd">        jitter_width: Width of jitter for point spreading</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">condition</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">conditions</span><span class="p">):</span>
+        <span class="n">condition_data</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">df</span><span class="p">[</span><span class="n">condition_col</span><span class="p">]</span> <span class="o">==</span> <span class="n">condition</span><span class="p">]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">condition_data</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+            <span class="n">y_values</span> <span class="o">=</span> <span class="n">condition_data</span><span class="p">[</span><span class="n">y_col</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+            <span class="c1"># Add jitter to x-position</span>
+            <span class="n">x_jittered</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span>
+                <span class="n">x_positions</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">jitter_width</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">y_values</span><span class="p">)</span>
+            <span class="p">)</span>
+
+            <span class="n">ax</span><span class="o">.</span><span class="n">scatter</span><span class="p">(</span>
+                <span class="n">x_jittered</span><span class="p">,</span>
+                <span class="n">y_values</span><span class="p">,</span>
+                <span class="n">marker</span><span class="o">=</span><span class="s2">&quot;o&quot;</span><span class="p">,</span>
+                <span class="n">s</span><span class="o">=</span><span class="mi">15</span><span class="p">,</span>  <span class="c1"># size=3 in seaborn roughly equals s=9 in scatter</span>
+                <span class="n">color</span><span class="o">=</span><span class="s2">&quot;lightgray&quot;</span><span class="p">,</span>
+                <span class="n">edgecolor</span><span class="o">=</span><span class="s2">&quot;black&quot;</span><span class="p">,</span>
+                <span class="n">linewidth</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+                <span class="n">alpha</span><span class="o">=</span><span class="mf">0.8</span><span class="p">,</span>
+                <span class="n">zorder</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+            <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">show_repeat_points_adaptive</span><span class="p">(</span>
+    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">y_col</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">ax</span><span class="p">:</span> <span class="n">Axes</span><span class="p">,</span>
+    <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="n">x_positions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Adaptively show repeat points based on group_size.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        df: DataFrame containing the data</span>
+<span class="sd">        conditions: List of condition names</span>
+<span class="sd">        condition_col: Column name containing condition values</span>
+<span class="sd">        y_col: Column name for y-axis values</span>
+<span class="sd">        ax: Matplotlib axes</span>
+<span class="sd">        group_size: Number of conditions per group</span>
+<span class="sd">        x_positions: Optional custom x-axis positions</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">group_size</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">or</span> <span class="n">x_positions</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># Use standard seaborn stripplot</span>
+        <span class="n">show_repeat_points</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">conditions</span><span class="p">,</span> <span class="n">condition_col</span><span class="p">,</span> <span class="n">y_col</span><span class="p">,</span> <span class="n">ax</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># Use custom positioning for grouped layout</span>
+        <span class="n">show_repeat_points_grouped</span><span class="p">(</span>
+            <span class="n">df</span><span class="p">,</span> <span class="n">conditions</span><span class="p">,</span> <span class="n">condition_col</span><span class="p">,</span> <span class="n">y_col</span><span class="p">,</span> <span class="n">ax</span><span class="p">,</span> <span class="n">x_positions</span>
+        <span class="p">)</span>
+
+
+<div class="viewcode-block" id="select_datapoints">
+<a class="viewcode-back" href="../../api/utils.html#omero_screen_plots.utils.select_datapoints">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">select_datapoints</span><span class="p">(</span>
+    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span> <span class="n">conditions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">condition_col</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">n</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">30</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Select up to n random datapoints per category and plate-id.&quot;&quot;&quot;</span>
+    <span class="n">df_sampled</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">condition</span> <span class="ow">in</span> <span class="n">conditions</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">plate_id</span> <span class="ow">in</span> <span class="n">df</span><span class="o">.</span><span class="n">plate_id</span><span class="o">.</span><span class="n">unique</span><span class="p">():</span>
+            <span class="n">df_sub</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span>
+                <span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="n">condition_col</span><span class="p">]</span> <span class="o">==</span> <span class="n">condition</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">df</span><span class="o">.</span><span class="n">plate_id</span> <span class="o">==</span> <span class="n">plate_id</span><span class="p">)</span>
+            <span class="p">]</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">df_sub</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>  <span class="c1"># Include data if any exists</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">df_sub</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">n</span><span class="p">:</span>
+                    <span class="n">df_sub</span> <span class="o">=</span> <span class="n">df_sub</span><span class="o">.</span><span class="n">sample</span><span class="p">(</span><span class="n">n</span><span class="o">=</span><span class="n">n</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+                <span class="n">df_sampled</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">([</span><span class="n">df_sampled</span><span class="p">,</span> <span class="n">df_sub</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">df_sampled</span></div>
+
+
+
+<div class="viewcode-block" id="scale_data">
+<a class="viewcode-back" href="../../api/utils.html#omero_screen_plots.utils.scale_data">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">scale_data</span><span class="p">(</span>
+    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">scale_col</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">scale_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">scale_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">99.0</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Scale data in the dataframe by the specified column.&quot;&quot;&quot;</span>
+    <span class="n">p_low</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="n">scale_col</span><span class="p">],</span> <span class="n">scale_min</span><span class="p">)</span>
+    <span class="n">p_high</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="n">scale_col</span><span class="p">],</span> <span class="n">scale_max</span><span class="p">)</span>
+    <span class="n">df</span><span class="p">[</span><span class="n">scale_col</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="n">scale_col</span><span class="p">],</span> <span class="n">p_low</span><span class="p">,</span> <span class="n">p_high</span><span class="p">)</span>
+    <span class="n">df</span><span class="p">[</span><span class="n">scale_col</span><span class="p">]</span> <span class="o">=</span> <span class="p">((</span><span class="n">df</span><span class="p">[</span><span class="n">scale_col</span><span class="p">]</span> <span class="o">-</span> <span class="n">p_low</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">p_high</span> <span class="o">-</span> <span class="n">p_low</span><span class="p">))</span> <span class="o">*</span> <span class="mi">65535</span>
+    <span class="k">return</span> <span class="n">df</span></div>
+
+
+
+<div class="viewcode-block" id="grouped_x_positions">
+<a class="viewcode-back" href="../../api/utils.html#omero_screen_plots.utils.grouped_x_positions">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">grouped_x_positions</span><span class="p">(</span>
+    <span class="n">n_conditions</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">group_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+    <span class="n">bar_width</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+    <span class="n">within_group_spacing</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+    <span class="n">between_group_gap</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Generate x-axis positions for grouped plots.</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">    - n_conditions: number of conditions (bars/groups)</span>
+<span class="sd">    - group_size: number of conditions per group</span>
+<span class="sd">    - bar_width: width of each bar</span>
+<span class="sd">    - within_group_spacing: space between conditions in a group (distance between bar edges)</span>
+<span class="sd">    - between_group_gap: extra space between groups (distance between bar edges)</span>
+<span class="sd">    Returns a list of x positions for each condition (bar center).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">x_positions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">pos</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_conditions</span><span class="p">):</span>
+        <span class="n">x_positions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">pos</span><span class="p">)</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="n">group_size</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">n_conditions</span><span class="p">:</span>
+            <span class="n">pos</span> <span class="o">+=</span> <span class="n">bar_width</span> <span class="o">+</span> <span class="n">between_group_gap</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">pos</span> <span class="o">+=</span> <span class="n">bar_width</span> <span class="o">+</span> <span class="n">within_group_spacing</span>
+    <span class="k">return</span> <span class="n">x_positions</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">convert_size_to_inches</span><span class="p">(</span>
+    <span class="n">fig_size</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span> <span class="n">size_units</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;cm&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert figure size from specified units to inches for matplotlib.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fig_size: Figure size as (width, height)</span>
+<span class="sd">        size_units: Units of the figure size (&quot;cm&quot; or &quot;inches&quot;)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Figure size in inches</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">size_units</span> <span class="o">==</span> <span class="s2">&quot;cm&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">fig_size</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">/</span> <span class="mf">2.54</span><span class="p">,</span> <span class="n">fig_size</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">/</span> <span class="mf">2.54</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">fig_size</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">prepare_plot_data</span><span class="p">(</span>
+    <span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
+    <span class="n">feature</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">condition_col</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">selector_col</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">selector_val</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">scale</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Prepare and filter data for plotting.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        df: Input dataframe</span>
+<span class="sd">        feature: Feature column to plot</span>
+<span class="sd">        conditions: List of conditions to include</span>
+<span class="sd">        condition_col: Column containing condition values</span>
+<span class="sd">        selector_col: Optional column for filtering</span>
+<span class="sd">        selector_val: Optional value to filter by</span>
+<span class="sd">        scale: Whether to scale the data</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Filtered and optionally scaled dataframe</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">df_filtered</span> <span class="o">=</span> <span class="n">selector_val_filter</span><span class="p">(</span>
+        <span class="n">df</span><span class="p">,</span> <span class="n">selector_col</span><span class="p">,</span> <span class="n">selector_val</span><span class="p">,</span> <span class="n">condition_col</span><span class="p">,</span> <span class="n">conditions</span>
+    <span class="p">)</span>
+    <span class="k">assert</span> <span class="n">df_filtered</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;No data found&quot;</span>
+    <span class="k">if</span> <span class="n">scale</span><span class="p">:</span>
+        <span class="n">df_filtered</span> <span class="o">=</span> <span class="n">scale_data</span><span class="p">(</span><span class="n">df_filtered</span><span class="p">,</span> <span class="n">feature</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">df_filtered</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">setup_figure</span><span class="p">(</span>
+    <span class="n">axes</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Axes</span><span class="p">],</span>
+    <span class="n">fig_size</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span>
+    <span class="n">size_units</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;cm&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Figure</span><span class="p">,</span> <span class="n">Axes</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Setup figure and axes for plotting.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        axes: Optional existing axes to use</span>
+<span class="sd">        fig_size: Figure size as (width, height)</span>
+<span class="sd">        size_units: Units for figure size (&quot;cm&quot; or &quot;inches&quot;)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Figure and axes objects</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">fig_size_inches</span> <span class="o">=</span> <span class="n">convert_size_to_inches</span><span class="p">(</span><span class="n">fig_size</span><span class="p">,</span> <span class="n">size_units</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">axes</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="n">fig_size_inches</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">fig</span> <span class="o">=</span> <span class="n">axes</span><span class="o">.</span><span class="n">get_figure</span><span class="p">()</span>
+        <span class="n">ax</span> <span class="o">=</span> <span class="n">axes</span>
+
+    <span class="k">return</span> <span class="n">fig</span><span class="p">,</span> <span class="n">ax</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">create_standard_boxplot</span><span class="p">(</span>
+    <span class="n">ax</span><span class="p">:</span> <span class="n">Axes</span><span class="p">,</span>
+    <span class="n">data</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">floating</span><span class="p">[</span><span class="n">Any</span><span class="p">]],</span>
+    <span class="n">x_pos</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">color</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">width</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+    <span class="n">alpha</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.75</span><span class="p">,</span>
+    <span class="n">linewidth</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+    <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create a standardized boxplot with consistent styling.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        ax: Matplotlib axes</span>
+<span class="sd">        data: Data to plot</span>
+<span class="sd">        x_pos: X-axis position</span>
+<span class="sd">        color: Box color (defaults to last color in palette)</span>
+<span class="sd">        width: Box width</span>
+<span class="sd">        alpha: Box transparency</span>
+<span class="sd">        linewidth: Box edge line width</span>
+<span class="sd">        **kwargs: Additional arguments passed to boxplot</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">color</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">color</span> <span class="o">=</span> <span class="n">COLORS</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+
+    <span class="n">ax</span><span class="o">.</span><span class="n">boxplot</span><span class="p">(</span>
+        <span class="p">[</span><span class="n">data</span><span class="p">],</span>
+        <span class="n">positions</span><span class="o">=</span><span class="p">[</span><span class="n">x_pos</span><span class="p">],</span>
+        <span class="n">widths</span><span class="o">=</span><span class="n">width</span><span class="p">,</span>
+        <span class="n">showfliers</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="n">patch_artist</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">boxprops</span><span class="o">=</span><span class="p">{</span>
+            <span class="s2">&quot;facecolor&quot;</span><span class="p">:</span> <span class="n">color</span><span class="p">,</span>
+            <span class="s2">&quot;edgecolor&quot;</span><span class="p">:</span> <span class="s2">&quot;black&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;linewidth&quot;</span><span class="p">:</span> <span class="n">linewidth</span><span class="p">,</span>
+            <span class="s2">&quot;alpha&quot;</span><span class="p">:</span> <span class="n">alpha</span><span class="p">,</span>
+        <span class="p">},</span>
+        <span class="n">medianprops</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;color&quot;</span><span class="p">:</span> <span class="s2">&quot;black&quot;</span><span class="p">,</span> <span class="s2">&quot;linewidth&quot;</span><span class="p">:</span> <span class="mf">1.2</span><span class="p">},</span>
+        <span class="n">whiskerprops</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;color&quot;</span><span class="p">:</span> <span class="s2">&quot;black&quot;</span><span class="p">,</span> <span class="s2">&quot;linewidth&quot;</span><span class="p">:</span> <span class="mf">1.2</span><span class="p">},</span>
+        <span class="n">capprops</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;color&quot;</span><span class="p">:</span> <span class="s2">&quot;black&quot;</span><span class="p">,</span> <span class="s2">&quot;linewidth&quot;</span><span class="p">:</span> <span class="mf">1.2</span><span class="p">},</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">create_standard_violin</span><span class="p">(</span>
+    <span class="n">ax</span><span class="p">:</span> <span class="n">Axes</span><span class="p">,</span>
+    <span class="n">data</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">floating</span><span class="p">[</span><span class="n">Any</span><span class="p">]],</span>
+    <span class="n">x_pos</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">color</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">width</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+    <span class="n">alpha</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.75</span><span class="p">,</span>
+    <span class="n">linewidth</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+    <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create a standardized violin plot with consistent styling.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        ax: Matplotlib axes</span>
+<span class="sd">        data: Data to plot</span>
+<span class="sd">        x_pos: X-axis position</span>
+<span class="sd">        color: Violin color (defaults to last color in palette)</span>
+<span class="sd">        width: Violin width</span>
+<span class="sd">        alpha: Violin transparency</span>
+<span class="sd">        linewidth: Violin edge line width</span>
+<span class="sd">        **kwargs: Additional arguments passed to violinplot</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">color</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">color</span> <span class="o">=</span> <span class="n">COLORS</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+
+    <span class="n">vp</span> <span class="o">=</span> <span class="n">ax</span><span class="o">.</span><span class="n">violinplot</span><span class="p">(</span>
+        <span class="p">[</span><span class="n">data</span><span class="p">],</span>
+        <span class="n">positions</span><span class="o">=</span><span class="p">[</span><span class="n">x_pos</span><span class="p">],</span>
+        <span class="n">widths</span><span class="o">=</span><span class="n">width</span><span class="p">,</span>
+        <span class="n">showmeans</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="n">showmedians</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">showextrema</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">bodies</span> <span class="o">=</span> <span class="n">vp</span><span class="p">[</span><span class="s2">&quot;bodies&quot;</span><span class="p">]</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">vp</span><span class="p">[</span><span class="s2">&quot;bodies&quot;</span><span class="p">],</span> <span class="nb">list</span><span class="p">)</span> <span class="k">else</span> <span class="p">[</span><span class="n">vp</span><span class="p">[</span><span class="s2">&quot;bodies&quot;</span><span class="p">]]</span>
+    <span class="k">for</span> <span class="n">body</span> <span class="ow">in</span> <span class="n">bodies</span><span class="p">:</span>
+        <span class="n">body</span><span class="o">.</span><span class="n">set_facecolor</span><span class="p">(</span><span class="n">color</span><span class="p">)</span>
+        <span class="n">body</span><span class="o">.</span><span class="n">set_edgecolor</span><span class="p">(</span><span class="s2">&quot;black&quot;</span><span class="p">)</span>
+        <span class="n">body</span><span class="o">.</span><span class="n">set_alpha</span><span class="p">(</span><span class="n">alpha</span><span class="p">)</span>
+        <span class="n">body</span><span class="o">.</span><span class="n">set_linewidth</span><span class="p">(</span><span class="n">linewidth</span><span class="p">)</span>
+
+    <span class="c1"># Style the median line</span>
+    <span class="k">if</span> <span class="s2">&quot;cmedians&quot;</span> <span class="ow">in</span> <span class="n">vp</span><span class="p">:</span>
+        <span class="n">vp</span><span class="p">[</span><span class="s2">&quot;cmedians&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">set_color</span><span class="p">(</span><span class="s2">&quot;black&quot;</span><span class="p">)</span>
+        <span class="n">vp</span><span class="p">[</span><span class="s2">&quot;cmedians&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">set_linewidth</span><span class="p">(</span><span class="mf">1.5</span><span class="p">)</span>
+
+    <span class="c1"># Style the whiskers (vertical lines)</span>
+    <span class="k">if</span> <span class="s2">&quot;cbars&quot;</span> <span class="ow">in</span> <span class="n">vp</span><span class="p">:</span>
+        <span class="n">vp</span><span class="p">[</span><span class="s2">&quot;cbars&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">set_color</span><span class="p">(</span><span class="s2">&quot;black&quot;</span><span class="p">)</span>
+        <span class="n">vp</span><span class="p">[</span><span class="s2">&quot;cbars&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">set_linewidth</span><span class="p">(</span><span class="mf">0.5</span><span class="p">)</span>
+
+    <span class="c1"># Style the caps (horizontal lines at whisker ends)</span>
+    <span class="k">if</span> <span class="s2">&quot;cmins&quot;</span> <span class="ow">in</span> <span class="n">vp</span><span class="p">:</span>
+        <span class="n">vp</span><span class="p">[</span><span class="s2">&quot;cmins&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">set_color</span><span class="p">(</span><span class="s2">&quot;black&quot;</span><span class="p">)</span>
+        <span class="n">vp</span><span class="p">[</span><span class="s2">&quot;cmins&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">set_linewidth</span><span class="p">(</span><span class="mf">0.5</span><span class="p">)</span>
+    <span class="k">if</span> <span class="s2">&quot;cmaxes&quot;</span> <span class="ow">in</span> <span class="n">vp</span><span class="p">:</span>
+        <span class="n">vp</span><span class="p">[</span><span class="s2">&quot;cmaxes&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">set_color</span><span class="p">(</span><span class="s2">&quot;black&quot;</span><span class="p">)</span>
+        <span class="n">vp</span><span class="p">[</span><span class="s2">&quot;cmaxes&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">set_linewidth</span><span class="p">(</span><span class="mf">0.5</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">set_y_limits</span><span class="p">(</span><span class="n">ax</span><span class="p">:</span> <span class="n">Axes</span><span class="p">,</span> <span class="n">ymax</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Set y-axis limits handling both single values and tuples.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        ax: Matplotlib axes</span>
+<span class="sd">        ymax: Maximum y-value (single float) or (min, max) tuple</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">ymax</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ymax</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">set_ylim</span><span class="p">(</span><span class="n">ymax</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">ymax</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">set_ylim</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">ymax</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">format_plot_labels</span><span class="p">(</span>
+    <span class="n">ax</span><span class="p">:</span> <span class="n">Axes</span><span class="p">,</span>
+    <span class="n">feature</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">conditions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">x_positions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span>
+    <span class="n">x_label</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Format plot labels with consistent styling.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        ax: Matplotlib axes</span>
+<span class="sd">        feature: Feature name for y-label</span>
+<span class="sd">        conditions: Condition names for x-labels</span>
+<span class="sd">        x_positions: X-axis positions</span>
+<span class="sd">        x_label: Whether to show x-labels</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_ylabel</span><span class="p">(</span><span class="n">feature</span><span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_xlabel</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+    <span class="n">ax</span><span class="o">.</span><span class="n">set_xticks</span><span class="p">(</span><span class="n">x_positions</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">x_label</span><span class="p">:</span>
+        <span class="n">ax</span><span class="o">.</span><span class="n">set_xticklabels</span><span class="p">(</span><span class="n">conditions</span><span class="p">,</span> <span class="n">rotation</span><span class="o">=</span><span class="mi">45</span><span class="p">,</span> <span class="n">ha</span><span class="o">=</span><span class="s2">&quot;right&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">ax</span><span class="o">.</span><span class="n">set_xticklabels</span><span class="p">([])</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">finalize_plot_with_title</span><span class="p">(</span>
+    <span class="n">fig</span><span class="p">:</span> <span class="n">Figure</span><span class="p">,</span>
+    <span class="n">title</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">feature</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">axes_provided</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Finalize plot with title and return formatted filename.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fig: Matplotlib figure</span>
+<span class="sd">        title: Plot title (if None, uses feature name)</span>
+<span class="sd">        feature: Feature name (used as fallback title)</span>
+<span class="sd">        axes_provided: Whether axes were provided (affects title placement)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        Formatted filename based on title</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">title</span><span class="p">:</span>
+        <span class="n">title</span> <span class="o">=</span> <span class="n">feature</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">axes_provided</span> <span class="ow">and</span> <span class="n">title</span><span class="p">:</span>
+        <span class="n">fig</span><span class="o">.</span><span class="n">suptitle</span><span class="p">(</span><span class="n">title</span><span class="p">,</span> <span class="n">fontsize</span><span class="o">=</span><span class="mi">7</span><span class="p">,</span> <span class="n">weight</span><span class="o">=</span><span class="s2">&quot;bold&quot;</span><span class="p">,</span> <span class="n">x</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="mf">1.05</span><span class="p">,</span> <span class="n">ha</span><span class="o">=</span><span class="s2">&quot;left&quot;</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">title</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="p">,</span> <span class="s2">&quot;_&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">title</span> <span class="k">else</span> <span class="s2">&quot;plot&quot;</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Helfrid Hochegger.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+</body>
+</html>
