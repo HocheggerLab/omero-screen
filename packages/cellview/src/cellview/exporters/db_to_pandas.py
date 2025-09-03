@@ -109,7 +109,25 @@ class PlateParser:
         Returns:
             A pandas DataFrame with measurements.
         """
-        query = """
+        # First, get all available intensity columns from the measurements table
+        intensity_columns_query = """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = 'measurements'
+        AND column_name LIKE 'intensity_%'
+        """
+        intensity_cols = (
+            self.conn.execute(intensity_columns_query)
+            .df()["column_name"]
+            .tolist()
+        )
+
+        # Build dynamic column list for the query
+        intensity_cols_str = ", ".join(
+            [f'm."{col}"' for col in intensity_cols]
+        )
+
+        query = f"""
         SELECT
             r.plate_id,
             r.repeat_id,
@@ -126,9 +144,7 @@ class PlateParser:
             m.area_nucleus,
             m."centroid-0-nuc",
             m."centroid-1-nuc",
-            m.integrated_int_DAPI_norm,
-            m.intensity_mean_ch2_nucleus,
-            m.intensity_mean_ch3_nucleus_norm,
+            {intensity_cols_str},
             m.area_cell,
             m."centroid-0-cell",
             m."centroid-1-cell",
@@ -146,24 +162,11 @@ class PlateParser:
         """
         df = self.conn.execute(query, [plate_id]).df()
 
-        # Get the channel names for this plate
-        channel_names = (
-            df[["channel_0", "channel_1", "channel_2", "channel_3"]]
-            .iloc[0]
-            .to_dict()
-        )
-
-        # Rename the columns based on channel names
-        column_mapping = {
-            "intensity_mean_ch2_nucleus": f"intensity_mean_{channel_names['channel_2']}_nucleus",
-            "intensity_mean_ch3_nucleus_norm": f"intensity_mean_{channel_names['channel_3']}_nucleus_norm",
-        }
-
-        # Drop the channel name columns and rename the measurement columns
+        # Drop the channel name columns (they're just metadata, not needed in final DataFrame)
         df = df.drop(
-            columns=["channel_0", "channel_1", "channel_2", "channel_3"]
+            columns=["channel_0", "channel_1", "channel_2", "channel_3"],
+            errors="ignore",  # In case these columns don't exist
         )
-        df = df.rename(columns=column_mapping)
 
         return df
 
