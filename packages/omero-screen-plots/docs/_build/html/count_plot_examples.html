@@ -9,7 +9,7 @@
   <title>Count Plot Usage Examples &mdash; OmeroScreen Plots 0.1.1 documentation</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
-      <link rel="stylesheet" type="text/css" href="_static/plot_directive.css?v=7f9a90b1" />
+      <link rel="stylesheet" type="text/css" href="_static/plot_directive.css" />
 
 
       <script src="_static/jquery.js?v=5d32c60e"></script>
@@ -20,6 +20,7 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Histogram Plot Usage Examples" href="histogram_plot_examples.html" />
     <link rel="prev" title="Utility Functions" href="api/utils.html" />
 </head>
 
@@ -158,30 +159,107 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="api/featureplot.html">FeaturePlot API</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="api/featureplot.html#main-functions">Main Functions</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#omero_screen_plots.featureplot.feature_plot"><code class="docutils literal notranslate"><span class="pre">feature_plot()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#omero_screen_plots.featureplot.feature_plot_simple"><code class="docutils literal notranslate"><span class="pre">feature_plot_simple()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#omero_screen_plots.featureplot.feature_threshold_plot"><code class="docutils literal notranslate"><span class="pre">feature_threshold_plot()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#omero_screen_plots.featureplot.draw_violin_or_box"><code class="docutils literal notranslate"><span class="pre">draw_violin_or_box()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#omero_screen_plots.featureplot_api.feature_plot"><code class="docutils literal notranslate"><span class="pre">feature_plot()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="api/featureplot.html#examples">Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/featureplot.html#examples">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#basic-box-plot">Basic Box Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#grouped-layout">Grouped Layout</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#violin-plots">Violin Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#clean-violin-plots">Clean Violin Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#combined-subplot-analysis">Combined Subplot Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#configuration-options">Configuration Options</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/featurenormplot.html">FeatureNormPlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/featurenormplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/featurenormplot.html#omero_screen_plots.featureplot_api.feature_norm_plot"><code class="docutils literal notranslate"><span class="pre">feature_norm_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/featurenormplot.html#id1">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/featurenormplot.html#basic-normalized-plot">Basic Normalized Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featurenormplot.html#triplicates-with-blue-color-scheme">Triplicates with Blue Color Scheme</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featurenormplot.html#grouped-layout-with-purple-scheme">Grouped Layout with Purple Scheme</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featurenormplot.html#custom-threshold-analysis">Custom Threshold Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featurenormplot.html#combined-analysis-comparison">Combined Analysis Comparison</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/featurenormplot.html#configuration-options">Configuration Options</a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="api/cellcycleplot.html">CellCyclePlot API</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="api/cellcycleplot.html#main-functions">Main Functions</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot.cellcycle_plot"><code class="docutils literal notranslate"><span class="pre">cellcycle_plot()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot_api.cellcycle_plot"><code class="docutils literal notranslate"><span class="pre">cellcycle_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcycleplot.html#legacy-functions">Legacy Functions</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot.cellcycle_stacked"><code class="docutils literal notranslate"><span class="pre">cellcycle_stacked()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot.cellcycle_grouped"><code class="docutils literal notranslate"><span class="pre">cellcycle_grouped()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="api/cellcycleplot.html#helper-functions">Helper Functions</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot.cc_phase"><code class="docutils literal notranslate"><span class="pre">cc_phase()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot.prop_pivot"><code class="docutils literal notranslate"><span class="pre">prop_pivot()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot.plot_triplicate_bars"><code class="docutils literal notranslate"><span class="pre">plot_triplicate_bars()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#omero_screen_plots.cellcycleplot.draw_triplicate_boxes"><code class="docutils literal notranslate"><span class="pre">draw_triplicate_boxes()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcycleplot.html#id1">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#default-cell-cycle-plot">Default Cell Cycle Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#dna-content-terminology">DNA Content Terminology</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#compact-layout-without-sub-g1">Compact Layout Without Sub-G1</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#plate-identification-with-legend">Plate Identification with Legend</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#clean-visualization">Clean Visualization</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#custom-styling">Custom Styling</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#combined-features">Combined Features</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="api/cellcycleplot.html#examples">Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcycleplot.html#key-features">Key Features</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#automatic-phase-detection">Automatic Phase Detection</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#variable-layouts">Variable Layouts</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#terminology-options">Terminology Options</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#plate-identification">Plate Identification</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#statistical-analysis">Statistical Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcycleplot.html#color-scheme">Color Scheme</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcycleplot.html#configuration-options">Configuration Options</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcycleplot.html#data-requirements">Data Requirements</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/cellcyclestacked.html">CellCycleStacked API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcyclestacked.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#omero_screen_plots.cellcycleplot_api.cellcycle_stacked"><code class="docutils literal notranslate"><span class="pre">cellcycle_stacked()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/cellcyclestacked.html#id1">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#basic-stacked-plot">Basic Stacked Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#stacked-plot-without-error-bars">Stacked Plot without Error Bars</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#triplicates-with-boxes">Triplicates with Boxes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#dna-content-terminology">DNA Content Terminology</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#custom-phase-selection">Custom Phase Selection</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#plot-without-legend">Plot without Legend</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#triplicates-without-boxes">Triplicates without Boxes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#custom-color-scheme">Custom Color Scheme</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#advanced-grouping-with-triplicates">Advanced Grouping with Triplicates</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#combined-analysis-with-other-plots">Combined Analysis with Other Plots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/cellcyclestacked.html#configuration-options">Configuration Options</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/histogramplot.html">HistogramPlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/histogramplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/histogramplot.html#omero_screen_plots.histogramplot_api.histogram_plot"><code class="docutils literal notranslate"><span class="pre">histogram_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/histogramplot.html#id1">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/histogramplot.html#basic-single-condition-histogram">Basic Single Condition Histogram</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/histogramplot.html#multiple-conditions-with-subplots">Multiple Conditions with Subplots</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/histogramplot.html#dna-content-with-log-scale">DNA Content with Log Scale</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/histogramplot.html#kde-overlay-mode">KDE Overlay Mode</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/histogramplot.html#normalized-histograms">Normalized Histograms</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/histogramplot.html#configuration-options">Configuration Options</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/histogramplot.html#key-parameters">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/histogramplot.html#notes-on-normalization">Notes on Normalization</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/histogramplot.html#advanced-kde-customization">Advanced KDE Customization</a></li>
+</ul>
+</li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="api/combplot.html">CombPlot API</a><ul>
@@ -196,40 +274,19 @@
 <li class="toctree-l2"><a class="reference internal" href="api/combplot.html#examples">Examples</a></li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="api/countplot.html">Count Plots</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#quick-start">Quick Start</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#main-function">Main Function</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#omero_screen_plots.count_plot"><code class="docutils literal notranslate"><span class="pre">count_plot()</span></code></a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/countplot.html">CountPlot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#main-functions">Main Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#omero_screen_plots.countplot_api.count_plot"><code class="docutils literal notranslate"><span class="pre">count_plot()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#plot-types">Plot Types</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#omero_screen_plots.countplot_api.PlotType"><code class="docutils literal notranslate"><span class="pre">PlotType</span></code></a><ul>
-<li class="toctree-l4"><a class="reference internal" href="api/countplot.html#omero_screen_plots.countplot_api.PlotType.NORMALISED"><code class="docutils literal notranslate"><span class="pre">PlotType.NORMALISED</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="api/countplot.html#omero_screen_plots.countplot_api.PlotType.ABSOLUTE"><code class="docutils literal notranslate"><span class="pre">PlotType.ABSOLUTE</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#examples">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#basic-normalized-count-plot">Basic Normalized Count Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#absolute-count-plot">Absolute Count Plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#grouped-layout">Grouped Layout</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#combined-subplot-analysis">Combined Subplot Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#configuration-options">Configuration Options</a></li>
 </ul>
 </li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#data-requirements">Data Requirements</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#basic-usage-examples">Basic Usage Examples</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#advanced-usage">Advanced Usage</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#complete-parameter-reference">Complete Parameter Reference</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#core-parameters">Core Parameters</a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#data-filtering">Data Filtering</a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#plot-configuration">Plot Configuration</a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#figure-settings">Figure Settings</a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#layout-and-grouping">Layout and Grouping</a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#saving-options">Saving Options</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#id1">Returns</a></li>
-<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#algorithm-details">Algorithm Details</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#count-calculation-process">Count Calculation Process</a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#statistical-analysis">Statistical Analysis</a></li>
-<li class="toctree-l3"><a class="reference internal" href="api/countplot.html#error-handling">Error Handling</a></li>
-</ul>
-</li>
-<li class="toctree-l2"><a class="reference internal" href="api/countplot.html#see-also">See Also</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="api/normalise.html">Normalise API</a><ul>
@@ -281,6 +338,34 @@
 <li class="toctree-l3"><a class="reference internal" href="#performance-tips">Performance Tips</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#statistical-considerations">Statistical Considerations</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#troubleshooting-common-issues">Troubleshooting Common Issues</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="histogram_plot_examples.html">Histogram Plot Usage Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="histogram_plot_examples.html#basic-setup">Basic Setup</a></li>
+<li class="toctree-l2"><a class="reference internal" href="histogram_plot_examples.html#example-1-basic-single-condition-histogram">Example 1: Basic Single Condition Histogram</a></li>
+<li class="toctree-l2"><a class="reference internal" href="histogram_plot_examples.html#example-2-multiple-conditions-with-subplots">Example 2: Multiple Conditions with Subplots</a></li>
+<li class="toctree-l2"><a class="reference internal" href="histogram_plot_examples.html#example-3-dna-content-analysis-with-log-scale">Example 3: DNA Content Analysis with Log Scale</a></li>
+<li class="toctree-l2"><a class="reference internal" href="histogram_plot_examples.html#example-4-kde-overlay-for-distribution-comparison">Example 4: KDE Overlay for Distribution Comparison</a></li>
+<li class="toctree-l2"><a class="reference internal" href="histogram_plot_examples.html#example-5-normalized-histograms-for-sample-size-independence">Example 5: Normalized Histograms for Sample Size Independence</a></li>
+<li class="toctree-l2"><a class="reference internal" href="histogram_plot_examples.html#example-6-custom-binning-strategies">Example 6: Custom Binning Strategies</a></li>
+<li class="toctree-l2"><a class="reference internal" href="histogram_plot_examples.html#example-7-kde-smoothing-optimization">Example 7: KDE Smoothing Optimization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="histogram_plot_examples.html#example-8-multi-feature-analysis">Example 8: Multi-Feature Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="histogram_plot_examples.html#example-9-custom-color-schemes">Example 9: Custom Color Schemes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="histogram_plot_examples.html#example-10-advanced-kde-parameters">Example 10: Advanced KDE Parameters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="histogram_plot_examples.html#key-parameters-reference">Key Parameters Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="histogram_plot_examples.html#basic-parameters">Basic Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="histogram_plot_examples.html#scaling-options">Scaling Options</a></li>
+<li class="toctree-l3"><a class="reference internal" href="histogram_plot_examples.html#kde-options">KDE Options</a></li>
+<li class="toctree-l3"><a class="reference internal" href="histogram_plot_examples.html#display-options">Display Options</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="histogram_plot_examples.html#tips-for-effective-use">Tips for Effective Use</a></li>
+<li class="toctree-l2"><a class="reference internal" href="histogram_plot_examples.html#common-use-cases">Common Use Cases</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="histogram_plot_examples.html#cell-cycle-analysis">Cell Cycle Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="histogram_plot_examples.html#biomarker-expression">Biomarker Expression</a></li>
+<li class="toctree-l3"><a class="reference internal" href="histogram_plot_examples.html#morphological-features">Morphological Features</a></li>
 </ul>
 </li>
 </ul>
@@ -687,6 +772,7 @@
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="api/utils.html" class="btn btn-neutral float-left" title="Utility Functions" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="histogram_plot_examples.html" class="btn btn-neutral float-right" title="Histogram Plot Usage Examples" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

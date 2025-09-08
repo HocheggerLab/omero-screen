@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 import pandas as pd
 import matplotlib.pyplot as plt
-from omero_screen_plots import count_plot, feature_plot, feature_norm_plot, cellcycle_plot, cellcycle_stacked, save_fig, PlotType
+from omero_screen_plots import count_plot, feature_plot, feature_norm_plot, cellcycle_plot, cellcycle_stacked, histogram_plot, save_fig, PlotType
 from conf import get_example_data
 
 # Setup paths
@@ -35,6 +35,7 @@ def main() -> None:
         feature_norm_plot_examples(df, static_dir)
         cellcycle_plot_examples(df, static_dir)
         cellcycle_stacked_examples(df, static_dir)
+        histogram_plot_examples(df, static_dir)
 
         print(f"✅ All plots generated in {static_dir.absolute()}")
 
@@ -774,6 +775,110 @@ def cellcycle_stacked_examples(df: pd.DataFrame, static_dir: Path) -> None:
         print(f"✅ All cellcycle stacked examples generated in {static_dir.absolute()}")
     except Exception as e:
         print(f"❌ Error: {e}")
+
+
+def histogram_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
+    """Generate histogram plot examples."""
+    try:
+        conditions = ["control", "cond01", "cond02", "cond03"]
+
+        # Basic histogram
+        print("  - histogram basic")
+        fig, ax = histogram_plot(
+            df=df,
+            feature="intensity_mean_p21_nucleus",
+            conditions="control",
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            bins=100,
+            title="histogram plot basic",
+            fig_size=(6, 4),
+            save=True,
+            path=static_dir,
+            file_format="svg",
+        )
+
+        # Multiple conditions
+        print("  - histogram multiple conditions")
+        fig, axes = histogram_plot(
+            df=df,
+            feature="intensity_mean_p21_nucleus",
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            bins=50,
+            title="histogram plot multiple",
+            fig_size=(16, 4),
+            save=True,
+            path=static_dir,
+            file_format="svg",
+        )
+
+        # DNA content with log scale
+        print("  - histogram DNA content")
+        fig, axes = histogram_plot(
+            df=df,
+            feature="integrated_int_DAPI_norm",
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            bins=100,
+            log_scale=True,
+            log_base=2,
+            x_limits=(1, 16),
+            title="histogram plot DNA content",
+            fig_size=(16, 4),
+            save=True,
+            path=static_dir,
+            file_format="svg",
+        )
+
+        # KDE overlay
+        print("  - histogram KDE overlay")
+        fig, ax = histogram_plot(
+            df=df,
+            feature="integrated_int_DAPI_norm",
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            kde_overlay=True,
+            kde_smoothing=0.8,
+            log_scale=True,
+            log_base=2,
+            x_limits=(1, 16),
+            title="histogram plot KDE overlay",
+            fig_size=(8, 5),
+            save=True,
+            path=static_dir,
+            file_format="svg",
+        )
+
+        # Normalized histogram
+        print("  - histogram normalized")
+        fig, axes = histogram_plot(
+            df=df,
+            feature="area_cell",
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            bins=50,
+            normalize=True,
+            title="histogram plot normalized",
+            fig_size=(16, 4),
+            save=True,
+            path=static_dir,
+            file_format="svg",
+        )
+
+        print("  ✅ Histogram plot examples generated")
+
+    except Exception as e:
+        print(f"  ❌ Error generating histogram examples: {e}")
 
 
 if __name__ == "__main__":

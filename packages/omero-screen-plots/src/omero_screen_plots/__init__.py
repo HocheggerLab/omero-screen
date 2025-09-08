@@ -17,6 +17,7 @@ from omero_screen_plots.cellcycleplot_api import (
 from omero_screen_plots.countplot_api import count_plot
 from omero_screen_plots.countplot_factory import PlotType
 from omero_screen_plots.featureplot_api import feature_norm_plot, feature_plot
+from omero_screen_plots.histogramplot_api import histogram_plot
 from omero_screen_plots.utils import (
     save_fig,
 )
@@ -28,5 +29,6 @@ __all__ = [
     "cellcycle_stacked",
     "feature_plot",
     "feature_norm_plot",
+    "histogram_plot",
     "save_fig",
 ]

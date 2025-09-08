@@ -66,6 +66,7 @@ Quick Start
    api/featurenormplot
    api/cellcycleplot
    api/cellcyclestacked
+   api/histogramplot
    api/combplot
    api/countplot
    api/normalise
@@ -76,6 +77,7 @@ Quick Start
    :caption: Examples
 
    count_plot_examples
+   histogram_plot_examples
    examples/basic_plots
    examples/advanced_analysis
    examples/custom_styling
