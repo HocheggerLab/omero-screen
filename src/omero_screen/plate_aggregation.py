@@ -162,7 +162,9 @@ def aggregate_plates(
                 row_ind = _map_label_to_index(
                     label1, df1w["label"].dropna(axis=0).values.astype(np.int_)
                 )
-                col_ind = _map_label_to_index(label2, df2w["label"].values)
+                col_ind = _map_label_to_index(
+                    label2, np.array(df2w["label"].values)
+                )
                 # print(row_ind, len(row_ind))
                 # print(col_ind)
                 # Drop unmapped labels
@@ -531,7 +533,8 @@ def _select_well_sample(
     mask2 = df["image_id"].values == image_id
     df1 = df[mask1 & mask2].copy()
     df1.reset_index(drop=True, inplace=True)
-    return df1
+    # mypy identifies this as Series[Any] and not a DataFrame
+    return df1  # type: ignore[return-value]
 
 
 def _get_well_samples(
