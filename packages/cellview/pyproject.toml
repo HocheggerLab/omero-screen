@@ -15,6 +15,10 @@ dependencies = [
     "omero-utils",
 ]
 
+[tool.uv.sources]
+omero-screen = { workspace = true }
+omero-utils = { workspace = true }
+
 [project.optional-dependencies]
 test = ["pytest", "pytest-mock"]
 

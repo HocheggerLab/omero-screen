@@ -56,6 +56,7 @@ packages = ["src/omero_screen", "tests"]
 
 [tool.uv.workspace]
 members = [
+    ".",
     "packages/omero-utils",
     "packages/omero-screen-napari",
     "packages/omero-screen-plots",
@@ -63,6 +64,7 @@ members = [
 ]
 
 [tool.uv.sources]
+omero-screen = { workspace = true }
 omero-utils = { workspace = true }
 omero-screen-napari = { workspace = true }
 omero-screen-plots = { workspace = true }
