@@ -1,0 +1,12 @@
+# Documentation build requirements
+sphinx~=7.2
+sphinx-rtd-theme
+sphinx-autodoc-typehints
+sphinxcontrib-napoleon
+
+# Core dependencies for the package
+pandas
+matplotlib
+seaborn
+scikit-image
+numpy
