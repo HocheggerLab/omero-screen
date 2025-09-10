@@ -11,3 +11,6 @@ matplotlib
 seaborn
 scikit-image
 numpy
+# Additional dependencies for plot generation
+requests
+urllib3

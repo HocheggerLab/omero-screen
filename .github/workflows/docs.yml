@@ -64,11 +64,13 @@ jobs:
       - name: Build documentation
         run: |
           cd packages/omero-screen-plots/docs
-          # Build the documentation with plot generation disabled for CI
+          # Build the documentation with plot generation enabled
           uv run sphinx-build -b html . _build/html
         env:
-          # Disable plot generation to speed up CI builds
-          BUILD_PLOTS: false
+          # Enable plot generation for complete documentation
+          BUILD_PLOTS: true
+          # Use headless display for matplotlib in CI
+          MPLBACKEND: Agg
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
