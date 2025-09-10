@@ -72,15 +72,10 @@ instance/
 
 # Sphinx documentation
 docs/_build/
-docs/_static/
-docs/_ext/
 **/docs/_build/
-**/docs/_static/
-**/docs/_ext/
 
-# Generated documentation plots (SVGs)
-**/_static/*.svg
-**/docs/**/*.svg
+# Generated documentation plots (SVGs) - allow _static/*.svg to be committed
+**/docs/_build/**/*.svg
 
 # PyBuilder
 .pybuilder/

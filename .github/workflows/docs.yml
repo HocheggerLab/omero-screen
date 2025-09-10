@@ -56,8 +56,8 @@ jobs:
           uv venv
           # Install documentation requirements
           uv pip install -r packages/omero-screen-plots/docs/requirements.txt
-          # Install main package with all workspace dependencies
-          uv pip install -e .
+          # Install only the plotting package for docs (no need for full environment)
+          uv pip install -e packages/omero-screen-plots
 
       - name: Setup Pages
         id: pages
@@ -69,8 +69,8 @@ jobs:
           # Build the documentation with plot generation enabled
           uv run sphinx-build -b html . _build/html
         env:
-          # Enable plot generation for complete documentation
-          BUILD_PLOTS: true
+          # Use pre-generated plots from CI instead of generating during docs build
+          BUILD_PLOTS: false
           # Use headless display for matplotlib in CI
           MPLBACKEND: Agg
 
