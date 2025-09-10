@@ -78,6 +78,10 @@ docs/_ext/
 **/docs/_static/
 **/docs/_ext/
 
+# Generated documentation plots (SVGs)
+**/_static/*.svg
+**/docs/**/*.svg
+
 # PyBuilder
 .pybuilder/
 target/

@@ -56,8 +56,8 @@ jobs:
           uv venv
           # Install documentation requirements
           uv pip install -r packages/omero-screen-plots/docs/requirements.txt
-          # Install package in development mode
-          uv pip install -e packages/omero-screen-plots
+          # Install main package with all workspace dependencies
+          uv pip install -e .
 
       - name: Setup Pages
         id: pages
