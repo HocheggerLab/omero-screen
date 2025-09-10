@@ -6,7 +6,6 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
-import numpy.typing as npt
 import pandas as pd
 import seaborn as sns
 from matplotlib.axes import Axes
@@ -517,7 +516,7 @@ class HistogramPlot(BasePlotBuilder):
         condition_col: str,
         selector_col: str | None,
         selector_val: str | None,
-    ) -> npt.NDArray[np.float64] | None:
+    ) -> np.ndarray[Any, np.dtype[np.float64]] | None:
         """Calculate unified bin edges across all conditions."""
         # Only calculate unified bins if bins is an integer
         if not isinstance(self.config.bins, int) or self.config.bins <= 0:

@@ -14,12 +14,21 @@ def generate_plots(app: Any, config: Any) -> None:
     if script_path.exists():
         print("Generating example plots...")
         try:
-            subprocess.run(
-                [sys.executable, str(script_path)], cwd=docs_dir, check=True
+            result = subprocess.run(
+                [sys.executable, str(script_path)],
+                cwd=docs_dir,
+                check=True,
+                capture_output=True,
+                text=True
             )
+            print(result.stdout)
+            if result.stderr:
+                print("Warnings:", result.stderr)
             print("✅ Example plots generated successfully")
         except subprocess.CalledProcessError as e:
             print(f"❌ Failed to generate plots: {e}")
+            print("STDOUT:", e.stdout)
+            print("STDERR:", e.stderr)
             # Don't fail the build, just warn
     else:
         print(f"⚠️  Plot generation script not found: {script_path}")
