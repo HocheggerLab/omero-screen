@@ -35,7 +35,9 @@ jobs:
         run: pip install commitizen
 
       - name: Get commit message
-        run: echo "COMMIT_MSG=$(git log -1 --pretty=%B)" >> $GITHUB_ENV
+        run: |
+          # Get only the first line (subject) of the commit message
+          echo "COMMIT_MSG=$(git log -1 --pretty=%s)" >> $GITHUB_ENV
 
       - name: Log commit message format check
         run: |
