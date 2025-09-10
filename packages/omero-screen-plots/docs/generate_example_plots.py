@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 import pandas as pd
 import matplotlib.pyplot as plt
-from omero_screen_plots import count_plot, feature_plot, feature_norm_plot, cellcycle_plot, cellcycle_stacked, histogram_plot, save_fig, PlotType
+from omero_screen_plots import count_plot, feature_plot, feature_norm_plot, cellcycle_plot, cellcycle_stacked, histogram_plot, scatter_plot, save_fig, PlotType
 from conf import get_example_data
 
 # Setup paths
@@ -36,6 +36,7 @@ def main() -> None:
         cellcycle_plot_examples(df, static_dir)
         cellcycle_stacked_examples(df, static_dir)
         histogram_plot_examples(df, static_dir)
+        scatter_plot_examples(df, static_dir)
 
         print(f"✅ All plots generated in {static_dir.absolute()}")
 
@@ -879,6 +880,134 @@ def histogram_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
 
     except Exception as e:
         print(f"  ❌ Error generating histogram examples: {e}")
+
+
+def scatter_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
+    """Generate scatter plot examples."""
+    try:
+        conditions = ['control', 'cond01', 'cond02', 'cond03']
+
+        print("  - scatter plot basic")
+        # Basic cell cycle scatter plot (DNA vs EdU with auto-detection)
+        fig, ax = scatter_plot(
+            df=df,
+            conditions="control",
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            cell_number=3000,
+            title="scatter_plot_basic",
+            show_title=False,
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        print("  - scatter plot multiple conditions")
+        # Multiple conditions comparison
+        fig, axes = scatter_plot(
+            df=df,
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            cell_number=2000,
+            title="scatter_plot_multiple",
+            show_title=False,
+            fig_size=(16, 4),
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        print("  - scatter plot threshold analysis")
+        # Threshold-based coloring (blue below, red above)
+        fig, axes = scatter_plot(
+            df=df,
+            y_feature="intensity_mean_p21_nucleus",
+            conditions=conditions,
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            cell_number=3000,
+            threshold=5000,  # Threshold for blue/red coloring
+            y_limits=(1000, 12000),
+            title="scatter_plot_threshold",
+            show_title=False,
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        print("  - scatter plot custom scales")
+        # Custom scales with reference lines
+        fig, ax = scatter_plot(
+            df=df,
+            x_feature="area_cell",
+            y_feature="intensity_mean_p21_nucleus",
+            conditions="control",
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            cell_number=5000,
+            x_scale="log",  # Force log scale
+            y_scale="log",
+            x_limits=(100, 10000),
+            y_limits=(1000, 15000),
+            vline=2000,  # Custom reference lines
+            hline=5000,
+            kde_overlay=True,
+            title="scatter_plot_custom",
+            show_title=False,
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        print("  - scatter plot KDE overlay")
+        # KDE overlay customization
+        fig, ax = scatter_plot(
+            df=df,
+            conditions="control",
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            cell_number=4000,
+            kde_overlay=True,
+            kde_alpha=0.2,
+            kde_cmap="viridis",
+            title="scatter_plot_kde",
+            show_title=False,
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        print("  - scatter plot cell cycle phases")
+        # Manual cell cycle phase control
+        fig, ax = scatter_plot(
+            df=df,
+            conditions="control",
+            condition_col="condition",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            cell_number=4000,
+            hue="cell_cycle",
+            hue_order=["Sub-G1", "G1", "S", "G2/M", "Polyploid"],
+            show_legend=True,
+            legend_title="Cell Cycle Phase",
+            title="scatter_plot_phases",
+            show_title=False,
+            fig_size=(6, 6),
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        print("  ✅ Scatter plot examples generated")
+
+    except Exception as e:
+        print(f"  ❌ Error generating scatter examples: {e}")
 
 
 if __name__ == "__main__":

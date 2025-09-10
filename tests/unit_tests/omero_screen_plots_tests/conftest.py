@@ -245,3 +245,135 @@ def scaled_feature_data():
                 })
 
     return pd.DataFrame(data)
+
+
+@pytest.fixture
+def dna_edu_data():
+    """Create synthetic DNA/EdU data for cell cycle analysis testing."""
+    np.random.seed(42)
+    data = []
+
+    plates = [1001, 1002]
+    conditions = ["control", "treatment1"]
+
+    measurement_id = 1
+
+    for plate_id in plates:
+        for condition in conditions:
+            # Generate realistic DNA content and EdU intensity data
+            for _ in range(50):  # 50 cells per condition
+                # DNA content (log-normal distribution around 2N and 4N)
+                if np.random.random() < 0.3:  # 30% in S phase
+                    dna_content = np.random.uniform(2.2, 3.8)  # S phase
+                    edu_intensity = np.random.uniform(1000, 8000)  # EdU positive
+                    cell_cycle = "S"
+                elif np.random.random() < 0.6:  # 60% of remaining in G1
+                    dna_content = np.random.normal(2.0, 0.1)  # G1 phase
+                    edu_intensity = np.random.uniform(50, 500)  # EdU negative
+                    cell_cycle = "G1"
+                else:  # Remaining in G2/M
+                    dna_content = np.random.normal(4.0, 0.2)  # G2/M phase
+                    edu_intensity = np.random.uniform(50, 500)  # EdU negative
+                    cell_cycle = "G2/M"
+
+                # Add some noise and ensure positive values
+                dna_content = max(1.0, dna_content + np.random.normal(0, 0.1))
+                edu_intensity = max(10, edu_intensity + np.random.normal(0, 100))
+
+                data.append({
+                    "plate_id": plate_id,
+                    "well": f"A{measurement_id % 12 + 1}",
+                    "experiment": f"exp_{measurement_id}",
+                    "condition": condition,
+                    "cell_line": "MCF10A",
+                    "measurement_id": measurement_id,
+                    "integrated_int_DAPI_norm": dna_content,
+                    "intensity_mean_EdU_nucleus_norm": edu_intensity,
+                    "intensity_mean_EdU_nucleus": edu_intensity * 1000,  # Non-normalized version
+                    "cell_cycle": cell_cycle,
+                    # Additional features for testing
+                    "area_nucleus": np.random.uniform(100, 500),
+                    "area_cell": np.random.uniform(200, 800),
+                    "intensity_mean_p21_nucleus": np.random.uniform(100, 5000),
+                    "intensity_mean_DAPI_nucleus": dna_content * 10000,
+                })
+                measurement_id += 1
+
+    return pd.DataFrame(data)
+
+
+@pytest.fixture
+def threshold_test_data():
+    """Create data for threshold testing with clear above/below threshold values."""
+    data = []
+
+    # Create data with clear threshold separation
+    for i in range(50):
+        data.append({
+            "plate_id": 1001,
+            "well": "A1",
+            "experiment": f"exp_{i}",
+            "condition": "control",
+            "cell_line": "MCF10A",
+            "integrated_int_DAPI_norm": 2.0 + np.random.normal(0, 0.1),
+            "intensity_mean_p21_nucleus": 2000 + np.random.normal(0, 200),  # Below threshold
+            "area_nucleus": np.random.uniform(100, 300),
+        })
+
+    for i in range(50, 100):
+        data.append({
+            "plate_id": 1001,
+            "well": "A2",
+            "experiment": f"exp_{i}",
+            "condition": "treatment1",
+            "cell_line": "MCF10A",
+            "integrated_int_DAPI_norm": 2.0 + np.random.normal(0, 0.1),
+            "intensity_mean_p21_nucleus": 8000 + np.random.normal(0, 500),  # Above threshold
+            "area_nucleus": np.random.uniform(100, 300),
+        })
+
+    return pd.DataFrame(data)
+
+
+@pytest.fixture
+def histogram_test_data():
+    """Create data specifically for histogram testing with various distributions."""
+    np.random.seed(123)
+    data = []
+
+    conditions = ["control", "treatment1", "treatment2"]
+
+    measurement_id = 1
+
+    for condition in conditions:
+        # Create different distribution shapes for each condition
+        if condition == "control":
+            # Normal distribution
+            feature_values = np.random.normal(1000, 200, 100)
+        elif condition == "treatment1":
+            # Log-normal distribution
+            feature_values = np.random.lognormal(np.log(1000), 0.5, 100)
+        else:  # treatment2
+            # Bimodal distribution
+            mode1 = np.random.normal(800, 100, 50)
+            mode2 = np.random.normal(1500, 150, 50)
+            feature_values = np.concatenate([mode1, mode2])
+
+        for value in feature_values:
+            data.append({
+                "plate_id": 1001,
+                "well": f"A{measurement_id % 12 + 1}",
+                "experiment": f"exp_{measurement_id}",
+                "condition": condition,
+                "cell_line": "MCF10A",
+                "measurement_id": measurement_id,
+                # Feature for histogram testing
+                "test_feature": max(10, value),  # Ensure positive values
+                # DNA content feature for log-scale testing
+                "integrated_int_DAPI_norm": np.random.uniform(1.5, 4.5),
+                # Wide range feature for binning tests
+                "wide_range_feature": np.random.uniform(0, 65535),
+            })
+            measurement_id += 1
+
+    return pd.DataFrame(data)

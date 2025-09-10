@@ -67,6 +67,7 @@ Quick Start
    api/cellcycleplot
    api/cellcyclestacked
    api/histogramplot
+   api/scatterplot
    api/combplot
    api/countplot
    api/normalise
@@ -78,6 +79,7 @@ Quick Start
 
    count_plot_examples
    histogram_plot_examples
+   scatter_plot_examples
    examples/basic_plots
    examples/advanced_analysis
    examples/custom_styling

@@ -18,6 +18,7 @@ from omero_screen_plots.countplot_api import count_plot
 from omero_screen_plots.countplot_factory import PlotType
 from omero_screen_plots.featureplot_api import feature_norm_plot, feature_plot
 from omero_screen_plots.histogramplot_api import histogram_plot
+from omero_screen_plots.scatterplot_api import scatter_plot
 from omero_screen_plots.utils import (
     save_fig,
 )
@@ -30,5 +31,6 @@ __all__ = [
     "feature_plot",
     "feature_norm_plot",
     "histogram_plot",
+    "scatter_plot",
     "save_fig",
 ]

@@ -269,6 +269,7 @@ scratch/
 # =========================
 # Ignore large image files
 examples/*
+**/images
 *.csv
 packages/omero-screen-plots/examples/data/sample_plate_data.csv
 
