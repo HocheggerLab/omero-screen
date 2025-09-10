@@ -1,4 +1,4 @@
-name: Build and Deploy Documentation
+name: Documentation
 
 on:
   push:
@@ -12,6 +12,12 @@ on:
     paths:
       - "packages/omero-screen-plots/docs/**"
       - "packages/omero-screen-plots/src/**"
+  # Also run after successful releases
+  workflow_run:
+    workflows: ["Release"]
+    types:
+      - completed
+    branches: [main]
 
 # Allow one concurrent deployment
 concurrency:
@@ -42,12 +48,14 @@ jobs:
       - name: Set up Python
         run: uv python install 3.12
 
-      - name: Install dependencies
+      - name: Create virtual environment and install dependencies
         run: |
+          # Create virtual environment
+          uv venv
           # Install documentation requirements
-          uv pip install --system -r packages/omero-screen-plots/docs/requirements.txt
+          uv pip install -r packages/omero-screen-plots/docs/requirements.txt
           # Install package in development mode
-          uv pip install --system -e packages/omero-screen-plots
+          uv pip install -e packages/omero-screen-plots
 
       - name: Setup Pages
         id: pages
@@ -57,7 +65,7 @@ jobs:
         run: |
           cd packages/omero-screen-plots/docs
           # Build the documentation with plot generation disabled for CI
-          BUILD_PLOTS=false sphinx-build -b html . _build/html
+          uv run sphinx-build -b html . _build/html
         env:
           # Disable plot generation to speed up CI builds
           BUILD_PLOTS: false
@@ -69,8 +77,10 @@ jobs:
 
   # Deploy job
   deploy:
-    # Only deploy on pushes to main branch
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # Deploy on pushes to main or after successful releases
+    if: |
+      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
