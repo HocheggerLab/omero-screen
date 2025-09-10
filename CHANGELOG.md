@@ -1,3 +1,14 @@
+## omero-screen-v0.2.0 (2025-09-10)
+
+### Fix
+
+- bug with detecting repeats in prop_pivot cellcycleplots.py fixed with nunique check
+
+### Refactor
+
+- cellcycle plot factory with comprehensive features
+- migrate from singleton pattern to dependency injection
+
 ## omero-screen-v0.1.5 (2025-05-19)
 
 ### Fix

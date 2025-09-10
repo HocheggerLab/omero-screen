@@ -1,6 +1,6 @@
 [project]
 name = "omero-screen"
-version = "0.1.5"
+version = "0.2.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [{ name = "hh65", email = "hh65@sussex.ac.uk" }]
@@ -209,7 +209,7 @@ python_files = ["test_*.py"]
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.1.5"
+version = "0.2.0"
 tag_format = "omero-screen-v$version"
 version_files = [
     "src/omero_screen/__init__.py:__version__",
