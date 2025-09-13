@@ -6,7 +6,7 @@
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
     <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
-    <dc:date>2025-09-13T07:10:27.315082</dc:date>
+    <dc:date>2025-09-13T09:17:29.844572</dc:date>
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
@@ -43,7 +43,7 @@ L 72.699661 163.356142
 L 72.699661 92.05315
 L 48.489915 92.05315
 z
-" clip-path="url(#pdfccab54a8)" style="fill: #75b1ce"/>
+" clip-path="url(#pcb08ce960d)" style="fill: #75b1ce"/>
    </g>
    <g id="patch_4">
     <path d="M 80.769576 163.356142
@@ -51,7 +51,7 @@ L 104.979322 163.356142
 L 104.979322 104.993686
 L 80.769576 104.993686
 z
-" clip-path="url(#pdfccab54a8)" style="fill: #75b1ce"/>
+" clip-path="url(#pcb08ce960d)" style="fill: #75b1ce"/>
    </g>
    <g id="patch_5">
     <path d="M 113.049238 163.356142
@@ -59,7 +59,7 @@ L 137.258984 163.356142
 L 137.258984 77.968276
 L 113.049238 77.968276
 z
-" clip-path="url(#pdfccab54a8)" style="fill: #75b1ce"/>
+" clip-path="url(#pcb08ce960d)" style="fill: #75b1ce"/>
    </g>
    <g id="patch_6">
     <path d="M 145.328899 163.356142
@@ -67,7 +67,7 @@ L 169.538645 163.356142
 L 169.538645 113.876599
 L 145.328899 113.876599
 z
-" clip-path="url(#pdfccab54a8)" style="fill: #75b1ce"/>
+" clip-path="url(#pcb08ce960d)" style="fill: #75b1ce"/>
    </g>
    <g id="patch_7">
     <path d="M 48.489915 92.05315
@@ -75,7 +75,7 @@ L 72.699661 92.05315
 L 72.699661 69.692108
 L 48.489915 69.692108
 z
-" clip-path="url(#pdfccab54a8)" style="fill: #526c94"/>
+" clip-path="url(#pcb08ce960d)" style="fill: #526c94"/>
    </g>
    <g id="patch_8">
     <path d="M 80.769576 104.993686
@@ -83,7 +83,7 @@ L 104.979322 104.993686
 L 104.979322 95.021447
 L 80.769576 95.021447
 z
-" clip-path="url(#pdfccab54a8)" style="fill: #526c94"/>
+" clip-path="url(#pcb08ce960d)" style="fill: #526c94"/>
    </g>
    <g id="patch_9">
     <path d="M 113.049238 77.968276
@@ -91,7 +91,7 @@ L 137.258984 77.968276
 L 137.258984 62.689812
 L 113.049238 62.689812
 z
-" clip-path="url(#pdfccab54a8)" style="fill: #526c94"/>
+" clip-path="url(#pcb08ce960d)" style="fill: #526c94"/>
    </g>
    <g id="patch_10">
     <path d="M 145.328899 113.876599
@@ -99,7 +99,7 @@ L 169.538645 113.876599
 L 169.538645 110.456528
 L 145.328899 110.456528
 z
-" clip-path="url(#pdfccab54a8)" style="fill: #526c94"/>
+" clip-path="url(#pcb08ce960d)" style="fill: #526c94"/>
    </g>
    <g id="patch_11">
     <path d="M 48.489915 69.692108
@@ -107,7 +107,7 @@ L 72.699661 69.692108
 L 72.699661 49.27514
 L 48.489915 49.27514
 z
-" clip-path="url(#pdfccab54a8)" style="fill: #d4d3cf"/>
+" clip-path="url(#pcb08ce960d)" style="fill: #d4d3cf"/>
    </g>
    <g id="patch_12">
     <path d="M 80.769576 95.021447
@@ -115,7 +115,7 @@ L 104.979322 95.021447
 L 104.979322 67.316889
 L 80.769576 67.316889
 z
-" clip-path="url(#pdfccab54a8)" style="fill: #d4d3cf"/>
+" clip-path="url(#pcb08ce960d)" style="fill: #d4d3cf"/>
    </g>
    <g id="patch_13">
     <path d="M 113.049238 62.689812
@@ -123,7 +123,7 @@ L 137.258984 62.689812
 L 137.258984 48.139699
 L 113.049238 48.139699
 z
-" clip-path="url(#pdfccab54a8)" style="fill: #d4d3cf"/>
+" clip-path="url(#pcb08ce960d)" style="fill: #d4d3cf"/>
    </g>
    <g id="patch_14">
     <path d="M 145.328899 110.456528
@@ -131,7 +131,7 @@ L 169.538645 110.456528
 L 169.538645 71.521628
 L 145.328899 71.521628
 z
-" clip-path="url(#pdfccab54a8)" style="fill: #d4d3cf"/>
+" clip-path="url(#pcb08ce960d)" style="fill: #d4d3cf"/>
    </g>
    <g id="matplotlib.axis_1">
     <g id="xtick_1">
@@ -792,44 +792,44 @@ z
    <g id="LineCollection_1">
     <path d="M 60.594788 105.177955
 L 60.594788 78.928346
-" clip-path="url(#pdfccab54a8)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
+" clip-path="url(#pcb08ce960d)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
     <path d="M 92.874449 118.066051
 L 92.874449 91.921322
-" clip-path="url(#pdfccab54a8)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
+" clip-path="url(#pcb08ce960d)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
     <path d="M 125.154111 87.306261
 L 125.154111 68.63029
-" clip-path="url(#pdfccab54a8)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
+" clip-path="url(#pcb08ce960d)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
     <path d="M 157.433772 129.420926
 L 157.433772 98.332272
-" clip-path="url(#pdfccab54a8)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
+" clip-path="url(#pcb08ce960d)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
    </g>
    <g id="LineCollection_2">
     <path d="M 60.594788 77.216678
 L 60.594788 62.167539
-" clip-path="url(#pdfccab54a8)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
+" clip-path="url(#pcb08ce960d)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
     <path d="M 92.874449 100.85943
 L 92.874449 89.183463
-" clip-path="url(#pdfccab54a8)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
+" clip-path="url(#pcb08ce960d)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
     <path d="M 125.154111 67.818768
 L 125.154111 57.560857
-" clip-path="url(#pdfccab54a8)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
+" clip-path="url(#pcb08ce960d)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
     <path d="M 157.433772 112.912329
 L 157.433772 108.000727
-" clip-path="url(#pdfccab54a8)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
+" clip-path="url(#pcb08ce960d)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
    </g>
    <g id="LineCollection_3">
     <path d="M 60.594788 54.023155
 L 60.594788 44.527124
-" clip-path="url(#pdfccab54a8)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
+" clip-path="url(#pcb08ce960d)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
     <path d="M 92.874449 70.502293
 L 92.874449 64.131486
-" clip-path="url(#pdfccab54a8)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
+" clip-path="url(#pcb08ce960d)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
     <path d="M 125.154111 51.610958
 L 125.154111 44.668441
-" clip-path="url(#pdfccab54a8)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
+" clip-path="url(#pcb08ce960d)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
     <path d="M 157.433772 78.68757
 L 157.433772 64.355685
-" clip-path="url(#pdfccab54a8)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
+" clip-path="url(#pcb08ce960d)" style="fill: none; stroke: #000000; stroke-width: 0.5"/>
    </g>
    <g id="patch_15">
     <path d="M 40.42 163.356142
@@ -1365,7 +1365,7 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="pdfccab54a8">
+  <clipPath id="pcb08ce960d">
    <rect x="40.42" y="44.736" width="137.18856" height="118.620142"/>
   </clipPath>
  </defs>
