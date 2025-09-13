@@ -122,34 +122,3 @@ Create multi-panel figures comparing normalized and absolute counts::
     save_fig(fig, "output/", "count_plot_with_axes", fig_extension="svg")
 
 .. image:: ../_static/count_plot_with_axes.svg
-
-Configuration Options
-~~~~~~~~~~~~~~~~~~~~
-
-The count_plot function supports extensive customization:
-
-**Plot Types**:
-
-- **NORMALISED** (default): Shows counts relative to control condition
-- **ABSOLUTE**: Shows raw cell counts without normalization
-- **Statistical analysis**: Automatic significance testing when ≥3 plates are present
-
-**Data Processing**:
-
-- **Cell counting**: Groups by (plate_id, condition, well) and counts cells per well
-- **Mean calculation**: Computes mean count per condition across wells within each plate
-- **Normalization**: Optional normalization relative to control condition
-
-**Layout Options**:
-
-- **Grouping**: Organize conditions into groups with custom spacing
-- **Bar styling**: Customizable colors using the COLOR enum
-- **Statistical marks**: Significance levels shown as *, **, *** annotations
-- **Axes control**: Use existing matplotlib axes or create new figures
-
-**Export & Styling**:
-
-- **Figure size**: Control dimensions in cm or inches
-- **File formats**: Save as SVG, PDF, or PNG with custom DPI
-- **Labels**: Control axis labels, titles, and condition names
-- **Spacing**: Customize within-group and between-group spacing

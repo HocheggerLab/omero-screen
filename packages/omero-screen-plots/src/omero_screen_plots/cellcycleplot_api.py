@@ -49,6 +49,8 @@ def cellcycle_plot(
 
     Parameters
     ----------
+    Data Filtering
+    ^^^^^^^^^^^^^^
     df : pd.DataFrame
         DataFrame containing cell cycle data with required columns:
         'cell_cycle', 'plate_id', and condition_col.
@@ -60,6 +62,23 @@ def cellcycle_plot(
         Column name for selector (e.g., cell line).
     selector_val : str | None, default=None
         Value to filter selector_col by.
+
+    Display Options
+    ^^^^^^^^^^^^^^^
+    cc_phases : bool, default=True
+        If True, use cell cycle terminology {Sub-G1, G1, S, G2/M, Polyploid}.
+        If False, use DNA content terminology {<2N, 2N, S, 4N, >4N}.
+    show_subG1 : bool, default=False
+        Whether to include Sub-G1/<2N phase in the plot.
+    show_significance : bool, default=True
+        Whether to show significance marks (requires ≥3 plates).
+    show_repeat_points : bool, default=True
+        Whether to show individual repeat points.
+    show_plate_legend : bool, default=False
+        Whether to show legend with different shapes for each plate_id.
+
+    Styling & Colors
+    ^^^^^^^^^^^^^^^^
     title : str | None, default=None
         Plot title. If None, generates default title.
     fig_size : tuple[float, float], default=(6, 6)
@@ -69,29 +88,21 @@ def cellcycle_plot(
     colors : list[str] | None, default=None
         List of colors for plotting. If None, uses default phase colors:
         G1=PINK, S=LIGHT_BLUE, G2/M=YELLOW, Polyploid=BLUE.
+    rotation : int, default=45
+        Rotation angle for x-axis labels.
+    tight_layout : bool, default=False
+        Whether to use tight layout.
+
+    Save Options
+    ^^^^^^^^^^^^
     save : bool, default=True
         Whether to save the figure.
     path : Optional[Path], default=None
         Path to save the figure.
-    tight_layout : bool, default=False
-        Whether to use tight layout.
     file_format : str, default="pdf"
         Format of the figure ("pdf", "png", "svg", etc.).
     dpi : int, default=300
         Resolution of the figure.
-    show_significance : bool, default=True
-        Whether to show significance marks (requires ≥3 plates).
-    show_repeat_points : bool, default=True
-        Whether to show individual repeat points.
-    rotation : int, default=45
-        Rotation angle for x-axis labels.
-    cc_phases : bool, default=True
-        If True, use cell cycle terminology {Sub-G1, G1, S, G2/M, Polyploid}.
-        If False, use DNA content terminology {<2N, 2N, S, 4N, >4N}.
-    show_subG1 : bool, default=False
-        Whether to include Sub-G1/<2N phase in the plot.
-    show_plate_legend : bool, default=False
-        Whether to show legend with different shapes for each plate_id.
 
     Returns:
     -------
@@ -199,6 +210,8 @@ def cellcycle_stacked(
 
     Parameters
     ----------
+    Data Filtering
+    ^^^^^^^^^^^^^^
     df : pd.DataFrame
         DataFrame containing cell cycle data with required columns:
         'cell_cycle', 'plate_id', and condition_col.
@@ -210,8 +223,47 @@ def cellcycle_stacked(
         Column name for selector (e.g., cell line).
     selector_val : str | None, default=None
         Value to filter selector_col by.
+
+    Display Options
+    ^^^^^^^^^^^^^^^
+    show_triplicates : bool, default=False
+        If True, show individual bars for each replicate/plate with boxes.
+        If False, show summary bars with optional error bars.
+    show_error_bars : bool, default=True
+        Whether to show error bars (only applies when show_triplicates=False).
+    show_boxes : bool, default=True
+        Whether to draw boxes around triplicates (only applies when show_triplicates=True).
+    cc_phases : bool, default=True
+        If True, use cell cycle terminology {Sub-G1, G1, S, G2/M, Polyploid}.
+        If False, use DNA content terminology {<2N, 2N, S, 4N, >4N}.
+    phase_order : list[str] | None, default=None
+        Custom list of cell cycle phases to plot. If None, uses all available phases.
     axes : Axes | None, default=None
         Matplotlib axis. If None, a new figure is created.
+    x_label : bool, default=True
+        Whether to show the x-axis labels.
+    rotation : int, default=45
+        Rotation angle for x-axis labels.
+    show_legend : bool, default=True
+        Whether to show the legend with cell cycle phase colors.
+
+    Grouping & Layout
+    ^^^^^^^^^^^^^^^^^
+    group_size : int, default=1
+        Number of conditions per group on the x-axis (1 = no grouping).
+    within_group_spacing : float, default=0.2
+        Spacing between bars within a group.
+    between_group_gap : float, default=0.5
+        Spacing between groups.
+    bar_width : float, default=0.5
+        Width of each bar.
+    repeat_offset : float, default=0.18
+        Offset between replicate bars (only applies when show_triplicates=True).
+    max_repeats : int, default=3
+        Maximum number of replicates to show (only applies when show_triplicates=True).
+
+    Styling & Colors
+    ^^^^^^^^^^^^^^^^
     title : str | None, default=None
         Plot title.
     fig_size : tuple[float, float], default=(6, 6)
@@ -220,64 +272,19 @@ def cellcycle_stacked(
         Units of the figure size ("cm" or "inch").
     colors : list[str] | None, default=None
         List of colors for plotting phases.
+    tight_layout : bool, default=False
+        Whether to use tight layout.
+
+    Save Options
+    ^^^^^^^^^^^^
     save : bool, default=False
         Whether to save the figure.
     path : Path | None, default=None
         Path to save the figure.
-    tight_layout : bool, default=False
-        Whether to use tight layout.
     file_format : str, default="pdf"
         Format of the figure.
     dpi : int, default=300
         Resolution of the figure.
-
-    Display Options
-    ---------------
-    show_triplicates : bool, default=False
-        If True, show individual bars for each replicate/plate with boxes.
-        If False, show summary bars with optional error bars.
-    show_error_bars : bool, default=True
-        Whether to show error bars (only applies when show_triplicates=False).
-    show_boxes : bool, default=True
-        Whether to draw boxes around triplicates (only applies when show_triplicates=True).
-
-    Phase Options
-    -------------
-    cc_phases : bool, default=True
-        If True, use cell cycle terminology {Sub-G1, G1, S, G2/M, Polyploid}.
-        If False, use DNA content terminology {<2N, 2N, S, 4N, >4N}.
-    phase_order : list[str] | None, default=None
-        Custom list of cell cycle phases to plot. If None, uses all available phases.
-
-    Grouping Options
-    ----------------
-    group_size : int, default=1
-        Number of conditions per group on the x-axis (1 = no grouping).
-    within_group_spacing : float, default=0.2
-        Spacing between bars within a group.
-    between_group_gap : float, default=0.5
-        Spacing between groups.
-
-    Bar Options
-    -----------
-    bar_width : float, default=0.5
-        Width of each bar.
-    repeat_offset : float, default=0.18
-        Offset between replicate bars (only applies when show_triplicates=True).
-    max_repeats : int, default=3
-        Maximum number of replicates to show (only applies when show_triplicates=True).
-
-    Axis Options
-    ------------
-    x_label : bool, default=True
-        Whether to show the x-axis labels.
-    rotation : int, default=45
-        Rotation angle for x-axis labels.
-
-    Legend Options
-    --------------
-    show_legend : bool, default=True
-        Whether to show the legend with cell cycle phase colors.
 
     Returns:
     -------

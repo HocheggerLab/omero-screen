@@ -62,6 +62,7 @@ Quick Start
    :maxdepth: 2
    :caption: API Reference
 
+   api/classificationplot
    api/featureplot
    api/featurenormplot
    api/cellcycleplot
@@ -72,17 +73,6 @@ Quick Start
    api/countplot
    api/normalise
    api/utils
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Examples
-
-   count_plot_examples
-   histogram_plot_examples
-   scatter_plot_examples
-   examples/basic_plots
-   examples/advanced_analysis
-   examples/custom_styling
 
 .. toctree::
    :maxdepth: 1

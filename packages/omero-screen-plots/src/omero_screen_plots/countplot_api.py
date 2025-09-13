@@ -44,6 +44,8 @@ def count_plot(
 
     Parameters
     ----------
+    Data Filtering
+    ^^^^^^^^^^^^^^
     df : pd.DataFrame
         The dataframe to plot containing single-cell measurements.
     norm_control : str
@@ -56,36 +58,51 @@ def count_plot(
         The column name for the selector.
     selector_val : str | None, default=None
         The value of the selector.
+
+    Display Options
+    ^^^^^^^^^^^^^^^
     plot_type : PlotType, default=PlotType.NORMALISED
         The type of plot to create (NORMALISED or ABSOLUTE).
-    title : str | None, default=None
-        The title of the plot.
-    colors : Any, default=COLOR
-        The colors to use for the plot.
-    save : bool, default=False
-        Whether to save the plot.
-    dpi : int, default=300
-        The resolution of the plot.
-    tight_layout : bool, default=False
-        Whether to use tight layout.
-    file_format : str, default="pdf"
-        The format of the plot.
-    path : Path | None, default=None
-        The path to save the plot.
-    fig_size : tuple[float, float], default=(7, 7)
-        The size of the plot.
-    size_units : str, default="cm"
-        The units of the plot size.
-    axes : Axes | None, default=None
-        The axis to plot on.
+
+    Grouping & Layout
+    ^^^^^^^^^^^^^^^^^
     group_size : int, default=1
         The number of conditions to group together.
     within_group_spacing : float, default=0.2
         The spacing between conditions within a group.
     between_group_gap : float, default=0.5
         The gap between groups.
+
+    Styling & Colors
+    ^^^^^^^^^^^^^^^^
+    title : str | None, default=None
+        The title of the plot.
+    colors : Any, default=COLOR
+        The colors to use for the plot.
     x_label : bool, default=True
         Whether to show x-axis labels.
+    axes : Axes | None, default=None
+        The axis to plot on.
+
+    Layout & Sizing
+    ^^^^^^^^^^^^^^^
+    fig_size : tuple[float, float], default=(7, 7)
+        The size of the plot.
+    size_units : str, default="cm"
+        The units of the plot size.
+
+    Save Options
+    ^^^^^^^^^^^^
+    save : bool, default=False
+        Whether to save the plot.
+    path : Path | None, default=None
+        The path to save the plot.
+    file_format : str, default="pdf"
+        The format of the plot.
+    tight_layout : bool, default=False
+        Whether to use tight layout.
+    dpi : int, default=300
+        The resolution of the plot.
 
     Returns:
     -------

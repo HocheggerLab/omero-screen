@@ -50,54 +50,71 @@ def feature_plot(
 
     Parameters
     ----------
+    Data Filtering
+    ^^^^^^^^^^^^^^
     df : pd.DataFrame
         The dataframe to plot containing single-cell measurements.
     feature : str
         The feature column to plot.
     conditions : list[str]
         The conditions to plot.
-    axes : Optional[Axes], default=None
-        The axis to plot on.
-    x_label : bool, default=True
-        Whether to show the x-label.
-    ymax : float | tuple[float, float] | None, default=None
-        The y-axis maximum value.
     condition_col : str, default="condition"
         The column name for the conditions.
     selector_col : Optional[str], default="cell_line"
         The column name for the selector.
     selector_val : Optional[str], default=""
         The value of the selector.
-    title : Optional[str], default=""
-        The title of the plot.
-    colors : list[str], default=COLORS
-        The colors to use for the plot.
-    fig_size : tuple[float, float], default=(5, 5)
-        The size of the figure.
-    size_units : str, default="cm"
-        The units of the figure size.
-    scale : bool, default=False
-        Whether to scale the data.
+
+    Display Options
+    ^^^^^^^^^^^^^^^
     violin : bool, default=False
         Whether to use violin plots instead of box plots.
     show_scatter : bool, default=True
         Whether to show scatter points overlay.
-    legend : bool, default=True
-        Whether to show the default plate legend.
+    ymax : float | tuple[float, float] | None, default=None
+        The y-axis maximum value.
+    scale : bool, default=False
+        Whether to scale the data.
+
+    Grouping & Layout
+    ^^^^^^^^^^^^^^^^^
     group_size : int, default=1
         The number of conditions to group.
     within_group_spacing : float, default=0.2
         The spacing between conditions within a group.
     between_group_gap : float, default=0.5
         The gap between groups.
+
+    Styling & Colors
+    ^^^^^^^^^^^^^^^^
+    title : Optional[str], default=""
+        The title of the plot.
+    colors : list[str], default=COLORS
+        The colors to use for the plot.
+    legend : bool, default=True
+        Whether to show the default plate legend.
+    x_label : bool, default=True
+        Whether to show the x-label.
+    axes : Optional[Axes], default=None
+        The axis to plot on.
+
+    Layout & Sizing
+    ^^^^^^^^^^^^^^^
+    fig_size : tuple[float, float], default=(5, 5)
+        The size of the figure.
+    size_units : str, default="cm"
+        The units of the figure size.
+
+    Save Options
+    ^^^^^^^^^^^^
     save : bool, default=True
         Whether to save the plot.
     path : Optional[Path], default=None
         The path to save the plot.
-    tight_layout : bool, default=False
-        Whether to use tight layout.
     file_format : str, default="pdf"
         The format of the saved figure.
+    tight_layout : bool, default=False
+        Whether to use tight layout.
     dpi : int, default=300
         The resolution of the saved figure.
 

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 import pandas as pd
 import matplotlib.pyplot as plt
-from omero_screen_plots import count_plot, feature_plot, feature_norm_plot, cellcycle_plot, cellcycle_stacked, histogram_plot, scatter_plot, save_fig, PlotType
+from omero_screen_plots import count_plot, feature_plot, feature_norm_plot, cellcycle_plot, cellcycle_stacked, histogram_plot, scatter_plot, classification_plot, save_fig, PlotType
 from conf import get_example_data
 
 # Setup paths
@@ -35,6 +35,7 @@ def main() -> None:
         feature_norm_plot_examples(df, static_dir)
         cellcycle_plot_examples(df, static_dir)
         cellcycle_stacked_examples(df, static_dir)
+        classification_plot_examples(df, static_dir)
         histogram_plot_examples(df, static_dir)
         scatter_plot_examples(df, static_dir)
 
@@ -1008,6 +1009,242 @@ def scatter_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
 
     except Exception as e:
         print(f"  ❌ Error generating scatter examples: {e}")
+
+
+def classification_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
+    """Generate classification plot examples."""
+    try:
+        conditions = ['control', 'cond01', 'cond02', 'cond03']
+        classes = ["normal", "micronuclei", "collapsed"]
+
+        print("  - classification plot stacked")
+        # Basic stacked classification plot
+        fig, ax = classification_plot(
+            df=df,
+            classes=classes,
+            conditions=conditions,
+            condition_col="condition",
+            class_col="classifier",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            display_mode="stacked",
+            title="Cell Morphology Classification - Stacked",
+            fig_size=(8, 6),
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        print("  - classification plot triplicates")
+        # Individual triplicates
+        fig, ax = classification_plot(
+            df=df,
+            classes=classes,
+            conditions=conditions,
+            condition_col="condition",
+            class_col="classifier",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            display_mode="triplicates",
+            group_size=1,
+            title="Cell Morphology Classification - Triplicates",
+            fig_size=(10, 6),
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        print("  - classification plot grouped")
+        # Grouped triplicates
+        fig, ax = classification_plot(
+            df=df,
+            classes=classes,
+            conditions=conditions,
+            condition_col="condition",
+            class_col="classifier",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            display_mode="triplicates",
+            group_size=2,
+            within_group_spacing=0.2,
+            between_group_gap=0.4,
+            title="classification_grouped",
+            fig_size=(12, 6),
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        print("  - classification plot custom colors")
+        # Custom colors
+        from omero_screen_plots.colors import COLOR
+        custom_colors = [COLOR.GREY.value, COLOR.LIGHT_GREEN.value, COLOR.OLIVE.value]
+
+        fig, ax = classification_plot(
+            df=df,
+            classes=classes,
+            conditions=['control', 'cond01', 'cond02'],
+            condition_col="condition",
+            class_col="classifier",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            display_mode="stacked",
+            colors=custom_colors,
+            title="classification_colors",
+            fig_size=(8, 6),
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        print("  - classification plot comparison")
+        # Display mode comparison (multi-panel)
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+        # Stacked
+        classification_plot(
+            df=df,
+            classes=classes,
+            conditions=conditions,
+            condition_col="condition",
+            class_col="classifier",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            display_mode="stacked",
+            colors=custom_colors,
+            show_legend=False,
+            axes=axes[0]
+        )
+        axes[0].set_title("Stacked Mode", fontweight='bold')
+
+        # Individual triplicates
+        classification_plot(
+            df=df,
+            classes=classes,
+            conditions=conditions,
+            condition_col="condition",
+            class_col="classifier",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            display_mode="triplicates",
+            group_size=1,
+            colors=custom_colors,
+            show_legend=False,
+            axes=axes[1]
+        )
+        axes[1].set_title("Individual Triplicates", fontweight='bold')
+
+        # Grouped triplicates
+        classification_plot(
+            df=df,
+            classes=classes,
+            conditions=conditions,
+            condition_col="condition",
+            class_col="classifier",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            display_mode="triplicates",
+            group_size=2,
+            colors=custom_colors,
+            axes=axes[2]
+        )
+        axes[2].set_title("Grouped Triplicates", fontweight='bold')
+
+        fig.suptitle("Classification Plot Display Modes", fontsize=14, fontweight='bold')
+        fig.tight_layout()
+        save_fig(fig, static_dir, "classification_comparison", fig_extension="svg")
+        plt.close(fig)
+
+        # Example 5: Dynamic classification column (cell cycle example)
+        print("  - classification plot cell cycle")
+        # Check if we have cell cycle data, if not create a mock example
+        if 'cell_cycle' in df.columns:
+            cell_cycle_classes = ['G1', 'S', 'G2/M']
+            class_col = 'cell_cycle'
+        else:
+            # Use classifier with different classes for demo
+            cell_cycle_classes = ["normal", "micronuclei", "collapsed"]
+            class_col = "classifier"
+
+        fig, ax = classification_plot(
+            df=df,
+            classes=cell_cycle_classes,
+            conditions=conditions,
+            condition_col="condition",
+            class_col=class_col,
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            display_mode="stacked",
+            colors=[COLOR.LIGHT_BLUE.value, COLOR.BLUE.value, COLOR.GREY.value],
+            title="Dynamic Classification Column",
+            fig_size=(8, 6),
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        # Example 6: Bar width customization
+        print("  - classification plot bar width")
+        fig, ax = classification_plot(
+            df=df,
+            classes=classes,
+            conditions=['control', 'cond01'],  # Fewer conditions
+            condition_col="condition",
+            class_col="classifier",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            display_mode="stacked",
+            bar_width=0.5,  # Narrow bars
+            title="Bar Width Customization",
+            fig_size=(6, 6),
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        # Example 7: Y-axis customization
+        print("  - classification plot y-axis")
+        fig, ax = classification_plot(
+            df=df,
+            classes=classes,
+            conditions=conditions,
+            condition_col="condition",
+            class_col="classifier",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            display_mode="stacked",
+            y_lim=(70, 100),  # Focused view on 70-100%
+            title="Y-axis Range Customization",
+            fig_size=(8, 6),
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        # Example 8: Legend customization
+        print("  - classification plot legend")
+        fig, ax = classification_plot(
+            df=df,
+            classes=classes,
+            conditions=conditions,
+            condition_col="condition",
+            class_col="classifier",
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            display_mode="stacked",
+            show_legend=True,
+            legend_bbox=(0.5, 1.15),  # Top center position
+            title="Legend Position Customization",
+            fig_size=(8, 6),
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+
+        print("✅ All classification plot examples generated in", static_dir)
+
+    except Exception as e:
+        print(f"  ❌ Error generating classification examples: {e}")
 
 
 if __name__ == "__main__":

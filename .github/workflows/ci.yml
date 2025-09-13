@@ -6,9 +6,9 @@ on:
   pull_request:
     branches: ["main"]
 
-# Add permissions for the workflow to push changes
+# Permissions can be more restricted if using PAT
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   quality:
@@ -96,34 +96,3 @@ jobs:
       - name: Run tests
         run: |
           uv run pytest tests/ -v --ignore=tests/e2e_tests/
-
-      - name: Generate documentation plots
-        run: |
-          cd packages/omero-screen-plots/docs
-          uv run python generate_example_plots.py
-        env:
-          # Use the same environment as tests
-          ENV: development
-          USERNAME: root
-          PASSWORD: omero
-          HOST: localhost
-          LOG_LEVEL: DEBUG
-          LOG_FILE_PATH: logs/app.log
-          LOG_FORMAT: "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s"
-          ENABLE_CONSOLE_LOGGING: True
-          ENABLE_FILE_LOGGING: False
-          TEST_IMAGE_SIZE: 540
-          MPLBACKEND: Agg
-
-      - name: Commit generated plots
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add packages/omero-screen-plots/docs/_static/*.svg
-          if git diff --staged --quiet; then
-            echo "No plot changes to commit"
-          else
-            git commit -m "docs: update generated documentation plots [skip ci]"
-            git push
-          fi

@@ -14,6 +14,8 @@ from omero_screen_plots.cellcycleplot_api import (
     cellcycle_plot,
     cellcycle_stacked,
 )
+from omero_screen_plots.classificationplot_api import classification_plot
+from omero_screen_plots.combplot import comb_plot
 from omero_screen_plots.countplot_api import count_plot
 from omero_screen_plots.countplot_factory import PlotType
 from omero_screen_plots.featureplot_api import feature_norm_plot, feature_plot
@@ -24,13 +26,15 @@ from omero_screen_plots.utils import (
 )
 
 __all__ = [
-    "count_plot",
-    "PlotType",
     "cellcycle_plot",
     "cellcycle_stacked",
+    "classification_plot",
+    "comb_plot",
+    "count_plot",
     "feature_plot",
     "feature_norm_plot",
     "histogram_plot",
-    "scatter_plot",
+    "PlotType",
     "save_fig",
+    "scatter_plot",
 ]

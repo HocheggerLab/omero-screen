@@ -54,6 +54,8 @@ def histogram_plot(
 
     Parameters
     ----------
+    Data Filtering
+    ^^^^^^^^^^^^^^
     df : pd.DataFrame
         The dataframe containing the data to plot.
     feature : str
@@ -66,21 +68,9 @@ def histogram_plot(
         The column name for additional filtering.
     selector_val : Optional[str], default=None
         The value to filter by if selector_col is provided.
-    axes : Optional[Axes], default=None
-        The matplotlib axes to plot on. Only valid for single condition (string).
-        For multiple conditions, creates subplots automatically.
-    title : Optional[str], default=None
-        The title of the plot. If None, auto-generates from feature and condition.
-    show_title : bool, default=False
-        Whether to display the title. When True, positions title at y-axis start.
-    colors : list[str] | None, default=None
-        Colors to use for the histogram. Uses first color in list.
-    fig_size : tuple[float, float] | None, default=None
-        The size of the figure in the specified units. If None, uses dynamic defaults:
-        - Single condition: (4, 4) cm
-        - Multiple conditions: (4 * num_conditions, 4) cm
-    size_units : str, default="cm"
-        The units for figure size ("cm" or "inches").
+
+    Display Options
+    ^^^^^^^^^^^^^^^
     bins : int | str, default=100
         Number of bins or binning strategy. Default is 100 bins.
         Can be int for exact number or str for methods like "auto", "sturges", etc.
@@ -109,12 +99,33 @@ def histogram_plot(
         Whether to show x-axis tick labels.
     rotation : int, default=0
         Rotation angle for x-axis tick labels.
+    axes : Optional[Axes], default=None
+        The matplotlib axes to plot on. Only valid for single condition (string).
+        For multiple conditions, creates subplots automatically.
+
+    Styling & Colors
+    ^^^^^^^^^^^^^^^^
+    title : Optional[str], default=None
+        The title of the plot. If None, auto-generates from feature and condition.
+    show_title : bool, default=False
+        Whether to display the title. When True, positions title at y-axis start.
+    colors : list[str] | None, default=None
+        Colors to use for the histogram. Uses first color in list.
+    fig_size : tuple[float, float] | None, default=None
+        The size of the figure in the specified units. If None, uses dynamic defaults:
+        - Single condition: (4, 4) cm
+        - Multiple conditions: (4 * num_conditions, 4) cm
+    size_units : str, default="cm"
+        The units for figure size ("cm" or "inches").
+    tight_layout : bool, default=False
+        Whether to use tight layout when saving.
+
+    Save Options
+    ^^^^^^^^^^^^
     save : bool, default=False
         Whether to save the plot to file.
     path : Optional[Path], default=None
         Directory path for saving the plot (required if save=True).
-    tight_layout : bool, default=False
-        Whether to use tight layout when saving.
     file_format : str, default="pdf"
         File format for saved plot ("pdf", "png", "svg", etc.).
     dpi : int, default=300

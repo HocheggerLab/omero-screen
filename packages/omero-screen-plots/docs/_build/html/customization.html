@@ -20,7 +20,7 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="FeaturePlot API" href="api/featureplot.html" />
+    <link rel="next" title="Classification Plot API" href="api/classificationplot.html" />
     <link rel="prev" title="Plot Types" href="plot_types.html" />
 </head>
 
@@ -88,21 +88,26 @@
 <li class="toctree-l3"><a class="reference internal" href="plot_types.html#output">Output</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="plot_types.html#cellcycleplot">CellCyclePlot</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#classificationplot">ClassificationPlot</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="plot_types.html#id1">Basic Usage</a></li>
-<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id2">Key Parameters</a></li>
-<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id3">Output</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#key-features">Key Features</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="plot_types.html#cellcycleplot">CellCyclePlot</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id2">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id3">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id4">Output</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="plot_types.html#combplot">CombPlot</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="plot_types.html#plot-types-available">Plot Types Available</a></li>
-<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id4">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id5">Key Parameters</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="plot_types.html#countplot">CountPlot</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id5">Basic Usage</a></li>
-<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id6">Key Parameters</a></li>
-<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id7">Output</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id6">Basic Usage</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id7">Key Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="plot_types.html#id8">Output</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="plot_types.html#specialized-analysis-functions">Specialized Analysis Functions</a><ul>
@@ -157,6 +162,55 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
 <ul>
+<li class="toctree-l1"><a class="reference internal" href="api/classificationplot.html">Classification Plot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/classificationplot.html#main-function">Main Function</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classification_plot"><code class="docutils literal notranslate"><span class="pre">classification_plot()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/classificationplot.html#factory-classes">Factory Classes</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationPlotConfig"><code class="docutils literal notranslate"><span class="pre">ClassificationPlotConfig</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationPlotConfig.display_mode"><code class="docutils literal notranslate"><span class="pre">ClassificationPlotConfig.display_mode</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationPlotConfig.y_lim"><code class="docutils literal notranslate"><span class="pre">ClassificationPlotConfig.y_lim</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationPlotConfig.repeat_offset"><code class="docutils literal notranslate"><span class="pre">ClassificationPlotConfig.repeat_offset</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationPlotConfig.group_size"><code class="docutils literal notranslate"><span class="pre">ClassificationPlotConfig.group_size</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationPlotConfig.within_group_spacing"><code class="docutils literal notranslate"><span class="pre">ClassificationPlotConfig.within_group_spacing</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationPlotConfig.between_group_gap"><code class="docutils literal notranslate"><span class="pre">ClassificationPlotConfig.between_group_gap</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationPlotConfig.bar_width"><code class="docutils literal notranslate"><span class="pre">ClassificationPlotConfig.bar_width</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationPlotConfig.show_legend"><code class="docutils literal notranslate"><span class="pre">ClassificationPlotConfig.show_legend</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationPlotConfig.legend_bbox"><code class="docutils literal notranslate"><span class="pre">ClassificationPlotConfig.legend_bbox</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationPlotConfig.__init__"><code class="docutils literal notranslate"><span class="pre">ClassificationPlotConfig.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationDataProcessor"><code class="docutils literal notranslate"><span class="pre">ClassificationDataProcessor</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationDataProcessor.__init__"><code class="docutils literal notranslate"><span class="pre">ClassificationDataProcessor.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationDataProcessor.validate_dataframe"><code class="docutils literal notranslate"><span class="pre">ClassificationDataProcessor.validate_dataframe()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationDataProcessor.quantify_classification"><code class="docutils literal notranslate"><span class="pre">ClassificationDataProcessor.quantify_classification()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationDataProcessor.process_data"><code class="docutils literal notranslate"><span class="pre">ClassificationDataProcessor.process_data()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationPlotBuilder"><code class="docutils literal notranslate"><span class="pre">ClassificationPlotBuilder</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationPlotBuilder.__init__"><code class="docutils literal notranslate"><span class="pre">ClassificationPlotBuilder.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationPlotBuilder.build_stacked_plot"><code class="docutils literal notranslate"><span class="pre">ClassificationPlotBuilder.build_stacked_plot()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationPlotBuilder.build_triplicates_plot"><code class="docutils literal notranslate"><span class="pre">ClassificationPlotBuilder.build_triplicates_plot()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="api/classificationplot.html#omero_screen_plots.classificationplot_factory.ClassificationPlotBuilder.build_plot"><code class="docutils literal notranslate"><span class="pre">ClassificationPlotBuilder.build_plot()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/classificationplot.html#usage-example">Usage Example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/classificationplot.html#display-modes">Display Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/classificationplot.html#parameters">Parameters</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="api/classificationplot.html#core-parameters">Core Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/classificationplot.html#display-parameters">Display Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/classificationplot.html#stacked-mode-parameters">Stacked Mode Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/classificationplot.html#triplicates-mode-parameters">Triplicates Mode Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="api/classificationplot.html#save-parameters">Save Parameters</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="api/classificationplot.html#returns">Returns</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/classificationplot.html#see-also">See Also</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="api/featureplot.html">FeaturePlot API</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="api/featureplot.html#main-functions">Main Functions</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="api/featureplot.html#omero_screen_plots.featureplot_api.feature_plot"><code class="docutils literal notranslate"><span class="pre">feature_plot()</span></code></a></li>
@@ -262,6 +316,19 @@
 </li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="api/scatterplot.html">Scatter Plot API</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="api/scatterplot.html#omero_screen_plots.scatter_plot"><code class="docutils literal notranslate"><span class="pre">scatter_plot()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/scatterplot.html#smart-auto-detection">Smart Auto-Detection</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/scatterplot.html#basic-examples">Basic Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/scatterplot.html#advanced-configuration">Advanced Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/scatterplot.html#parameter-categories">Parameter Categories</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/scatterplot.html#performance-considerations">Performance Considerations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/scatterplot.html#integration-examples">Integration Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/scatterplot.html#return-values">Return Values</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/scatterplot.html#error-handling">Error Handling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/scatterplot.html#see-also">See Also</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="api/combplot.html">CombPlot API</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="api/combplot.html#main-functions">Main Functions</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="api/combplot.html#omero_screen_plots.combplot.comb_plot"><code class="docutils literal notranslate"><span class="pre">comb_plot()</span></code></a></li>
@@ -321,6 +388,47 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Examples</span></p>
 <ul>
+<li class="toctree-l1"><a class="reference internal" href="classification_plot_examples.html">Classification Plot Usage Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="classification_plot_examples.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="classification_plot_examples.html#basic-setup">Basic Setup</a></li>
+<li class="toctree-l2"><a class="reference internal" href="classification_plot_examples.html#example-1-basic-stacked-classification-plot">Example 1: Basic Stacked Classification Plot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="classification_plot_examples.html#example-2-individual-triplicates-display">Example 2: Individual Triplicates Display</a></li>
+<li class="toctree-l2"><a class="reference internal" href="classification_plot_examples.html#example-3-grouped-conditions">Example 3: Grouped Conditions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="classification_plot_examples.html#example-4-custom-color-schemes">Example 4: Custom Color Schemes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="classification_plot_examples.html#example-5-dynamic-classification-column">Example 5: Dynamic Classification Column</a></li>
+<li class="toctree-l2"><a class="reference internal" href="classification_plot_examples.html#example-6-bar-width-and-spacing-customization">Example 6: Bar Width and Spacing Customization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="classification_plot_examples.html#example-7-y-axis-customization">Example 7: Y-axis Customization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="classification_plot_examples.html#example-8-legend-customization">Example 8: Legend Customization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="classification_plot_examples.html#example-9-multi-panel-publication-figure">Example 9: Multi-Panel Publication Figure</a></li>
+<li class="toctree-l2"><a class="reference internal" href="classification_plot_examples.html#advanced-usage-tips">Advanced Usage Tips</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="classification_plot_examples.html#handling-multiple-cell-lines">Handling Multiple Cell Lines</a></li>
+<li class="toctree-l3"><a class="reference internal" href="classification_plot_examples.html#dose-response-analysis">Dose-Response Analysis</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="classification_plot_examples.html#api-reference">API Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="classification_plot_examples.html#parameters">Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="classification_plot_examples.html#returns">Returns</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="classification_plot_examples.html#common-use-cases">Common Use Cases</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="classification_plot_examples.html#quality-control">1. Quality Control</a></li>
+<li class="toctree-l3"><a class="reference internal" href="classification_plot_examples.html#drug-response-studies">2. Drug Response Studies</a></li>
+<li class="toctree-l3"><a class="reference internal" href="classification_plot_examples.html#cell-cycle-analysis">3. Cell Cycle Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="classification_plot_examples.html#toxicity-assessment">4. Toxicity Assessment</a></li>
+<li class="toctree-l3"><a class="reference internal" href="classification_plot_examples.html#time-course-experiments">5. Time-Course Experiments</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="classification_plot_examples.html#statistical-considerations">Statistical Considerations</a></li>
+<li class="toctree-l2"><a class="reference internal" href="classification_plot_examples.html#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="classification_plot_examples.html#issue-missing-classes-in-some-conditions">Issue: Missing classes in some conditions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="classification_plot_examples.html#issue-uneven-replicate-numbers">Issue: Uneven replicate numbers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="classification_plot_examples.html#issue-legend-overlaps-with-plot">Issue: Legend overlaps with plot</a></li>
+<li class="toctree-l3"><a class="reference internal" href="classification_plot_examples.html#issue-bars-too-narrow-wide">Issue: Bars too narrow/wide</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="classification_plot_examples.html#see-also">See Also</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="count_plot_examples.html">Count Plot Usage Examples</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#basic-setup">Basic Setup</a></li>
 <li class="toctree-l2"><a class="reference internal" href="count_plot_examples.html#example-1-basic-normalized-count-plot">Example 1: Basic Normalized Count Plot</a></li>
@@ -366,6 +474,52 @@
 <li class="toctree-l3"><a class="reference internal" href="histogram_plot_examples.html#cell-cycle-analysis">Cell Cycle Analysis</a></li>
 <li class="toctree-l3"><a class="reference internal" href="histogram_plot_examples.html#biomarker-expression">Biomarker Expression</a></li>
 <li class="toctree-l3"><a class="reference internal" href="histogram_plot_examples.html#morphological-features">Morphological Features</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="scatter_plot_examples.html">Scatter Plot Examples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="scatter_plot_examples.html#key-features">Key Features</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#smart-auto-detection">Smart Auto-Detection</a></li>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#core-functionality">Core Functionality</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="scatter_plot_examples.html#basic-usage">Basic Usage</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#default-cell-cycle-analysis">1. Default Cell Cycle Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#multiple-conditions-comparison">2. Multiple Conditions Comparison</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="scatter_plot_examples.html#advanced-usage">Advanced Usage</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#biomarker-analysis-with-threshold">3. Biomarker Analysis with Threshold</a></li>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#linear-scale-analysis">4. Linear Scale Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#custom-scales-and-reference-lines">5. Custom Scales and Reference Lines</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="scatter_plot_examples.html#customization-options">Customization Options</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#cell-cycle-phase-control">6. Cell Cycle Phase Control</a></li>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#kde-overlay-customization">7. KDE Overlay Customization</a></li>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#point-styling-for-data-density">8. Point Styling for Data Density</a></li>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#performance-vs-quality-trade-offs">9. Performance vs Quality Trade-offs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#integration-with-matplotlib">10. Integration with Matplotlib</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="scatter_plot_examples.html#common-use-cases">Common Use Cases</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#cell-cycle-analysis">Cell Cycle Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#biomarker-analysis">Biomarker Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#quality-control">Quality Control</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="scatter_plot_examples.html#performance-guidelines">Performance Guidelines</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#cell-number-recommendations">Cell Number Recommendations</a></li>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#optimization-tips">Optimization Tips</a></li>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#memory-considerations">Memory Considerations</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="scatter_plot_examples.html#parameter-reference">Parameter Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#essential-parameters">Essential Parameters</a></li>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#feature-control">Feature Control</a></li>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#automatic-vs-manual-control">Automatic vs Manual Control</a></li>
+<li class="toctree-l3"><a class="reference internal" href="scatter_plot_examples.html#styling-options">Styling Options</a></li>
 </ul>
 </li>
 </ul>
@@ -729,7 +883,7 @@
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="plot_types.html" class="btn btn-neutral float-left" title="Plot Types" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="api/featureplot.html" class="btn btn-neutral float-right" title="FeaturePlot API" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="api/classificationplot.html" class="btn btn-neutral float-right" title="Classification Plot API" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

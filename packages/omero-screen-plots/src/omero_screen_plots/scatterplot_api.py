@@ -82,81 +82,123 @@ def scatter_plot(
     This function provides a high-level API for creating scatter plots with
     support for multiple conditions, log scales, KDE overlays, and threshold-based coloring.
 
-    Args:
-        df: DataFrame containing the data
-        conditions: Single condition string or list of conditions
-        condition_col: Column containing condition labels
-        selector_col: Optional column for additional filtering
-        selector_val: Optional value for selector_col filtering
+    Parameters
+    ----------
+    Data Filtering
+    ^^^^^^^^^^^^^^
+    df : pd.DataFrame
+        DataFrame containing the data.
+    conditions : str | list[str]
+        Single condition string or list of conditions.
+    condition_col : str, default="condition"
+        Column containing condition labels.
+    selector_col : str | None, default=None
+        Optional column for additional filtering.
+    selector_val : str | None, default=None
+        Optional value for selector_col filtering.
 
-        # Plot features
-        x_feature: Column name for x-axis (default: DNA content)
-        y_feature: Column name for y-axis (default: EdU intensity)
+    Plot Features
+    ^^^^^^^^^^^^^
+    x_feature : str, default="integrated_int_DAPI_norm"
+        Column name for x-axis (default: DNA content).
+    y_feature : str, default="intensity_mean_EdU_nucleus_norm"
+        Column name for y-axis (default: EdU intensity).
+    cell_number : int | None, default=3000
+        Number of cells to sample per condition (None = all).
 
-        # Data sampling
-        cell_number: Number of cells to sample per condition (None = all)
+    Display Options
+    ^^^^^^^^^^^^^^^
+    hue : str | None, default=None
+        Column name for color mapping (auto-detects cell_cycle).
+    hue_order : list[str] | None, default=None
+        Order for hue categories.
+    palette : list[str] | dict[str, str] | None, default=None
+        Colors for hue categories.
+    size : float, default=2
+        Size of scatter points.
+    alpha : float, default=1.0
+        Transparency of points.
+    kde_overlay : bool | None, default=None
+        Whether to add KDE overlay (auto for DNA vs EdU).
+    kde_cmap : str, default="rocket_r"
+        Colormap for KDE.
+    kde_alpha : float, default=0.1
+        Transparency of KDE.
+    grid : bool, default=False
+        Whether to show grid.
+    show_legend : bool, default=False
+        Whether to show legend.
+    legend_loc : str, default="best"
+        Legend location.
+    legend_title : str | None, default=None
+        Legend title.
 
-        # Hue settings
-        hue: Column name for color mapping (auto-detects cell_cycle)
-        hue_order: Order for hue categories
-        palette: Colors for hue categories
+    Axes Settings
+    ^^^^^^^^^^^^^
+    x_scale : Literal["linear", "log"] | None, default=None
+        Scale type for x-axis ("linear" or "log", auto-detected).
+    x_scale_base : int, default=2
+        Base for log scale on x-axis.
+    y_scale : Literal["linear", "log"] | None, default=None
+        Scale type for y-axis ("linear" or "log", auto-detected).
+    y_scale_base : int, default=2
+        Base for log scale on y-axis.
+    x_limits : tuple[float, float] | None, default=None
+        Limits for x-axis (auto-set for DNA content).
+    y_limits : tuple[float, float] | None, default=None
+        Limits for y-axis.
+    x_ticks : list[float] | None, default=None
+        Custom x-axis tick positions.
+    y_ticks : list[float] | None, default=None
+        Custom y-axis tick positions.
+    x_label : str | None, default=None
+        X-axis label.
+    y_label : str | None, default=None
+        Y-axis label.
+    axes : Axes | None, default=None
+        Existing matplotlib Axes to plot on.
 
-        # Scale settings
-        x_scale: Scale type for x-axis ("linear" or "log", auto-detected)
-        x_scale_base: Base for log scale on x-axis
-        y_scale: Scale type for y-axis ("linear" or "log", auto-detected)
-        y_scale_base: Base for log scale on y-axis
+    Reference Lines & Thresholds
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    vline : float | None, default=None
+        Vertical reference line position (auto for DNA).
+    hline : float | None, default=None
+        Horizontal reference line position (auto for EdU).
+    line_style : str, default="--"
+        Style for reference lines.
+    line_color : str, default="black"
+        Color for reference lines.
+    threshold : float | None, default=None
+        Y-value threshold for blue/red coloring.
 
-        # Axis settings
-        x_limits: Limits for x-axis (auto-set for DNA content)
-        y_limits: Limits for y-axis
-        x_ticks: Custom x-axis tick positions
-        y_ticks: Custom y-axis tick positions
+    Styling & Colors
+    ^^^^^^^^^^^^^^^^
+    show_title : bool, default=False
+        Whether to show title.
+    title : str | None, default=None
+        Plot title.
+    fig_size : tuple[float, float] | None, default=None
+        Figure size in size_units.
+    size_units : str, default="cm"
+        Units for figure size ("cm" or "inches").
+    tight_layout : bool, default=False
+        Whether to use tight layout.
 
-        # Scatter settings
-        size: Size of scatter points
-        alpha: Transparency of points
-
-        # KDE overlay
-        kde_overlay: Whether to add KDE overlay (auto for DNA vs EdU)
-        kde_cmap: Colormap for KDE
-        kde_alpha: Transparency of KDE
-
-        # Reference lines
-        vline: Vertical reference line position (auto for DNA)
-        hline: Horizontal reference line position (auto for EdU)
-        line_style: Style for reference lines
-        line_color: Color for reference lines
-
-        # Display settings
-        grid: Whether to show grid
-        show_title: Whether to show title
-        title: Plot title
-        x_label: X-axis label
-        y_label: Y-axis label
-        show_legend: Whether to show legend
-        legend_loc: Legend location
-        legend_title: Legend title
-
-        # Threshold settings
-        threshold: Y-value threshold for blue/red coloring
-
-        # Figure settings
-        fig_size: Figure size in size_units
-        size_units: Units for figure size ("cm" or "inches")
-        dpi: Resolution for saved figures
-
-        # Save settings
-        save: Whether to save the figure
-        path: Directory to save figure
-        file_format: Format for saved figure
-        tight_layout: Whether to use tight layout
-
-        # Axes settings
-        axes: Existing matplotlib Axes to plot on
+    Save Options
+    ^^^^^^^^^^^^
+    save : bool, default=False
+        Whether to save the figure.
+    path : Path | None, default=None
+        Directory to save figure.
+    file_format : str, default="pdf"
+        Format for saved figure.
+    dpi : int, default=300
+        Resolution for saved figures.
 
     Returns:
-        tuple: (Figure, Axes or list of Axes)
+    -------
+    tuple[Figure, Axes | list[Axes]]
+        (Figure, Axes or list of Axes)
 
     Examples:
         Basic cell cycle plot with auto-detection:

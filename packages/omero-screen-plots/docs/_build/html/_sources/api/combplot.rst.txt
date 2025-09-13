@@ -1,77 +1,54 @@
-CombPlot API
-============
+Combined Plot API
+=================
 
-.. currentmodule:: omero_screen_plots.combplot
+.. currentmodule:: omero_screen_plots
 
-The combplot module creates combined visualizations with marginal distributions for exploring relationships between features.
+The combined plot creates comprehensive visualizations with marginal distributions for exploring relationships between features with integrated histogram and scatter plot components.
 
 Main Functions
 --------------
 
 .. autofunction:: comb_plot
 
-.. autofunction:: combplot_simple
-
-.. autofunction:: histogram_plot
-
-.. autofunction:: scatter_plot
-
-.. autofunction:: scatter_plot_feature
-
 Examples
 --------
 
-Combined plot with automatic styling::
+Basic Combined Analysis
+~~~~~~~~~~~~~~~~~~~~~~~
 
-    from omero_screen_plots.combplot import comb_plot
+Create a combined scatter plot with marginal histograms::
 
-    comb_plot(
-        data_path="sample_plate_data.csv",
-        plot_type="scatter",
-        conditions=["DMSO", "Nutlin"],
-        condition_col="condition",
-        x_feature="intensity_integrated_dapi_nucleus",
-        y_feature="intensity_mean_edu_nucleus",
-        output_path="output/"
-    )
-
-Simple combined plot::
-
-    from omero_screen_plots.combplot import combplot_simple
-
-    combplot_simple(
-        data_path="sample_plate_data.csv",
-        plot_type="histogram",
-        conditions=["DMSO", "Nutlin", "Etop", "Noc"],
-        condition_col="condition",
-        x_feature="area_nucleus",
-        output_path="output/",
-        fig_id="nuclear_area_distribution"
-    )
-
-Histogram plot::
-
-    from omero_screen_plots.combplot import histogram_plot
+    from omero_screen_plots import comb_plot
     import pandas as pd
 
-    df = pd.read_csv("sample_plate_data.csv")
-    fig, ax = histogram_plot(
+    df = pd.read_csv("data.csv")
+    fig = comb_plot(
         df=df,
-        conditions=["DMSO", "Nutlin"],
+        x_feature="area_cell",
+        y_feature="intensity_mean_p21_nucleus",
+        conditions=['control', 'cond01', 'cond02', 'cond03'],
         condition_col="condition",
-        x_feature="intensity_mean_p21_nucleus",
-        bins=50
+        selector_col="cell_line",
+        selector_val="MCF10A",
+        plot_type="scatter",
+        title="Combined Feature Analysis",
+        save=True,
+        file_format="svg"
     )
 
-Scatter plot with feature relationship::
+Cell Cycle Combination
+~~~~~~~~~~~~~~~~~~~~~~
 
-    from omero_screen_plots.combplot import scatter_plot_feature
+Combine cell cycle scatter plot with DNA content and EdU marginal distributions::
 
-    scatter_plot_feature(
-        data_path="sample_plate_data.csv",
-        conditions=["DMSO", "Nutlin"],
+    fig = comb_plot(
+        df=df,
+        x_feature="integrated_int_DAPI_norm",
+        y_feature="intensity_mean_EdU_nucleus_norm",
+        conditions=['control', 'treatment'],
         condition_col="condition",
-        x_feature="intensity_integrated_dapi_nucleus",
-        y_feature="intensity_mean_edu_nucleus",
-        output_path="output/"
+        selector_col="cell_line",
+        selector_val="MCF10A",
+        plot_type="scatter",
+        title="Cell Cycle Combined Analysis"
     )

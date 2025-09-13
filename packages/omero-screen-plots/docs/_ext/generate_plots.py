@@ -1,5 +1,6 @@
 """Sphinx extension to generate example plots before building docs."""
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -8,6 +9,13 @@ from typing import Any
 
 def generate_plots(app: Any, config: Any) -> None:
     """Generate example plots before building documentation."""
+    # Check if plot generation is disabled
+    build_plots = os.environ.get('BUILD_PLOTS', 'true').lower() == 'true'
+
+    if not build_plots:
+        print("📋 Plot generation disabled (BUILD_PLOTS=false). Using existing SVG files.")
+        return
+
     docs_dir = Path(app.srcdir)
     script_path = docs_dir / "generate_example_plots.py"
 

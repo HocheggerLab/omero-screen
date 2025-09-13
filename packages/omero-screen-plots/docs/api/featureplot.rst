@@ -144,16 +144,3 @@ Create multi-panel figures comparing different features::
     save_fig(fig, "output/", "feature_comparison", fig_extension="svg")
 
 .. image:: ../_static/feature_plot_comparison.svg
-
-Configuration Options
-~~~~~~~~~~~~~~~~~~~~
-
-The feature_plot function supports extensive customization:
-
-- **Plot style**: Choose between box plots (default) or violin plots
-- **Scatter points**: Show/hide individual data points with plate-specific coloring
-- **Grouping**: Organize conditions into groups with custom spacing
-- **Statistical analysis**: Automatic significance testing with adaptive positioning
-- **Colors**: Customize colors using the COLOR enum or custom palettes
-- **Axes limits**: Set custom y-axis ranges or use automatic percentile-based limits
-- **Layout**: Control figure size, spacing, and label rotation

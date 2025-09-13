@@ -40,6 +40,37 @@ plot = FeaturePlot(
 - Optional scatter overlay
 - Automatic or custom statistics
 
+## ClassificationPlot
+
+**Purpose**: Visualize categorical classification results as stacked bars or individual triplicates.
+
+**Use cases**:
+- Cell morphology classification
+- Phenotype distribution analysis
+- Quality control assessment
+- Drug toxicity evaluation
+
+### Basic Usage
+
+```python
+from omero_screen_plots import classification_plot
+
+fig, ax = classification_plot(
+    df=df,
+    classes=["normal", "micronuclei", "collapsed"],
+    conditions=["control", "treatment1", "treatment2"],
+    class_col="classifier",  # Dynamic classification column
+    display_mode="stacked"    # or "triplicates"
+)
+```
+
+### Key Features
+
+- **Dynamic class column**: Adapt to any categorical classification
+- **Two display modes**: Stacked bars with error bars or individual triplicates
+- **Flexible grouping**: Group conditions for easier comparison
+- **Custom colors**: Apply meaningful color schemes to categories
+
 ## CellCyclePlot
 
 **Purpose**: Analyze cell cycle distribution based on DNA content (DAPI) and S-phase marker (EdU).

@@ -125,8 +125,8 @@ Show probability density instead of counts for sample-size-independent compariso
 
 .. image:: ../_static/histogram_area_cell_multi.svg
 
-Configuration Options
-~~~~~~~~~~~~~~~~~~~~~
+Parameters
+----------
 
 The histogram_plot function supports extensive customization:
 

@@ -88,7 +88,7 @@ class BaseDataProcessor(ABC):
         return filtered
 
     @abstractmethod
-    def process_data(self, df: pd.DataFrame, **kwargs: Any) -> pd.DataFrame:
+    def process_data(self, df: pd.DataFrame, **kwargs: Any) -> Any:
         """Process data for specific plot type."""
 
 
@@ -120,9 +120,7 @@ class BasePlotBuilder(ABC):
         return self
 
     @abstractmethod
-    def build_plot(
-        self, data: pd.DataFrame, **kwargs: Any
-    ) -> "BasePlotBuilder":
+    def build_plot(self, data: Any, **kwargs: Any) -> "BasePlotBuilder":
         """Build the specific plot type."""
 
     def finalize_plot(
