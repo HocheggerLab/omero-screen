@@ -642,7 +642,7 @@ class TestMockingDependencies:
     """Test with mocked dependencies to ensure proper integration."""
 
     @patch('omero_screen_plots.combplot_api.scatter_plot')
-    @patch('omero_screen_plots.combplot_api.histogram_plot')
+    @patch('omero_screen_plots.combplot_api.sns.histplot')
     @patch('matplotlib.pyplot.show')
     def test_combplot_feature_calls_dependencies(self, mock_show, mock_histogram, mock_scatter, dna_edu_data):
         """Test that combplot_feature calls the expected dependencies."""
@@ -663,10 +663,15 @@ class TestMockingDependencies:
         expected_scatter_calls = len(conditions) * 2
         assert mock_scatter.call_count == expected_scatter_calls
 
+        # Should call sns.histplot once per condition for histograms
+        expected_histogram_calls = len(conditions)
+        assert mock_histogram.call_count == expected_histogram_calls
+
     @patch('omero_screen_plots.combplot_api.cellcycle_stacked')
     @patch('omero_screen_plots.combplot_api.scatter_plot')
+    @patch('omero_screen_plots.combplot_api.sns.histplot')
     @patch('matplotlib.pyplot.show')
-    def test_combplot_cellcycle_calls_dependencies(self, mock_show, mock_scatter, mock_cellcycle, dna_edu_data):
+    def test_combplot_cellcycle_calls_dependencies(self, mock_show, mock_histogram, mock_scatter, mock_cellcycle, dna_edu_data):
         """Test that combplot_cellcycle calls the expected dependencies."""
         conditions = ["control"]
 
@@ -681,3 +686,6 @@ class TestMockingDependencies:
         assert mock_scatter.call_count == len(conditions)
         # Should call cellcycle_stacked once
         assert mock_cellcycle.call_count == 1
+        # Should call sns.histplot once per condition for histograms
+        expected_histogram_calls = len(conditions)
+        assert mock_histogram.call_count == expected_histogram_calls

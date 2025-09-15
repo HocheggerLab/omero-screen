@@ -15,7 +15,6 @@ from omero_screen_plots.cellcycleplot_api import (
     cellcycle_stacked,
 )
 from omero_screen_plots.classificationplot_api import classification_plot
-from omero_screen_plots.combplot import comb_plot
 from omero_screen_plots.combplot_api import (
     combplot_cellcycle,
     combplot_feature,
@@ -33,7 +32,6 @@ __all__ = [
     "cellcycle_plot",
     "cellcycle_stacked",
     "classification_plot",
-    "comb_plot",
     "combplot_cellcycle",
     "combplot_feature",
     "count_plot",
