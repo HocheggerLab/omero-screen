@@ -147,7 +147,13 @@ python_files = ["test_*.py"]
 
 [tool.commitizen]
 name = "cz_conventional_commits"
+<<<<<<< HEAD
 version = "0.2.0"
+||||||| parent of e7cd89b (fix(omero-screen-plots): corrected release ci and upgrade version to 0.1.1)
+version = "0.1.2"
+=======
+version = "0.1.3"
+>>>>>>> e7cd89b (fix(omero-screen-plots): corrected release ci and upgrade version to 0.1.1)
 tag_format = "omero-screen-plots-v$version"
 version_files = [
     "src/omero_screen_plots/__init__.py:__version__",
