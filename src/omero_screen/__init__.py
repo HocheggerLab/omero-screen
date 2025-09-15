@@ -1,6 +1,6 @@
 """OMERO Screen: Tools for managing and analyzing high-throughput screening data with OMERO."""
 
-__version__ = "0.2.0"
+__version__ = "0.1.2"
 
 
 from dataclasses import dataclass, field

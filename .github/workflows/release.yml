@@ -58,14 +58,48 @@ jobs:
             if echo "$COMMIT_MSG" | grep -qE "^[a-z]+\([^)]+\)"; then
               PACKAGE=$(echo "$COMMIT_MSG" | sed -n 's/^[a-z]\+(\([^)]\+\)).*/\1/p')
             fi
+
+            # Extract commit type for manual version calculation
+            COMMIT_TYPE=$(echo "$COMMIT_MSG" | sed -n 's/^\([a-z]\+\).*/\1/p')
+
             # Use the package if it exists, otherwise bump the root package.
             if [ -n "$PACKAGE" ] && [ -d "packages/$PACKAGE" ]; then
-              echo "Bumping version for package: $PACKAGE"
+              echo "Bumping version for package: $PACKAGE in packages/$PACKAGE"
               cd "packages/$PACKAGE"
+
+              # Get current version
+              CURRENT_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+              echo "Current version: $CURRENT_VERSION"
+
+              # Calculate new version based on commit type
+              case "$COMMIT_TYPE" in
+                "fix")
+                  NEW_VERSION=$(echo "$CURRENT_VERSION" | awk -F. '{$3++; print $1"."$2"."$3}')
+                  ;;
+                "feat")
+                  NEW_VERSION=$(echo "$CURRENT_VERSION" | awk -F. '{$2++; $3=0; print $1"."$2"."$3}')
+                  ;;
+                *)
+                  NEW_VERSION=$(echo "$CURRENT_VERSION" | awk -F. '{$3++; print $1"."$2"."$3}')
+                  ;;
+              esac
+
+              echo "New version: $NEW_VERSION"
+
+              # Update version manually
+              sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" pyproject.toml
+              sed -i "s/__version__ = \".*\"/__version__ = \"$NEW_VERSION\"/" src/omero_screen_plots/__init__.py
+
+              # Create tag
+              git add pyproject.toml src/omero_screen_plots/__init__.py
+              git commit -m "bump: version $CURRENT_VERSION → $NEW_VERSION"
+              git tag "${PACKAGE}-v${NEW_VERSION}"
+
             else
               echo "No package scope found or package directory does not exist. Using root package."
+              # Use commitizen for root package (full git history approach)
+              cz bump --yes || echo "No version bump occurred for root."
             fi
-            cz bump --yes || echo "No version bump occurred."
           else
             echo "Skipping version bump because commit message is not conventional."
           fi
