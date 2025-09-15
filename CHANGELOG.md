@@ -1,3 +1,18 @@
+## omero-screen-v0.2.0 (2025-09-15)
+
+### Fix
+
+- resolve remaining conflict markers in pyproject.toml
+- **omero-screen-plots**: corrected release ci and upgrade version to 0.1.1
+- **omero-screen-plots**: corrected release ci and upgrade version to 0.1.1
+- **omero-screen-plots**: finalised package with new architecture
+- bug with detecting repeats in prop_pivot cellcycleplots.py fixed with nunique check
+
+### Refactor
+
+- cellcycle plot factory with comprehensive features
+- migrate from singleton pattern to dependency injection
+
 ## omero-screen-v0.2.0 (2025-09-10)
 
 ### Fix
