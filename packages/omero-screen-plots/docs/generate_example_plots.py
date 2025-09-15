@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 import pandas as pd
 import matplotlib.pyplot as plt
-from omero_screen_plots import count_plot, feature_plot, feature_norm_plot, cellcycle_plot, cellcycle_stacked, histogram_plot, scatter_plot, classification_plot, save_fig, PlotType
+from omero_screen_plots import count_plot, feature_plot, feature_norm_plot, cellcycle_plot, cellcycle_stacked, histogram_plot, scatter_plot, classification_plot, combplot_feature, combplot_cellcycle, save_fig, PlotType
 from conf import get_example_data
 
 # Setup paths
@@ -38,6 +38,7 @@ def main() -> None:
         classification_plot_examples(df, static_dir)
         histogram_plot_examples(df, static_dir)
         scatter_plot_examples(df, static_dir)
+        combplot_examples(df, static_dir)
 
         print(f"✅ All plots generated in {static_dir.absolute()}")
 
@@ -1245,6 +1246,125 @@ def classification_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
 
     except Exception as e:
         print(f"  ❌ Error generating classification examples: {e}")
+
+
+def combplot_examples(df: pd.DataFrame, static_dir: Path) -> None:
+    """Generate combplot examples."""
+    try:
+        conditions = ['control', 'cond01', 'cond02', 'cond03']
+
+        # Example 1: combplot_feature with p21 intensity
+        print("  - combplot feature p21")
+        fig, axes = combplot_feature(
+            df=df,
+            conditions=conditions,
+            feature="intensity_mean_p21_nucleus",
+            threshold=5000,
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            title="combplot_feature_p21",
+            cell_number=2000,
+            fig_size=(10, 7),
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+        plt.close(fig)
+
+        # Example 2: combplot_feature with cell area
+        print("  - combplot feature cell area")
+        fig, axes = combplot_feature(
+            df=df,
+            conditions=conditions[:3],  # 3 conditions for smaller plot
+            feature="area_cell",
+            threshold=2000,
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            title="combplot_feature_area",
+            cell_number=2000,
+            fig_size=(8, 7),
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+        plt.close(fig)
+
+        # Example 3: combplot_feature with nuclear intensity
+        print("  - combplot feature nuclear intensity")
+        fig, axes = combplot_feature(
+            df=df,
+            conditions=['control', 'cond01'],  # Just 2 conditions
+            feature="intensity_mean_p21_nucleus",  # Use existing column
+            threshold=7500,
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            title="combplot_feature_nucleus",
+            cell_number=3000,
+            fig_size=(6, 7),
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+        plt.close(fig)
+
+        # Example 4: combplot_cellcycle default
+        print("  - combplot cellcycle default")
+        fig, axes = combplot_cellcycle(
+            df=df,
+            conditions=conditions,
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            title="combplot_cellcycle_default",
+            cell_number=2000,
+            cc_phases=True,
+            show_error_bars=True,
+            fig_size=(12, 7),
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+        plt.close(fig)
+
+        # Example 5: combplot_cellcycle DNA terminology
+        print("  - combplot cellcycle DNA terminology")
+        fig, axes = combplot_cellcycle(
+            df=df,
+            conditions=conditions,
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            title="combplot_cellcycle_dna",
+            cell_number=2000,
+            cc_phases=False,  # DNA content terminology
+            show_error_bars=False,  # No error bars
+            fig_size=(12, 7),
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+        plt.close(fig)
+
+        # Example 6: combplot_cellcycle compact
+        print("  - combplot cellcycle compact")
+        fig, axes = combplot_cellcycle(
+            df=df,
+            conditions=conditions[:3],  # 3 conditions
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            title="combplot_cellcycle_compact",
+            cell_number=2000,
+            cc_phases=True,
+            show_error_bars=True,
+            fig_size=(10, 7),
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+        plt.close(fig)
+
+        print("  ✅ Combplot examples generated")
+
+    except Exception as e:
+        print(f"  ❌ Error generating combplot examples: {e}")
 
 
 if __name__ == "__main__":

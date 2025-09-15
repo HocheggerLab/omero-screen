@@ -123,7 +123,7 @@ def scatter_plot(
         x="integrated_int_DAPI_norm",
         y="intensity_mean_EdU_nucleus_norm",
         fill=True,
-        alpha=0.3,
+        alpha=0.1,
         cmap="rocket_r",
         ax=ax,
     )
