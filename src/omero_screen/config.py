@@ -27,6 +27,51 @@ from dotenv import load_dotenv
 project_root = Path(__file__).parent.parent.parent.resolve()
 
 
+def find_project_root() -> Path:
+    """Find the project root directory using multiple strategies.
+
+    Returns:
+        Path to the project root directory.
+    """
+    # Strategy 1: Check for explicit override
+    if override := os.environ.get("OMERO_SCREEN_PROJECT_ROOT"):
+        override_path = Path(override)
+        if override_path.exists():
+            return override_path.resolve()
+
+    # Strategy 2: Look for git repository root from current working directory
+    current = Path.cwd()
+    while current != current.parent:
+        if (current / ".git").exists():
+            return current
+        current = current.parent
+
+    # Strategy 3: Look for common project markers from current working directory
+    current = Path.cwd()
+    while current != current.parent:
+        # Look for project indicators
+        if any(
+            (current / marker).exists()
+            for marker in [
+                "pyproject.toml",
+                "uv.lock",
+                "CLAUDE.md",
+                "packages",
+            ]
+        ):
+            return current
+        current = current.parent
+
+    # Strategy 4: Traditional approach (relative to this file)
+    # This works for development but may fail for installed packages
+    file_based_root = Path(__file__).parent.parent.parent.resolve()
+    if file_based_root.name != "site-packages":  # Avoid site-packages
+        return file_based_root
+
+    # Strategy 5: Fallback to current working directory
+    return Path.cwd()
+
+
 def set_env_vars() -> None:
     """Loads environment variables from configuration files or the environment.
 
@@ -35,8 +80,8 @@ def set_env_vars() -> None:
     Raises:
         OSError: If no configuration file is found and required environment variables are missing.
     """
-    # Determine the project root (adjust as necessary)
-    project_root = Path(__file__).parent.parent.parent.resolve()
+    # Determine the project root using robust discovery
+    project_root = find_project_root()
 
     # Get environment, defaulting to development
     env = os.getenv("ENV", "development").lower()
@@ -74,12 +119,16 @@ def set_env_vars() -> None:
         [
             "No configuration found!",
             f"Current environment: {env}",
+            f"Project root detected as: {project_root}",
             "Tried looking for:",
             f"  - {env_specific_path}",
             f"  - {default_env_path}",
             "And checked environment variables for:",
             f"  - {', '.join(required_vars)}",
-            "\nPlease create either a .env.{ENV} file, .env file, or set all required environment variables.",
+            "\nSolutions:",
+            f"  1. Create a .env.{env} file in {project_root}",
+            "  2. Set OMERO_SCREEN_PROJECT_ROOT=/path/to/your/omero-screen",
+            "  3. Set all required environment variables directly",
         ]
     )
     raise OSError(error_msg)

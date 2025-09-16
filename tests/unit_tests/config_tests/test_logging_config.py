@@ -47,10 +47,10 @@ def clean_env():
 def test_validate_env_vars_all_present(test_env_files, monkeypatch, clean_env):
     """Test when all required environment variables are present"""
 
-    def mock_resolve(self):
+    def mock_find_project_root():
         return test_env_files
 
-    monkeypatch.setattr("pathlib.Path.resolve", mock_resolve)
+    monkeypatch.setattr("omero_screen.config.find_project_root", mock_find_project_root)
 
     set_env_vars()  # This will load from .env.development by default
     validate_env_vars()  # Should not raise any exception
@@ -69,10 +69,10 @@ def test_get_logger_hierarchy(
 ):
     """Test that loggers form proper hierarchy"""
 
-    def mock_resolve(self):
+    def mock_find_project_root():
         return test_env_files
 
-    monkeypatch.setattr("pathlib.Path.resolve", mock_resolve)
+    monkeypatch.setattr("omero_screen.config.find_project_root", mock_find_project_root)
 
     set_env_vars()  # Load development environment
 
@@ -100,10 +100,10 @@ def test_get_logger_single_configuration(
 ):
     """Test that logger configuration happens only once"""
 
-    def mock_resolve(self):
+    def mock_find_project_root():
         return test_env_files
 
-    monkeypatch.setattr("pathlib.Path.resolve", mock_resolve)
+    monkeypatch.setattr("omero_screen.config.find_project_root", mock_find_project_root)
 
     set_env_vars()  # Load development environment
 
@@ -128,10 +128,10 @@ def test_get_logger_with_console(
 ):
     """Test logger with console logging enabled"""
 
-    def mock_resolve(self):
+    def mock_find_project_root():
         return test_env_files
 
-    monkeypatch.setattr("pathlib.Path.resolve", mock_resolve)
+    monkeypatch.setattr("omero_screen.config.find_project_root", mock_find_project_root)
 
     # Use development environment which has console logging enabled
     set_env_vars()
@@ -151,10 +151,10 @@ def test_get_logger_message_propagation(
 ):
     """Test that messages from child loggers reach the root logger's handlers"""
 
-    def mock_resolve(self):
+    def mock_find_project_root():
         return test_env_files
 
-    monkeypatch.setattr("pathlib.Path.resolve", mock_resolve)
+    monkeypatch.setattr("omero_screen.config.find_project_root", mock_find_project_root)
 
     set_env_vars()  # Load development environment
 
