@@ -46,6 +46,9 @@ class ExperimentManager:
     def select_or_create_experiment(self) -> int:
         """Main method to select an existing experiment or create a new one.
 
+        This method now handles experiment names that may have been confirmed
+        from OMERO metadata in the project selection step.
+
         Returns:
             The ID of the selected experiment.
         """

@@ -94,4 +94,10 @@ def parse_args() -> argparse.Namespace:
         help="Export a plate by its ID.",
     )
 
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Force interactive project/experiment selection even when OMERO metadata is available.",
+    )
+
     return parser.parse_args()

@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import duckdb
 import pandas as pd
@@ -18,6 +18,8 @@ from omero.gateway import BlitzGateway, PlateWrapper, TagAnnotationWrapper
 from omero_utils.attachments import get_file_attachments, parse_csv_data
 from omero_utils.omero_connect import omero_connect
 from rich.console import Console
+from rich.prompt import Prompt
+from rich.table import Table
 
 from cellview.utils.error_classes import DataError, DBError, StateError
 from cellview.utils.ui import CellViewUI
@@ -25,6 +27,8 @@ from omero_screen.config import get_logger
 
 # Initialize logger with the module's name
 logger = get_logger(__name__)
+
+JustifyMethod = Literal["default", "left", "center", "right", "full"]
 
 
 @dataclass
@@ -77,6 +81,7 @@ class CellViewStateCore:
     db_conn: Optional[duckdb.DuckDBPyConnection] = None
     console: Console = Console()
     logger: Any = None
+    _omero_import_mode: bool = False
 
     def __post_init__(self) -> None:
         """Initialize logger and console after dataclass initialization."""
@@ -110,6 +115,9 @@ class CellViewStateCore:
             instance.plate_id = instance.get_plate_id()
         elif args and args.plate_id:
             instance.plate_id = args.plate_id
+            instance._omero_import_mode = (
+                True  # Flag to indicate OMERO import mode
+            )
             (
                 instance.df,
                 instance.project_name,
@@ -117,6 +125,12 @@ class CellViewStateCore:
                 instance.date,
                 instance.lab_member,
             ) = instance.parse_omero_data(args.plate_id)
+
+            # For OMERO imports, we always want to show confirmation dialog
+            # The --interactive flag is maintained for backward compatibility but OMERO imports are now always interactive
+            instance.ui.info(
+                "OMERO import detected - will show interactive confirmation for project/experiment metadata"
+            )
 
         # Set up channels if we have data
         if instance.df is not None:
@@ -257,38 +271,550 @@ class CellViewStateCore:
     ) -> tuple[Any, Any, Any, Any]:
         """Get the project info for the given plate.
 
+        This method now handles both screen-based and standalone plates:
+        - If plate is part of a screen with tag annotations: extracts project/experiment names
+        - If plate is standalone or has incomplete screen info: returns None values for interactive selection
+
         Args:
             plate: The omero plate object.
 
         Returns:
-            A tuple containing the project name, experiment name, and date.
-
-        Raises:
-            DataError: If the plate does not have a parent screen.
+            A tuple containing the project name, experiment name, date, and owner.
+            Project/experiment names may be None if plate is standalone.
         """
         screen = plate.getParent()
         owner = plate.getOwner()
         owner_fullname = owner.getFullName()
+        plate_date = plate.getDate().strftime("%Y-%m-%d")
+
         if not screen:
-            raise DataError(
-                "Plate does not have a parent screen",
-                context={"plate_id": self.plate_id},
+            # Standalone plate - no screen parent
+            self.ui.info(
+                f"Plate {self.plate_id} is a standalone plate (not part of a screen)"
             )
+            return None, None, plate_date, owner_fullname
+
+        # Screen exists - check for tag annotations
         experiment_name = screen.getName()
         tags = [
             ann
             for ann in screen.listAnnotations()
             if isinstance(ann, TagAnnotationWrapper)
         ]
-        if len(tags) != 1:
-            raise DataError(
-                "Plate does not have exactly correct project tag annotation",
-                context={"plate_id": self.plate_id},
+
+        if len(tags) == 1:
+            # Perfect case - screen with exactly one tag
+            tag = tags[0]
+            project_name = tag.getValue()
+            self.ui.info(
+                f"Found screen-based plate: project='{project_name}', experiment='{experiment_name}'"
             )
-        tag = tags[0]
-        project_name = tag.getValue()
-        plate_date = plate.getDate().strftime("%Y-%m-%d")
-        return project_name, experiment_name, plate_date, owner_fullname
+            return project_name, experiment_name, plate_date, owner_fullname
+        elif len(tags) == 0:
+            # Screen exists but no project tag
+            self.ui.info(
+                f"Plate {self.plate_id} is part of screen '{experiment_name}' but has no project tag"
+            )
+            return None, experiment_name, plate_date, owner_fullname
+        else:
+            # Multiple tags - ambiguous
+            tag_values = [tag.getValue() for tag in tags]
+            self.ui.warning(
+                f"Plate {self.plate_id} has multiple project tags: {tag_values}"
+            )
+            self.ui.info("Please select project and experiment interactively")
+            return None, None, plate_date, owner_fullname
+
+    def confirm_project_experiment_names(self) -> tuple[str, str]:
+        """Confirm or modify project and experiment names when importing from OMERO.
+
+        This method handles the interactive confirmation when project/experiment names
+        are extracted from OMERO screen metadata. It provides clear information about
+        what was detected and handles all edge cases gracefully.
+
+        When users choose to override detected metadata or when no metadata is available,
+        this method shows rich table displays of existing projects and experiments,
+        similar to the normal import flow.
+
+        Returns:
+            A tuple containing the confirmed project name and experiment name.
+        """
+        from rich.prompt import Confirm
+
+        # Display plate information
+        self.console.print(
+            f"\n[bold cyan]OMERO Import - Plate {self.plate_id}[/bold cyan]"
+        )
+
+        if self.project_name and self.experiment_name:
+            # Perfect case - both names available from screen with single tag
+            self.console.print(
+                "[bold blue]✓ Detected from OMERO screen metadata:[/bold blue]"
+            )
+            self.console.print(
+                f"  Project: [green]{self.project_name}[/green]"
+            )
+            self.console.print(
+                f"  Experiment: [green]{self.experiment_name}[/green]"
+            )
+            self.console.print("  Source: Screen with single project tag")
+
+            if Confirm.ask("\nUse these detected names?", default=True):
+                return str(self.project_name), str(self.experiment_name)
+            else:
+                self.console.print(
+                    "[yellow]User chose to override detected metadata[/yellow]"
+                )
+                # Fall through to interactive selection
+
+        elif self.experiment_name:
+            # Screen exists but no or ambiguous project tags
+            self.console.print(
+                "[bold blue]✓ Detected experiment from OMERO screen:[/bold blue]"
+            )
+            self.console.print(
+                f"  Experiment: [green]{self.experiment_name}[/green]"
+            )
+            if self.project_name is None:
+                self.console.print("  Issue: Screen has no project tag")
+            else:
+                self.console.print("  Issue: Screen has multiple project tags")
+
+            if Confirm.ask(
+                "\nUse this detected experiment name?", default=True
+            ):
+                confirmed_experiment = str(self.experiment_name)
+                # Still need to select project interactively
+                confirmed_project = self._interactive_project_selection()
+                return confirmed_project, confirmed_experiment
+            else:
+                # Fall through to full interactive selection
+                pass
+
+        else:
+            # Standalone plate or no usable metadata
+            self.console.print(
+                "[yellow]⚠ Standalone plate (not part of a screen)[/yellow]"
+            )
+            self.console.print("  No project/experiment metadata available")
+            self.console.print("  Interactive selection required")
+
+        # Interactive selection section - common for override and standalone cases
+        self.console.print("\n[bold cyan]Interactive Selection[/bold cyan]")
+        confirmed_project = self._interactive_project_selection()
+        confirmed_experiment = self._interactive_experiment_selection(
+            confirmed_project
+        )
+
+        # Show summary of final choices
+        self.console.print("\n[bold green]Final Selection:[/bold green]")
+        self.console.print(f"  Project: [green]{confirmed_project}[/green]")
+        self.console.print(
+            f"  Experiment: [green]{confirmed_experiment}[/green]"
+        )
+
+        return confirmed_project, confirmed_experiment
+
+    def list_existing_projects(self) -> list[tuple[int, str, str]]:
+        """List all existing projects in the database.
+
+        Returns:
+            A list of tuples containing (project_id, project_name, description).
+
+        Raises:
+            StateError: If no database connection is available.
+        """
+        if not self.db_conn:
+            raise StateError(
+                "No database connection available",
+                context={"current_state": self.get_state_dict()},
+            )
+
+        try:
+            result = self.db_conn.execute(
+                "SELECT project_id, project_name, description FROM projects ORDER BY project_id"
+            ).fetchall()
+            return [
+                (int(row[0]), str(row[1]), str(row[2]) if row[2] else "")
+                for row in result
+            ]
+        except Exception as err:
+            raise StateError(
+                "Failed to fetch projects from database",
+                context={"error": str(err)},
+            ) from err
+
+    def list_existing_experiments(
+        self, project_id: int
+    ) -> list[tuple[int, str, str]]:
+        """List all existing experiments for a given project.
+
+        Args:
+            project_id: The ID of the project to list experiments for.
+
+        Returns:
+            A list of tuples containing (experiment_id, experiment_name, description).
+
+        Raises:
+            StateError: If no database connection is available.
+        """
+        if not self.db_conn:
+            raise StateError(
+                "No database connection available",
+                context={"current_state": self.get_state_dict()},
+            )
+
+        try:
+            result = self.db_conn.execute(
+                """
+                SELECT experiment_id, experiment_name, description
+                FROM experiments
+                WHERE project_id = ?
+                ORDER BY experiment_id
+                """,
+                [project_id],
+            ).fetchall()
+            return [
+                (int(row[0]), str(row[1]), str(row[2]) if row[2] else "")
+                for row in result
+            ]
+        except Exception as err:
+            raise StateError(
+                "Failed to fetch experiments from database",
+                context={"project_id": project_id, "error": str(err)},
+            ) from err
+
+    def _interactive_project_selection(self) -> str:
+        """Interactive project selection with rich table display.
+
+        Shows existing projects in a table and allows selection or creation of new project.
+        Reuses logic from ProjectManager for consistency.
+
+        Returns:
+            The selected or created project name.
+        """
+        if not self.db_conn:
+            raise StateError(
+                "No database connection available",
+                context={"current_state": self.get_state_dict()},
+            )
+
+        # Fetch existing projects
+        projects = self.list_existing_projects()
+
+        if projects:
+            # Display projects table
+            self._display_projects_table(projects)
+
+            while True:
+                try:
+                    result = self._handle_project_selection(projects)
+                    if result is not None:
+                        return result
+                except StateError:
+                    # Continue the loop if there's an invalid selection
+                    continue
+        else:
+            self.console.print(
+                "[yellow]No projects found. Please enter a new project name.[/yellow]"
+            )
+            name = str(Prompt.ask("[cyan]New project name[/cyan]"))
+            self._create_project_if_needed(name)
+            return name
+
+    def _interactive_experiment_selection(self, project_name: str) -> str:
+        """Interactive experiment selection with rich table display for a given project.
+
+        Shows existing experiments for the selected project in a table and allows
+        selection or creation of new experiment. Reuses logic from ExperimentManager.
+
+        Args:
+            project_name: The name of the project to show experiments for.
+
+        Returns:
+            The selected or created experiment name.
+        """
+        if not self.db_conn:
+            raise StateError(
+                "No database connection available",
+                context={"current_state": self.get_state_dict()},
+            )
+
+        # Get project_id for the project name
+        project_id = self._get_project_id_by_name(project_name)
+        if not project_id:
+            raise StateError(
+                f"Project '{project_name}' not found in database",
+                context={"project_name": project_name},
+            )
+
+        # Fetch existing experiments for this project
+        experiments = self.list_existing_experiments(project_id)
+
+        if experiments:
+            # Display experiments table
+            self._display_experiments_table(experiments, project_name)
+
+            while True:
+                result = self._handle_experiment_selection(experiments)
+                if result is not None:
+                    return result
+        else:
+            self.console.print(
+                f"[yellow]No experiments found for project '{project_name}'. Please enter a new experiment name.[/yellow]"
+            )
+            name = str(Prompt.ask("[cyan]New experiment name[/cyan]"))
+            self._create_experiment_if_needed(name, project_id)
+            return name
+
+    def _display_projects_table(
+        self, projects: list[tuple[int, str, str]]
+    ) -> None:
+        """Display a table of existing projects.
+
+        Args:
+            projects: A list of tuples containing the project ID, name, and description.
+        """
+        table = self._create_table(
+            "Available Projects",
+            [
+                ("ID", "right"),
+                ("Project Name", "left"),
+                ("Description", "left"),
+            ],
+        )
+
+        for project_id, project_name, description in projects:
+            table.add_row(str(project_id), project_name, description)
+
+        self.console.print()
+        self.console.print(table)
+        self.console.print()
+
+    def _display_experiments_table(
+        self, experiments: list[tuple[int, str, str]], project_name: str
+    ) -> None:
+        """Display a table of existing experiments for a project.
+
+        Args:
+            experiments: A list of tuples containing the experiment ID, name, and description.
+            project_name: The name of the project these experiments belong to.
+        """
+        table = Table(
+            title=f"Available Experiments for Project: {project_name}"
+        )
+        table.add_column("ID", justify="right")
+        table.add_column("Experiment Name")
+        table.add_column("Description")
+
+        for experiment_id, experiment_name, description in experiments:
+            table.add_row(str(experiment_id), experiment_name, description)
+
+        self.console.print()
+        self.console.print(table)
+        self.console.print()
+
+    def _create_table(
+        self, title: str, columns: list[tuple[str, JustifyMethod]]
+    ) -> Table:
+        """Create a rich table with consistent formatting.
+
+        Args:
+            title: The title of the table.
+            columns: The columns of the table as (name, justify) tuples.
+
+        Returns:
+            The configured table.
+        """
+        table = Table(title=title)
+        for col_name, justify in columns:
+            table.add_column(col_name, justify=justify)
+        return table
+
+    def _handle_project_selection(
+        self, projects: list[tuple[int, str, str]]
+    ) -> Optional[str]:
+        """Handle user input for project selection.
+
+        Args:
+            projects: A list of tuples containing the project ID, name, and description.
+
+        Returns:
+            The name of the selected or created project, or None if invalid selection.
+        """
+        choice = Prompt.ask(
+            "[cyan]Enter a project ID to select, or type a new project name to create it[/cyan]"
+        )
+
+        try:
+            selected_id = int(choice)
+            # Find project by ID
+            for project_id, project_name, _ in projects:
+                if project_id == selected_id:
+                    self.console.print(
+                        f"[green]Selected existing project '{project_name}' (ID: {project_id}).[/green]"
+                    )
+                    return project_name
+
+            # Invalid ID
+            raise StateError(
+                "Invalid project ID",
+                context={
+                    "provided_id": selected_id,
+                    "valid_ids": [p[0] for p in projects],
+                },
+            )
+        except ValueError:
+            # User entered a string - check if it matches existing project
+            for project_id, project_name, _ in projects:
+                if project_name == choice:
+                    self.console.print(
+                        f"[green]Selected existing project '{project_name}' (ID: {project_id}).[/green]"
+                    )
+                    return project_name
+
+            # New project name
+            choice_str = str(choice)
+            self._create_project_if_needed(choice_str)
+            self.console.print(
+                f"[green]Created new project '{choice_str}'.[/green]"
+            )
+            return choice_str
+
+    def _handle_experiment_selection(
+        self, experiments: list[tuple[int, str, str]]
+    ) -> Optional[str]:
+        """Handle user input for experiment selection.
+
+        Args:
+            experiments: A list of tuples containing the experiment ID, name, and description.
+
+        Returns:
+            The name of the selected or created experiment, or None if invalid selection.
+        """
+        choice = Prompt.ask(
+            "[cyan]Enter an experiment ID to select, or type a new experiment name to create it[/cyan]"
+        )
+
+        try:
+            selected_id = int(choice)
+            # Find experiment by ID
+            for experiment_id, experiment_name, _ in experiments:
+                if experiment_id == selected_id:
+                    self.console.print(
+                        f"[green]Selected existing experiment '{experiment_name}' (ID: {experiment_id}).[/green]"
+                    )
+                    return experiment_name
+
+            # Invalid ID
+            self.console.print("[red]Invalid experiment ID.[/red]")
+            return None
+        except ValueError:
+            # User entered a string - check if it matches existing experiment
+            for experiment_id, experiment_name, _ in experiments:
+                if experiment_name == choice:
+                    self.console.print(
+                        f"[green]Selected existing experiment '{experiment_name}' (ID: {experiment_id}).[/green]"
+                    )
+                    return experiment_name
+
+            # New experiment name - we'll create it
+            choice_str = str(choice)
+            self.console.print(
+                f"[green]Will create new experiment '{choice_str}'.[/green]"
+            )
+            return choice_str
+
+    def _get_project_id_by_name(self, project_name: str) -> Optional[int]:
+        """Get project ID by name.
+
+        Args:
+            project_name: The name of the project.
+
+        Returns:
+            The project ID if found, None otherwise.
+        """
+        if not self.db_conn:
+            return None
+
+        try:
+            result = self.db_conn.execute(
+                "SELECT project_id FROM projects WHERE project_name = ?",
+                [project_name],
+            ).fetchone()
+            return int(result[0]) if result else None
+        except (duckdb.Error, ValueError, TypeError):
+            return None
+
+    def _create_project_if_needed(self, name: str) -> None:
+        """Create a new project if it doesn't exist.
+
+        Args:
+            name: The name of the project to create.
+        """
+        if not self.db_conn:
+            raise StateError(
+                "No database connection available",
+                context={"project_name": name},
+            )
+
+        # Check if project already exists
+        if self._get_project_id_by_name(name):
+            return  # Project already exists
+
+        try:
+            self.db_conn.execute(
+                "INSERT INTO projects (project_name) VALUES (?)",
+                [name],
+            )
+        except Exception as err:
+            raise StateError(
+                f"Failed to create project '{name}'",
+                context={"project_name": name, "error": str(err)},
+            ) from err
+
+    def _create_experiment_if_needed(self, name: str, project_id: int) -> None:
+        """Create a new experiment if it doesn't exist.
+
+        Args:
+            name: The name of the experiment to create.
+            project_id: The ID of the project this experiment belongs to.
+        """
+        if not self.db_conn:
+            raise StateError(
+                "No database connection available",
+                context={"experiment_name": name, "project_id": project_id},
+            )
+
+        # Check if experiment already exists for this project
+        try:
+            existing = self.db_conn.execute(
+                """
+                SELECT experiment_id FROM experiments
+                WHERE experiment_name = ? AND project_id = ?
+                """,
+                [name, project_id],
+            ).fetchone()
+
+            if existing:
+                return  # Experiment already exists
+
+            self.db_conn.execute(
+                """
+                INSERT INTO experiments (project_id, experiment_name)
+                VALUES (?, ?)
+                """,
+                [project_id, name],
+            )
+        except Exception as err:
+            raise StateError(
+                f"Failed to create experiment '{name}' for project_id {project_id}",
+                context={
+                    "experiment_name": name,
+                    "project_id": project_id,
+                    "error": str(err),
+                },
+            ) from err
 
     # -----------------methods to get data from CSV-----------------
 
@@ -767,3 +1293,4 @@ class CellViewState(CellViewStateCore):
         self.channel_2 = None
         self.channel_3 = None
         self.db_conn = None
+        self._omero_import_mode = False

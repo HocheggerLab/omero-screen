@@ -55,12 +55,34 @@ class ProjectManager:
     def select_or_create_project(self) -> None:
         """Main method to select an existing project or create a new one.
 
+        This method handles different import modes:
+        1. OMERO imports: Always use interactive confirmation (shows detected metadata)
+        2. CSV imports: Interactive selection from existing projects or create new
+        3. Fallback: Create a new project if no existing projects found
+
+        All OMERO imports are now interactive to ensure users can verify and override
+        detected metadata regardless of the --interactive flag setting.
+
         Raises:
             DBError: If the plate already exists.
             StateError: If the project name is invalid.
         """
         assert self.state.plate_id is not None
         self._check_plate_exists(self.state.plate_id)
+
+        # Handle OMERO metadata confirmation flow
+        if (
+            hasattr(self.state, "_omero_import_mode")
+            and self.state._omero_import_mode
+        ):
+            # For OMERO imports, ALWAYS use interactive confirmation
+            # This ensures users see and can verify detected metadata
+            confirmed_project, confirmed_experiment = (
+                self.state.confirm_project_experiment_names()
+            )
+            self.state.project_name = confirmed_project
+            self.state.experiment_name = confirmed_experiment
+
         if self.state.project_name:
             self.state.project_id = self._parse_projectid_from_name(
                 self.state.project_name
