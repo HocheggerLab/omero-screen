@@ -1,3 +1,9 @@
+## omero-screen-v0.2.2 (2025-09-16)
+
+### Fix
+
+- pathfinding for .env file in set_env_vars function config.py
+
 ## omero-screen-v0.2.1 (2025-09-16)
 
 ### Fix
