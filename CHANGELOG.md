@@ -1,3 +1,10 @@
+## omero-screen-v0.2.1 (2025-09-16)
+
+### Fix
+
+- **cellview**: adapt release CI and bump cellview version
+- **cellview**: enhance OMERO import
+
 ## omero-screen-v0.2.0 (2025-09-15)
 
 ### Fix
