@@ -205,7 +205,7 @@ wheels = [
 
 [[package]]
 name = "cellview"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "packages/cellview" }
 dependencies = [
     { name = "duckdb" },
@@ -1704,7 +1704,7 @@ wheels = [
 
 [[package]]
 name = "omero-screen"
-version = "0.2.0"
+version = "0.2.2"
 source = { editable = "." }
 dependencies = [
     { name = "cellpose" },

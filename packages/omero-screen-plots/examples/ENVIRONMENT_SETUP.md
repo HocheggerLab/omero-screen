@@ -18,7 +18,7 @@ os.environ['OMERO_SCREEN_PROJECT_ROOT'] = '/path/to/your/omero-screen'
 
 # Then import normally
 import omero_screen_plots
-```
+```c
 
 ### Option 2: Run from Project Directory
 
