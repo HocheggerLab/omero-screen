@@ -83,12 +83,6 @@ def plate_loop(
     dataset_id = PlateDataset(conn, plate_id).dataset_id
     flatfield_dict = flatfieldcorr(conn, metadata, dataset_id)
 
-    # Add plate name to summary file
-    # with open(
-    #     Defaults["DEFAULT_DEST_DIR"] + "/" + Defaults["DEFAULT_SUMMARY_FILE"], "a"
-    # ) as f:
-    #     print(plate_name, file=f)
-
     _print_device_info()
 
     df_final, df_quality_control, dict_gallery = process_wells(
