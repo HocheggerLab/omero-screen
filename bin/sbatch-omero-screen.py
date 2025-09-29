@@ -46,7 +46,9 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
         f"--inference {' '.join(args.inference)}" if args.inference else ""
     )
     if args.env:
-        prog_options += f"--env {args.env}"
+        prog_options += f" --env {args.env}"
+    if args.segmentation:
+        prog_options += " --segmentation"
 
     # Create the job file
     script = f"{name}.sh"
@@ -234,6 +236,12 @@ def _parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Environment name (requires configuration file .env.{name}).",
+    )
+    group.add_argument(
+        "--segmentation",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="Only perform image segmentation (default: %(default)s)",
     )
 
     return parser.parse_args()

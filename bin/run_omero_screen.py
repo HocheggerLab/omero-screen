@@ -46,6 +46,12 @@ def main() -> None:
         default=16,
         help="Classification batch size (default: %(default)s)",
     )
+    group.add_argument(
+        "--segmentation",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="Only perform image segmentation (default: %(default)s)",
+    )
     args = parser.parse_args()
 
     # Note: Lazy import to speed up parsing errors
@@ -72,7 +78,7 @@ def main() -> None:
     ) -> None:
         assert conn is not None
         for plate_id in plate_ids:
-            plate_loop(conn, plate_id)
+            plate_loop(conn, plate_id, segmentation_mode=args.segmentation)
 
     run_plate_loop(args.ID)
 

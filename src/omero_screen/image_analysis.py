@@ -160,7 +160,7 @@ class Image:
                 logger.info("Segmentation masks found for image %s", image_id)
                 # masks is TZYXC
                 _, masks = get_image(self._conn, image_id)
-                if "Tub" in self.channels:
+                if masks.shape[-1] == 2:
                     n_mask, c_mask = masks[..., 0], masks[..., 1]
                     cyto_mask = self._get_cyto(n_mask, c_mask)
                 else:
