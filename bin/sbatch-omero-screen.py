@@ -199,26 +199,26 @@ def _parse_args() -> argparse.Namespace:
         "--gpu",
         default=True,
         action=argparse.BooleanOptionalAction,
-        help="Use a GPU node",
+        help="Use a GPU node (default: %(default)s)",
     )
     group.add_argument(
         "--exec",
         default=True,
         action=argparse.BooleanOptionalAction,
         help="Execute script statements. "
-        "Disable this to submit a job without running Omero Screen",
+        "Disable this to submit a job without running Omero Screen (default: %(default)s)",
     )
     group.add_argument(
         "--submit",
         default=True,
         action=argparse.BooleanOptionalAction,
-        help="Disable this to create the script but not submit using sbatch",
+        help="Disable this to create the script but not submit using sbatch (default: %(default)s)",
     )
     group.add_argument(
         "--multi-submit",
         default=True,
         action=argparse.BooleanOptionalAction,
-        help="Submit a single job for each Screen ID.",
+        help="Submit a single job for each Screen ID (default: %(default)s)",
     )
     group = parser.add_argument_group("Omero Screen overrides")
     group.add_argument(

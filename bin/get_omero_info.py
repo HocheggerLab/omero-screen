@@ -19,7 +19,7 @@ def _main() -> None:
         "--parents",
         default=True,
         action=argparse.BooleanOptionalAction,
-        help="Show parent ancestry",
+        help="Show parent ancestry (default: %(default)s)",
     )
     group = parser.add_argument_group("Omero Screen overrides")
     group.add_argument(
