@@ -330,8 +330,18 @@ def _well_loop(
     df_well = pd.DataFrame()
     df_well_quality = pd.DataFrame()
     image_number = len(list(well.listChildren()))
+
+    # In segmentation mode skip all previously segmentated images
+    seg = set()
+    if segmentation_mode:
+        dataset = conn.getObject("Dataset", dataset_id)
+        for image in dataset.listChildren():
+            seg.add(image.getName())
+
     for number in tqdm.tqdm(range(image_number)):
         omero_img = well.getImage(number)
+        if f"{omero_img.getId()}_segmentation" in seg:
+            continue
         image = Image(
             conn, well, omero_img, metadata, dataset_id, flatfield_dict
         )
