@@ -35,6 +35,7 @@ from omero_utils.attachments import (
     get_file_attachments,
     parse_csv_data,
 )
+from omero_utils.images import upload_masks
 from omero_utils.message import OmeroError, PlateDataError, PlateNotFoundError
 from scipy.optimize import linear_sum_assignment
 
@@ -935,7 +936,7 @@ def _get_mask_map(
 def _get_mask_from_map(
     conn: BlitzGateway, image_id: int, image_map: dict[int, ImageWrapper]
 ) -> npt.NDArray[Any]:
-    """Get the nuclei segmentation mask from the image map."""
+    """Get the first plane of the nuclei segmentation mask from the image map."""
     image = image_map.get(image_id)
     if image is not None:
         logger.info("Segmentation masks found for image %d", image_id)
@@ -1099,3 +1100,146 @@ def mapping_gallery(
     logger.info("Saving gallery: %s", name)
     delete_file_attachment(conn, plate, ends_with=name + ".png")
     attach_figure(conn, fig, plate, name)
+
+
+def create_cell_masks(
+    conn: BlitzGateway,
+    plate_id: int,
+    alignments: pd.DataFrame,
+) -> None:
+    """Create missing cell masks for aligned plates.
+
+    Checks the segmentation mask for each repeat plate contains nuclei and cell channels. If the
+    cell channel is missing the cell mask from the master plate is translated by the provided
+    alignment to create a synthetic mask. The updated mask for the repeat plate is saved to OMERO,
+    replacing the current mask.
+
+    Args:
+        conn: Connection to OMERO
+        plate_id: ID of the master plate
+        alignments: Alignment well shifts (plate, well, x, y) for each repeat plate
+
+    Raises:
+        PlateNotFoundError: if a plate does not exist
+        PlateDataError: if the alignment is missing for a well
+        OmeroError: if the mask does not exist
+    """
+    logger.info("Creating missing cell masks using master plate: %d", plate_id)
+    # Get plates
+    plate_ids = alignments["plate"].unique()
+    # Get master plate images: (well position, image ID)
+    images1 = _get_well_images(conn, plate_id)
+    map1 = _get_mask_map(conn, plate_id)
+    for plate_other in plate_ids:
+        logger.info("Creating missing masks for plate: %d", plate_other)
+        created = 0
+        dataset_id2 = PlateDataset(conn, plate_other).dataset_id
+        plate_alignments = alignments[alignments["plate"] == plate_other]
+        images2 = _get_well_images(conn, plate_other)
+        map2 = _get_mask_map(conn, plate_other)
+        for im1, im2 in zip(images1, images2, strict=True):
+            assert im1[0] == im2[0], "Well positions must match"
+            well_pos, image_id1, image_id2 = im1[0], im1[1], im2[1]
+            # Check for cell mask
+            dim = _get_mask_dim(image_id2, map2)
+            if dim[3] > 1:
+                continue
+            logger.info(
+                "Creating cell mask for image %s %d using image %d",
+                well_pos,
+                image_id2,
+                image_id1,
+            )
+            # Check mask from master plate
+            dim = _get_mask_dim(image_id1, map1)
+            if dim[3] < 2:
+                raise OmeroError(
+                    f"Master cell mask missing for image {image_id1}",
+                    logger,
+                )
+            # Check translation
+            df = plate_alignments[plate_alignments["well"] == well_pos]
+            if df.empty:
+                raise PlateDataError(
+                    f"Plate {plate_other} is missing alignment for well: {well_pos}",
+                    logger,
+                )
+            # Translation is from plate2 to plate1 so invert
+            trans = (-round(df.iloc[0]["y"]), -round(df.iloc[0]["x"]))
+
+            # Download nuclei mask; image is TZYXC.
+            mask2, img = get_image(conn, map2[image_id2].getId())
+            n_mask2 = img[..., 0]
+            # Download cell mask (channel 1)
+            axis_lengths = dim[0:3] + (1,) + dim[4:]
+            _, img = get_image(
+                conn,
+                map1[image_id1].getId(),
+                start_coords=(0, 0, 0, 1, 0),
+                axis_lengths=axis_lengths,
+            )
+            c_mask1 = img[..., 0]
+
+            # Translate; masks are TZYX with expected Z=1.
+            # OMERO screen does not support z axis; we need TYX masks.
+            c_mask1 = c_mask1.squeeze(axis=1)
+            n_mask2 = n_mask2.squeeze(axis=1)
+            masks = []
+            for yx in c_mask1:
+                # translate onto the same image as the shape must match
+                masks.append(_translate(yx, yx, trans, stacked=False))
+            c_mask2 = np.array(masks)
+            # Save new mask
+            # Note: original nuclei only mask may have a different dtype
+            if n_mask2.dtype != c_mask2.dtype:
+                logger.info(
+                    "Updating mismatched image data types: %s (%s) + %s (%s)",
+                    n_mask2.shape,
+                    n_mask2.dtype,
+                    c_mask2.shape,
+                    c_mask2.dtype,
+                )
+                # Use the type with the largest max. Works for the expected unsigned int data types.
+                if np.iinfo(n_mask2.dtype).max > np.iinfo(c_mask2.dtype).max:
+                    c_mask2 = c_mask2.astype(n_mask2.dtype)
+                else:
+                    n_mask2 = n_mask2.astype(c_mask2.dtype)
+            upload_masks(
+                conn,
+                dataset_id2,
+                conn.getObject("Image", image_id2),
+                n_mask2,
+                c_mask2,
+            )
+            # Remove current mask (must be done after creating the new
+            # mask otherwise an error can result in no mask for the well image)
+            conn.deleteObject(mask2._obj)
+            created += 1
+        # end well samples
+        logger.info(
+            "Created %d / %d missing cell masks for plate %d",
+            created,
+            len(images2),
+            plate_other,
+        )
+    # end plates
+
+
+def _get_mask_dim(
+    image_id: int, image_map: dict[int, ImageWrapper]
+) -> tuple[int, int, int, int, int]:
+    """Get the mask XYZCT dimensions."""
+    image = image_map.get(image_id)
+    if image is not None:
+        logger.debug("Segmentation masks found for image %d", image_id)
+        return (
+            image.getSizeX(),
+            image.getSizeY(),
+            image.getSizeZ(),
+            image.getSizeC(),
+            image.getSizeT(),
+        )
+    raise OmeroError(
+        f"Segmentation not found for image {image_id}",
+        logger,
+    )
