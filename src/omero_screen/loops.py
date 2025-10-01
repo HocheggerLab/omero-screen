@@ -178,6 +178,7 @@ def process_wells(
             _create_classifier(conn, x, gallery_width, batch_size)
             for x in inference_model_names.split(":")
         ]
+    border = int(os.getenv("OMERO_SCREEN_CLEAR_BORDER", "5"))
     wells = list(conn.getObject("Plate", metadata.plate_id).listChildren())
     for count, well in enumerate(wells):
         ann = parse_annotations(well)
@@ -214,6 +215,7 @@ def process_wells(
                 flatfield_dict,
                 image_classifier=image_classifier,
                 segmentation_mode=segmentation_mode,
+                border=border,
             )
             if not segmentation_mode:
                 _save_well_results(conn, well, well_data, well_quality)
@@ -308,6 +310,7 @@ def _well_loop(
     flatfield_dict: dict[str, npt.NDArray[Any]],
     image_classifier: None | list[ImageClassifier],
     segmentation_mode: bool = False,
+    border: int = 5,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Process all images in a well.
 
@@ -319,6 +322,8 @@ def _well_loop(
         flatfield_dict: Flatfield dictionary
         image_classifier: Image classifier
         segmentation_mode: Only perform image segmentation
+        border: Width of the border examined when filtering segmented objects (negative to disable)
+
     Returns:
         Tuple[pd.DataFrame, pd.DataFrame]: DataFrames containing the final data and quality control data
     """
@@ -343,7 +348,13 @@ def _well_loop(
         if f"{omero_img.getId()}_segmentation" in seg:
             continue
         image = Image(
-            conn, well, omero_img, metadata, dataset_id, flatfield_dict
+            conn,
+            well,
+            omero_img,
+            metadata,
+            dataset_id,
+            flatfield_dict,
+            border=border,
         )
         if segmentation_mode:
             continue
