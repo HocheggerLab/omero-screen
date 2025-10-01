@@ -46,8 +46,8 @@ def filter_segmentation(
         filtered segmentation mask
     """
     cleared: npt.NDArray[Any] = (
-        mask if border < 0 else clear_border(mask, buffer_size=border)
-    )  # type: ignore[no-untyped-call]
+        mask if border < 0 else clear_border(mask, buffer_size=border)  # type: ignore[no-untyped-call]
+    )
     sizes = np.bincount(cleared.ravel())
     mask_sizes = sizes > 10
     mask_sizes[0] = 0
