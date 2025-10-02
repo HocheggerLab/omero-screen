@@ -988,7 +988,7 @@ def get_plate_alignments(conn: BlitzGateway, plate_id: int) -> pd.DataFrame:
     # Download the alignments
     plate = conn.getObject("Plate", plate_id)
     if plate is None:
-        raise PlateNotFoundError("Plate:{plate_id}", logger)
+        raise PlateNotFoundError(f"Plate:{plate_id}", logger)
     filename = "alignment.csv"
     att = get_file_attachments(plate, filename)
     df = None
