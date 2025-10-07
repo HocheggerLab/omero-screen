@@ -896,6 +896,10 @@ class StackedCellCyclePlot(BaseCellCyclePlot):
 
         assert self.ax is not None
 
+        # Check if we have multiple plates for meaningful error bars
+        n_plates = data["plate_id"].nunique()
+        show_error_bars = self.config.show_error_bars and n_plates >= 2
+
         # Initialize bottoms for stacking
         bottoms = np.zeros(len(x_positions))
 
@@ -904,10 +908,15 @@ class StackedCellCyclePlot(BaseCellCyclePlot):
             if phase in df_mean.columns:
                 values = df_mean[phase].values
 
-                # Handle error bars if enabled
+                # Handle error bars if enabled and we have multiple plates
                 yerr = None
-                if self.config.show_error_bars and phase in df_std.columns:
-                    yerr = df_std[phase].values
+                if show_error_bars and phase in df_std.columns:
+                    std_values = df_std[phase].values
+                    # Only use std if it's not all zeros or NaN
+                    if not np.all(np.isnan(std_values)) and not np.all(
+                        std_values == 0
+                    ):
+                        yerr = std_values
 
                 self.ax.bar(
                     x_positions,
@@ -1056,21 +1065,38 @@ class StackedCellCyclePlot(BaseCellCyclePlot):
         self, df: pd.DataFrame, conditions: list[str], condition_col: str
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Prepare mean and std data for stacked plots."""
-        # Pivot data to get mean and std for each phase per condition
-        summary = df.pivot_table(
-            values="percent",
-            index=condition_col,
-            columns="cell_cycle",
-            aggfunc=["mean", "std"],
-            fill_value=0,
-        )
+        # Check if we have enough replicates for meaningful standard deviation
+        n_plates = df["plate_id"].nunique()
 
-        # Reindex to ensure all conditions are present
-        summary = summary.reindex(conditions)
-
-        # Extract mean and std dataframes
-        df_mean = summary["mean"].fillna(0)
-        df_std = summary["std"].fillna(0)
+        if n_plates < 2:
+            # For single repeat, only calculate mean (no std)
+            summary = df.pivot_table(
+                values="percent",
+                index=condition_col,
+                columns="cell_cycle",
+                aggfunc="mean",
+                fill_value=0,
+            )
+            # Reindex to ensure all conditions are present
+            df_mean = summary.reindex(conditions).fillna(0)
+            # Create empty std dataframe with same structure
+            df_std = pd.DataFrame(
+                0, index=df_mean.index, columns=df_mean.columns
+            )
+        else:
+            # For multiple repeats, calculate both mean and std
+            summary = df.pivot_table(
+                values="percent",
+                index=condition_col,
+                columns="cell_cycle",
+                aggfunc=["mean", "std"],
+                fill_value=0,
+            )
+            # Reindex to ensure all conditions are present
+            summary = summary.reindex(conditions)
+            # Extract mean and std dataframes
+            df_mean = summary["mean"].fillna(0)
+            df_std = summary["std"].fillna(0)
 
         return df_mean, df_std
 

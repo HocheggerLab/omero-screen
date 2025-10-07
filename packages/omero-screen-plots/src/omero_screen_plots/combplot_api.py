@@ -160,6 +160,7 @@ def combplot_feature(
         scatter_plot(
             df=condition_data_sampled,
             conditions=condition,
+            condition_col=condition_col,
             x_feature="integrated_int_DAPI_norm",
             y_feature="intensity_mean_EdU_nucleus_norm",
             hue="cell_cycle",
@@ -188,6 +189,7 @@ def combplot_feature(
         scatter_plot(
             df=condition_data_sampled,
             conditions=condition,
+            condition_col=condition_col,
             x_feature="integrated_int_DAPI_norm",
             y_feature=feature,
             threshold=threshold,
@@ -376,6 +378,7 @@ def combplot_cellcycle(
         scatter_plot(
             df=condition_data_sampled,
             conditions=condition,
+            condition_col=condition_col,
             x_feature="integrated_int_DAPI_norm",
             y_feature="intensity_mean_EdU_nucleus_norm",
             hue="cell_cycle",
