@@ -30,15 +30,24 @@ def scale_img(
     return exposure.rescale_intensity(img, in_range=tuple(percentiles))  # type: ignore
 
 
-def filter_segmentation(mask: npt.NDArray[Any]) -> npt.NDArray[Any]:
+def filter_segmentation(
+    mask: npt.NDArray[Any], border: int = 5
+) -> npt.NDArray[Any]:
     """Removes border objects and filters large and small objects from segmentation mask.
+
+    The size of the border can be specified. Use a negative size to skip removal of
+    border objects.
 
     Args:
         mask: unfiltered segmentation mask
+        border: width of the border examined (negative to disable)
+
     Returns:
         filtered segmentation mask
     """
-    cleared: npt.NDArray[Any] = clear_border(mask, buffer_size=5)  # type: ignore[no-untyped-call]
+    cleared: npt.NDArray[Any] = (
+        mask if border < 0 else clear_border(mask, buffer_size=border)  # type: ignore[no-untyped-call]
+    )
     sizes = np.bincount(cleared.ravel())
     mask_sizes = sizes > 10
     mask_sizes[0] = 0

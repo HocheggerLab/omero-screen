@@ -75,6 +75,7 @@ class Image:
         metadata: MetadataParser,
         dataset_id: int,
         flatfield_dict: dict[str, npt.NDArray[Any]],
+        border: int = 5,
     ):
         """Initializes the Image object for segmentation and correction.
 
@@ -85,6 +86,7 @@ class Image:
             metadata (MetadataParser): Metadata parser with channel and plate information.
             dataset_id (int): OMERO dataset ID.
             flatfield_dict (dict[str, np.ndarray]): Flatfield correction masks for each channel.
+            border: Width of the border examined when filtering segmented objects (negative to disable).
         """
         self._conn = conn
         self._well = well
@@ -92,6 +94,7 @@ class Image:
         self._meta_data = metadata
         self.dataset_id = dataset_id
         self._flatfield_dict = flatfield_dict
+        self._border = border
 
         self._get_metadata()
         self.nuc_diameter = (
@@ -160,7 +163,7 @@ class Image:
                 logger.info("Segmentation masks found for image %s", image_id)
                 # masks is TZYXC
                 _, masks = get_image(self._conn, image_id)
-                if "Tub" in self.channels:
+                if masks.shape[-1] == 2:
                     n_mask, c_mask = masks[..., 0], masks[..., 1]
                     cyto_mask = self._get_cyto(n_mask, c_mask)
                 else:
@@ -248,7 +251,9 @@ class Image:
             except IndexError:
                 n_mask_array = np.zeros(scaled_img_t.shape, dtype=np.uint8)
             # Store the segmentation mask in the corresponding timepoint
-            segmentation_masks[t] = filter_segmentation(n_mask_array)
+            segmentation_masks[t] = filter_segmentation(
+                n_mask_array, border=self._border
+            )
         return segmentation_masks
 
     def _c_segmentation(self) -> npt.NDArray[Any]:
@@ -295,7 +300,9 @@ class Image:
                 c_masks_array = np.zeros_like(comb_image_t).astype(np.uint8)
 
             # Store the segmentation mask in the corresponding timepoint
-            segmentation_masks[t] = filter_segmentation(c_masks_array)
+            segmentation_masks[t] = filter_segmentation(
+                c_masks_array, border=self._border
+            )
         return segmentation_masks
 
     def _get_models(self) -> str:

@@ -8,11 +8,12 @@ import os
 import subprocess
 
 
-def _create_job_script(args: argparse.Namespace) -> str:
+def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
     """Create the SLURM job script.
 
     Args:
         args: Program arguments
+        plate_ids: Plates IDs to process
 
     Returns:
         The name of the script file
@@ -38,14 +39,16 @@ def _create_job_script(args: argparse.Namespace) -> str:
 
     # Job name uses first plate ID and PID to avoid script name clashes
     pid = os.getpid()
-    name = f"os{str(args.ID[0])}.{str(pid)}"
+    name = f"os{str(plate_ids[0])}.{str(pid)}"
 
     # Options
     prog_options = (
         f"--inference {' '.join(args.inference)}" if args.inference else ""
     )
     if args.env:
-        prog_options += f"--env {args.env}"
+        prog_options += f" --env {args.env}"
+    if args.segmentation:
+        prog_options += " --segmentation"
 
     # Create the job file
     script = f"{name}.sh"
@@ -123,7 +126,7 @@ def _create_job_script(args: argparse.Namespace) -> str:
                 ),
                 file=f,
             )
-        for plate_id in set(args.ID):
+        for plate_id in set(plate_ids):
             print(
                 f"runcmd uv run python {omero_screen_prog} {plate_id} {prog_options}",
                 file=f,
@@ -133,7 +136,7 @@ def _create_job_script(args: argparse.Namespace) -> str:
         subject = f"Job results: {name}"
         msg = f"""
           Job results: {name}
-          Plate: {", ".join([str(x) for x in args.ID])}
+          Plate: {", ".join([str(x) for x in plate_ids])}
           """
         print(f"msg Sending result e-mail using {send_mail}", file=f)
         print(
@@ -198,20 +201,26 @@ def _parse_args() -> argparse.Namespace:
         "--gpu",
         default=True,
         action=argparse.BooleanOptionalAction,
-        help="Use a GPU node",
+        help="Use a GPU node (default: %(default)s)",
     )
     group.add_argument(
         "--exec",
         default=True,
         action=argparse.BooleanOptionalAction,
         help="Execute script statements. "
-        "Disable this to submit a job without running Omero Screen",
+        "Disable this to submit a job without running Omero Screen (default: %(default)s)",
     )
     group.add_argument(
         "--submit",
         default=True,
         action=argparse.BooleanOptionalAction,
-        help="Disable this to create the script but not submit using sbatch",
+        help="Disable this to create the script but not submit using sbatch (default: %(default)s)",
+    )
+    group.add_argument(
+        "--multi-submit",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        help="Submit a single job for each Screen ID (default: %(default)s)",
     )
     group = parser.add_argument_group("Omero Screen overrides")
     group.add_argument(
@@ -228,6 +237,12 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Environment name (requires configuration file .env.{name}).",
     )
+    group.add_argument(
+        "--segmentation",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="Only perform image segmentation (default: %(default)s)",
+    )
 
     return parser.parse_args()
 
@@ -235,15 +250,19 @@ def _parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     args = _parse_args()
 
-    script = _create_job_script(args)
+    plate_batches = [[x] for x in args.ID] if args.multi_submit else [args.ID]
+    del args.ID
 
-    # job submission
-    if args.submit:
-        print(
-            subprocess.run(
-                ["sbatch", script],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            ).stdout
-        )
+    for plate_ids in plate_batches:
+        script = _create_job_script(args, plate_ids)
+
+        # job submission
+        if args.submit:
+            print(
+                subprocess.run(
+                    ["sbatch", script],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                ).stdout
+            )

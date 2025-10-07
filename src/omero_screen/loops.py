@@ -63,7 +63,7 @@ logger = get_logger(__name__)
 
 
 def plate_loop(
-    conn: BlitzGateway, plate_id: int
+    conn: BlitzGateway, plate_id: int, segmentation_mode: bool = False
 ) -> tuple[
     pd.DataFrame, pd.DataFrame | None, pd.DataFrame, dict[str, Figure] | None
 ]:
@@ -72,6 +72,7 @@ def plate_loop(
     Args:
         conn: Connection to OMERO
         plate_id: ID of the plate
+        segmentation_mode: Only perform image segmentation
     Returns:
         Tuple[DataFrame, DataFrame, DataFrame, Dict]: Three DataFrames containing the final data and quality control data;
         dictionary of matplotlib figures of the inference gallery keyed by class (can be None)
@@ -83,17 +84,19 @@ def plate_loop(
     dataset_id = PlateDataset(conn, plate_id).dataset_id
     flatfield_dict = flatfieldcorr(conn, metadata, dataset_id)
 
-    # Add plate name to summary file
-    # with open(
-    #     Defaults["DEFAULT_DEST_DIR"] + "/" + Defaults["DEFAULT_SUMMARY_FILE"], "a"
-    # ) as f:
-    #     print(plate_name, file=f)
-
     _print_device_info()
 
     df_final, df_quality_control, dict_gallery = process_wells(
-        conn, metadata, dataset_id, flatfield_dict
+        conn, metadata, dataset_id, flatfield_dict, segmentation_mode
     )
+    if segmentation_mode:
+        logger.info("Segmentation complete")
+        # Data frames should be empty
+        assert df_final.empty and df_quality_control.empty, (
+            "Segmentation mode should create empty results"
+        )
+        return df_final, None, df_quality_control, None
+
     logger.debug("Final data sample: %s", df_final.head())
     logger.debug("Final data columns: %s", df_final.columns)
 
@@ -148,6 +151,7 @@ def process_wells(
     metadata: MetadataParser,
     dataset_id: int,
     flatfield_dict: dict[str, npt.NDArray[Any]],
+    segmentation_mode: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Figure] | None]:
     """Process the wells of the plate.
 
@@ -156,6 +160,7 @@ def process_wells(
         metadata: Metadata associated with the plate
         dataset_id: Dataset associated with the plate
         flatfield_dict: Dictionary containing flatfield correction data
+        segmentation_mode: Only perform image segmentation
     Returns:
         Two DataFrames containing the final data and quality control data; dictionary of
         matplotlib figures of the inference gallery keyed by class (can be None)
@@ -168,11 +173,12 @@ def process_wells(
         os.getenv("OMERO_SCREEN_INFERENCE_GALLERY_WIDTH", "10")
     )
     batch_size = int(os.getenv("OMERO_SCREEN_INFERENCE_BATCH_SIZE", "100"))
-    if inference_model_names:
+    if inference_model_names and not segmentation_mode:
         image_classifier = [
             _create_classifier(conn, x, gallery_width, batch_size)
             for x in inference_model_names.split(":")
         ]
+    border = int(os.getenv("OMERO_SCREEN_CLEAR_BORDER", "5"))
     wells = list(conn.getObject("Plate", metadata.plate_id).listChildren())
     for count, well in enumerate(wells):
         ann = parse_annotations(well)
@@ -182,7 +188,11 @@ def process_wells(
             cell_line = ann["Cell_Line"]
         if cell_line == "Empty":
             continue
-        well_data, well_quality = _download_well_results(conn, well)
+        well_data, well_quality = (
+            [None, None]
+            if segmentation_mode
+            else _download_well_results(conn, well)
+        )
         if well_data is not None:
             logger.info(
                 "Loaded well results %s (%d/%d).",
@@ -204,8 +214,11 @@ def process_wells(
                 dataset_id,
                 flatfield_dict,
                 image_classifier=image_classifier,
+                segmentation_mode=segmentation_mode,
+                border=border,
             )
-            _save_well_results(conn, well, well_data, well_quality)
+            if not segmentation_mode:
+                _save_well_results(conn, well, well_data, well_quality)
         df_final = pd.concat([df_final, well_data])
         df_quality_control = pd.concat([df_quality_control, well_quality])
 
@@ -296,6 +309,8 @@ def _well_loop(
     dataset_id: int,
     flatfield_dict: dict[str, npt.NDArray[Any]],
     image_classifier: None | list[ImageClassifier],
+    segmentation_mode: bool = False,
+    border: int = 5,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Process all images in a well.
 
@@ -306,18 +321,43 @@ def _well_loop(
         dataset_id: Dataset ID
         flatfield_dict: Flatfield dictionary
         image_classifier: Image classifier
+        segmentation_mode: Only perform image segmentation
+        border: Width of the border examined when filtering segmented objects (negative to disable)
+
     Returns:
         Tuple[pd.DataFrame, pd.DataFrame]: DataFrames containing the final data and quality control data
     """
-    logger.info("Segmenting and analysing Images")
+    logger.info(
+        "Segmenting images"
+        if segmentation_mode
+        else "Segmenting and analysing images"
+    )
     df_well = pd.DataFrame()
     df_well_quality = pd.DataFrame()
     image_number = len(list(well.listChildren()))
+
+    # In segmentation mode skip all previously segmentated images
+    seg = set()
+    if segmentation_mode:
+        dataset = conn.getObject("Dataset", dataset_id)
+        for image in dataset.listChildren():
+            seg.add(image.getName())
+
     for number in tqdm.tqdm(range(image_number)):
         omero_img = well.getImage(number)
+        if f"{omero_img.getId()}_segmentation" in seg:
+            continue
         image = Image(
-            conn, well, omero_img, metadata, dataset_id, flatfield_dict
+            conn,
+            well,
+            omero_img,
+            metadata,
+            dataset_id,
+            flatfield_dict,
+            border=border,
         )
+        if segmentation_mode:
+            continue
         image_data = ImageProperties(
             well, image, metadata, image_classifier=image_classifier
         )
