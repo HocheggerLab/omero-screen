@@ -1,3 +1,9 @@
+## omero-screen-v0.2.3 (2025-10-08)
+
+### Fix
+
+- various
+
 ## omero-screen-v0.2.2 (2025-09-16)
 
 ### Fix
