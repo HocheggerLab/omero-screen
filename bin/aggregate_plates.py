@@ -54,6 +54,12 @@ def main() -> None:
         default=4,
         help="Mapping gallery grid size (default: %(default)s)",
     )
+    parser.add_argument(
+        "--sample-alignments",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="Use per-sample alignments; else per-well alignments (default: %(default)s)",
+    )
     group = parser.add_argument_group("Omero Screen overrides")
     group.add_argument(
         "--env",
@@ -88,7 +94,9 @@ def main() -> None:
         plate_id: int, conn: BlitzGateway | None = None
     ) -> None:
         assert conn is not None
-        alignments = get_plate_alignments(conn, plate_id)
+        alignments = get_plate_alignments(
+            conn, plate_id, sample_alignments=args.sample_alignments
+        )
         df, image_map = aggregate_plates(
             conn,
             plate_id,

@@ -58,7 +58,12 @@ def aggregate_plates(
     """Aggregate multiple OMERO screen plate results.
 
     The centroids are updated for each repeat plate using the specified alignment shifts
-    per well and then mapped to the master plate. Mappings are performed per well sample.
+    per well, or well sample, and then mapped to the master plate. The type of alignment
+    mode is identified by the alignment columns. Alignments per-well are (plate, well, x, y)
+    and per-sample are (plate, well, image_id, x, y). An error is raised if an alignment is
+    missing for a well/well sample.
+
+    Mappings are performed per well sample.
     Any mapping distance more than a factor of the standard deviation above the mean are
     filtered (mean + f * std). A concatenated results data frame is uploaded to the master
     plate.
@@ -72,7 +77,7 @@ def aggregate_plates(
     Args:
         conn: Connection to OMERO
         plate_id: ID of the master plate
-        alignments: Alignment well shifts (plate, well, x, y) for each repeat plate
+        alignments: Alignment well shifts for each repeat plate
         threshold: Distance threshold for alignment mappings
         method: Mapping method (0: linear sum assignment; 1: KD-tree linear sum assignment; 2: Greedy nearest neighbour; 3: Mask overlap)
         std_distance: Number of standard deviations from the mean to exclude mappings
@@ -90,6 +95,9 @@ def aggregate_plates(
     map1 = _get_mask_map(conn, plate_id) if method == 3 else {}
     # Get plates
     plate_ids = alignments["plate"].unique()
+    per_sample = "image_id" in alignments.columns
+    if per_sample:
+        logger.info("Performing per-sample alignment")
     # Result centroids are per well sample identified in the results as (well position, image ID)
     images1 = _get_well_images(conn, plate_id)
     image_map: list[list[str | int]] = [list(x) for x in images1]
@@ -102,11 +110,21 @@ def aggregate_plates(
         # Update coordinates with alignment shift per well.
         plate_alignments = alignments[alignments["plate"] == plate_other]
 
-        for _, well, x, y in plate_alignments.itertuples(index=False):
-            mask = df2["well"] == well
-            c2 = df2[mask][["centroid-1", "centroid-0"]].values
-            c2 = c2 + (x, y)
-            df2.loc[mask, ["centroid-1", "centroid-0"]] = c2
+        if per_sample:
+            for _, well, image_id, x, y in plate_alignments.itertuples(
+                index=False
+            ):
+                mask = (df2["well"] == well) & (df2["image_id"] == image_id)
+                c2 = df2[mask][["centroid-1", "centroid-0"]].values
+                c2 = c2 + (x, y)
+                df2.loc[mask, ["centroid-1", "centroid-0"]] = c2
+        else:
+            # per-well
+            for _, well, x, y in plate_alignments.itertuples(index=False):
+                mask = df2["well"] == well
+                c2 = df2[mask][["centroid-1", "centroid-0"]].values
+                c2 = c2 + (x, y)
+                df2.loc[mask, ["centroid-1", "centroid-0"]] = c2
         # Map each result to the original table using minimum Euclidean distance.
         # This must be done per well sample.
         images2 = _get_well_images(conn, plate_other)
@@ -116,8 +134,9 @@ def aggregate_plates(
         all_results = []
         for im1, im2 in zip(images1, images2, strict=True):
             assert im1[0] == im2[0], "Well positions must match"
-            df1w = _select_well_sample(df1, im1[0], im1[1])
-            df2w = _select_well_sample(df2, im2[0], im2[1])
+            well_pos = im1[0]
+            df1w = _select_well_sample(df1, well_pos, im1[1])
+            df2w = _select_well_sample(df2, well_pos, im2[1])
             # df1 can be the result of concatenation with unmapped objects.
             # Drop NA values from df1 when collecting centroids.
             c1 = df1w[["centroid-1", "centroid-0"]].dropna(axis=0).values
@@ -125,7 +144,7 @@ def aggregate_plates(
 
             logger.info(
                 "Mapping objects [%s:%d-%d] %d - %d",
-                im1[0],
+                well_pos,
                 im1[1],
                 im2[1],
                 len(c1),
@@ -144,10 +163,17 @@ def aggregate_plates(
             elif method == 2:
                 row_ind, col_ind = map_nearest_neighbour(c1, c2, threshold)
             else:
-                a = plate_alignments[plate_alignments["well"] == im1[0]]
+                a = (
+                    plate_alignments[
+                        (plate_alignments["well"] == well_pos)
+                        & (plate_alignments["image_id"] == im2[1])
+                    ]
+                    if per_sample
+                    else plate_alignments[plate_alignments["well"] == well_pos]
+                )
                 if a.empty:
                     raise OmeroError(
-                        f"Alignment missing for plate {plate_other} at well {im1[0]}",
+                        f"Alignment missing for plate {plate_other} at well {well_pos}",
                         logger,
                     )
                 x, y = a.iloc[0][-2:]
@@ -279,7 +305,7 @@ def align_plates(
 
     Returns:
         DataFrame of alignment shifts (X,Y) required to align each plate well to the master plate,
-        DataFrame of each computed well sample alignment,
+        DataFrame of each computed well sample image alignment,
         and optionally the alignments of each plate to the master plate (NYXC).
 
     Raises:
@@ -338,7 +364,7 @@ def align_plates(
     if number_of_alignments < len(selected_indices):
         random.shuffle(selected_indices)
     alignments = []  # list: plate,well,x,y (mean of samples)
-    sample_alignments = []  # list: plate,well,sample,x,y
+    sample_alignments = []  # list: plate,well,image_id,x,y
     examples = []
     ch1 = int(metadata[plate_id].channel_data[align_ch])
     # XYZCT order
@@ -363,9 +389,10 @@ def align_plates(
                     start_coords=start_coords,
                     axis_lengths=axis_lengths,
                 )
+                image_id2 = samples2[idx].getImage().getId()
                 _, im2 = get_image(
                     conn,
-                    samples2[idx].getImage().getId(),
+                    image_id2,
                     start_coords=start_coords2,
                     axis_lengths=axis_lengths,
                 )
@@ -378,13 +405,17 @@ def align_plates(
                         idx,
                         plate_id if b1 else plate_other,
                     )
-                    sample_alignments.append((plate_other, well, idx, 0, 0))
+                    sample_alignments.append(
+                        (plate_other, well, image_id2, 0, 0)
+                    )
                     continue
                 # Convert TZYXC to YX before alignment
                 # Q. Would a Gaussian blur improve alignment?
                 trans = _translation(im1.squeeze(), im2.squeeze())
                 logger.info("Sample alignment %s [%s] %s", well, idx, trans)
-                sample_alignments.append((plate_other, well, idx) + trans)
+                sample_alignments.append(
+                    (plate_other, well, image_id2) + trans
+                )
                 if output_alignments:
                     shifted.append(
                         _translate(im1.squeeze(), im2.squeeze(), trans)
@@ -431,7 +462,7 @@ def align_plates(
 
     df = pd.DataFrame(alignments, columns=["plate", "well", "x", "y"])
     sdf = pd.DataFrame(
-        sample_alignments, columns=["plate", "well", "sample", "x", "y"]
+        sample_alignments, columns=["plate", "well", "image_id", "x", "y"]
     )
 
     # Upload result
@@ -983,15 +1014,19 @@ def _map_label_to_index(
     return mapping[labels]
 
 
-def get_plate_alignments(conn: BlitzGateway, plate_id: int) -> pd.DataFrame:
+def get_plate_alignments(
+    conn: BlitzGateway, plate_id: int, sample_alignments: bool = False
+) -> pd.DataFrame:
     """Get the alignments for the plate.
 
     The alignments are: plate, well, x, y.
+    The sample alignments are: plate, well, image_id, x, y.
     The alignment data is created and uploaded to OMERO by align_plates.
 
     Args:
         conn: The BlitzGateway connection
         plate_id: The plate ID
+        sample_alignments: Set to True to obtain the alignments for each well sample.
 
     Returns:
         DataFrame of plate alignments
@@ -1004,7 +1039,7 @@ def get_plate_alignments(conn: BlitzGateway, plate_id: int) -> pd.DataFrame:
     plate = conn.getObject("Plate", plate_id)
     if plate is None:
         raise PlateNotFoundError(f"Plate:{plate_id}", logger)
-    filename = "alignment.csv"
+    filename = "sample_alignment.csv" if sample_alignments else "alignment.csv"
     att = get_file_attachments(plate, filename)
     df = None
     if att:
