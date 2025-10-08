@@ -257,7 +257,7 @@ def align_plates(
     tolerance: float = 5,
     seed: int | None = None,
     output_alignments: bool = False,
-) -> tuple[pd.DataFrame, list[list[npt.NDArray[Any]]] | None]:
+) -> tuple[pd.DataFrame, pd.DataFrame, list[list[npt.NDArray[Any]]] | None]:
     """Align plates in 2D using the specified channel.
 
     A random subset of well samples are used to create an average alignment between plates.
@@ -279,6 +279,7 @@ def align_plates(
 
     Returns:
         DataFrame of alignment shifts (X,Y) required to align each plate well to the master plate,
+        DataFrame of each computed well sample alignment,
         and optionally the alignments of each plate to the master plate (NYXC).
 
     Raises:
@@ -334,10 +335,10 @@ def align_plates(
     # Shuffle the indices and use the top n for samples.
     # We skip frames if the image is blank so we need the entire list.
     selected_indices = list(range(len(next(iter(well_samples1.values())))))
-    if len(selected_indices) < number_of_alignments:
+    if number_of_alignments < len(selected_indices):
         random.shuffle(selected_indices)
-    # list: plate,well,x,y
-    alignments = []
+    alignments = []  # list: plate,well,x,y (mean of samples)
+    sample_alignments = []  # list: plate,well,sample,x,y
     examples = []
     ch1 = int(metadata[plate_id].channel_data[align_ch])
     # XYZCT order
@@ -377,11 +378,13 @@ def align_plates(
                         idx,
                         plate_id if b1 else plate_other,
                     )
+                    sample_alignments.append((plate_other, well, idx, 0, 0))
                     continue
                 # Convert TZYXC to YX before alignment
                 # Q. Would a Gaussian blur improve alignment?
                 trans = _translation(im1.squeeze(), im2.squeeze())
                 logger.info("Sample alignment %s [%s] %s", well, idx, trans)
+                sample_alignments.append((plate_other, well, idx) + trans)
                 if output_alignments:
                     shifted.append(
                         _translate(im1.squeeze(), im2.squeeze(), trans)
@@ -427,12 +430,16 @@ def align_plates(
             alignments.append((plate_other, well) + shift)
 
     df = pd.DataFrame(alignments, columns=["plate", "well", "x", "y"])
+    sdf = pd.DataFrame(
+        sample_alignments, columns=["plate", "well", "sample", "x", "y"]
+    )
 
     # Upload result
     logger.info("Saving alignment results to OMERO")
     _save_data(conn, plate_id, df, "alignment")
+    _save_data(conn, plate_id, sdf, "sample_alignment")
 
-    return df, examples if examples else None
+    return df, sdf, examples if examples else None
 
 
 def _save_data(

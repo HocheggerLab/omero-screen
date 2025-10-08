@@ -106,7 +106,7 @@ def main() -> None:
         assert conn is not None
         plate_id = plate_ids[0]
         plate_ids = plate_ids[1:]
-        alignments, examples = align_plates(
+        _, _, examples = align_plates(
             conn,
             plate_id,
             plate_ids,
