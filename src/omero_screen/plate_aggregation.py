@@ -665,7 +665,8 @@ def _translation(
         t0 -= shape[0]
     if t1 > shape[1] // 2:
         t1 -= shape[1]
-    return int(t0), int(t1)
+    # t0 (first axis) corresponds to y
+    return int(t1), int(t0)
 
 
 def _translate(
