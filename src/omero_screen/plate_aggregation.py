@@ -334,7 +334,8 @@ def align_plates(
     # Shuffle the indices and use the top n for samples.
     # We skip frames if the image is blank so we need the entire list.
     selected_indices = list(range(len(next(iter(well_samples1.values())))))
-    random.shuffle(selected_indices)
+    if len(selected_indices) < number_of_alignments:
+        random.shuffle(selected_indices)
     # list: plate,well,x,y
     alignments = []
     examples = []
@@ -429,12 +430,19 @@ def align_plates(
 
     # Upload result
     logger.info("Saving alignment results to OMERO")
-    delete_file_attachment(
-        conn, conn.getObject("Plate", plate_id), ends_with="alignment.csv"
-    )
-    attach_data(conn, df, conn.getObject("Plate", plate_id), "alignment")
+    _save_data(conn, plate_id, df, "alignment")
 
     return df, examples if examples else None
+
+
+def _save_data(
+    conn: BlitzGateway, plate_id: int, df: pd.DataFrame, table_name: str
+) -> None:
+    """Save the data table as a CSV file in OMERO."""
+    delete_file_attachment(
+        conn, conn.getObject("Plate", plate_id), ends_with=table_name + ".csv"
+    )
+    attach_data(conn, df, conn.getObject("Plate", plate_id), table_name)
 
 
 def _plate_dimensions(
