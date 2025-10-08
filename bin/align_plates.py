@@ -53,7 +53,6 @@ def main() -> None:
         "--gallery",
         type=int,
         default=4,
-        action=argparse.BooleanOptionalAction,
         help="Alignment gallery grid size (default: %(default)s)",
     )
     group = parser.add_argument_group("Omero Screen overrides")
