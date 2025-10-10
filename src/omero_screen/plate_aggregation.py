@@ -364,7 +364,7 @@ def align_plates(
     if number_of_alignments < len(selected_indices):
         random.shuffle(selected_indices)
     alignments = []  # list: plate,well,x,y (mean of samples)
-    sample_alignments = []  # list: plate,well,image_id,x,y
+    sample_alignments = []  # list: plate,well,sample,image_id,x,y
     examples = []
     ch1 = int(metadata[plate_id].channel_data[align_ch])
     # XYZCT order
@@ -406,7 +406,7 @@ def align_plates(
                         plate_id if b1 else plate_other,
                     )
                     sample_alignments.append(
-                        (plate_other, well, image_id2, 0, 0)
+                        (plate_other, well, idx, image_id2, 0, 0)
                     )
                     continue
                 # Convert TZYXC to YX before alignment
@@ -414,7 +414,7 @@ def align_plates(
                 trans = _translation(im1.squeeze(), im2.squeeze())
                 logger.info("Sample alignment %s [%s] %s", well, idx, trans)
                 sample_alignments.append(
-                    (plate_other, well, image_id2) + trans
+                    (plate_other, well, idx, image_id2) + trans
                 )
                 if output_alignments:
                     shifted.append(
@@ -462,7 +462,8 @@ def align_plates(
 
     df = pd.DataFrame(alignments, columns=["plate", "well", "x", "y"])
     sdf = pd.DataFrame(
-        sample_alignments, columns=["plate", "well", "image_id", "x", "y"]
+        sample_alignments,
+        columns=["plate", "well", "sample", "image_id", "x", "y"],
     )
 
     # Upload result
