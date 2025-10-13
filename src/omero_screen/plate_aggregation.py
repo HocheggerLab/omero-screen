@@ -111,19 +111,19 @@ def aggregate_plates(
         plate_alignments = alignments[alignments["plate"] == plate_other]
 
         if per_sample:
-            for _, well, image_id, x, y in plate_alignments.itertuples(
+            for _, well, _, image_id, x, y in plate_alignments.itertuples(
                 index=False
             ):
                 mask = (df2["well"] == well) & (df2["image_id"] == image_id)
                 c2 = df2[mask][["centroid-1", "centroid-0"]].values
-                c2 = c2 + (x, y)
+                c2 = c2 - (x, y)
                 df2.loc[mask, ["centroid-1", "centroid-0"]] = c2
         else:
             # per-well
             for _, well, x, y in plate_alignments.itertuples(index=False):
                 mask = df2["well"] == well
                 c2 = df2[mask][["centroid-1", "centroid-0"]].values
-                c2 = c2 + (x, y)
+                c2 = c2 - (x, y)
                 df2.loc[mask, ["centroid-1", "centroid-0"]] = c2
         # Map each result to the original table using minimum Euclidean distance.
         # This must be done per well sample.
@@ -418,7 +418,10 @@ def align_plates(
                 )
                 if output_alignments:
                     shifted.append(
-                        _translate(im1.squeeze(), im2.squeeze(), trans)
+                        # Translation is computed as XY for readability but translate requires YX so reverse
+                        _translate(
+                            im1.squeeze(), im2.squeeze(), (trans[1], trans[0])
+                        )
                     )
                 shifts.append(trans)
                 if len(shifts) >= number_of_alignments:
@@ -650,12 +653,19 @@ def _translation(
 ) -> tuple[int, int]:
     """Compute the alignment between 2D images using phase correlation.
 
+    Note: By convention this returns the translation to map the fixed image
+    to the moving image (thus every pixel in the fixed image can be mapped to
+    the moving image and interpolated to create the new mapped image output).
+
+    The value is returned as XY for readability but the input image is assumed
+    to be YX (i.e. X is the last dimension).
+
     Args:
-        im1: First image
-        im2: Second image
+        im1: First (fixed) image
+        im2: Second (moving) image
 
     Returns:
-        [x, y] translation to shift im2 onto im1
+        [x, y] translation to shift im1 onto im2
     """
     shape = im1.shape
     f0 = fft2(im1)
@@ -666,8 +676,9 @@ def _translation(
         t0 -= shape[0]
     if t1 > shape[1] // 2:
         t1 -= shape[1]
-    # t0 (first axis) corresponds to y
-    return int(t1), int(t0)
+    # t0 (first axis) corresponds to y.
+    # Return the mapping from fixed to moving.
+    return int(-t1), int(-t0)
 
 
 def _translate(
@@ -679,26 +690,26 @@ def _translate(
     """Translate image 2 onto image 1, returning as CYX.
 
     Args:
-        im1: First image
-        im2: Second image
-        trans: Translation (YX)
+        im1: First (fixed) image
+        im2: Second (moving) image
+        trans: Translation (YX) to map fixed image to moving
         stacked: Set to True to return a CYX stack, otherwise return the shifted second image
 
     Returns:
         im2 shifted onto im1 as a CYX stack, or a separate image
     """
     shape = im1.shape
-    # Extract two rectangles and obtain the intersection at image 1
-    a = np.array([[0, 0], [shape[0], shape[1]]])
-    b = np.array([[0, 0], [shape[0], shape[1]]]) + trans
-    i1 = np.array(
+    # Extract two rectangles and obtain the intersection at image 2
+    a = np.array([[0, 0], [shape[0], shape[1]]]) + trans
+    b = np.array([[0, 0], [shape[0], shape[1]]])
+    i2 = np.array(
         [
             np.max(np.array([a[0], b[0]]), axis=0),  # max of the minimums
             np.min(np.array([a[1], b[1]]), axis=0),  # min of the maximums
         ]
     )
-    # create source crop
-    i2 = i1 - trans
+    # create distination crop
+    i1 = i2 - trans
     # translate image 2
     im3 = np.zeros_like(im2)
     logger.debug(
@@ -875,7 +886,7 @@ def map_masks(
     Args:
         m1: first image
         m2: second image
-        trans: Translation (YX) of second image
+        trans: Translation (YX) of first image to second image
 
     Returns:
         Mapping from label1 -> label2
@@ -1216,8 +1227,8 @@ def create_cell_masks(
                     f"Plate {plate_other} is missing alignment for well: {well_pos}",
                     logger,
                 )
-            # Translation is from plate2 to plate1 so invert
-            trans = (-round(df.iloc[0]["y"]), -round(df.iloc[0]["x"]))
+            # Translation is from plate1 to plate2
+            trans = (round(df.iloc[0]["y"]), round(df.iloc[0]["x"]))
 
             # Download nuclei mask; image is TZYXC.
             mask2, img = get_image(conn, map2[image_id2].getId())
