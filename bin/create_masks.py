@@ -25,6 +25,12 @@ def main() -> None:
         action=argparse.BooleanOptionalAction,
         help="Use per-sample alignments; else per-well alignments (default: %(default)s)",
     )
+    parser.add_argument(
+        "--force",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="Force creation of masks, replacing those already present (default: %(default)s)",
+    )
     group = parser.add_argument_group("Omero Screen overrides")
     group.add_argument(
         "--env",
@@ -61,6 +67,7 @@ def main() -> None:
             conn,
             plate_id,
             alignments,
+            force=args.force,
         )
 
     run_plate_loop(args.ID)

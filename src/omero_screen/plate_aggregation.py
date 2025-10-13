@@ -1169,6 +1169,7 @@ def create_cell_masks(
     conn: BlitzGateway,
     plate_id: int,
     alignments: pd.DataFrame,
+    force: bool = False,
 ) -> None:
     """Create missing cell masks for aligned plates.
 
@@ -1180,10 +1181,14 @@ def create_cell_masks(
     The type of alignment mode is identified by the alignment columns. Alignments per-well are
     (plate, well, x, y) and per-sample are (plate, well, image_id, x, y).
 
+    By default masks are created if missing. Use the force flag to replace masks that are present.
+    Warning: Use this option with caution as it can replace cell masks generated from segmentation.
+
     Args:
         conn: Connection to OMERO
         plate_id: ID of the master plate
         alignments: Alignment well shifts for each repeat plate
+        force: Set to true to force mask generation.
 
     Raises:
         PlateNotFoundError: if a plate does not exist
@@ -1211,10 +1216,15 @@ def create_cell_masks(
             well_pos, image_id1, image_id2 = im1[0], im1[1], im2[1]
             # Check for cell mask
             dim = _get_mask_dim(image_id2, map2)
+            msg = "Creating"
             if dim[3] > 1:
-                continue
+                if force:
+                    msg = "Replacing"
+                else:
+                    continue
             logger.info(
-                "Creating cell mask for image %s %d using image %d",
+                "%s cell mask for image %s %d using image %d",
+                msg,
                 well_pos,
                 image_id2,
                 image_id1,
