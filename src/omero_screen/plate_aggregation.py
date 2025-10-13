@@ -1177,10 +1177,13 @@ def create_cell_masks(
     alignment to create a synthetic mask. The updated mask for the repeat plate is saved to OMERO,
     replacing the current mask.
 
+    The type of alignment mode is identified by the alignment columns. Alignments per-well are
+    (plate, well, x, y) and per-sample are (plate, well, image_id, x, y).
+
     Args:
         conn: Connection to OMERO
         plate_id: ID of the master plate
-        alignments: Alignment well shifts (plate, well, x, y) for each repeat plate
+        alignments: Alignment well shifts for each repeat plate
 
     Raises:
         PlateNotFoundError: if a plate does not exist
@@ -1190,6 +1193,9 @@ def create_cell_masks(
     logger.info("Creating missing cell masks using master plate: %d", plate_id)
     # Get plates
     plate_ids = alignments["plate"].unique()
+    per_sample = "image_id" in alignments.columns
+    if per_sample:
+        logger.info("Performing per-sample alignment")
     # Get master plate images: (well position, image ID)
     images1 = _get_well_images(conn, plate_id)
     map1 = _get_mask_map(conn, plate_id)
@@ -1221,7 +1227,14 @@ def create_cell_masks(
                     logger,
                 )
             # Check translation
-            df = plate_alignments[plate_alignments["well"] == well_pos]
+            df = (
+                plate_alignments[
+                    (plate_alignments["well"] == well_pos)
+                    & (plate_alignments["image_id"] == image_id2)
+                ]
+                if per_sample
+                else plate_alignments[plate_alignments["well"] == well_pos]
+            )
             if df.empty:
                 raise PlateDataError(
                     f"Plate {plate_other} is missing alignment for well: {well_pos}",
