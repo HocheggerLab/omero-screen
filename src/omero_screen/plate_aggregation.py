@@ -1240,8 +1240,8 @@ def create_cell_masks(
                     f"Plate {plate_other} is missing alignment for well: {well_pos}",
                     logger,
                 )
-            # Translation is from plate1 to plate2
-            trans = (round(df.iloc[0]["y"]), round(df.iloc[0]["x"]))
+            # Translation maps plate1 to plate2. Reverse for a mapping of plate2 to plate 1.
+            trans = (round(-df.iloc[0]["y"]), round(-df.iloc[0]["x"]))
 
             # Download nuclei mask; image is TZYXC.
             mask2, img = get_image(conn, map2[image_id2].getId())
