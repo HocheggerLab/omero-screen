@@ -279,6 +279,7 @@ def align_plates(
     plate_ids: list[int],
     align_ch: str = "DAPI",
     number_of_alignments: int = 5,
+    sample_alignments: bool = False,
     threshold: float = 100,
     tolerance: float = 5,
     seed: int | None = None,
@@ -298,6 +299,7 @@ def align_plates(
         plate_ids: IDs of the plate repeat experiments
         align_ch: Channel to use for alignment
         number_of_alignments: Number of alignments used to create the average per well position
+        sample_alignments: Set to true to compute alignments for all well samples (overrides number of alignments)
         threshold: Distance threshold for alignments
         tolerance: Distance threshold for all alignments to the centroid
         seed: Seed for random selection of well samples
@@ -360,11 +362,16 @@ def align_plates(
     random.seed(a=seed)
     # Shuffle the indices and use the top n for samples.
     # We skip frames if the image is blank so we need the entire list.
-    selected_indices = list(range(len(next(iter(well_samples1.values())))))
-    if number_of_alignments < len(selected_indices):
+    # Sample all images if requested.
+    total_samples = len(next(iter(well_samples1.values())))
+    if sample_alignments:
+        number_of_alignments = total_samples
+    selected_indices = list(range(total_samples))
+    if number_of_alignments < total_samples:
         random.shuffle(selected_indices)
+
     alignments = []  # list: plate,well,x,y (mean of samples)
-    sample_alignments = []  # list: plate,well,sample,image_id,x,y
+    image_alignments = []  # list: plate,well,sample,image_id,x,y
     examples = []
     ch1 = int(metadata[plate_id].channel_data[align_ch])
     # XYZCT order
@@ -405,7 +412,7 @@ def align_plates(
                         idx,
                         plate_id if b1 else plate_other,
                     )
-                    sample_alignments.append(
+                    image_alignments.append(
                         (plate_other, well, idx, image_id2, 0, 0)
                     )
                     continue
@@ -413,7 +420,7 @@ def align_plates(
                 # Q. Would a Gaussian blur improve alignment?
                 trans = _translation(im1.squeeze(), im2.squeeze())
                 logger.info("Sample alignment %s [%s] %s", well, idx, trans)
-                sample_alignments.append(
+                image_alignments.append(
                     (plate_other, well, idx, image_id2) + trans
                 )
                 if output_alignments:
@@ -465,7 +472,7 @@ def align_plates(
 
     df = pd.DataFrame(alignments, columns=["plate", "well", "x", "y"])
     sdf = pd.DataFrame(
-        sample_alignments,
+        image_alignments,
         columns=["plate", "well", "sample", "image_id", "x", "y"],
     )
 

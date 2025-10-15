@@ -38,6 +38,12 @@ def main() -> None:
         help="Number of alignments used to create the average (default: %(default)s)",
     )
     parser.add_argument(
+        "--sample-alignments",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="Compute per-sample alignments; else the specified number of alignments (default: %(default)s)",
+    )
+    parser.add_argument(
         "--threshold",
         type=float,
         default=100,
@@ -111,6 +117,7 @@ def main() -> None:
             plate_ids,
             align_ch=args.channel,
             number_of_alignments=args.number_of_alignments,
+            sample_alignments=args.sample_alignments,
             seed=args.seed,
             threshold=args.threshold,
             tolerance=args.tolerance,
