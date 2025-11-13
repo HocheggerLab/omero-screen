@@ -67,7 +67,7 @@ def flatfieldcorr(
     """
     plate = conn.getObject("Plate", meta_data.plate_id)
     assert plate is not None, "Invalid plate id"
-    image_name = f"{meta_data.plate_id}_flatfield_masks"
+    image_name = flatfieldcorr_name(meta_data.plate_id)
     dataset = conn.getObject("Dataset", dataset_id)
     assert dataset is not None, "Invalid dataset id"
     image_dict = {}
@@ -92,6 +92,18 @@ def flatfieldcorr(
     else:
         print("Flatfield correction masks successfully loaded")
     return image_dict
+
+
+def flatfieldcorr_name(plate_id: int) -> str:
+    """Get the name of the plate flatfield correction image.
+
+    Args:
+        plate_id: Plate ID
+
+    Returns:
+        Image name.
+    """
+    return f"{plate_id}_flatfield_masks"
 
 
 def upload_images(
