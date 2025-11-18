@@ -46,8 +46,8 @@ def segmentation_samples(
     Saves either the nuclei or nuclei
     and tubulin channels for randomly selected time point samples.
 
-    Note: This does not save any plate or well metadata required to
-    choose the segmentation options.
+    Note: This saves well metadata to a <plate ID>.csv file.
+    The file is appended to prevent overwrite of existing metadata.
 
     Args:
         conn: Connection to OMERO.
@@ -84,35 +84,55 @@ def segmentation_samples(
     dataset = conn.getObject("Dataset", dataset_id)
     seg_images = {x.getName(): x.getId() for x in dataset.listChildren()}
 
-    # For each sample (image_id, t):
-    image_id = -1
-    for i, t in tqdm(samples, desc="Saving"):
-        # If a new ID get the image objects
-        if image_id != i:
-            image_id = i
-            source_image = conn.getObject("Image", i)
-            image = _get_image_to_segment(conn, source_image)
-            if image is None:
-                raise Exception(f"No image to segment for image: {i}")
-            mask_id = seg_images.get(f"{i}_segmentation", 0)
-            mask = conn.getObject("Image", mask_id) if mask_id else None
-            if mask is None:
-                logger.debug("No segmentation result for image: %d", i)
+    fn = os.path.join(out_directory, f"{plate_id}.csv")
+    with open(fn, "a") as f:
+        # For each sample (well_id, image_id, t):
+        well_id = -1
+        image_id = -1
+        for w, i, t in tqdm(samples, desc="Saving"):
+            # If a new ID get the objects
+            if well_id != w:
+                well_id = w
+                well = conn.getObject("Well", w)
+                if well is None:
+                    raise Exception(f"No well for image: {i}")
+                # Get well metadata
+                cond_dict = metadata.well_conditions(well.getWellPos())
+                print(cond_dict)
+            if image_id != i:
+                image_id = i
+                source_image = conn.getObject("Image", i)
+                image = _get_image_to_segment(conn, source_image)
+                if image is None:
+                    raise Exception(f"No image to segment for image: {i}")
+                mask_id = seg_images.get(f"{i}_segmentation", 0)
+                mask = conn.getObject("Image", mask_id) if mask_id else None
+                if mask is None:
+                    logger.debug("No segmentation result for image: %d", i)
 
-        fn = os.path.join(out_directory, f"{plate_id}_{image_id}_{t}.i.tiff")
-        if overwrite or not os.path.exists(fn):
-            imwrite(
-                fn, _get_image(image, t, channels), compression=compression
+            # Record metadata
+            fn = f"{plate_id}_{image_id}_{t}.i.tiff"
+            print(
+                f"{fn},{cond_dict['cell_line']},{cond_dict['condition']}",
+                file=f,
             )
-        if mask is not None:
-            fn = os.path.join(
-                out_directory, f"{plate_id}_{image_id}_{t}.m.tiff"
-            )
+
+            fn = os.path.join(out_directory, fn)
             if overwrite or not os.path.exists(fn):
-                imwrite(fn, _get_image(mask, t), compression=compression)
+                imwrite(
+                    fn, _get_image(image, t, channels), compression=compression
+                )
+            if mask is not None:
+                fn = os.path.join(
+                    out_directory, f"{plate_id}_{image_id}_{t}.m.tiff"
+                )
+                if overwrite or not os.path.exists(fn):
+                    imwrite(fn, _get_image(mask, t), compression=compression)
 
 
-def _get_image_ids(conn: BlitzGateway, plate_id: int) -> list[tuple[int, int]]:
+def _get_image_ids(
+    conn: BlitzGateway, plate_id: int
+) -> list[tuple[int, int, int]]:
     """Get a list of images from the OMERO object ids.
 
     Args:
@@ -120,7 +140,7 @@ def _get_image_ids(conn: BlitzGateway, plate_id: int) -> list[tuple[int, int]]:
         plate_id: OMERO plate ID.
 
     Returns:
-        list of image details (image_id, size_t).
+        list of image details (well_id, image_id, size_t).
 
     Raises:
         Exception if the plate is not recognised.
@@ -131,7 +151,7 @@ def _get_image_ids(conn: BlitzGateway, plate_id: int) -> list[tuple[int, int]]:
     # https://omero.readthedocs.io/en/stable/developers/Model/EveryObject.html#plate
     # https://omero.readthedocs.io/en/stable/developers/Model/EveryObject.html#image
     params = omero.sys.ParametersI()
-    query = f"""select i.id, pi.sizeT from Plate as p
+    query = f"""select w.id, i.id, pi.sizeT from Plate as p
         left join p.wells as w
         left join w.wellSamples as ws
         left join ws.image as i
@@ -141,34 +161,34 @@ def _get_image_ids(conn: BlitzGateway, plate_id: int) -> list[tuple[int, int]]:
     results = query_service.projection(query, params, None)
     if not len(results):
         raise Exception(f"OMERO plate does not exist: {plate_id}")
-    for image_id, size_t in results:
-        images.append((unwrap(image_id), unwrap(size_t)))
+    for well_id, image_id, size_t in results:
+        images.append((unwrap(well_id), unwrap(image_id), unwrap(size_t)))
 
     return images
 
 
 def _get_image_samples(
-    images: list[tuple[int, int]],
+    images: list[tuple[int, int, int]],
     k: int,
     seed: int | None,
-) -> list[tuple[int, int]]:
+) -> list[tuple[int, int, int]]:
     """Get a list of image time samples from the image list.
 
     The return list is sorted.
 
     Args:
-        images: list of image details (image_id, size_t).
+        images: list of image details (well_id, image_id, size_t).
         k: number of samples.
         seed: random seed.
 
     Returns:
-        list of image samples (image_id, t).
+        list of image samples (well_id, image_id, t).
     """
     # Expand list to all timepoints
     timepoints = []
-    for i, size_t in images:
+    for w, i, size_t in images:
         for t in range(size_t):
-            timepoints.append((i, t))
+            timepoints.append((w, i, t))
 
     if len(timepoints) > k:
         logger.info("Sample %d / %d using seed %d", k, len(timepoints), seed)
