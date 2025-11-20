@@ -11,6 +11,7 @@ Args:
     plate_id (int): OMERO plate identifier.
 """
 
+import json
 import os
 import random
 from typing import Any
@@ -98,7 +99,6 @@ def segmentation_samples(
                     raise Exception(f"No well for image: {i}")
                 # Get well metadata
                 cond_dict = metadata.well_conditions(well.getWellPos())
-                print(cond_dict)
             if image_id != i:
                 image_id = i
                 source_image = conn.getObject("Image", i)
@@ -110,10 +110,16 @@ def segmentation_samples(
                 if mask is None:
                     logger.debug("No segmentation result for image: %d", i)
 
-            # Record metadata
+            # Record metadata. Extract the required cell line field then dump the rest.
             fn = f"{plate_id}_{image_id}_{t}.i.tiff"
+            cell_line = ""
+            for key in cond_dict:
+                if key.lower() == "cell_line":
+                    cell_line = cond_dict.pop(key)
+                    break
+            meta = json.dumps(cond_dict)
             print(
-                f"{fn},{cond_dict['cell_line']},{cond_dict['condition']}",
+                f"{fn},{cell_line},{meta}",
                 file=f,
             )
 
