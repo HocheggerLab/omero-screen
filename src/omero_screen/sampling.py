@@ -97,8 +97,14 @@ def segmentation_samples(
                 well = conn.getObject("Well", w)
                 if well is None:
                     raise Exception(f"No well for image: {i}")
-                # Get well metadata
+                # Get well metadata. Extract the required cell line field then dump the rest.
                 cond_dict = metadata.well_conditions(well.getWellPos())
+                cell_line = ""
+                for key in cond_dict:
+                    if key.lower() == "cell_line":
+                        cell_line = cond_dict.pop(key)
+                        break
+                meta = json.dumps(cond_dict)
             if image_id != i:
                 image_id = i
                 source_image = conn.getObject("Image", i)
@@ -112,12 +118,6 @@ def segmentation_samples(
 
             # Record metadata. Extract the required cell line field then dump the rest.
             fn = f"{plate_id}_{image_id}_{t}.i.tiff"
-            cell_line = ""
-            for key in cond_dict:
-                if key.lower() == "cell_line":
-                    cell_line = cond_dict.pop(key)
-                    break
-            meta = json.dumps(cond_dict)
             print(
                 f"{fn},{cell_line},{meta}",
                 file=f,
