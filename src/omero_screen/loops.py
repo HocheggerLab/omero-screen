@@ -47,11 +47,12 @@ from omero_utils.attachments import (
     parse_csv_data,
 )
 from omero_utils.map_anns import parse_annotations
+from omero_utils.message import WellAnnotationError
 
 from omero_screen.cellcycle_analysis import cellcycle_analysis, combplot
 from omero_screen.config import get_logger
 from omero_screen.gallery_figure import create_gallery
-from omero_screen.image_analysis import Image, ImageProperties
+from omero_screen.image_analysis import Image, ImageProperties, get_cell_model
 from omero_screen.image_classifier import ImageClassifier
 from omero_screen.quality_control import quality_control_fig
 
@@ -81,6 +82,14 @@ def plate_loop(
     metadata = MetadataParser(conn, plate_id)
     metadata.manage_metadata()
     logger.debug("Channel Metadata: %s", metadata.channel_data)
+
+    # Validate cell line required for segmentation model
+    for cell_line in set(metadata.well_data["cell_line"]):
+        if get_cell_model(cell_line, None) is None:
+            raise WellAnnotationError(
+                f"Unrecognised cell line: {cell_line}", logger
+            )
+
     dataset_id = PlateDataset(conn, plate_id).dataset_id
     flatfield_dict = flatfieldcorr(conn, metadata, dataset_id)
 

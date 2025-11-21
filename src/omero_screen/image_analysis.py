@@ -266,7 +266,7 @@ class Image:
         """
         segmentation_model = models.CellposeModel(
             device=get_device(),
-            model_type=self._get_models(),
+            model_type=get_cell_model(self.cell_line),
         )
         c_channels = [[2, 1]]
 
@@ -305,26 +305,6 @@ class Image:
             )
         return segmentation_masks
 
-    def _get_models(self) -> str:
-        """Matches well with cell line and gets model_path for cell line from plate_layout.
-
-        Returns:
-            path to model
-        """
-        cell_line = self.cell_line.replace(
-            " ", ""
-        ).upper()  # remove spaces and make uppercase
-        if "40X" in cell_line:
-            logger.info("40x image detected, using 40x nuclei model")
-            return "40x_Tub_H2B"
-        elif "20X" in cell_line:
-            logger.info("20x image detected, using 20x nuclei model")
-            return "cyto"
-        elif cell_line in default_config.MODEL_DICT:
-            return default_config.MODEL_DICT[cell_line]
-        else:
-            return default_config.MODEL_DICT["U2OS"]
-
     def _compact_mask(self, mask: npt.NDArray[Any]) -> npt.NDArray[Any]:
         """Compact the uint32 datatype to the smallest required to store all mask IDs.
 
@@ -340,6 +320,36 @@ class Image:
         if m < 2**16:
             return mask.astype(np.uint16)
         return mask
+
+
+def get_cell_model(
+    cell_line: str,
+    default_model: str | None = default_config.MODEL_DICT["U2OS"],
+) -> str | None:
+    """Gets the cell segmentation model for the specified cell line.
+
+    If the cell line is not recognised the default model is returned.
+
+    Args:
+        cell_line: Cell line.
+        default_model: The default model if the cell line is not recognised.
+
+    Returns:
+        model name
+    """
+    cell_line = cell_line.replace(
+        " ", ""
+    ).upper()  # remove spaces and make uppercase
+    if "40X" in cell_line:
+        logger.info("40x image detected, using 40x nuclei model")
+        return "40x_Tub_H2B"
+    elif "20X" in cell_line:
+        logger.info("20x image detected, using 20x nuclei model")
+        return "cyto"
+    elif cell_line in default_config.MODEL_DICT:
+        return default_config.MODEL_DICT[cell_line]
+    else:
+        return default_model
 
 
 class ImageProperties:
