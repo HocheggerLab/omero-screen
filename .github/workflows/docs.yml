@@ -69,8 +69,8 @@ jobs:
           # Build the documentation with plot generation enabled
           uv run sphinx-build -b html . _build/html
         env:
-          # Use pre-generated plots from CI instead of generating during docs build
-          BUILD_PLOTS: false
+          # Enable plot generation in CI to ensure docs are up-to-date
+          BUILD_PLOTS: true
           # Use headless display for matplotlib in CI
           MPLBACKEND: Agg
 
