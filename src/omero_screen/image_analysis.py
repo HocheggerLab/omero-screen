@@ -348,8 +348,13 @@ def get_cell_model(
         return "cyto"
     elif cell_line in default_config.MODEL_DICT:
         return default_config.MODEL_DICT[cell_line]
-    else:
-        return default_model
+
+    # substring matching: cell line may be longer than the model key
+    for k, v in default_config.MODEL_DICT.items():
+        if k in cell_line:
+            return v
+
+    return default_model
 
 
 class ImageProperties:
