@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -161,6 +161,47 @@ class BasePlotBuilder(ABC):
             )
         return self
 
+    def create_subplots(
+        self,
+        n_conditions: int,
+        fig_size: tuple[float, float] | None = None,
+    ) -> tuple[Figure, list[Axes]]:
+        """Create figure with subplots for multiple conditions.
+
+        Args:
+            n_conditions: Number of conditions (subplots)
+            fig_size: Optional figure size override
+
+        Returns:
+            Tuple of (Figure, list of Axes)
+        """
+        if n_conditions < 1:
+            raise ValueError("Number of conditions must be at least 1")
+
+        # Determine figure size
+        if fig_size is None:
+            # Default dynamic sizing if not provided
+            # 5x5 for single, 4*N x 5 for multiple
+            fig_size = (5, 5) if n_conditions == 1 else (4 * n_conditions, 5)
+
+        # Convert to inches
+        fig_inches = convert_size_to_inches(fig_size, self.config.size_units)
+
+        # Create subplots
+        self.fig, axes_array = plt.subplots(
+            1, n_conditions, figsize=fig_inches
+        )
+        self.axes_provided = False
+
+        # Handle single vs multiple axes return type
+        if n_conditions == 1:
+            self.ax = axes_array
+            return self.fig, [axes_array]
+        else:
+            # For multiple, we don't set self.ax as there isn't a single one
+            self.ax = None
+            return self.fig, list(axes_array.flatten())
+
     def build(self) -> tuple[Figure, Axes]:
         """Return completed figure and axes."""
         if self.fig is None or self.ax is None:
@@ -168,3 +209,33 @@ class BasePlotBuilder(ABC):
                 "Figure and axes must be created before calling build()"
             )
         return self.fig, self.ax
+
+
+@dataclass
+class XYPlotConfig(BasePlotConfig):
+    """Configuration for plots with X and Y axes."""
+
+    # Plot features
+    x_feature: str | None = None
+    y_feature: str | None = None
+
+    # Scale settings
+    x_scale: Literal["linear", "log"] = "linear"
+    x_scale_base: int = 2
+    y_scale: Literal["linear", "log"] = "linear"
+    y_scale_base: int = 10
+
+    # Axis limits
+    x_limits: tuple[float, float] | None = None
+    y_limits: tuple[float, float] | None = None
+
+    # Axis ticks
+    x_ticks: list[float] | None = None
+    y_ticks: list[float] | None = None
+
+    # Labels
+    x_label: str | None = None
+    y_label: str | None = None
+
+    # Grid
+    grid: bool = False

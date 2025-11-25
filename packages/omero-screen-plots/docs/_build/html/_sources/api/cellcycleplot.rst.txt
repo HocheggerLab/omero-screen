@@ -46,8 +46,7 @@ Focus on DNA content measurements with 2x2 grid layout::
         condition_col="condition",
         selector_col="cell_line",
         selector_val="MCF10A",
-        phases=['SubG1', 'G1', 'S', 'G2/M'],
-        grid_layout=(2, 2),
+        cc_phases=False,  # Use DNA content terminology (<2N, 2N, S, 4N, >4N)
         title="DNA Content Analysis"
     )
 
@@ -64,8 +63,8 @@ Analyze specific cell cycle phases with custom terminology::
         condition_col="condition",
         selector_col="cell_line",
         selector_val="MCF10A",
-        phases=['G1', 'S', 'G2/M'],  # Exclude SubG1
-        grid_layout=(2, 2),
+        cc_phases=True,
+        show_subG1=False,  # Exclude SubG1
         title="Major Cell Cycle Phases"
     )
 
@@ -87,10 +86,9 @@ Create publication-ready figures with custom styling::
         condition_col="condition",
         selector_col="cell_line",
         selector_val="MCF10A",
-        phases=['SubG1', 'G1', 'S', 'G2/M'],
+        show_subG1=True,
         colors=custom_colors,
-        show_legend=True,
-        show_plates=False,
+        show_repeat_points=False,
         title="Custom Styled Cell Cycle"
     )
 

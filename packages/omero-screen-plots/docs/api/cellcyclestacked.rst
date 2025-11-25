@@ -46,7 +46,8 @@ Show individual biological replicates to assess experimental consistency::
         condition_col="condition",
         selector_col="cell_line",
         selector_val="MCF10A",
-        display_mode="triplicates",
+        selector_val="MCF10A",
+        show_triplicates=True,
         group_size=1,
         title="Cell Cycle - Individual Replicates"
     )
@@ -64,7 +65,8 @@ Emphasize DNA content measurements with custom phase selection::
         condition_col="condition",
         selector_col="cell_line",
         selector_val="MCF10A",
-        phases=['SubG1', 'G1', 'S', 'G2/M'],
+        selector_val="MCF10A",
+        phase_order=['SubG1', 'G1', 'S', 'G2/M'],
         title="DNA Content Distribution"
     )
 
@@ -104,7 +106,7 @@ Group related conditions for treatment comparison::
         condition_col="condition",
         selector_col="cell_line",
         selector_val="MCF10A",
-        display_mode="triplicates",
+        show_triplicates=True,
         group_size=2,
         within_group_spacing=0.2,
         between_group_gap=0.5,

@@ -10,16 +10,20 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter
 
-from omero_screen_plots.base import BasePlotBuilder, BasePlotConfig
+from omero_screen_plots.base import (
+    BaseDataProcessor,
+    BasePlotBuilder,
+    XYPlotConfig,
+)
 from omero_screen_plots.colors import COLOR
-from omero_screen_plots.utils import prepare_plot_data, save_fig
+from omero_screen_plots.utils import prepare_plot_data
 
 
 @dataclass
-class ScatterPlotConfig(BasePlotConfig):
+class ScatterPlotConfig(XYPlotConfig):
     """Configuration for scatter plots."""
 
-    # Plot features
+    # Plot features (inherited from XYPlotConfig, but setting defaults)
     x_feature: str = "integrated_int_DAPI_norm"
     y_feature: str = "intensity_mean_EdU_nucleus_norm"
 
@@ -32,19 +36,15 @@ class ScatterPlotConfig(BasePlotConfig):
     hue_order: list[str] | None = None
     palette: list[str] | dict[str, str] | None = None
 
-    # Scale settings
+    # Scale settings (inherited from XYPlotConfig, setting defaults)
     x_scale: Literal["linear", "log"] = "log"
     x_scale_base: int = 2
     y_scale: Literal["linear", "log"] = "log"
     y_scale_base: int = 10
 
-    # Axis limits
+    # Axis limits (inherited from XYPlotConfig)
     x_limits: tuple[float, float] | None = (1, 16)
     y_limits: tuple[float, float] | None = None
-
-    # Axis ticks
-    x_ticks: list[float] | None = None
-    y_ticks: list[float] | None = None
 
     # Scatter plot settings
     size: float = 2
@@ -66,13 +66,11 @@ class ScatterPlotConfig(BasePlotConfig):
     line_style: str = "--"
     line_color: str = "black"
 
-    # Grid settings
+    # Grid settings (inherited)
     grid: bool = False
 
-    # Title and labels
+    # Title and labels (inherited)
     show_title: bool = False
-    x_label: str | None = None
-    y_label: str | None = None
 
     # Legend settings
     show_legend: bool = True
@@ -89,6 +87,54 @@ class ScatterPlotConfig(BasePlotConfig):
     )
 
 
+class ScatterDataProcessor(BaseDataProcessor):
+    """Processes data for scatter plots."""
+
+    def validate_dataframe(self) -> None:
+        """Validate required columns exist."""
+        # Basic validation is handled by prepare_plot_data for now
+        # We can add more specific validation here if needed
+
+    def process_data(self, df: pd.DataFrame, **kwargs: Any) -> pd.DataFrame:
+        """Process data for scatter plot.
+
+        Args:
+            df: Input DataFrame
+            **kwargs:
+                x_feature: str
+                y_feature: str
+                cell_number: int | None
+                random_state: int
+
+        Returns:
+            Processed DataFrame
+        """
+        x_feature = kwargs.get("x_feature")
+        y_feature = kwargs.get("y_feature")
+        cell_number = kwargs.get("cell_number")
+        random_state = kwargs.get("random_state", 42)
+
+        if not x_feature or not y_feature:
+            raise ValueError("x_feature and y_feature are required")
+
+        # Validate features exist
+        if x_feature not in df.columns:
+            raise ValueError(f"x_feature '{x_feature}' not found in dataframe")
+        if y_feature not in df.columns:
+            raise ValueError(f"y_feature '{y_feature}' not found in dataframe")
+
+        data = df.copy()
+
+        # Sample data if cell_number is specified
+        if cell_number and len(data) > cell_number:
+            data = data.sample(
+                n=cell_number,
+                random_state=random_state,
+            )
+
+        return data
+
+
 class ScatterPlot(BasePlotBuilder):
     """Builder for scatter plots."""
 
@@ -98,30 +144,28 @@ class ScatterPlot(BasePlotBuilder):
         self.config: ScatterPlotConfig = config  # Type narrowing
 
     def build_plot(self, data: pd.DataFrame, **kwargs: Any) -> "ScatterPlot":
-        """Build scatter plot."""
+        """Build scatter plot.
+
+        Args:
+            data: Processed DataFrame
+            **kwargs:
+                hue: str | None
+        """
         if self.ax is None:
             raise RuntimeError("Must create figure before building plot")
 
         # Extract plot parameters
-        x_feature = kwargs.get("x_feature", self.config.x_feature)
-        y_feature = kwargs.get("y_feature", self.config.y_feature)
+        x_feature = self.config.x_feature
+        y_feature = self.config.y_feature
         hue = kwargs.get("hue", self.config.hue)
 
-        # Sample data if cell_number is specified
-        if self.config.cell_number and len(data) > self.config.cell_number:
-            data = data.sample(
-                n=self.config.cell_number,
-                random_state=self.config.random_state,
-            )
-
-        # Validate features exist
-        if x_feature not in data.columns:
-            raise ValueError(f"x_feature '{x_feature}' not found in dataframe")
-        if y_feature not in data.columns:
-            raise ValueError(f"y_feature '{y_feature}' not found in dataframe")
         # Apply threshold if specified (overrides other hue settings)
         plot_data = data.copy()
-        if self.config.threshold is not None:
+        if (
+            self.config.threshold is not None
+            and y_feature
+            and y_feature in plot_data.columns
+        ):
             plot_data["threshold_category"] = plot_data[y_feature].apply(
                 lambda x: "below" if x < self.config.threshold else "above"
             )
@@ -189,7 +233,8 @@ class ScatterPlot(BasePlotBuilder):
             )
 
         # Format axes
-        self._format_axes(x_feature, y_feature)
+        if x_feature and y_feature:
+            self._format_axes(x_feature, y_feature)
 
         # Add reference lines
         self._add_reference_lines()
@@ -207,6 +252,179 @@ class ScatterPlot(BasePlotBuilder):
             self._filename = default_title.replace(" ", "_")
 
         return self
+
+    def _validate_inputs(
+        self,
+        df: pd.DataFrame,
+        x_feature: str,
+        y_feature: str,
+        condition_col: str,
+        conditions: list[str],
+    ) -> None:
+        """Validate input parameters early to provide helpful error messages."""
+        # Check required columns exist
+        required_cols = [x_feature, y_feature, condition_col]
+        if missing_cols := [
+            col for col in required_cols if col not in df.columns
+        ]:
+            raise ValueError(f"Missing columns in DataFrame: {missing_cols}")
+
+        # Validate conditions exist in data
+        # Note: We only check if the condition column contains the requested conditions
+        # We don't check selector_val here, allowing it to filter to empty
+        available_conditions = df[condition_col].unique()
+        if invalid_conditions := [
+            c for c in conditions if c not in available_conditions
+        ]:
+            raise ValueError(
+                f"Invalid conditions: {invalid_conditions}. "
+                f"Available: {list(available_conditions)}"
+            )
+
+    def create_plot(
+        self,
+        df: pd.DataFrame,
+        conditions: str | list[str],
+        condition_col: str = "condition",
+        selector_col: str | None = None,
+        selector_val: str | None = None,
+        axes: Any | None = None,
+    ) -> tuple[Figure, Any]:
+        """Create scatter plot using class-based approach.
+
+        This method is maintained for backward compatibility with the API.
+        """
+        # Handle single vs multiple conditions
+        conditions_list = (
+            [conditions] if isinstance(conditions, str) else conditions
+        )
+
+        # Validate axes usage
+        if axes is not None and len(conditions_list) > 1:
+            raise ValueError(
+                "Cannot use multiple conditions when axes is provided"
+            )
+
+        # Get features from config
+        x_feature = self.config.x_feature
+        y_feature = self.config.y_feature
+
+        # Validate inputs early
+        self._validate_inputs(
+            df, x_feature, y_feature, condition_col, conditions_list
+        )
+
+        # Handle selector edge case: if col provided but val missing, ignore it
+        # This matches original behavior where it only filtered if both were present
+        if selector_col and not selector_val:
+            selector_col = None
+
+        # Prepare data (initial filtering)
+        # We catch ValueError from prepare_plot_data for empty data to handle it gracefully
+        try:
+            plot_data = prepare_plot_data(
+                df,
+                x_feature,
+                conditions_list,
+                condition_col,
+                selector_col,
+                selector_val,
+            )
+        except AssertionError:
+            # prepare_plot_data asserts df is not None
+            plot_data = pd.DataFrame(columns=df.columns)
+
+        if plot_data is None or plot_data.empty:
+            # Don't raise error, allow empty plot (matches original behavior)
+            plot_data = pd.DataFrame(columns=df.columns)
+
+        # Handle hue validation: disable if not found
+        if self.config.hue and self.config.hue not in df.columns:
+            self.config.hue = None
+
+        # Use DataProcessor for further processing
+        # Only process if we have data
+        if not plot_data.empty:
+            processor = ScatterDataProcessor(plot_data)
+            processed_data = processor.process_data(
+                plot_data,
+                x_feature=x_feature,
+                y_feature=y_feature,
+                cell_number=self.config.cell_number,
+                random_state=self.config.random_state,
+            )
+        else:
+            processed_data = plot_data
+
+        # Handle single condition / existing axes
+        if len(conditions_list) == 1 or axes is not None:
+            # Filter data for single condition
+            if not processed_data.empty:
+                cond_data = processed_data[
+                    processed_data[condition_col] == conditions_list[0]
+                ].copy()
+            else:
+                cond_data = processed_data
+
+            if axes is not None:
+                self.create_figure(axes=axes)
+                self.build_plot(cond_data)
+                return axes.figure, axes
+            else:
+                self.create_figure()
+                self.build_plot(cond_data)
+                fig, ax = self.build()
+                self.save_figure()
+                return fig, ax
+
+        # Handle multiple conditions using create_subplots
+        else:
+            fig, axes_list = self.create_subplots(len(conditions_list))
+
+            for i, (ax, cond) in enumerate(
+                zip(axes_list, conditions_list, strict=False)
+            ):
+                # Filter data for this condition
+                if not processed_data.empty:
+                    cond_data = processed_data[
+                        processed_data[condition_col] == cond
+                    ].copy()
+                else:
+                    cond_data = processed_data
+
+                # Create builder for this subplot (reusing config)
+                sub_builder = ScatterPlot(self.config)
+                sub_builder.create_figure(axes=ax)
+                sub_builder.build_plot(cond_data)
+
+                # Add condition as subplot title
+                ax.set_title(cond, fontsize=8)
+
+                # Only show y-label on first subplot
+                if i > 0:
+                    ax.set_ylabel("")
+
+                # Ensure consistent axis formatting for DNA/EdU plots
+                is_dna_content = x_feature == "integrated_int_DAPI_norm"
+                if is_dna_content:
+                    ax.set_xlim(self.config.x_limits or (1, 16))
+                    if self.config.x_scale == "log":
+                        ax.set_xticks([1, 2, 4, 8, 16])
+                        ax.set_xticklabels(["1", "2", "4", "8", "16"])
+
+            # Add suptitle if requested
+            if self.config.show_title:
+                title = (
+                    self.config.title or f"Scatter: {x_feature} vs {y_feature}"
+                )
+                fig.suptitle(
+                    title, fontsize=7, weight="bold", x=0.05, y=1.00, ha="left"
+                )
+
+            plt.tight_layout()
+            self.save_figure()
+
+            return fig, axes_list
 
     def _format_axes(self, x_feature: str, y_feature: str) -> None:
         """Format axes labels, scales, and limits."""
@@ -309,238 +527,6 @@ class ScatterPlot(BasePlotBuilder):
         title = self.config.title or f"{x_feature} vs {y_feature}"
         self.ax.set_title(title, fontsize=10, loc="left", pad=10)
 
-    def _prepare_figure_size(
-        self,
-        fig_size: tuple[float, float] | None,
-        n_conditions: int,
-        axes: Any | None,
-    ) -> tuple[float, float] | None:
-        """Determine figure size based on conditions and axes."""
-        if fig_size is not None or axes is not None:
-            return fig_size
-
-        # Dynamic figure size based on number of conditions
-        return (5, 5) if n_conditions == 1 else (4 * n_conditions, 5)
-
-    def _validate_inputs(
-        self,
-        df: pd.DataFrame,
-        x_feature: str,
-        y_feature: str,
-        condition_col: str,
-        conditions: list[str],
-        axes: Any | None,
-    ) -> None:
-        """Validate input parameters early to provide helpful error messages."""
-        # Check required columns exist
-        required_cols = [x_feature, y_feature, condition_col]
-        if missing_cols := [
-            col for col in required_cols if col not in df.columns
-        ]:
-            raise ValueError(f"Missing columns in DataFrame: {missing_cols}")
-
-        # Validate conditions exist in data
-        available_conditions = df[condition_col].unique()
-        if invalid_conditions := [
-            c for c in conditions if c not in available_conditions
-        ]:
-            raise ValueError(
-                f"Invalid conditions: {invalid_conditions}. "
-                f"Available: {list(available_conditions)}"
-            )
-
-        # Validate axes usage
-        if axes is not None and len(conditions) > 1:
-            raise ValueError(
-                "Cannot use multiple conditions when axes is provided"
-            )
-
-    def create_plot(
-        self,
-        df: pd.DataFrame,
-        conditions: str | list[str],
-        condition_col: str = "condition",
-        selector_col: str | None = None,
-        selector_val: str | None = None,
-        axes: Any | None = None,
-    ) -> tuple[Figure, Any]:
-        """Create scatter plot using class-based approach like other plot classes.
-
-        Args:
-            df: DataFrame containing the data
-            conditions: Single condition string or list of conditions
-            condition_col: Column containing condition labels
-            selector_col: Optional column for additional filtering
-            selector_val: Optional value for selector_col filtering
-            axes: Optional existing Axes to plot on
-
-        Returns:
-            tuple: (Figure, Axes or list of Axes)
-        """
-        # Handle single vs multiple conditions
-        conditions_list = (
-            [conditions] if isinstance(conditions, str) else conditions
-        )
-
-        # Get features from config
-        x_feature = self.config.x_feature
-        y_feature = self.config.y_feature
-
-        # Validate inputs early
-        self._validate_inputs(
-            df, x_feature, y_feature, condition_col, conditions_list, axes
-        )
-
-        # Check if this is the standard DNA vs EdU plot
-        is_dna_content = x_feature == "integrated_int_DAPI_norm"
-        is_edu_intensity = y_feature == "intensity_mean_EdU_nucleus_norm"
-        is_dna_edu = is_dna_content and is_edu_intensity
-
-        # Handle hue settings: threshold coloring or auto-detect cell cycle
-        if self.config.threshold is not None:
-            # Threshold coloring overrides other hue settings
-            self.config.hue = "threshold_category"
-        elif self.config.hue is None and "cell_cycle" in df.columns:
-            # Auto-detect cell cycle for default hue
-            self.config.hue = "cell_cycle"
-        elif self.config.hue and self.config.hue not in df.columns:
-            # Disable hue if column doesn't exist
-            self.config.hue = None
-
-        # Set reference lines for DNA/EdU plots
-        if is_dna_content and self.config.vline is None:
-            self.config.vline = 3
-        if is_edu_intensity and self.config.hline is None:
-            self.config.hline = 3
-
-        # Enable KDE overlay for DNA vs EdU plots
-        if self.config.kde_overlay is None and is_dna_edu:
-            self.config.kde_overlay = True
-
-        # Prepare figure size
-        fig_size = self._prepare_figure_size(
-            self.config.fig_size, len(conditions_list), axes
-        )
-        if fig_size:
-            self.config.fig_size = fig_size
-
-        # Single condition - single plot
-        if len(conditions_list) == 1 or axes is not None:
-            # Filter data for single condition
-            cond_data = df[df[condition_col] == conditions_list[0]].copy()
-
-            # Apply selector filter if provided
-            if selector_col and selector_val:
-                cond_data = cond_data[cond_data[selector_col] == selector_val]
-
-            if axes is not None:
-                # Use provided axes
-                self.create_figure(axes=axes)
-                self.build_plot(cond_data)
-                return axes.figure, axes
-            else:
-                # Create new figure
-                self.create_figure()
-                self.build_plot(cond_data)
-                fig, ax = self.build()
-
-                # Save if configured
-                if self.config.save and self.config.path:
-                    filename = (
-                        self.config.title
-                        or f"scatter_{x_feature}_vs_{y_feature}"
-                    )
-                    filename = filename.replace(" ", "_")
-                    save_fig(
-                        fig,
-                        self.config.path,
-                        filename,
-                        tight_layout=self.config.tight_layout,
-                        fig_extension=self.config.file_format,
-                        resolution=self.config.dpi,
-                    )
-
-                return fig, ax
-
-        # Multiple conditions - subplot grid
-        else:
-            n_conditions = len(conditions_list)
-
-            # Create figure with subplots
-            fig_inches = self.config.fig_size
-            if self.config.size_units == "cm":
-                fig_inches = (fig_inches[0] / 2.54, fig_inches[1] / 2.54)
-
-            fig, axes_list = plt.subplots(1, n_conditions, figsize=fig_inches)
-            if n_conditions == 1:
-                axes_list = [axes_list]
-
-            # Create plot for each condition
-            for i, (ax, cond) in enumerate(
-                zip(axes_list, conditions_list, strict=False)
-            ):
-                # Filter data for this condition
-                cond_data = df[df[condition_col] == cond].copy()
-
-                # Apply selector filter if provided
-                if selector_col and selector_val:
-                    cond_data = cond_data[
-                        cond_data[selector_col] == selector_val
-                    ]
-
-                # Create new ScatterPlot instance with same config for each subplot
-                builder = ScatterPlot(self.config)
-                builder.create_figure(axes=ax)
-                builder.build_plot(cond_data)
-
-                # Add condition as subplot title only for multiple conditions
-                if n_conditions > 1:
-                    ax.set_title(cond, fontsize=8)
-
-                # Only show y-label on first subplot
-                if i > 0:
-                    ax.set_ylabel("")
-
-                # Ensure consistent axis formatting for DNA/EdU plots
-                if is_dna_content:
-                    # Set consistent x-axis limits and ticks for DNA content
-                    ax.set_xlim(self.config.x_limits or (1, 16))
-                    if self.config.x_scale == "log":
-                        ax.set_xticks([1, 2, 4, 8, 16])
-                        ax.set_xticklabels(["1", "2", "4", "8", "16"])
-
-                if is_edu_intensity and self.config.y_scale == "log":
-                    pass
-
-            # Add suptitle if requested for multiple conditions
-            if self.config.show_title:
-                title = (
-                    self.config.title or f"Scatter: {x_feature} vs {y_feature}"
-                )
-                fig.suptitle(
-                    title, fontsize=7, weight="bold", x=0.05, y=1.00, ha="left"
-                )
-
-            # Adjust layout
-            plt.tight_layout()
-
-            # Save if configured
-            if self.config.save and self.config.path:
-                filename = (
-                    self.config.title or f"scatter_{x_feature}_vs_{y_feature}"
-                )
-                filename = filename.replace(" ", "_")
-                save_fig(
-                    fig,
-                    self.config.path,
-                    filename,
-                    tight_layout=self.config.tight_layout,
-                    fig_extension=self.config.file_format,
-                    resolution=self.config.dpi,
-                )
-
-            return fig, axes_list
-
 
 def create_scatter_plot(
     df: pd.DataFrame,
@@ -580,7 +566,7 @@ def create_scatter_plot(
             "Cannot use multiple conditions when axes is provided"
         )
 
-    # Prepare data
+    # Prepare data (initial filtering)
     plot_data = prepare_plot_data(
         df, x_feature, conditions, condition_col, selector_col, selector_val
     )
@@ -608,107 +594,77 @@ def create_scatter_plot(
         **kwargs,
     )
 
-    # Single condition - single plot
+    # Use DataProcessor for further processing (sampling, etc.)
+    processor = ScatterDataProcessor(plot_data)
+    processed_data = processor.process_data(
+        plot_data,
+        x_feature=x_feature,
+        y_feature=y_feature,
+        cell_number=config.cell_number,
+        random_state=config.random_state,
+    )
+
+    # Create builder
+    builder = ScatterPlot(config)
+
+    # Handle single condition / existing axes
     if len(conditions) == 1 or axes is not None:
         # Filter data for single condition
-        cond_data = df[df[condition_col] == conditions[0]].copy()
+        cond_data = processed_data[
+            processed_data[condition_col] == conditions[0]
+        ].copy()
 
-        # Apply selector filter if provided
-        if selector_col and selector_val:
-            cond_data = cond_data[cond_data[selector_col] == selector_val]
-
-        builder = ScatterPlot(config)
         if axes is not None:
-            # Use provided axes
             builder.create_figure(axes=axes)
             builder.build_plot(cond_data)
             return axes.figure, axes
         else:
-            # Create new figure
             builder.create_figure()
             builder.build_plot(cond_data)
             fig, ax = builder.build()
-
-            # Save if configured (for single condition without axes)
-            if config.save and config.path:
-                filename = (
-                    config.title or f"scatter_{x_feature}_vs_{y_feature}"
-                )
-                # Replace spaces with underscores in filename for consistency
-                filename = filename.replace(" ", "_")
-                save_fig(
-                    fig,
-                    config.path,
-                    filename,
-                    tight_layout=config.tight_layout,
-                    fig_extension=config.file_format,
-                    resolution=config.dpi,
-                )
-
+            builder.save_figure()
             return fig, ax
 
-    # Multiple conditions - subplot grid
+    # Handle multiple conditions using create_subplots
     else:
-        n_conditions = len(conditions)
+        fig, axes_list = builder.create_subplots(len(conditions))
 
-        # Determine figure size dynamically if not specified
-        if "fig_size" not in kwargs:
-            # Default: 4cm width per condition, 4cm height
-            config.fig_size = (4 * n_conditions, 4)
-
-        # Create figure with subplots
-        fig_inches = config.fig_size
-        if config.size_units == "cm":
-            fig_inches = (fig_inches[0] / 2.54, fig_inches[1] / 2.54)
-
-        fig, axes = plt.subplots(1, n_conditions, figsize=fig_inches)
-        if n_conditions == 1:
-            axes = [axes]
-
-        # Create plot for each condition
-        for i, (ax, cond) in enumerate(zip(axes, conditions, strict=False)):
+        for i, (ax, cond) in enumerate(
+            zip(axes_list, conditions, strict=False)
+        ):
             # Filter data for this condition
-            cond_data = df[df[condition_col] == cond].copy()
+            cond_data = processed_data[
+                processed_data[condition_col] == cond
+            ].copy()
 
-            # Apply selector filter if provided
-            if selector_col and selector_val:
-                cond_data = cond_data[cond_data[selector_col] == selector_val]
+            # Create builder for this subplot (reusing config)
+            sub_builder = ScatterPlot(config)
+            sub_builder.create_figure(axes=ax)
+            sub_builder.build_plot(cond_data)
 
-            # Create builder with existing axes
-            builder = ScatterPlot(config)
-            builder.create_figure(axes=ax)
-            builder.build_plot(cond_data)
-
-            # Add condition as subplot title only for multiple conditions
-            if n_conditions > 1:
-                ax.set_title(cond, fontsize=8)
+            # Add condition as subplot title
+            ax.set_title(cond, fontsize=8)
 
             # Only show y-label on first subplot
             if i > 0:
                 ax.set_ylabel("")
 
-        # Add suptitle if requested for multiple conditions
+            # Ensure consistent axis formatting for DNA/EdU plots
+            is_dna_content = x_feature == "integrated_int_DAPI_norm"
+            if is_dna_content:
+                ax.set_xlim(config.x_limits or (1, 16))
+                if config.x_scale == "log":
+                    ax.set_xticks([1, 2, 4, 8, 16])
+                    ax.set_xticklabels(["1", "2", "4", "8", "16"])
+
+        # Add suptitle if requested
         if config.show_title:
             title = config.title or f"Scatter: {x_feature} vs {y_feature}"
             fig.suptitle(
                 title, fontsize=7, weight="bold", x=0.05, y=1.00, ha="left"
             )
 
-        # Adjust layout
         plt.tight_layout()
+        builder.save_figure()
 
-        # Save if configured
-        if config.save and config.path:
-            filename = config.title or f"scatter_{x_feature}_vs_{y_feature}"
-            # Replace spaces with underscores in filename for consistency
-            filename = filename.replace(" ", "_")
-            save_fig(
-                fig,
-                config.path,
-                filename,
-                tight_layout=config.tight_layout,
-                fig_extension=config.file_format,
-                resolution=config.dpi,
-            )
-
-        return fig, axes
+        return fig, axes_list
