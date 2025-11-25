@@ -289,7 +289,7 @@ class Image:
             tub_t = tub_array[t]
 
             # Combine the 2 channel numpy array for cell segmentation with the nuclei channel
-            comb_image_t = scale_img(np.dstack([dapi_t, tub_t]))
+            comb_image_t = np.dstack([scale_img(dapi_t), scale_img(tub_t)])
 
             # Perform segmentation
             try:
