@@ -699,7 +699,7 @@ class StackedCellCyclePlotConfig(CellCyclePlotConfig):
 
     # Legend settings
     show_legend: bool = True
-    legend_position: tuple[float, float] = (1.05, 1)  # Match feature plots
+    legend_position: tuple[float, float] = (0.98, 1)  # Match feature plots
     legend_title: str | None = "Cell Cycle Phase"
 
     # Y-axis settings

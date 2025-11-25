@@ -181,6 +181,10 @@ class MeasurementsManager:
                 row[1] for row in result
             }  # row[1] is column name
 
+            self.logger.debug(
+                "Existing columns from PRAGMA table_info: %s", existing_columns
+            )
+
             # Find intensity columns that need to be added
             intensity_columns_to_add = []
             for col in measurement_cols:
@@ -188,7 +192,15 @@ class MeasurementsManager:
                     col.startswith("intensity_")
                     and col not in existing_columns
                 ):
+                    self.logger.debug(
+                        "Column %s not found in existing columns, will be added",
+                        col,
+                    )
                     intensity_columns_to_add.append(col)
+                elif col.startswith("intensity_"):
+                    self.logger.debug(
+                        "Column %s already exists, skipping", col
+                    )
 
             # Add missing columns
             for col in intensity_columns_to_add:
@@ -198,13 +210,24 @@ class MeasurementsManager:
                         f"Invalid column name format: {col}"
                     )
 
-                self.logger.info(
-                    "Adding missing column to measurements table: %s", col
-                )
-                # Use string formatting for DDL since parameterized queries don't work for column names
-                self.db_conn.execute(
-                    f'ALTER TABLE measurements ADD COLUMN "{col}" FLOAT'
-                )
+                try:
+                    self.logger.info(
+                        "Adding missing column to measurements table: %s", col
+                    )
+                    # Use string formatting for DDL since parameterized queries don't work for column names
+                    self.db_conn.execute(
+                        f'ALTER TABLE measurements ADD COLUMN "{col}" FLOAT'
+                    )
+                except duckdb.CatalogException as e:
+                    # Column already exists - this can happen due to race conditions
+                    # or if a previous import partially completed
+                    if "already exists" in str(e):
+                        self.logger.warning(
+                            "Column %s already exists (likely from previous partial import), continuing",
+                            col,
+                        )
+                    else:
+                        raise
 
         except Exception as err:
             raise MeasurementError(

@@ -700,7 +700,7 @@ class StandardFeaturePlot(BaseFeaturePlot):
         self.ax.legend(
             handles=handles,
             title="Plate ID",
-            bbox_to_anchor=(1.05, 1),
+            bbox_to_anchor=(0.98, 1),
             loc="upper left",
         )
 
@@ -1089,7 +1089,7 @@ class NormFeaturePlot(BaseFeaturePlot):
         self.ax.legend(
             handles=legend_handles,
             title=f"Threshold: {self._threshold:.1f}x",
-            bbox_to_anchor=(1.05, 1),
+            bbox_to_anchor=(0.98, 1),
             loc="upper left",
         )
 

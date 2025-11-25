@@ -6,6 +6,7 @@ from matplotlib.axes import Axes
 from omero_screen.config import get_logger
 from scipy import stats
 
+# Initialize logger with the module's name
 logger = get_logger(__name__)
 
 

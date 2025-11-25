@@ -34,7 +34,7 @@ class ClassificationPlotConfig(BasePlotConfig):
     # Stacked mode settings
     bar_width: float = 0.75
     show_legend: bool = True
-    legend_bbox: tuple[float, float] = (1.05, 1.0)
+    legend_bbox: tuple[float, float] = (0.95, 1)
 
 
 class ClassificationDataProcessor(BaseDataProcessor):

@@ -34,7 +34,7 @@ def classification_plot(
     # Stacked mode settings
     bar_width: float = 0.75,
     show_legend: bool = True,
-    legend_bbox: tuple[float, float] = (1.05, 1.0),
+    legend_bbox: tuple[float, float] = (0.98, 1.0),
     # Triplicates mode settings
     group_size: int = 1,  # Default to 1 (no grouping)
     repeat_offset: float = 0.18,
