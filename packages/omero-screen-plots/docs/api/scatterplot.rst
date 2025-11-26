@@ -50,7 +50,6 @@ Compare feature relationships across different experimental conditions::
         condition_col="condition",
         selector_col="cell_line",
         selector_val="MCF10A",
-        multi_condition=True,
         title="Multi-Condition Feature Analysis"
     )
 
@@ -106,7 +105,7 @@ Add kernel density estimation for distribution visualization::
         condition_col="condition",
         selector_col="cell_line",
         selector_val="MCF10A",
-        add_kde=True,
+        kde_overlay=True,
         title="Density Distribution Analysis"
     )
 

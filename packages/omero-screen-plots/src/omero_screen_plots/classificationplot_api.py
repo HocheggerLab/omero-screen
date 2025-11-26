@@ -99,7 +99,7 @@ def classification_plot(
         Width of bars in stacked mode
     show_legend : bool, default=True
         Whether to show legend
-    legend_bbox : tuple[float, float], default=(1.05, 1.0)
+    legend_bbox : tuple[float, float], default=(0.98, 1.0)
         Legend position as (x, y)
 
     Triplicates Mode Settings
