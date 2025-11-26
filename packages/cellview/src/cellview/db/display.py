@@ -201,21 +201,17 @@ def measurements_query(
         for col_index, col_name in enumerate(column_names)
         if col_name not in ("measurement_id", "condition_id")
     }
-    # Now build the Rich table manually
-    from rich.table import Table
 
-    table = Table(show_lines=True)
-    table.add_column("Measurement", style=Colors.TITLE.value)
-    for mid in measurement_ids:
-        table.add_column(f"ID {mid}", style=Colors.INFO.value)
-
-    for field, values in pivot.items():
-        table.add_row(field, *values)
+    # Filter out columns where all values are "None" (i.e. NULL in DB)
+    filtered_pivot = {
+        field: values
+        for field, values in pivot.items()
+        if not all(v == "None" for v in values)
+    }
 
     # Prepare data for display_table
-
     columns = ["Measurement"] + [f"ID {mid}" for mid in measurement_ids]
-    rows = [(field, *values) for field, values in pivot.items()]
+    rows = [(field, *values) for field, values in filtered_pivot.items()]
 
     display_table(
         con=con,

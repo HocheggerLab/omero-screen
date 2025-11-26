@@ -16,3 +16,8 @@ Access Points:
 """
 
 __version__ = "0.1.2"
+
+
+from cellview.api import cellview_load_data
+
+__all__ = ["cellview_load_data"]

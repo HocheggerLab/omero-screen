@@ -92,7 +92,22 @@ class MeasurementsManager:
         Returns:
             The list of measurement columns.
         """
-        return [col for col in df.columns if col != "well"]
+        # Columns to exclude from measurements table
+        exclude_cols = {
+            "well",
+            "experiment",
+            "plate_id",
+            "well_id",
+            "cell_line",
+            "si",
+            "stimulus",
+            "hours",
+            "antibody",
+            "antibody_1",
+            "antibody_2",
+            "antibody_3",
+        }
+        return [col for col in df.columns if col not in exclude_cols]
 
     def _bulk_insert_measurements(self, measurement_cols: list[str]) -> None:
         """Bulk insert measurements into the database using DuckDB's COPY command.
@@ -245,8 +260,10 @@ class MeasurementsManager:
         """
         import re
 
-        # Must start with intensity_ and contain only alphanumeric characters and underscores
-        pattern = r"^intensity_[a-zA-Z0-9_]+$"
+        # Must start with intensity_ and contain alphanumeric characters, underscores, or other safe characters
+        # We allow unicode characters (e.g. Greek letters) which are common in biology
+        # \w in Python 3 regex matches [a-zA-Z0-9_] plus unicode word characters
+        pattern = r"^intensity_[\w\-\(\)\.]+$"
         return bool(re.match(pattern, column_name))
 
 
