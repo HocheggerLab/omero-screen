@@ -1,6 +1,12 @@
 # omero-screen
 
-
+OmeroScreen is an end to end high content image analysis pipeline with additional data storage and visualisation tools.
+It is built on top of the OMERO server and uses the omero-py API to interact with the data.
+The root project ./src/omero_screen handles the analysis pipeline and data storage using cellpose segmentation.
+cellview (./packages/cellview) is a database for storing single cell image data and additional metadata.
+omero-screen-plots (./packages/omero-screen-plots) is a collection of tools to visualise the data.
+omero-screen-napari (./packages/omero-screen-napari) is a collection of napari plugins to interact with the data.
+omero-utils (./packages/omero-utils) is a collection of helper functions to work with the omero-py API.
 
 ## Status
 
@@ -22,7 +28,7 @@ Version: ![version](https://img.shields.io/badge/version-0.2.3-blue)
 # Install uv
 # On macOS/Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
-# On Windows
+# On Windows (not tested!)
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 # Clone the repository
@@ -35,61 +41,39 @@ source .venv/bin/activate
 
 ```
 
-## Test Server Setup
 
-For local development and testing, you can run a separate OMERO test server that runs in parallel with your main OMERO server. The test server uses a different IP address (127.0.0.2) to avoid conflicts with your main OMERO server.
+### .env file creation
+In the root directory create a .env file with the following variables:
 
-To manage the test server, use the provided script:
+```text
+# General Configuration
+ENV=production  # Options: development, testing, production
 
-```bash
-# Start the test server
-./scripts/manage_test_server.sh start
+# Omero configuration
 
-# Check server status
-./scripts/manage_test_server.sh status
+USERNAME="omero-login-name"
+PASSWORD="omero-password"
+HOST="omero-server-host"
+PROJECT_ID= 5313  #set up a "Screens" project in omero and use the project id here
+DATA_PATH = 'omero-napari-data'
 
-# Stop the test server
-./scripts/manage_test_server.sh stop
+# Logging configuration
+LOG_LEVEL=DEBUG
+LOG_FILE_PATH=logs/app.log
+LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s
+ENABLE_CONSOLE_LOGGING=False
+ENABLE_FILE_LOGGING=True
+LOG_MAX_BYTES=1048576        # 1MB
+LOG_BACKUP_COUNT=5
 
-# Restart the test server
-./scripts/manage_test_server.sh restart
+# CellView Database Configuration
+TEST_DATABASE=false
+DATABASE_PATH=~/cellview_date/cellview.db
+
 ```
 
-The test server will be accessible at:
-- OMERO.server: 127.0.0.2:4064
 
-Default credentials:
-- Username: root
-- Password: omero
 
-## Loading Test Data
-
-To load test data into your OMERO server, you can use the `load_plates.sh` script. This script helps import plate data from a specified directory into your OMERO instance.
-
-Basic usage:
-```bash
-# Show help and available options
-./scripts/load_plates.sh
-
-# Load plates from a specific directory
-./scripts/load_plates.sh -d /path/to/plates -x
-
-# Load plates with custom server settings
-./scripts/load_plates.sh -d /path/to/plates -s -x
-```
-
-Options:
-- `-x`: Execute the import (required to actually perform the import)
-- `-d`: Specify the directory containing plate data (defaults to current directory)
-- `-s`: Use custom server settings (prompts for host, port, and username)
-
-The script will:
-1. Check for an active OMERO session and log out if found
-2. Connect to the OMERO server (using default or custom settings)
-3. Create a new Project named "Screens"
-4. Import all plates found in the specified directory
-
-Note: The script expects plate data to be organized in a specific structure with `*/Images/Index.idx.xml` files.
 
 ## Project Structure
 
@@ -143,6 +127,8 @@ This project uses [pre-commit](https://pre-commit.com/) to create actions to val
 Install the hooks for your development repository clone using:
 
     pre-commit install
+
+
 
 ## Versioning
 
@@ -288,6 +274,63 @@ The e2e tests:
 - Can be run in parallel with the main OMERO server
 - Use production-like logging configuration for realistic testing
 
+
+## Test Server Setup
+
+For local development and testing, you can run a separate OMERO test server that runs in parallel with your main OMERO server. The test server uses a different IP address (127.0.0.2) to avoid conflicts with your main OMERO server.
+
+To manage the test server, use the provided script:
+
+```bash
+# Start the test server
+./scripts/manage_test_server.sh start
+
+# Check server status
+./scripts/manage_test_server.sh status
+
+# Stop the test server
+./scripts/manage_test_server.sh stop
+
+# Restart the test server
+./scripts/manage_test_server.sh restart
+```
+
+The test server will be accessible at:
+- OMERO.server: 127.0.0.2:4064
+
+Default credentials:
+- Username: root
+- Password: omero
+
+## Loading Test Data
+
+To load test data into your OMERO server, you can use the `load_plates.sh` script. This script helps import plate data from a specified directory into your OMERO instance.
+
+Basic usage:
+```bash
+# Show help and available options
+./scripts/load_plates.sh
+
+# Load plates from a specific directory
+./scripts/load_plates.sh -d /path/to/plates -x
+
+# Load plates with custom server settings
+./scripts/load_plates.sh -d /path/to/plates -s -x
+```
+
+Options:
+- `-x`: Execute the import (required to actually perform the import)
+- `-d`: Specify the directory containing plate data (defaults to current directory)
+- `-s`: Use custom server settings (prompts for host, port, and username)
+
+The script will:
+1. Check for an active OMERO session and log out if found
+2. Connect to the OMERO server (using default or custom settings)
+3. Create a new Project named "Screens"
+4. Import all plates found in the specified directory
+
+Note: The script expects plate data to be organized in a specific structure with `*/Images/Index.idx.xml` files.
+
 ### Running Unit Tests
 To run the tests:
 
@@ -307,14 +350,17 @@ The test suite uses:
 - Automatic cleanup of test artifacts
 - Mock objects for external dependencies
 
+
+
 ## Authors
 
-Created by Helfrid Hochegger
+Created by Helfrid Hochegger and Alex Herbert
 Email: hh65@sussex.ac.uk
 
 ## Dependencies
 
-Requires Python 3.12 or greater
+Requires Python 3.12. not tested on other versions.
+Not tested on Windows.
 
 ## License
 
@@ -323,5 +369,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 - Hat tip to anyone whose code was used
-- Inspiration
-- References

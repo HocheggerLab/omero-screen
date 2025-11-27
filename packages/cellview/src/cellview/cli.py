@@ -9,15 +9,11 @@ import argparse
 from pathlib import Path
 
 
-def parse_args() -> argparse.Namespace:
-    """Parse command line arguments.
-
-    This function parses command-line arguments using the argparse library.
-    It supports various options for database connection, CSV file import, plate ID, project listing,
-    and cleanup.
+def get_parser() -> argparse.ArgumentParser:
+    """Create and return the command line argument parser.
 
     Returns:
-        argparse.Namespace: An object containing the parsed arguments.
+        argparse.ArgumentParser: The configured argument parser.
     """
     parser = argparse.ArgumentParser(description="")
 
@@ -100,4 +96,17 @@ def parse_args() -> argparse.Namespace:
         help="Force interactive project/experiment selection even when OMERO metadata is available.",
     )
 
-    return parser.parse_args()
+    return parser
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments.
+
+    This function parses command-line arguments using the argparse library.
+    It supports various options for database connection, CSV file import, plate ID, project listing,
+    and cleanup.
+
+    Returns:
+        argparse.Namespace: An object containing the parsed arguments.
+    """
+    return get_parser().parse_args()
