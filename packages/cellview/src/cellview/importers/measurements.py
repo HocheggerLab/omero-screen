@@ -153,6 +153,11 @@ class MeasurementsManager:
         columns = ["condition_id"] + measurement_cols
         self.state.df = self.state.df[columns]
 
+        # Remove duplicate columns
+        self.state.df = self.state.df.loc[
+            :, ~self.state.df.columns.duplicated()
+        ]
+
         # Convert label column to string representation
         if "label" in self.state.df.columns:
             self.state.df["label"] = self.state.df["label"].astype(str)

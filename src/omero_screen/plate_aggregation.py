@@ -566,8 +566,11 @@ def _get_results(conn: BlitzGateway, plate_id: int) -> pd.DataFrame:
     plate = conn.getObject("Plate", plate_id)
     if plate is None:
         raise PlateNotFoundError("Plate:{plate_id}", logger)
-    filename = "final_data.csv"
+    filename = "final_data_cc.csv"
     att = get_file_attachments(plate, filename)
+    if not att:
+        filename = "final_data.csv"
+        att = get_file_attachments(plate, filename)
     df = None
     if att:
         df = parse_csv_data(att[0])
