@@ -795,7 +795,7 @@ def map_partial_linear_sum(
     logger.info("Created KD-Trees")
     # Ensure a full matching exists by setting false edges between all vertices.
     # Use a distance that cannot be chosen over an actual edge.
-    cost = np.full((len(c1), len(c2)), len(c1) * threshold)
+    cost = np.full((len(c1), len(c2)), len(c1) * threshold * 1.0)
     indexes = tree1.query_ball_tree(tree2, r=threshold)
     count = 0
     for i, v1 in enumerate(c1):
