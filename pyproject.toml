@@ -99,6 +99,8 @@ exclude = [
     "build/.*",
     "dist/.*",
     "migrations/.*",
+    "omero_screen_napari_original/.*",
+    "examples/.*",
 ]
 
 incremental = true

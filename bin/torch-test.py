@@ -89,7 +89,7 @@ def _main() -> None:
         t = t.to(device)
         mem("t.to(device)")
 
-        info(t)
+        info(str(t))
 
         if args.convolution:
             import torch.nn as nn
@@ -107,7 +107,7 @@ def _main() -> None:
             output = m(t)
             mem("convolution done")
 
-            info(output)
+            info(str(output))
 
         # Reach here if all torch computations worked.
         # Set the exit code to distinguish GPU or CPU

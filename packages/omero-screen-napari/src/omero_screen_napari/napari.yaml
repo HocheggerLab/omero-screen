@@ -2,9 +2,9 @@ name: omero-screen-napari
 display_name: Omero Screen Napari
 contributions:
   commands:
-    - id: omero-screen-napari.welldata_widget
-      python_name: omero_screen_napari._welldata_widget:welldata_widget
+    - id: omero-screen-napari.well_widget_combined
+      python_name: omero_screen_napari._welldata_widget:well_widget_combined
       title: Make Welldata widget
   widgets:    # ← Make sure this is at the same level as 'commands'
-    - command: omero-screen-napari.welldata_widget
+    - command: omero-screen-napari.well_widget_combined
       display_name: Welldata Widget

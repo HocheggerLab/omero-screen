@@ -375,7 +375,7 @@ def grouped_feature_plot(
         zip(data_for_plot, x_positions, strict=False)
     ):
         color_idx = i % group_size  # alternate colors within group
-        draw_violin_or_box(ax, dat, xpos, COLORS[color_idx], violin)
+        draw_violin_or_box(ax, dat.tolist(), xpos, COLORS[color_idx], violin)
 
     # Overlay repeat points (medians per plate_id per condition)
     df_median = (
@@ -393,7 +393,7 @@ def grouped_feature_plot(
         y = cond_medians[feature].values
         ax.scatter(
             x,
-            y,
+            y.tolist(),
             color="black",
             edgecolor="white",
             s=18,

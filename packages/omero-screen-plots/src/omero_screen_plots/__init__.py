@@ -6,4 +6,11 @@ The omero_screen_plots package provides plotting and analysis tools for OMERO sc
 
 """
 
+from omero_screen_plots.featureplot import feature_plot, grouped_feature_plot
+
 __version__ = "0.1.2"
+
+__all__ = [
+    "feature_plot",
+    "grouped_feature_plot",
+]

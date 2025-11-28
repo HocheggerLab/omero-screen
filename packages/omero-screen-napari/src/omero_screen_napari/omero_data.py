@@ -60,6 +60,8 @@ class OmeroData:
     pixel_size: Optional[tuple[float, float]] = field(default=None)
     channel_data: dict[str, Any] = field(default_factory=dict)
     intensities: dict[int, Any] = field(default_factory=dict)
+    crop_start: tuple[int, ...] = field(default_factory=tuple)
+    crop_length: tuple[int, ...] = field(default_factory=tuple)
 
     # Well data
 
@@ -103,6 +105,8 @@ class OmeroData:
         self.pixel_size = None
         self.channel_data = {}
         self.intensities = {}
+        self.crop_start = ()
+        self.crop_length = ()
         self.well_list = []
         self.well_id_list = []
         self.well_metadata_list = []

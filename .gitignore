@@ -265,3 +265,6 @@ scratch/
 # Ignore large image files
 examples/*
 packages/omero-screen-plots/src/omero_screen_plots/examples/data/sample_plate_data.csv
+
+omero_screen_napari_original/*
+omero_screen_napari_original
