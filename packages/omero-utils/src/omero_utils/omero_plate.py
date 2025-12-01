@@ -142,7 +142,7 @@ def _create_img(
                 cell_radius * rng.uniform(0.7, 1),
                 dim,
                 rotation=rng.uniform(-3.14, 3.14),
-            )
+            )  # type: ignore
             mask[1, rr, cc] = 1
             mask[2, rr, cc] = 1
             rr, cc = ellipse(  # type: ignore[no-untyped-call]
@@ -152,7 +152,7 @@ def _create_img(
                 nucleus_radius * rng.uniform(0.7, 1.2),
                 dim,
                 rotation=rng.uniform(-3.14, 3.14),
-            )
+            )  # type: ignore
             mask[0, rr, cc] = 1
     # Mask is CYX. Create output image of TCZYX.
     img = np.zeros((size_t, 3, size_z) + dim, dtype=np.uint8)

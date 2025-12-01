@@ -68,6 +68,9 @@ lint.ignore = [
     "UP006", "UP007", # type annotation. As using magicgui require runtime type annotation then we disable this.
     "SIM117", # flake8-simplify - some of merged with statements are not looking great with black, reanble after drop python 3.9
     "ISC001", # string concatenation conflicts with formatter
+    "G004", # logging statement uses f-string
+    "D203",  # conflicting with D211 (Google prefers D211)
+    "D213",  # conflicting with D212 (Google prefers D212)
 ]
 
 exclude = [

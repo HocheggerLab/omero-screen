@@ -37,6 +37,8 @@ dependencies = [
     "opencv-python>=4.11.0.86",
     "ipykernel>=6.29.5",
     "omero-screen-plots",
+    "napari[all]>=0.6.2",
+    "polars>=1.31.0",
 ]
 
 [project.scripts]
@@ -116,6 +118,8 @@ exclude = [
     ".*/(examples|docs|notebooks)/.*",    # Multiple dirs in one pattern
     ".*_nb\\.py$",                        # Jupytext files with _nb suffix
     ".*\\.ipynb$",
+    "omero_screen_napari_original/.*",
+    "examples/.*",
 ]
 incremental = true
 cache_dir = ".mypy_cache"
@@ -149,6 +153,7 @@ lint.ignore = [
     "UP007",  # type annotation. As using magicgui require runtime type annotation then we disable this.
     "SIM117", # flake8-simplify - some of merged with statements are not looking great with black, reanble after drop python 3.9
     "ISC001", # string concatenation conflicts with formatter
+    "G004", # logging statement uses f-string
     "D203",  # conflicting with D211 (Google prefers D211)
     "D213",  # conflicting with D212 (Google prefers D212)
 ]
