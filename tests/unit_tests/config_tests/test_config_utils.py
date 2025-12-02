@@ -29,21 +29,3 @@ def test_getenv_as_bool_with_comment(monkeypatch):
 def test_getenv_as_bool_with_comment_no_space(monkeypatch):
     monkeypatch.setenv("TEST_BOOL", "true#comment")
     assert getenv_as_bool("TEST_BOOL") is True
-
-if __name__ == "__main__":
-    class MockMonkeyPatch:
-        def setenv(self, key, value):
-            os.environ[key] = value
-        def delenv(self, key, raising=False):
-            if key in os.environ:
-                del os.environ[key]
-
-    mp = MockMonkeyPatch()
-    test_getenv_as_int_basic(mp)
-    test_getenv_as_int_with_comment(mp)
-    test_getenv_as_int_with_comment_no_space(mp)
-    test_getenv_as_int_invalid(mp)
-    test_getenv_as_int_missing(mp)
-    test_getenv_as_bool_with_comment(mp)
-    test_getenv_as_bool_with_comment_no_space(mp)
-    print("All tests passed!")
