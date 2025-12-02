@@ -114,7 +114,20 @@ class CellViewStateCore:
             instance.date = instance.extract_date_from_filename(args.csv.name)
             instance.plate_id = instance.get_plate_id()
         elif args and args.plate_id:
-            instance.plate_id = args.plate_id
+            # Handle list input (from nargs='+')
+            if isinstance(args.plate_id, list):
+                if len(args.plate_id) == 1:
+                    instance.plate_id = args.plate_id[0]
+                else:
+                    # This should be handled by the caller (main.py) iterating over plates
+                    # But if we get here with multiple plates, we default to the first one
+                    # or raise an error. For now, let's take the first one but log a warning?
+                    # Better to assume the caller handles iteration.
+                    # If we are here, it means we are creating state for a single plate import.
+                    instance.plate_id = args.plate_id[0]
+            else:
+                instance.plate_id = args.plate_id
+
             instance._omero_import_mode = (
                 True  # Flag to indicate OMERO import mode
             )
@@ -124,7 +137,7 @@ class CellViewStateCore:
                 instance.experiment_name,
                 instance.date,
                 instance.lab_member,
-            ) = instance.parse_omero_data(args.plate_id)
+            ) = instance.parse_omero_data(instance.plate_id)
 
             # For OMERO imports, we always want to show confirmation dialog
             # The --interactive flag is maintained for backward compatibility but OMERO imports are now always interactive
@@ -208,6 +221,81 @@ class CellViewStateCore:
             plate
         )
         return df, project, experiment, date, owner_fullname
+
+    @omero_connect
+    def get_plates_from_screen(
+        self,
+        screen_id: int,
+        conn: Optional[BlitzGateway] = None,
+    ) -> list[int]:
+        """Get all plate IDs associated with a screen.
+
+        Args:
+            screen_id: The ID of the screen.
+            conn: The omero connection.
+
+        Returns:
+            A list of plate IDs.
+        """
+        if conn is None:
+            raise StateError(
+                "No database connection available",
+                context={"current_state": self.get_state_dict()},
+            )
+        screen = conn.getObject("Screen", screen_id)
+        if not screen:
+            raise DataError(
+                "Screen not found",
+                context={"screen_id": screen_id},
+            )
+
+        plate_ids = []
+        for plate in screen.listChildren():
+            plate_ids.append(plate.getId())
+
+        return plate_ids
+
+    @omero_connect
+    def validate_plates_same_screen(
+        self,
+        plate_ids: list[int],
+        conn: Optional[BlitzGateway] = None,
+    ) -> None:
+        """Validate that all plates belong to the same screen.
+
+        Args:
+            plate_ids: A list of plate IDs.
+            conn: The omero connection.
+
+        Raises:
+            DataError: If plates belong to different screens or no screen.
+        """
+        if conn is None:
+            raise StateError(
+                "No database connection available",
+                context={"current_state": self.get_state_dict()},
+            )
+
+        screen_ids = set()
+        for pid in plate_ids:
+            plate = conn.getObject("Plate", pid)
+            if not plate:
+                raise DataError(f"Plate {pid} not found")
+
+            screen = plate.getParent()
+            if not screen:
+                raise DataError(f"Plate {pid} does not belong to any screen")
+
+            screen_ids.add(screen.getId())
+
+        if len(screen_ids) > 1:
+            raise DataError(
+                "Plates belong to different screens",
+                context={
+                    "screen_ids": list(screen_ids),
+                    "plate_ids": plate_ids,
+                },
+            )
 
     def _get_plate_df(
         self,

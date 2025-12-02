@@ -520,7 +520,9 @@ class MetadataParser:
 
         # Check for missing and extra wells
         s1 = set(actual_wells)
+        logger.debug(f"Actual wells: {s1}")
         s2 = set(metadata_wells)
+        logger.debug(f"Metadata wells: {s2}")
         if s1 != s2:
             missing_wells = s1 - s2
             extra_wells = s2 - s1

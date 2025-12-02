@@ -33,7 +33,14 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--plate-id",
         type=int,
-        help="The ID of the plate to import.",
+        nargs="+",
+        help="The ID(s) of the plate(s) to import.",
+    )
+
+    parser.add_argument(
+        "--screen-id",
+        type=int,
+        help="The ID of the screen to import all plates from.",
     )
 
     parser.add_argument(
