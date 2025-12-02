@@ -8,7 +8,6 @@ import re
 import sys
 import traceback
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any, Optional, cast
 
 import numpy as np
@@ -16,15 +15,15 @@ import omero
 import polars as pl
 import scipy.ndimage
 import skimage.transform as transform
+from cellview.db.db import CellViewDB
+from cellview.exporters.db_to_pandas import export_pandas_df
 from ezomero import get_image
 from omero.gateway import (
     BlitzGateway,
-    FileAnnotationWrapper,
     ImageWrapper,
     MapAnnotationWrapper,
     PlateWrapper,
     WellWrapper,
-    _OriginalFileWrapper,
 )
 from omero_screen.config import get_logger
 from omero_utils import omero_connect
@@ -135,8 +134,8 @@ def parse_plate_data(
         )
         user_input.parse_data()
         logger.info("Loaded data for plate with ID %s", plate_id)
-        csv_parser = CsvFileParser(omero_data)
-        csv_parser.parse_csv()
+        cellview_parser = CellViewParser(omero_data)
+        cellview_parser.parse_data()
         channel_parser = ChannelDataParser(omero_data)
         channel_parser.parse_channel_data()
         flatfield_parser = FlatfieldMaskParser(omero_data, conn)
@@ -419,103 +418,47 @@ class UserInput:
 # -----------------------------------------------CSV FILE -----------------------------------------------------
 
 
-class CsvFileParser:
+# -----------------------------------------------CELLVIEW DATA -----------------------------------------------------
+
+
+class CellViewParser:
     """
-    Class to handle csv file retrieval and processing from Omero Plate
+    Class to handle data retrieval from CellView database.
     public methods:
-    parse_csv: Orchestrate the csv file handling. Check if csv file is available, if not download it.
-    and make it available to the omero_data class as a polars LazyFrame object.
-    private methods:
-    _csv_available: checks if any csv file in the target directory contains the string self.plate_id in its name.
-    _get_csv_file: gets the csv file from the Omero Plate, prioritizing '_cc.csv' files over 'final_data.csv' files.
-    _download_csv: downloads the csv file from the Omero Plate. If _cc.csv the file name will be
+    parse_data: Orchestrate the data retrieval.
     """
 
     def __init__(self, omero_data: OmeroData):
         self._omero_data = omero_data
         self._plate_id: int = omero_data.plate_id
-        self._plate = omero_data.plate
-        self._data_path: Path = omero_data.data_path
-        self._csv_file_path: Optional[Path] = None
-        self._file_name: Optional[str] = None
-        self._original_file: Optional[_OriginalFileWrapper] = None
 
-    def parse_csv(self) -> None:
-        """Orchestrate the csv file handling. Check if csv file is available, if not download it.
-        and make it available to the omero_data class as a polars LazyFrame object.
+    def parse_data(self) -> None:
+        """
+        Orchestrate the data retrieval from CellView database.
+        """
+        logger.info(
+            "Loading data from CellView database for plate %s", self._plate_id
+        )
+        try:
+            db = CellViewDB()
+            conn = db.connect()
+            df, _ = export_pandas_df(self._plate_id, conn)
 
-        """
-        if not self._csv_available():
-            logger.info("Downloading csv file from Omero")  # noqa: G004
-            self._get_csv_file()
-            self._download_csv()
-        else:  # csv file already exists
-            logger.info(
-                "CSV file already exists in local directory. Skipping download."
-            )
-        if self._csv_file_path:
-            omero_data.plate_data = pl.scan_csv(self._csv_file_path)
-            self._omero_data.csv_path = self._csv_file_path
-        else:
-            logger.error("No csv file assigned by CsvParser.")
-            raise ValueError("No csv file by CsvParser")
+            if df.empty:
+                logger.error(
+                    "No data found for plate %s in CellView database.",
+                    self._plate_id,
+                )
+                raise ValueError(
+                    f"No data found for plate {self._plate_id} in CellView database. "
+                    f"Please run 'cellview --plate-id {self._plate_id}' in your terminal to import the data first."
+                )
 
-    # helper functions for csv handling
-
-    def _csv_available(self) -> bool:
-        """
-        Check if any csv file in the directory contains the string self.plate_id in its name.
-        """
-        # make the directory to store the csv file if it does not exist
-        self._data_path.mkdir(exist_ok=True)
-        for file in self._data_path.iterdir():
-            if file.is_file() and str(self._plate_id) in file.name:
-                self._csv_file_path = file
-                return True
-        return False
-
-    def _get_csv_file(self) -> None:
-        """
-        Get the csv file from the Omero Plate, prioritizing '_cc.csv' files over 'final_data.csv' files.
-        """
-        self._original_file = None
-        file_anns = self._plate.listAnnotations()
-        for ann in file_anns:
-            if isinstance(ann, FileAnnotationWrapper):
-                name = ann.getFile().getName()
-                if name and name.endswith("_cc.csv"):
-                    self._file_name = name
-                    self._original_file = ann.getFile()
-                    break  # Prioritize and stop searching if _cc.csv is found
-                elif (
-                    name
-                    and name.endswith("final_data.csv")
-                    and self._original_file is None
-                ):
-                    self._file_name = name
-                    self._original_file = ann.getFile()
-                    # Don't break to continue searching for a _cc.csv file
-
-        if self._original_file is None:
-            logger.error("No suitable csv file found for the plate.")
-            raise ValueError("No suitable csv file found for the plate.")
-
-    def _download_csv(self) -> None:
-        """
-        Download the csv file from the Omero Plate. If _cc.csv the file name will be
-        {plate_id}_cc.csv, otherwise {plate_id}_data.csv
-        """
-        if self._file_name and self._original_file:
-            saved_name = "{}_{}".format(
-                self._plate_id, self._file_name.split("_")[-1]
-            )
-            self._csv_file_path = self._data_path / saved_name
-            with open(self._csv_file_path, "wb") as file_on_disk:
-                for chunk in self._original_file.asFileObj():
-                    file_on_disk.write(chunk)
-        else:
-            logger.error("Problem with parsing csv file.")
-            raise ValueError("Problem with parsing csv file.")
+            self._omero_data.plate_data = pl.from_pandas(df).lazy()
+            logger.info("Data loaded successfully from CellView.")
+        except Exception as e:
+            logger.error("Error loading data from CellView: %s", e)
+            raise ValueError(f"Error loading data from CellView: {e}") from e
 
 
 # -----------------------------------------------CHANNEL DATA -----------------------------------------------------
@@ -785,8 +728,9 @@ class ScaleIntensityParser:
         self._keyword = None
 
         # Check for presence of "_cell" and "_nucleus" in the list of strings
-        has_cell = any("_cell" in s for s in self._plate_data.columns)
-        has_nucleus = any("_nucleus" in s for s in self._plate_data.columns)
+        columns = self._plate_data.collect_schema().names()
+        has_cell = any("_cell" in s for s in columns)
+        has_nucleus = any("_nucleus" in s for s in columns)
 
         # Set keyword based on presence of "_cell" or "_nucleus"
         if has_cell:
@@ -804,13 +748,14 @@ class ScaleIntensityParser:
         Filter the dataframe to only include columns with the channel keyword.
         """
         intensity_dict = {}
+        columns = self._plate_data.collect_schema().names()
         for channel, channel_value in self._omero_data.channel_data.items():
             cols = (
                 f"intensity_max_{channel}{self._keyword}",
                 f"intensity_min_{channel}{self._keyword}",
             )
             for col in cols:
-                if col not in self._plate_data.columns:
+                if col not in columns:
                     logger.error("Column '%s' not found in DataFrame.", col)
                     raise ValueError(f"Column '{col}' not found in DataFrame.")
 
