@@ -208,18 +208,24 @@ def get_logger(name: str) -> logging.Logger:
         validate_env_vars()
 
         # Retrieve logging configurations from environment variables
-        LOG_LEVEL = os.getenv(
-            "LOG_LEVEL", "INFO"
-        ).upper()  # Default to INFO level
-        LOG_FORMAT = os.getenv(
-            "LOG_FORMAT",
-            "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s",
+        LOG_LEVEL = (
+            os.getenv("LOG_LEVEL", "INFO").split("#")[0].strip().upper()
+        )  # Default to INFO level
+        LOG_FORMAT = (
+            os.getenv(
+                "LOG_FORMAT",
+                "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s",
+            )
+            .split("#")[0]
+            .strip()
         )
         ENABLE_CONSOLE_LOGGING = getenv_as_bool("ENABLE_CONSOLE_LOGGING")
         ENABLE_FILE_LOGGING = getenv_as_bool("ENABLE_FILE_LOGGING")
-        LOG_FILE_PATH = os.getenv("LOG_FILE_PATH", "logs/app.log")
-        LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", 1048576))  # 1MB default
-        LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", 5))
+        LOG_FILE_PATH = (
+            os.getenv("LOG_FILE_PATH", "logs/app.log").split("#")[0].strip()
+        )
+        LOG_MAX_BYTES = getenv_as_int("LOG_MAX_BYTES", 1048576)  # 1MB default
+        LOG_BACKUP_COUNT = getenv_as_int("LOG_BACKUP_COUNT", 5)
 
         # Configure the root logger
         root_logger.setLevel(
@@ -271,6 +277,28 @@ def get_logger(name: str) -> logging.Logger:
     return logger
 
 
+def getenv_as_int(name: str, default: int) -> int:
+    """Get the integer value of an environment variable, stripping comments.
+
+    Args:
+        name: Name of variable
+        default: Default value
+    Returns:
+        Integer value or default if parsing fails
+    """
+    value = os.getenv(name)
+    if value is None:
+        return default
+
+    # Remove inline comments and whitespace
+    value = value.split("#")[0].strip()
+
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
 def getenv_as_bool(name: str, default: bool = False) -> bool:
     """Get the boolean value of an environment variable.
 
@@ -281,4 +309,7 @@ def getenv_as_bool(name: str, default: bool = False) -> bool:
         True if the variable has value {true, 1, yes} (case insensitive)
     """
     v = os.getenv(name)
-    return v.lower() in ["true", "1", "yes"] if v is not None else default
+    if v is None:
+        return default
+    v = v.split("#")[0].strip()
+    return v.lower() in ["true", "1", "yes"]
