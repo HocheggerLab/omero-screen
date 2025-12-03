@@ -81,7 +81,7 @@ def plate_loop(
     logger.info("Processing plate %s", plate_id)
     metadata = MetadataParser(conn, plate_id)
     metadata.manage_metadata()
-    logger.debug("Channel Metadata: %s", (metadata.channel_data,))
+    logger.debug("Channel Metadata: %s", str(metadata.channel_data))
 
     # Validate cell line required for segmentation model
     for cell_line in set(metadata.well_data["cell_line"]):
