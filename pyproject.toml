@@ -82,7 +82,7 @@ dev = [
     "pre-commit>=4.0.1",
     "pytest-mock>=3.14.0",
     "pytest>=8.3.4",
-    "ruff>=0.9.6",
+    "ruff==0.9.6",
     "nbstripout",
     "jupytext",
 ]
