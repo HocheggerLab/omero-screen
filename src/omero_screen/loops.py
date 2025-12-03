@@ -81,7 +81,7 @@ def plate_loop(
     logger.info("Processing plate %s", plate_id)
     metadata = MetadataParser(conn, plate_id)
     metadata.manage_metadata()
-    logger.debug("Channel Metadata: %s", str(metadata.channel_data))
+    logger.debug("Channel Metadata: %s", (metadata.channel_data,))
 
     # Validate cell line required for segmentation model
     for cell_line in set(metadata.well_data["cell_line"]):
@@ -367,15 +367,11 @@ def _well_loop(
         )
         if segmentation_mode:
             continue
-        image_data = ImageProperties(
+        image_props = ImageProperties(
             well, image, metadata, image_classifier=image_classifier
         )
-        df_image, df_image_quality = (
-            image_data.image_df,
-            image_data.quality_df,
-        )
-        df_well = pd.concat([df_well, df_image])
-        df_well_quality = pd.concat([df_well_quality, df_image_quality])
+        df_well = pd.concat([df_well, image_props.image_df])
+        df_well_quality = pd.concat([df_well_quality, image_props.quality_df])
 
     return df_well, df_well_quality
 
