@@ -366,16 +366,11 @@ class ClassificationPlotBuilder(BasePlotBuilder):
                 )
                 for i, cls in enumerate(classes)
             ]
-            dummy_label = " " * 20
-            legend_handles.append(
-                Patch(facecolor="none", edgecolor="none", label=dummy_label)
-            )
             self.ax.legend(
                 handles=legend_handles,
                 title="",
                 bbox_to_anchor=self.config.legend_bbox,
                 loc="upper left",
-                frameon=False,
             )
 
         return self

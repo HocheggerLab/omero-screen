@@ -85,7 +85,7 @@ def plate_loop(
 
     # Validate cell line required for segmentation model
     for cell_line in set(metadata.well_data["cell_line"]):
-        if get_cell_model(cell_line, None) is None:
+        if get_cell_model(cell_line) is None:
             raise WellAnnotationError(
                 f"Unrecognised cell line: {cell_line}", logger
             )
