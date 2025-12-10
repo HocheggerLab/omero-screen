@@ -1,3 +1,9 @@
+## omero-screen-v0.2.4 (2025-12-10)
+
+### Fix
+
+- default model for unknow cell line, loops.py line 89
+
 ## omero-screen-v0.2.3 (2025-10-08)
 
 ### Fix
