@@ -39,6 +39,7 @@ dependencies = [
     "omero-screen-plots",
     "napari[all]>=0.6.2",
     "polars>=1.31.0",
+    "pyarrow>=22.0.0",
 ]
 
 [project.scripts]

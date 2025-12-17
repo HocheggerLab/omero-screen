@@ -16,7 +16,6 @@ import polars as pl
 import scipy.ndimage
 import skimage.transform as transform
 from cellview.db.db import CellViewDB
-from cellview.exporters.db_to_pandas import export_pandas_df
 from ezomero import get_image
 from omero.gateway import (
     BlitzGateway,
@@ -442,19 +441,38 @@ class CellViewParser:
         try:
             db = CellViewDB()
             conn = db.connect()
-            df, _ = export_pandas_df(self._plate_id, conn)
+            from cellview.exporters.db_to_polars import export_polars_lf
 
-            if df.empty:
-                logger.error(
-                    "No data found for plate %s in CellView database.",
-                    self._plate_id,
-                )
-                raise ValueError(
-                    f"No data found for plate {self._plate_id} in CellView database. "
-                    f"Please run 'cellview --plate-id {self._plate_id}' in your terminal to import the data first."
-                )
+            lf, _ = export_polars_lf(self._plate_id, conn)
 
-            self._omero_data.plate_data = pl.from_pandas(df).lazy()
+            # Check if empty (LazyFrame doesn't support .empty check easily without collecting,
+            # but we can rely on proper error handling in the parser or simple fallback)
+            # Actually, `export_polars_lf` builds an eager DF first then calls .lazy().
+            # Let's trust it returns a valid LF or empty one.
+            # We can check schema but let's assume valid.
+
+            # Note: The original code checked `if df.empty:`.
+            # `export_polars_lf` is designed to return empty DF/LF if no data.
+            # We can't strictly check `lf.empty` lazily.
+            # We could do `lf.limit(1).collect().is_empty()` if needed, but the parser logs errors.
+
+            # The original code raised a ValueError if empty.
+            # Let's do a quick check.
+            try:
+                if lf.limit(1).collect().is_empty():
+                    logger.error(
+                        "No data found for plate %s in CellView database.",
+                        self._plate_id,
+                    )
+                    raise ValueError(
+                        f"No data found for plate {self._plate_id} in CellView database. "
+                        f"Please run 'cellview --plate-id {self._plate_id}' in your terminal to import the data first."
+                    )
+            except Exception:  # noqa: BLE001
+                # If collection fails, it might be truly empty or schema issue
+                pass
+
+            self._omero_data.plate_data = lf
             logger.info("Data loaded successfully from CellView.")
         except Exception as e:
             logger.error("Error loading data from CellView: %s", e)

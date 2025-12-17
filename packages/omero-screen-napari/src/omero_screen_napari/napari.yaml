@@ -5,6 +5,11 @@ contributions:
     - id: omero-screen-napari.well_widget_combined
       python_name: omero_screen_napari._welldata_widget:well_widget_combined
       title: Make Welldata widget
-  widgets:    # ← Make sure this is at the same level as 'commands'
+    - id: omero-screen-napari.gallery_gui_widget
+      python_name: omero_screen_napari._gallery_widget:gallery_gui_widget
+      title: Make Gallery widget
+  widgets:
     - command: omero-screen-napari.well_widget_combined
       display_name: Welldata Widget
+    - command: omero-screen-napari.gallery_gui_widget
+      display_name: Gallery Widget

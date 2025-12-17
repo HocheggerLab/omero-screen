@@ -1,16 +1,17 @@
-"""Module for exporting data from CellView to a pandas DataFrame.
+"""Module for exporting data from CellView to a polars LazyFrame.
 
-This module provides a class for exporting data from CellView to a pandas DataFrame.
+This module provides functions for exporting data from CellView directly to a Polars LazyFrame,
+bypassing Pandas to avoid compatibility issues.
 """
 
 import duckdb
-import pandas as pd
+import polars as pl
 
 from cellview.utils.ui import CellViewUI
 
 
-class PlateParser:
-    """Class for parsing plate data from the database into a pandas DataFrame.
+class PlateParserPolars:
+    """Class for parsing plate data from the database into a Polars DataFrame.
 
     Attributes:
         conn: The active DuckDB connection.
@@ -18,18 +19,17 @@ class PlateParser:
     """
 
     def __init__(self, conn: duckdb.DuckDBPyConnection):
-        """Initialize the PlateParser with an active database connection.
+        """Initialize the PlateParserPolars with an active database connection.
 
         Args:
             conn: An active DuckDB connection
-
         """
         self.conn = conn
         self.ui = CellViewUI()
 
     def _get_condition_variables(
         self, plate_id: int
-    ) -> tuple[pd.DataFrame, list[str]]:
+    ) -> tuple[pl.DataFrame, list[str]]:
         """Get condition variables as separate columns and return variable names.
 
         Args:
@@ -37,9 +37,8 @@ class PlateParser:
 
         Returns:
             A tuple containing:
-                - A pandas DataFrame with condition variables as columns.
+                - A Polars DataFrame with condition variables as columns.
                 - A list of unique variable names.
-
         """
         query = """
         SELECT
@@ -57,20 +56,20 @@ class PlateParser:
         LEFT JOIN condition_variables cv ON c.condition_id = cv.condition_id
         WHERE r.plate_id = ?
         """
-        df = self.conn.execute(query, [plate_id]).df()
+        # Load directly to Polars
+        df = self.conn.execute(query, [plate_id]).pl()
 
         variable_names = []
         if "variable_name" in df.columns:
-            variable_names = [
-                v
-                for v in df["variable_name"].dropna().unique().tolist()
-                if v is not None
-            ]
+            # Filter unique non-null variable names
+            variable_names = (
+                df["variable_name"].drop_nulls().unique().to_list()
+            )
 
         self.ui.info(f"Unique variables: {variable_names}")
 
         if (
-            not df.empty
+            not df.is_empty()
             and "variable_name" in df.columns
             and "variable_value" in df.columns
         ):
@@ -84,32 +83,37 @@ class PlateParser:
                 "antibody_2",
                 "antibody_3",
             ]
-            df_base = df[base_cols].drop_duplicates()
+            df_base = df.select(base_cols).unique()
 
             # Then, pivot the variables
+            # Polars pivot syntax: pivot(values, index, columns)
+            # Note: pivot is eager in Polars usually.
             df_vars = df.pivot(
-                index=["well", "well_id"],
-                columns="variable_name",
                 values="variable_value",
-            ).reset_index()
+                index=["well", "well_id"],
+                on="variable_name",
+                aggregate_function="first",  # Should be unique per well/id/name tuple anyway
+            )
 
             # Merge the variables back with the base DataFrame
-            df = pd.merge(df_base, df_vars, on=["well", "well_id"], how="left")
+            # Polars join
+            df = df_base.join(df_vars, on=["well", "well_id"], how="left")
 
             return df, variable_names
 
-        return pd.DataFrame(), variable_names
+        return pl.DataFrame(), variable_names
 
-    def _get_measurements(self, plate_id: int) -> pd.DataFrame:
+    def _get_measurements(self, plate_id: int) -> pl.DataFrame:
         """Get measurements for a plate.
 
         Args:
             plate_id: The ID of the plate to get measurements for.
 
         Returns:
-            A pandas DataFrame with measurements.
+            A Polars DataFrame with measurements.
         """
         # Get available columns in the measurements table
+        # We can fetchdf() here for metadata as it's small/safe
         table_info = self.conn.execute(
             "PRAGMA table_info(measurements)"
         ).fetchdf()
@@ -152,43 +156,57 @@ class PlateParser:
         WHERE r.plate_id = ?
         ORDER BY c.well, r.repeat_id, m.measurement_id
         """
-        df = self.conn.execute(query, [plate_id]).df()
+        # Execute and convert directly to Polars
+        df = self.conn.execute(query, [plate_id]).pl()
 
-        # Keep channel name columns for reference - they show what channels were used
-        # All measurement columns are now included automatically, no need for renaming
+        # Debug logging
+        if "cell_cycle" in df.columns:
+            uniques = df["cell_cycle"].unique().to_list()
+            self.ui.info(
+                f"[DEBUG] Loaded measurements for plate {plate_id}. 'cell_cycle' uniques: {uniques}"
+            )
+        else:
+            self.ui.error(
+                "[DEBUG] 'cell_cycle' column MISSING from measurements query result!"
+            )
+
         return df
 
-    def build_df(self, plate_id: int) -> tuple[pd.DataFrame, list[str]]:
+    def build_df(self, plate_id: int) -> tuple[pl.DataFrame, list[str]]:
         """Get the final tidy DataFrame for a plate.
 
         Args:
             plate_id: The ID of the plate to collect data for.
 
         Returns:
-            A tidy pandas DataFrame with all measurements and well conditions.
+            A tidy Polars DataFrame with all measurements and well conditions.
 
         """
         # Get condition variables as separate columns and variable names
         conditions_df, variable_names = self._get_condition_variables(plate_id)
         # Get measurements
         measurements_df = self._get_measurements(plate_id)
-        if measurements_df.empty:
+
+        if measurements_df.is_empty():
             self.ui.error(f"No measurements found for plate {plate_id}")
-            return pd.DataFrame(), variable_names
+            return pl.DataFrame(), variable_names
+
         # Merge measurements with condition variables
-        df = pd.merge(
-            measurements_df, conditions_df, on=["well", "well_id"], how="left"
+        # Using left join similar to original logic
+        df = measurements_df.join(
+            conditions_df, on=["well", "well_id"], how="left"
         )
+
         self.ui.info(
             f"Retrieved DataFrame with {len(df)} rows and {len(df.columns)} columns"
         )
         return df, variable_names
 
 
-def export_pandas_df(
+def export_polars_lf(
     plate_id: int, conn: duckdb.DuckDBPyConnection
-) -> tuple[pd.DataFrame, list[str]]:
-    """Export a plate as a DataFrame.
+) -> tuple[pl.LazyFrame, list[str]]:
+    """Export a plate as a Polars LazyFrame.
 
     Args:
         plate_id: The ID of the plate to export.
@@ -196,13 +214,15 @@ def export_pandas_df(
 
     Returns:
         A tuple containing:
-            - A pandas DataFrame with the plate data.
+            - A Polars LazyFrame with the plate data.
             - A list of unique variable names.
 
     """
-    parser = PlateParser(conn)
+    parser = PlateParserPolars(conn)
     df, variable_names = parser.build_df(plate_id)
-    df.rename(columns={"experiment_name": "experiment"}, inplace=True)
-    # Drop any columns that contain NaN values
-    # df = df.dropna(axis=1, how="all")
-    return df, variable_names
+
+    if "experiment_name" in df.columns:
+        df = df.rename({"experiment_name": "experiment"})
+
+    # Return as LazyFrame
+    return df.lazy(), variable_names
