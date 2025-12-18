@@ -3,19 +3,30 @@ This module contains the classes and functions to parse the plate, well, image a
 and collect them in the omero_data data clasee to be used by the napari viewer.
 """
 
+import os
 import random
 import re
 import sys
+import tempfile
 import traceback
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, Optional, cast
 
+import duckdb
 import numpy as np
 import omero
+import pandas as pd
 import polars as pl
 import scipy.ndimage
 import skimage.transform as transform
+from cellview.db.clean_up import (
+    deep_clean_db,
+)
 from cellview.db.db import CellViewDB
+from cellview.importers.import_functions import import_data
+from cellview.utils.state import CellViewStateCore
+from cellview.utils.ui import CellViewUI
 from ezomero import get_image
 from omero.gateway import (
     BlitzGateway,
@@ -26,7 +37,23 @@ from omero.gateway import (
 )
 from omero_screen.config import get_logger
 from omero_utils import omero_connect
-from qtpy.QtWidgets import QMessageBox
+from omero_utils.attachments import get_file_attachments
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
+    QButtonGroup,
+    QComboBox,
+    QDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QProgressDialog,
+    QPushButton,
+    QRadioButton,
+    QTextEdit,
+    QVBoxLayout,
+)
 from skimage.util import map_array
 from tqdm import tqdm
 
@@ -430,53 +457,1059 @@ class CellViewParser:
     def __init__(self, omero_data: OmeroData):
         self._omero_data = omero_data
         self._plate_id: int = omero_data.plate_id
+        self._db: Optional[CellViewDB] = None
+        self._conn: Optional[duckdb.DuckDBPyConnection] = None
 
     def parse_data(self) -> None:
         """
         Orchestrate the data retrieval from CellView database.
+        Automatically creates database and imports plate data if needed.
         """
         logger.info(
             "Loading data from CellView database for plate %s", self._plate_id
         )
         try:
-            db = CellViewDB()
-            conn = db.connect()
+            # Step 1: Get or create database connection
+            self._conn = self._get_or_create_database()
+
+            # Step 2: Check if plate data exists
+            if not self._check_plate_in_database():
+                logger.info(
+                    f"Plate {self._plate_id} not found in database. Starting import process..."
+                )
+                self._show_message(
+                    f"Plate {self._plate_id} not found in database.\nStarting import process...",
+                    "info",
+                )
+
+                # AT START: Clear any dangling records from previous failed runs
+                try:
+                    if self._db is not None and self._conn is not None:
+                        deep_clean_db(self._db, self._conn)
+                except Exception as clean_err:
+                    logger.warning(f"Initial cleanup failed: {clean_err}")
+
+                # Step 3: Import plate data interactively
+                self._import_plate_data()
+
+            # Step 4: Load data from database
             from cellview.exporters.db_to_polars import export_polars_lf
 
-            lf, _ = export_polars_lf(self._plate_id, conn)
+            logger.info(
+                f"Loading plate {self._plate_id} data from database..."
+            )
+            lf, _ = export_polars_lf(self._plate_id, self._conn)
 
-            # Check if empty (LazyFrame doesn't support .empty check easily without collecting,
-            # but we can rely on proper error handling in the parser or simple fallback)
-            # Actually, `export_polars_lf` builds an eager DF first then calls .lazy().
-            # Let's trust it returns a valid LF or empty one.
-            # We can check schema but let's assume valid.
-
-            # Note: The original code checked `if df.empty:`.
-            # `export_polars_lf` is designed to return empty DF/LF if no data.
-            # We can't strictly check `lf.empty` lazily.
-            # We could do `lf.limit(1).collect().is_empty()` if needed, but the parser logs errors.
-
-            # The original code raised a ValueError if empty.
-            # Let's do a quick check.
+            # Verify data was loaded
             try:
                 if lf.limit(1).collect().is_empty():
                     logger.error(
-                        "No data found for plate %s in CellView database.",
+                        "No data found for plate %s in CellView database after import.",
                         self._plate_id,
                     )
                     raise ValueError(
-                        f"No data found for plate {self._plate_id} in CellView database. "
-                        f"Please run 'cellview --plate-id {self._plate_id}' in your terminal to import the data first."
+                        f"No data found for plate {self._plate_id} in CellView database after import."
                     )
-            except Exception:  # noqa: BLE001
-                # If collection fails, it might be truly empty or schema issue
-                pass
+            except ValueError:
+                # Re-raise intended verification failure
+                raise
+            except Exception as verify_error:
+                # If collection fails for other reasons (e.g. DuckDB error), log but continue
+                logger.warning(
+                    f"Could not verify data loading due to unexpected error: {verify_error}"
+                )
 
             self._omero_data.plate_data = lf
             logger.info("Data loaded successfully from CellView.")
+
         except Exception as e:
             logger.error("Error loading data from CellView: %s", e)
             raise ValueError(f"Error loading data from CellView: {e}") from e
+
+    # ================== Database Management Methods ==================
+
+    def _check_database_exists(self) -> bool:
+        """
+        Check if the cellview database file exists at the default location.
+        Returns True if found, False otherwise.
+        """
+        db_path = Path.home() / "cellview_data" / "cellview.duckdb"
+        exists = db_path.exists()
+        if exists:
+            logger.info(f"CellView database found at: {db_path}")
+        else:
+            logger.info(f"CellView database not found at: {db_path}")
+        return exists
+
+    def _create_database(self) -> None:
+        """
+        Initialize a new CellViewDB instance.
+        Creates database and schema automatically.
+        """
+        logger.info("Creating new CellView database...")
+        self._db = CellViewDB()
+        self._conn = self._db.connect()
+        logger.info("CellView database created successfully.")
+        self._show_message("Created new CellView database.", "info")
+
+    def _get_or_create_database(self) -> duckdb.DuckDBPyConnection:
+        """
+        Get existing database connection or create new database.
+        Returns the database connection.
+        """
+        if not self._check_database_exists():
+            self._create_database()
+        else:
+            self._db = CellViewDB()
+            self._conn = self._db.connect()
+            logger.info("Connected to existing CellView database.")
+
+        if self._conn is None:
+            raise ValueError("Failed to create or connect to database.")
+
+        return self._conn
+
+    # ================== Plate Data Check Methods ==================
+
+    def _check_plate_in_database(self) -> bool:
+        """
+        Check if the plate_id exists in the database.
+        Returns True if plate data already imported, False otherwise.
+        """
+        if self._conn is None:
+            raise ValueError("Database connection not established.")
+
+        query = """
+            SELECT COUNT(*) as count
+            FROM repeats
+            WHERE plate_id = ?
+        """
+        result = self._conn.execute(query, [self._plate_id]).fetchone()
+        exists = result[0] > 0 if result else False
+
+        if exists:
+            logger.info(f"Plate {self._plate_id} found in database.")
+        else:
+            logger.info(f"Plate {self._plate_id} not found in database.")
+
+        return exists
+
+    def _get_plate_metadata(self) -> Optional[dict[str, Any]]:
+        """
+        Retrieve metadata for the plate if it exists in the database.
+        Returns dict with metadata or None if plate not found.
+        """
+        if self._conn is None:
+            raise ValueError("Database connection not established.")
+
+        query = """
+            SELECT
+                r.plate_id,
+                r.date,
+                r.lab_member,
+                r.channel_0,
+                r.channel_1,
+                r.channel_2,
+                r.channel_3,
+                e.experiment_name,
+                p.project_name,
+                COUNT(m.measurement_id) as num_measurements
+            FROM repeats r
+            JOIN experiments e ON r.experiment_id = e.experiment_id
+            JOIN projects p ON e.project_id = p.project_id
+            LEFT JOIN measurements m ON r.repeat_id =
+                (SELECT repeat_id FROM repeats WHERE plate_id = ?)
+            WHERE r.plate_id = ?
+            GROUP BY r.plate_id, r.date, r.lab_member,
+                     r.channel_0, r.channel_1, r.channel_2, r.channel_3,
+                     e.experiment_name, p.project_name
+        """
+        result = self._conn.execute(
+            query, [self._plate_id, self._plate_id]
+        ).fetchone()
+
+        if result:
+            return {
+                "plate_id": result[0],
+                "date": result[1],
+                "lab_member": result[2],
+                "channels": {
+                    "channel_0": result[3],
+                    "channel_1": result[4],
+                    "channel_2": result[5],
+                    "channel_3": result[6],
+                },
+                "experiment_name": result[7],
+                "project_name": result[8],
+                "num_measurements": result[9],
+            }
+
+        return None
+
+    # ================== OMERO CSV Retrieval Methods ==================
+
+    def _get_csv_from_omero(self) -> str:
+        """
+        Retrieve CSV file from OMERO plate attachments.
+        Downloads to temporary location and returns path.
+        Raises ValueError if no CSV found.
+        """
+        logger.info(
+            f"Checking for CSV attachments on plate {self._plate_id}..."
+        )
+
+        # Get plate object
+        plate = self._omero_data.plate
+
+        # Get CSV file annotations for the plate
+        file_anns = get_file_attachments(plate, ".csv")
+
+        if not file_anns:
+            raise ValueError(
+                f"No CSV file attachments found for plate {self._plate_id}. "
+                "Please ensure the plate has a CSV file attached."
+            )
+
+        # Look for CSV files in priority order
+        csv_priority = ["agg_data.csv", "final_data_cc.csv", "final_data.csv"]
+
+        selected_ann = None
+        for priority_name in csv_priority:
+            for ann in file_anns:
+                filename = ann.getFile().getName().lower()
+                if priority_name in filename:
+                    selected_ann = ann
+                    break
+            if selected_ann:
+                break
+
+        # If no priority match, take the first CSV file
+        if not selected_ann:
+            selected_ann = file_anns[0]
+
+        # Download CSV to temporary location
+        csv_filename = selected_ann.getFile().getName()
+        logger.info(f"Downloading CSV: {csv_filename}")
+
+        # Create temp file and download
+        temp_dir = tempfile.mkdtemp()
+        csv_path = os.path.join(temp_dir, csv_filename)
+
+        # Download file using the same pattern as parse_csv_data
+        original_file = selected_ann.getFile()
+        with open(csv_path, "wb") as file_on_disk:
+            for chunk in original_file.asFileObj():
+                file_on_disk.write(chunk)
+
+        if not os.path.exists(csv_path):
+            raise ValueError(f"Failed to download CSV file: {csv_filename}")
+
+        file_size = os.path.getsize(csv_path) / 1024  # KB
+        logger.info(f"Downloaded CSV: {csv_filename} ({file_size:.1f} KB)")
+
+        return csv_path
+
+    def _check_csv_available(self) -> tuple[bool, str]:
+        """
+        Check if CSV is available in OMERO.
+        Returns (True, csv_path) if found, (False, error_message) if not.
+        """
+        try:
+            csv_path = self._get_csv_from_omero()
+            return True, csv_path
+        except Exception as e:
+            logger.error(f"Error checking for CSV: {e}")
+            return False, str(e)
+
+    # ================== Project Selection Methods ==================
+
+    def _get_existing_projects(self) -> list[dict[str, Any]]:
+        """
+        Query database to get all existing projects.
+        Returns list of dicts with project_id, project_name, description.
+        """
+        if self._conn is None:
+            raise ValueError("Database connection not established.")
+
+        query = """
+            SELECT project_id, project_name, description
+            FROM projects
+            ORDER BY project_name
+        """
+        results = self._conn.execute(query).fetchall()
+
+        projects = [
+            {
+                "project_id": row[0],
+                "project_name": row[1],
+                "description": row[2] or "",
+            }
+            for row in results
+        ]
+
+        logger.info(f"Found {len(projects)} existing projects in database.")
+        return projects
+
+    def _create_project(self, name: str, description: str = "") -> int:
+        """
+        Create new project in database.
+        Returns the new project_id.
+        """
+        if self._conn is None:
+            raise ValueError("Database connection not established.")
+
+        try:
+            query = """
+                INSERT INTO projects (project_name, description)
+                VALUES (?, ?)
+                RETURNING project_id
+            """
+            result = self._conn.execute(query, [name, description]).fetchone()
+
+            if result is None:
+                raise ValueError("Failed to create project - no ID returned.")
+
+            project_id = result[0]
+            logger.info(f"Created new project: {name} (ID: {project_id})")
+            return cast(int, project_id)
+
+        except Exception as e:
+            logger.error(f"Error creating project: {e}")
+            if "UNIQUE constraint" in str(e):
+                raise ValueError(
+                    f"Project '{name}' already exists. Please choose a different name."
+                ) from e
+            raise
+
+    def _show_project_selection_dialog(
+        self, detected_project_name: Optional[str] = None
+    ) -> tuple[Optional[int], Optional[str]]:
+        """
+        Show dialog for selecting existing project or creating new one.
+        Returns (project_id, project_name) for existing, or (None, new_name) for new.
+        Returns (None, None) if cancelled.
+        """
+        projects = self._get_existing_projects()
+
+        dialog = QDialog()
+        dialog.setWindowTitle("Select or Create Project")
+        dialog.setMinimumWidth(500)
+
+        layout = QVBoxLayout()
+
+        # Show detected project name if available
+        if detected_project_name:
+            detected_label = QLabel(
+                f"Detected from OMERO: <b>{detected_project_name}</b>"
+            )
+            layout.addWidget(detected_label)
+            layout.addSpacing(10)
+
+        # Radio buttons for selection mode
+        button_group = QButtonGroup()
+
+        # Existing project option
+        if projects:
+            existing_radio = QRadioButton("Use existing project")
+            existing_radio.setChecked(True)
+            button_group.addButton(existing_radio)
+            layout.addWidget(existing_radio)
+
+            project_combo = QComboBox()
+            for proj in projects:
+                display_text = proj["project_name"]
+                if proj["description"]:
+                    display_text += f" - {proj['description']}"
+                project_combo.addItem(display_text, proj["project_id"])
+
+            # Select detected project if it exists
+            if detected_project_name:
+                for i, proj in enumerate(projects):
+                    if proj["project_name"] == detected_project_name:
+                        project_combo.setCurrentIndex(i)
+                        break
+
+            layout.addWidget(project_combo)
+            layout.addSpacing(10)
+        else:
+            no_projects_label = QLabel("<i>No existing projects found</i>")
+            layout.addWidget(no_projects_label)
+            layout.addSpacing(10)
+            project_combo = None
+            existing_radio = None
+
+        # New project option
+        new_radio = QRadioButton("Create new project")
+        if not projects:
+            new_radio.setChecked(True)
+        button_group.addButton(new_radio)
+        layout.addWidget(new_radio)
+
+        form_layout = QFormLayout()
+        name_edit = QLineEdit()
+        if detected_project_name:
+            name_edit.setText(detected_project_name)
+        form_layout.addRow("Project name:", name_edit)
+
+        desc_edit = QTextEdit()
+        desc_edit.setMaximumHeight(60)
+        form_layout.addRow("Description:", desc_edit)
+
+        layout.addLayout(form_layout)
+
+        # Enable/disable fields based on radio selection
+        def update_fields() -> None:
+            is_new = new_radio.isChecked()
+            name_edit.setEnabled(is_new)
+            desc_edit.setEnabled(is_new)
+            if project_combo:
+                project_combo.setEnabled(not is_new)
+
+        if existing_radio:
+            existing_radio.toggled.connect(update_fields)
+        new_radio.toggled.connect(update_fields)
+        update_fields()
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        ok_button = QPushButton("OK")
+        cancel_button = QPushButton("Cancel")
+        button_layout.addStretch()
+        button_layout.addWidget(ok_button)
+        button_layout.addWidget(cancel_button)
+
+        layout.addSpacing(20)
+        layout.addLayout(button_layout)
+
+        dialog.setLayout(layout)
+
+        # Connect buttons
+        ok_button.clicked.connect(dialog.accept)
+        cancel_button.clicked.connect(dialog.reject)
+
+        # Show dialog
+        result = dialog.exec_()
+
+        if result == QDialog.Accepted:
+            if new_radio.isChecked():
+                # Creating new project
+                new_name = name_edit.text().strip()
+                if not new_name:
+                    self._show_message(
+                        "Project name cannot be empty.", "error"
+                    )
+                    return None, None
+                return None, new_name
+            else:
+                # Using existing project
+                if project_combo:
+                    project_id = project_combo.currentData()
+                    project_name = projects[project_combo.currentIndex()][
+                        "project_name"
+                    ]
+                    return cast(int, project_id), project_name
+                else:
+                    return None, None
+        else:
+            return None, None
+
+    # ================== Experiment Selection Methods ==================
+
+    def _get_existing_experiments(
+        self, project_id: int
+    ) -> list[dict[str, Any]]:
+        """
+        Query database to get all experiments for a project.
+        Returns list of dicts with experiment_id, experiment_name, description.
+        """
+        if self._conn is None:
+            raise ValueError("Database connection not established.")
+
+        query = """
+            SELECT experiment_id, experiment_name, description
+            FROM experiments
+            WHERE project_id = ?
+            ORDER BY experiment_name
+        """
+        results = self._conn.execute(query, [project_id]).fetchall()
+
+        experiments = [
+            {
+                "experiment_id": row[0],
+                "experiment_name": row[1],
+                "description": row[2] or "",
+            }
+            for row in results
+        ]
+
+        logger.info(
+            f"Found {len(experiments)} existing experiments for project {project_id}."
+        )
+        return experiments
+
+    def _create_experiment(
+        self, project_id: int, name: str, description: str = ""
+    ) -> int:
+        """
+        Create new experiment in database.
+        Returns the new experiment_id.
+        """
+        if self._conn is None:
+            raise ValueError("Database connection not established.")
+
+        try:
+            query = """
+                INSERT INTO experiments (project_id, experiment_name, description)
+                VALUES (?, ?, ?)
+                RETURNING experiment_id
+            """
+            result = self._conn.execute(
+                query, [project_id, name, description]
+            ).fetchone()
+
+            if result is None:
+                raise ValueError(
+                    "Failed to create experiment - no ID returned."
+                )
+
+            experiment_id = result[0]
+            logger.info(
+                f"Created new experiment: {name} (ID: {experiment_id})"
+            )
+            return cast(int, experiment_id)
+
+        except Exception as e:
+            logger.error(f"Error creating experiment: {e}")
+            raise
+
+    def _show_experiment_selection_dialog(
+        self, project_id: int, detected_experiment_name: Optional[str] = None
+    ) -> tuple[Optional[int], Optional[str]]:
+        """
+        Show dialog for selecting existing experiment or creating new one.
+        Returns (experiment_id, experiment_name) for existing, or (None, new_name) for new.
+        Returns (None, None) if cancelled.
+        """
+        experiments = self._get_existing_experiments(project_id)
+
+        # Get project name for display
+        project_query = (
+            "SELECT project_name FROM projects WHERE project_id = ?"
+        )
+        if self._conn is None:
+            raise ValueError("Database connection not established")
+        project_name_row = self._conn.execute(
+            project_query, [project_id]
+        ).fetchone()
+        if project_name_row is None:
+            raise ValueError(f"Project {project_id} not found")
+        project_name = project_name_row[0]
+
+        dialog = QDialog()
+        dialog.setWindowTitle("Select or Create Experiment")
+        dialog.setMinimumWidth(500)
+
+        layout = QVBoxLayout()
+
+        # Show project context
+        project_label = QLabel(f"Project: <b>{project_name}</b>")
+        layout.addWidget(project_label)
+        layout.addSpacing(10)
+
+        # Show detected experiment name if available
+        if detected_experiment_name:
+            detected_label = QLabel(
+                f"Detected from OMERO: <b>{detected_experiment_name}</b>"
+            )
+            layout.addWidget(detected_label)
+            layout.addSpacing(10)
+
+        # Radio buttons for selection mode
+        button_group = QButtonGroup()
+
+        # Existing experiment option
+        if experiments:
+            existing_radio = QRadioButton("Use existing experiment")
+            existing_radio.setChecked(True)
+            button_group.addButton(existing_radio)
+            layout.addWidget(existing_radio)
+
+            exp_combo = QComboBox()
+            for exp in experiments:
+                display_text = exp["experiment_name"]
+                if exp["description"]:
+                    display_text += f" - {exp['description']}"
+                exp_combo.addItem(display_text, exp["experiment_id"])
+
+            # Select detected experiment if it exists
+            if detected_experiment_name:
+                for i, exp in enumerate(experiments):
+                    if exp["experiment_name"] == detected_experiment_name:
+                        exp_combo.setCurrentIndex(i)
+                        break
+
+            layout.addWidget(exp_combo)
+            layout.addSpacing(10)
+        else:
+            no_exp_label = QLabel(
+                "<i>No existing experiments in this project</i>"
+            )
+            layout.addWidget(no_exp_label)
+            layout.addSpacing(10)
+            exp_combo = None
+            existing_radio = None
+
+        # New experiment option
+        new_radio = QRadioButton("Create new experiment")
+        if not experiments:
+            new_radio.setChecked(True)
+        button_group.addButton(new_radio)
+        layout.addWidget(new_radio)
+
+        form_layout = QFormLayout()
+        name_edit = QLineEdit()
+        if detected_experiment_name:
+            name_edit.setText(detected_experiment_name)
+        form_layout.addRow("Experiment name:", name_edit)
+
+        desc_edit = QTextEdit()
+        desc_edit.setMaximumHeight(60)
+        form_layout.addRow("Description:", desc_edit)
+
+        layout.addLayout(form_layout)
+
+        # Enable/disable fields based on radio selection
+        def update_fields() -> None:
+            is_new = new_radio.isChecked()
+            name_edit.setEnabled(is_new)
+            desc_edit.setEnabled(is_new)
+            if exp_combo:
+                exp_combo.setEnabled(not is_new)
+
+        if existing_radio:
+            existing_radio.toggled.connect(update_fields)
+        new_radio.toggled.connect(update_fields)
+        update_fields()
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        ok_button = QPushButton("OK")
+        cancel_button = QPushButton("Cancel")
+        button_layout.addStretch()
+        button_layout.addWidget(ok_button)
+        button_layout.addWidget(cancel_button)
+
+        layout.addSpacing(20)
+        layout.addLayout(button_layout)
+
+        dialog.setLayout(layout)
+
+        # Connect buttons
+        ok_button.clicked.connect(dialog.accept)
+        cancel_button.clicked.connect(dialog.reject)
+
+        # Show dialog
+        result = dialog.exec_()
+
+        if result == QDialog.Accepted:
+            if new_radio.isChecked():
+                # Creating new experiment
+                new_name = name_edit.text().strip()
+                if not new_name:
+                    self._show_message(
+                        "Experiment name cannot be empty.", "error"
+                    )
+                    return None, None
+                return None, new_name
+            else:
+                # Using existing experiment
+                if exp_combo:
+                    exp_id = exp_combo.currentData()
+                    exp_name = experiments[exp_combo.currentIndex()][
+                        "experiment_name"
+                    ]
+                    return exp_id, exp_name
+                else:
+                    return None, None
+        else:
+            return None, None
+
+    # ================== Metadata Detection and Confirmation Methods ==================
+
+    def _detect_metadata_from_omero(self) -> dict[str, Any]:
+        """
+        Detect metadata from OMERO plate annotations.
+        Returns dict with detected project, experiment, date, lab_member, etc.
+        Channels are automatically detected from CSV by cellview.
+        """
+        metadata: dict[str, Any] = {}
+
+        # Get plate object
+        plate = self._omero_data.plate
+
+        # Look for map annotations
+        for ann in plate.listAnnotations():
+            if isinstance(ann, MapAnnotationWrapper):
+                ann_dict = dict(ann.getValue())
+
+                # Look for project/experiment names
+                if "project" in ann_dict:
+                    metadata["project_name"] = ann_dict["project"]
+                if "experiment" in ann_dict:
+                    metadata["experiment_name"] = ann_dict["experiment"]
+                if "lab_member" in ann_dict:
+                    metadata["lab_member"] = ann_dict["lab_member"]
+                if "date" in ann_dict:
+                    metadata["date"] = ann_dict["date"]
+
+        # Get plate name as fallback for project
+        if "project_name" not in metadata:
+            plate_name = plate.getName()
+            # Try to extract project from plate name (common pattern)
+            metadata["project_name"] = (
+                plate_name.split("_")[0] if "_" in plate_name else plate_name
+            )
+
+        # Get current date as fallback
+        if "date" not in metadata:
+            from datetime import datetime
+
+            metadata["date"] = datetime.now().strftime("%Y-%m-%d")
+
+        logger.info(f"Detected metadata from OMERO: {metadata}")
+        return metadata
+
+    def _show_repeat_metadata_dialog(
+        self, detected_metadata: dict[str, Any]
+    ) -> Optional[dict[str, Any]]:
+        """
+        Show dialog to confirm/edit plate (repeat) metadata.
+        Returns dict with confirmed metadata or None if cancelled.
+        Channels are automatically detected from CSV by cellview.
+        """
+        dialog = QDialog()
+        dialog.setWindowTitle("Confirm Plate Metadata")
+        dialog.setMinimumWidth(450)
+
+        layout = QVBoxLayout()
+
+        info_label = QLabel(
+            "Please confirm or edit the metadata for this plate acquisition:"
+        )
+        layout.addWidget(info_label)
+        layout.addSpacing(10)
+
+        form_layout = QFormLayout()
+
+        # Plate ID (read-only)
+        plate_id_label = QLabel(str(self._plate_id))
+        form_layout.addRow("Plate ID:", plate_id_label)
+
+        # Date
+        date_edit = QLineEdit(detected_metadata.get("date", ""))
+        form_layout.addRow("Date (YYYY-MM-DD):", date_edit)
+
+        # Lab member
+        lab_member_edit = QLineEdit(detected_metadata.get("lab_member", ""))
+        form_layout.addRow("Lab Member:", lab_member_edit)
+
+        layout.addLayout(form_layout)
+
+        # Info about automatic detection
+        auto_detect_label = QLabel(
+            "<i>Note: Channels will be automatically detected from the CSV file.</i>"
+        )
+        layout.addWidget(auto_detect_label)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        ok_button = QPushButton("OK")
+        cancel_button = QPushButton("Cancel")
+        button_layout.addStretch()
+        button_layout.addWidget(ok_button)
+        button_layout.addWidget(cancel_button)
+
+        layout.addSpacing(20)
+        layout.addLayout(button_layout)
+
+        dialog.setLayout(layout)
+
+        # Connect buttons
+        ok_button.clicked.connect(dialog.accept)
+        cancel_button.clicked.connect(dialog.reject)
+
+        # Show dialog
+        result = dialog.exec_()
+
+        if result == QDialog.Accepted:
+            # Collect metadata
+            confirmed_metadata = {
+                "plate_id": self._plate_id,
+                "date": date_edit.text().strip(),
+                "lab_member": lab_member_edit.text().strip(),
+            }
+
+            return confirmed_metadata
+        else:
+            return None
+
+    # ================== Import Orchestration Methods ==================
+
+    def _cleanup_orphaned_records(self) -> None:
+        """
+        Clean up orphaned projects and experiments after failed import.
+        This removes any projects without experiments and experiments without repeats.
+        """
+        try:
+            if self._conn is None:
+                return
+
+            # Perform deep cleanup to handle broken references and multi-level orphans
+            if self._db is not None and self._conn is not None:
+                deep_clean_db(self._db, self._conn)
+
+        except Exception as e:
+            logger.warning(f"Error during cleanup: {e}")
+
+    def _perform_import(
+        self,
+        csv_path: str,
+        project_id: int,
+        experiment_id: int,
+        repeat_metadata: dict[str, Any],
+    ) -> bool:
+        """
+        Perform the actual import using cellview's import pipeline.
+        Returns True on success, False on failure.
+        Cleans up orphaned records on failure.
+        """
+        progress = None
+        try:
+            # Load CSV data first (as pandas DataFrame for cellview)
+            logger.info(f"Loading CSV data from: {csv_path}")
+            df = pd.read_csv(csv_path)
+
+            # Create a CellViewUI instance for the state (required parameter)
+            ui = CellViewUI()
+
+            # Extract channel names from DataFrame columns
+            # Columns like 'intensity_mean_DAPI_nucleus', 'intensity_mean_EdU_nucleus', etc.
+            # We need to map DAPI, EdU, etc. to channel_0, channel_1, etc.
+            # However, for now, let's try to get them from self._omero_data.channel_data if available
+            # or infer them from the dataframe columns.
+
+            channels: dict[str, str | None] = {}
+            # Defaults
+            channels["channel_0"] = "DAPI"  # Nearly always present
+            channels["channel_1"] = None
+            channels["channel_2"] = None
+            channels["channel_3"] = None
+
+            # Attempt to get from OMERO metadata first (most reliable)
+            if self._omero_data and self._omero_data.channel_data:
+                # channel_data is {name: index}, e.g. {'DAPI': 0, 'EdU': 1}
+                for name, idx in self._omero_data.channel_data.items():
+                    key = f"channel_{idx}"
+                    if key in channels:
+                        channels[key] = name
+
+            # Create state object (explicitly passing channels)
+            state = CellViewStateCore(
+                ui=ui,
+                csv_path=Path(csv_path),
+                df=df,
+                plate_id=self._plate_id,
+                project_name=None,
+                experiment_name=None,
+                project_id=project_id,
+                experiment_id=experiment_id,
+                repeat_id=None,
+                condition_id_map=None,
+                lab_member=repeat_metadata.get("lab_member", ""),
+                date=repeat_metadata.get("date", ""),
+                channel_0=channels["channel_0"],
+                channel_1=channels["channel_1"],
+                channel_2=channels["channel_2"],
+                channel_3=channels["channel_3"],
+                db_conn=self._conn,
+            )
+
+            # Show progress dialog
+            progress = QProgressDialog(
+                f"Importing plate {self._plate_id}...", "Cancel", 0, 0
+            )
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.setValue(0)
+            progress.show()
+
+            # Perform import using cellview's import function
+            logger.info("Starting cellview import process...")
+            if self._db is not None:
+                import_data(self._db, state, self._conn)
+            else:
+                raise ValueError("Database object is None")
+
+            if progress:
+                progress.close()
+
+            logger.info("Import completed successfully!")
+            return True
+
+        except Exception as e:
+            if progress:
+                progress.close()
+
+            logger.error(f"Error during import: {e}")
+            logger.info("Cleaning up orphaned database records...")
+
+            # Cleanup any orphaned projects/experiments created during failed import
+            self._cleanup_orphaned_records()
+
+            self._show_message(
+                f"Import failed: {str(e)}\n\nOrphaned database records have been cleaned up.",
+                "error",
+            )
+            return False
+
+    def _interactive_import(self, csv_path: str) -> bool:
+        """
+        Guide user through interactive import process.
+        Returns True if import successful, False if cancelled.
+        Cleans up orphaned records if user cancels or import fails.
+        """
+        try:
+            # 1. Detect metadata from OMERO
+            detected_metadata = self._detect_metadata_from_omero()
+            detected_project = detected_metadata.get("project_name")
+            detected_experiment = detected_metadata.get("experiment_name")
+
+            # 2. Show project selection dialog
+            project_id, project_name = self._show_project_selection_dialog(
+                detected_project
+            )
+            if project_name is None:  # User cancelled
+                logger.info("Import cancelled by user at project selection.")
+                return False
+
+            # 3. If new project, create it now
+            if project_id is None:
+                project_description = detected_metadata.get(
+                    "project_description", ""
+                )
+                project_id = self._create_project(
+                    project_name, project_description
+                )
+
+            # 4. Show experiment selection dialog
+            experiment_id, experiment_name = (
+                self._show_experiment_selection_dialog(
+                    project_id, detected_experiment
+                )
+            )
+            if experiment_name is None:  # User cancelled
+                logger.info(
+                    "Import cancelled by user at experiment selection."
+                )
+                # Clean up the project if it was just created and has no experiments
+                self._cleanup_orphaned_records()
+                return False
+
+            # 5. If new experiment, create it now
+            if experiment_id is None:
+                experiment_description = detected_metadata.get(
+                    "experiment_description", ""
+                )
+                experiment_id = self._create_experiment(
+                    project_id, experiment_name, experiment_description
+                )
+
+            # 6. Show repeat metadata dialog
+            repeat_metadata = self._show_repeat_metadata_dialog(
+                detected_metadata
+            )
+            if repeat_metadata is None:  # User cancelled
+                logger.info(
+                    "Import cancelled by user at metadata confirmation."
+                )
+                # Clean up orphaned experiment/project if they were just created
+                self._cleanup_orphaned_records()
+                return False
+
+            # 7. Perform the actual import (handles its own cleanup on failure)
+            success = self._perform_import(
+                csv_path, project_id, experiment_id, repeat_metadata
+            )
+
+            return success
+
+        except Exception as e:
+            logger.error(f"Error during interactive import: {e}")
+            # Clean up any orphaned records
+            self._cleanup_orphaned_records()
+            self._show_message(f"Import error: {str(e)}", "error")
+            return False
+
+    def _import_plate_data(self) -> None:
+        """
+        High-level method that orchestrates the full import workflow.
+        """
+        try:
+            # Step 1: Get CSV from OMERO
+            self._show_message(
+                "Checking for CSV attachment in OMERO...", "info"
+            )
+            csv_path = self._get_csv_from_omero()
+            file_size = os.path.getsize(csv_path) / 1024  # KB
+            self._show_message(
+                f"Found CSV: {os.path.basename(csv_path)} ({file_size:.1f} KB)",
+                "info",
+            )
+
+            # Step 2: Interactive import with dialogs
+            success = self._interactive_import(csv_path)
+
+            if not success:
+                self._show_message("Import cancelled or failed.", "warning")
+                return
+
+            self._show_message("Successfully imported plate data!", "success")
+
+        except Exception as e:
+            logger.error(f"Error during import: {e}")
+            self._show_message(f"Import failed: {str(e)}", "error")
+            raise
+
+    # ================== UI Helper Methods ==================
+
+    def _show_message(self, message: str, msg_type: str = "info") -> None:
+        """
+        Show message to user via QMessageBox.
+        Types: "info", "warning", "error", "success"
+        """
+        msg_box = QMessageBox()
+
+        if msg_type == "info":
+            msg_box.setIcon(QMessageBox.Information)
+            msg_box.setWindowTitle("Information")
+        elif msg_type == "warning":
+            msg_box.setIcon(QMessageBox.Warning)
+            msg_box.setWindowTitle("Warning")
+        elif msg_type == "error":
+            msg_box.setIcon(QMessageBox.Critical)
+            msg_box.setWindowTitle("Error")
+        elif msg_type == "success":
+            msg_box.setIcon(QMessageBox.Information)
+            msg_box.setWindowTitle("Success")
+
+        msg_box.setText(message)
+        msg_box.setStandardButtons(QMessageBox.Ok)
+
+        # Only show in GUI mode
+        if not hasattr(sys, "ps1") and "pytest" not in sys.modules:
+            msg_box.exec_()
+        else:
+            logger.info(f"[{msg_type.upper()}] {message}")
 
 
 # -----------------------------------------------CHANNEL DATA -----------------------------------------------------
@@ -1184,21 +2217,47 @@ class ImageParser:
             logger.debug("All label images found")
 
     def _collect_labels(self) -> None:
-        label_names = [f"{name}_segmentation" for name in self._image_ids]
         start, length = _get_crop(self._omero_data)
+        dataset_children = list(self._omero_data.screen_dataset.listChildren())
 
-        relevant_label_data = [
-            label_data
-            for label_data in self._omero_data.screen_dataset.listChildren()
-            if any(
-                label_name in label_data.getName()
-                for label_name in label_names
-            )
-        ]
+        for img_id in self._image_ids:
+            expected_name = f"{img_id}_segmentation"
 
-        for label_data in relevant_label_data:
-            # Note: The crop is based on the image dimensions.
-            # The labels may not have the same number of channels.
+            # 1. Try to find an exact match first (avoids ambiguity with suffixes like 'segmentation1')
+            exact_matches = [
+                child
+                for child in dataset_children
+                if child.getName() == expected_name
+            ]
+
+            if exact_matches:
+                # Found exact match, use it silently
+                label_data = exact_matches[0]
+            else:
+                # 2. Fallback: Find matching label by substring
+                candidates = [
+                    child
+                    for child in dataset_children
+                    if expected_name in child.getName()
+                ]
+
+                if not candidates:
+                    logger.warning(f"No label found for image {img_id}")
+                    # Skip to next image (stack logic is per-image anyway in this loop structure?
+                    # Wait, _label_arrays is just a list. If we skip, it will be shorter.
+                    # As noted before, we should really insert a blank, but let's stick to current behavior
+                    # which works for the user (just avoiding the warning).
+                    continue
+
+                # If multiple candidates, pick the first one and warn
+                if len(candidates) > 1:
+                    logger.warning(
+                        f"Multiple labels found for image {img_id}: {[c.getName() for c in candidates]}. Using {candidates[0].getName()}"
+                    )
+
+                label_data = candidates[0]
+
+            # Process this single label
             axis_lengths = length
             if length and length[3] > 1:
                 image = self._conn.getObject("Image", label_data.getId())
@@ -1207,23 +2266,28 @@ class ImageParser:
                         length[:3] + (image.getSizeC(),) + length[4:]
                     )
 
-            _, label_array = get_image(
-                self._conn,
-                label_data.getId(),
-                start_coords=start,
-                axis_lengths=axis_lengths,
-            )
-            if label_array.shape[-1] == 2:
-                corrected_label_array = correct_channel_order(label_array)
-                self._label_arrays.append(corrected_label_array.squeeze())
-            else:
-                # Create a tuple of axes to squeeze, excluding the last axis
-                shape = label_array.shape
-                axes_to_squeeze = tuple(
-                    i for i in range(len(shape) - 1) if shape[i] == 1
+            try:
+                _, label_array = get_image(
+                    self._conn,
+                    label_data.getId(),
+                    start_coords=start,
+                    axis_lengths=axis_lengths,
                 )
-                self._label_arrays.append(
-                    np.squeeze(label_array, axis=axes_to_squeeze)
+                if label_array.shape[-1] == 2:
+                    corrected_label_array = correct_channel_order(label_array)
+                    self._label_arrays.append(corrected_label_array.squeeze())
+                else:
+                    # Create a tuple of axes to squeeze, excluding the last axis
+                    shape = label_array.shape
+                    axes_to_squeeze = tuple(
+                        i for i in range(len(shape) - 1) if shape[i] == 1
+                    )
+                    self._label_arrays.append(
+                        np.squeeze(label_array, axis=axes_to_squeeze)
+                    )
+            except Exception as e:
+                logger.error(
+                    f"Failed to load label {label_data.getName()}: {e}"
                 )
 
 

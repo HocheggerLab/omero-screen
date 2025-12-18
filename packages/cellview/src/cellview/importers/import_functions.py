@@ -5,6 +5,7 @@ Data are imported either via a path to a csv file or via a file that has been
 attached to an omero plate
 """
 
+import contextlib
 from typing import Optional, Union
 
 import duckdb
@@ -17,10 +18,12 @@ from cellview.importers.experiments import select_or_create_experiment
 from cellview.importers.measurements import import_measurements
 from cellview.importers.projects import select_or_create_project
 from cellview.importers.repeats import create_new_repeat
-from cellview.utils.error_classes import CellViewError
 from cellview.utils.state import CellViewState, CellViewStateCore
 from cellview.utils.ui import CellViewUI
+from omero_screen.config import get_logger
 
+# Initialize logger with the module's name
+logger = get_logger(__name__)
 ui = CellViewUI()
 
 
@@ -41,16 +44,22 @@ def import_data(
     """
     if conn is None:
         conn = db.connect()
+
+    # Start transaction for the entire import process
+    # Start transaction for the entire import process
+    with contextlib.suppress(Exception):
+        conn.begin()
+
     try:
         # Set the database connection in the state
         state.db_conn = conn
 
         # Always pass the state to each importer function for dependency injection
-        # Convert singleton to CellViewStateCore if needed
+        # ... logic ...
         if isinstance(state, CellViewStateCore):
             state_for_importers = state
         else:
-            # Convert singleton state to CellViewStateCore for dependency injection
+            # ... logic ...
             state_for_importers = CellViewStateCore()
             # Copy all attributes from singleton to the new state
             for attr in [
@@ -82,12 +91,33 @@ def import_data(
         assert state.plate_id is not None
 
         display_plate_summary(state.plate_id, conn)
+
+        # Commit if everything worked
+        # Commit if everything worked
+        with contextlib.suppress(Exception):
+            conn.commit()
+
     except Exception as e:
-        clean_up_db(db, conn)
-        if isinstance(e, CellViewError):
-            e.display()
-            return 1  # Return error code without re-raising
+        # Improved error logging
+        import traceback
+
+        logger.error(f"Import failed: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        if hasattr(
+            e, "context"
+        ):  # Check if it's our wrapper DBError/DataError
+            logger.error(f"Error Context: {e.context}")
+
+        # Rollback on failure
+        try:
+            conn.rollback()
+        except Exception as rollback_err:
+            logger.warning(f"Rollback failed: {rollback_err}")
+
+        try:
+            clean_up_db(db, conn)
+        except Exception as cleanup_err:
+            logger.error(f"Cleanup also failed: {str(cleanup_err)}")
+        # Always re-raise to allow the caller (CLI or GUI) to handle reporting
         raise e
-    # finally:
-    #     conn.close()
     return 0

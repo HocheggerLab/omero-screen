@@ -127,6 +127,11 @@ class MeasurementsManager:
 
         # Add any missing intensity columns to the measurements table dynamically
         self._ensure_intensity_columns_exist(measurement_cols)
+
+        # Ensure we are working on a copy to avoid SettingWithCopyWarning
+        if self.state.df._is_view:
+            self.state.df = self.state.df.copy()
+
         # Add condition_id to the state's DataFrame
         self.state.df["condition_id"] = self.state.df["well"].map(
             self.state.condition_id_map

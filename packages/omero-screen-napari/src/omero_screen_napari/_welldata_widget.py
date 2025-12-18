@@ -101,20 +101,37 @@ def welldata_widget(
     and then adds the images and labels to the viewer. It also handles metadata,
     sets color maps, and adds label layers to the viewer.
     """
-    parse_omero_data(omero_data, plate_id, well_pos_list, images, time=time)
-    clear_viewer_layers(viewer)
-    add_image_to_viewer(viewer)
-    set_color_maps(viewer)
-    add_label_layers(viewer)
+    try:
+        parse_omero_data(
+            omero_data, plate_id, well_pos_list, images, time=time
+        )
+        clear_viewer_layers(viewer)
+        add_image_to_viewer(viewer)
+        set_color_maps(viewer)
+        add_label_layers(viewer)
 
-    def slider_position_change(event: Any) -> None:
-        current_position = event.source.current_step[0]
-        handle_metadata_widget(viewer, current_position)
+        def slider_position_change(event: Any) -> None:
+            current_position = event.source.current_step[0]
+            handle_metadata_widget(viewer, current_position)
 
-    viewer.dims.events.current_step.connect(slider_position_change)
-    # _initial_position = viewer.dims.current_step[0]
-    mock_event = MockEvent(viewer.dims)
-    slider_position_change(mock_event)
+        viewer.dims.events.current_step.connect(slider_position_change)
+        # _initial_position = viewer.dims.current_step[0]
+        mock_event = MockEvent(viewer.dims)
+        slider_position_change(mock_event)
+    except Exception as e:
+        logger.error(f"Error in welldata_widget: {e}")
+        # MessageBox is already shown in parse_omero_data if it failed there
+        # But we catch other potential errors here
+        if "ValueError" not in str(
+            type(e)
+        ):  # Avoid double message for the common ValueError
+            from qtpy.QtWidgets import QMessageBox
+
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Critical)
+            msg.setText(f"An unexpected error occurred: {e}")
+            msg.setWindowTitle("Widget Error")
+            msg.exec_()
 
 
 def clear_viewer_layers(viewer: Viewer) -> None:
@@ -124,7 +141,7 @@ def clear_viewer_layers(viewer: Viewer) -> None:
 
 def add_image_to_viewer(viewer: Viewer) -> None:
     num_channels = omero_data.images.shape[-1]
-    print(
+    logger.debug(
         f"The images shape is {omero_data.images.shape} ({omero_data.images.dtype})"
     )
     channel_names: dict[int, str] = {
@@ -169,6 +186,8 @@ def handle_metadata_widget(viewer: Viewer, slider_position: int) -> None:
     if images_per_well == 0:
         return
     well_index = slider_position // images_per_well
+    if not omero_data.well_metadata_list:
+        return
     well_index = min(well_index, len(omero_data.well_metadata_list) - 1)
 
     if metadata_widget is not None:
@@ -193,7 +212,7 @@ def add_label_layers(
         labels = omero_data.labels
     if labels is None or labels.size == 0:
         return
-    print(f"The labels shape is {labels.shape} ({labels.dtype})")
+    logger.debug(f"The labels shape is {labels.shape} ({labels.dtype})")
     if labels.shape[-1] == 1:
         viewer.add_labels(
             np.squeeze(labels).astype(int),
@@ -249,7 +268,7 @@ def _generate_color_map(channel_names: list[str]) -> list[str | Colormap]:
     remaining_colors.extend(
         remaining_colors * (num_channels // len(remaining_colors))
     )
-    print(remaining_colors)
+    logger.debug(f"Remaining colors: {remaining_colors}")
 
     return [
         special_channels[ch]
@@ -277,7 +296,9 @@ def stitched_data_widget(
         edge=edge,
         mode=mode,
     )
-    print(f"Stitched shape {stitched_images.shape} ({stitched_images.dtype})")
+    logger.debug(
+        f"Stitched shape {stitched_images.shape} ({stitched_images.dtype})"
+    )
     names = ["Stitched Image"] * len(omero_data.channel_data)
     for k, v in omero_data.channel_data.items():
         names[int(v)] = k

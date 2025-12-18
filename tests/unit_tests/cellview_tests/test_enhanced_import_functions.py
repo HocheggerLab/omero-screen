@@ -171,10 +171,10 @@ class TestImportDataOrchestration:
         with patch('cellview.importers.import_functions.select_or_create_project') as mock_project:
             mock_project.side_effect = error
 
-            result = import_data(db, mock_state_core, db.conn)
+            with pytest.raises(DataError, match="Test error"):
+                import_data(db, mock_state_core, db.conn)
 
-            # Verify error handling
-            assert result == 1  # Error return code
+            # Verify cleanup was called
             mock_cleanup.assert_called_once_with(db, db.conn)
 
     @patch('cellview.importers.import_functions.clean_up_db')
@@ -374,9 +374,9 @@ class TestErrorHandling:
         error = StateError("Project selection failed")
         mock_project.side_effect = error
 
-        result = import_data(db, mock_state_core, db.conn)
+        with pytest.raises(StateError, match="Project selection failed"):
+            import_data(db, mock_state_core, db.conn)
 
-        assert result == 1
         mock_cleanup.assert_called_once_with(db, db.conn)
 
     @patch('cellview.importers.import_functions.clean_up_db')
@@ -388,9 +388,9 @@ class TestErrorHandling:
         error = StateError("Experiment selection failed")
         mock_experiment.side_effect = error
 
-        result = import_data(db, mock_state_core, db.conn)
+        with pytest.raises(StateError, match="Experiment selection failed"):
+            import_data(db, mock_state_core, db.conn)
 
-        assert result == 1
         mock_cleanup.assert_called_once_with(db, db.conn)
 
     @patch('cellview.importers.import_functions.clean_up_db')
@@ -404,9 +404,9 @@ class TestErrorHandling:
         error = DataError("Repeat creation failed")
         mock_repeat.side_effect = error
 
-        result = import_data(db, mock_state_core, db.conn)
+        with pytest.raises(DataError, match="Repeat creation failed"):
+            import_data(db, mock_state_core, db.conn)
 
-        assert result == 1
         mock_cleanup.assert_called_once_with(db, db.conn)
 
     @patch('cellview.importers.import_functions.clean_up_db')

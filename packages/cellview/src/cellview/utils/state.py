@@ -1332,10 +1332,10 @@ class CellViewStateCore:
         ]
 
         # Apply renaming
-        self.df.rename(columns=rename_map, inplace=True)
+        self.df = self.df.rename(columns=rename_map)
 
         # Drop _y columns
-        self.df.drop(columns=drop_cols, inplace=True, errors="ignore")
+        self.df = self.df.drop(columns=drop_cols, errors="ignore")
 
     def _optimize_measurement_types(self) -> None:
         """Optimize data types for measurement columns.
@@ -1348,6 +1348,12 @@ class CellViewStateCore:
             StateError: If the dataframe is not loaded.
         """
         assert isinstance(self.df, pd.DataFrame)
+
+        # Avoid SettingWithCopyWarning by ensuring we work on a copy if needed,
+        # but primarily by assigning back to the dataframe safely.
+        # If self.df is a view, we might want to copy it first.
+        # However, just assigning to column should work if we are careful.
+        # Using .loc is safer.
 
         for col in self.df.columns:
             # Skip if column is not numeric

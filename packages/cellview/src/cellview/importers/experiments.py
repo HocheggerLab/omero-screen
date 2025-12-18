@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
 
+from cellview.utils.error_classes import DBError
 from cellview.utils.state import CellViewState, CellViewStateCore
 from cellview.utils.ui import CellViewUI
 
@@ -52,6 +53,15 @@ class ExperimentManager:
         Returns:
             The ID of the selected experiment.
         """
+        # Optimization: If experiment_id is already set in state (e.g. from GUI selection),
+        # we don't need to select or create it. Populating names for completeness.
+        if self.state.experiment_id:
+            if not self.state.experiment_name:
+                self.state.experiment_name = self._fetch_experiment_name_by_id(
+                    self.state.experiment_id
+                )
+            return self.state.experiment_id
+
         if self.state.experiment_name:
             return self._parse_experimentid_from_name(
                 self.state.experiment_name
@@ -88,6 +98,32 @@ class ExperimentManager:
             return cast(int, result[0])
         self._create_new_experiment(name)
         return self._parse_experimentid_from_name(name)
+
+    def _fetch_experiment_name_by_id(self, experiment_id: int) -> str:
+        """Fetch the experiment name for a given experiment ID.
+
+        Args:
+            experiment_id: The ID of the experiment.
+
+        Returns:
+            The name of the experiment.
+        """
+        try:
+            result = self.db_conn.execute(
+                "SELECT experiment_name FROM experiments WHERE experiment_id = ?",
+                [experiment_id],
+            ).fetchone()
+            if result is None:
+                raise DBError(
+                    f"Experiment with ID {experiment_id} not found in database",
+                    context={"experiment_id": experiment_id},
+                )
+            return cast(str, result[0])
+        except duckdb.Error as err:
+            raise DBError(
+                "Failed to fetch experiment name from database",
+                context={"experiment_id": experiment_id, "error": str(err)},
+            ) from err
 
     def _fetch_existing_experiments(self) -> list[tuple[int, str, str]]:
         """Fetch all existing experiments for the current project from the database.

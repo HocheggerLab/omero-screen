@@ -109,6 +109,7 @@ def main_with_dependency_injection() -> None:
             edit_experiment(args.edit_experiment, conn)
         if args.delete_plate:
             del_measurements_by_plate_id(db, conn, args.delete_plate)
+            clean_up_db(db, conn)
     except CellViewError as e:
         e.display()
         import sys
@@ -177,6 +178,7 @@ def main() -> None:
             edit_experiment(args.edit_experiment, conn)
         if args.delete_plate:
             del_measurements_by_plate_id(db, conn, args.delete_plate)
+            clean_up_db(db, conn)
     except CellViewError as e:
         e.display()
         import sys

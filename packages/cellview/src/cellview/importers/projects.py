@@ -70,6 +70,15 @@ class ProjectManager:
         assert self.state.plate_id is not None
         self._check_plate_exists(self.state.plate_id)
 
+        # Optimization: If project_id is already set in state (e.g. from GUI selection),
+        # we don't need to select or create it. Populating names for completeness.
+        if self.state.project_id:
+            if not self.state.project_name:
+                self.state.project_name = self._get_project_name_by_id(
+                    self.state.project_id
+                )
+            return
+
         # Handle OMERO metadata confirmation flow
         if (
             hasattr(self.state, "_omero_import_mode")
@@ -124,6 +133,32 @@ class ProjectManager:
             return cast(int, result[0])
         self._create_new_project(name)
         return self._parse_projectid_from_name(name)
+
+    def _get_project_name_by_id(self, project_id: int) -> str:
+        """Fetch the project name for a given project ID.
+
+        Args:
+            project_id: The ID of the project.
+
+        Returns:
+            The name of the project.
+        """
+        try:
+            result = self.db_conn.execute(
+                "SELECT project_name FROM projects WHERE project_id = ?",
+                [project_id],
+            ).fetchone()
+            if result is None:
+                raise DBError(
+                    f"Project with ID {project_id} not found in database",
+                    context={"project_id": project_id},
+                )
+            return str(result[0])
+        except duckdb.Error as err:
+            raise DBError(
+                "Failed to fetch project name from database",
+                context={"project_id": project_id, "error": str(err)},
+            ) from err
 
     def _create_table(
         self, title: str, columns: list[tuple[str, JustifyMethod]]

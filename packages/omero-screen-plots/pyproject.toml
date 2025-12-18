@@ -96,6 +96,7 @@ lint.ignore = [
     "G004", # logging statement uses f-string
     "D203",  # conflicting with D211 (Google prefers D211)
     "D213",  # conflicting with D212 (Google prefers D212)
+    "BLE001", # Do not catch blind exception
 ]
 
 exclude = [

@@ -412,7 +412,7 @@ def display_experiment(
         return
 
     # Group by plate_id and collect repeats info, variable names, and cell lines
-    plate_dict = {}
+    plate_dict: dict[int, dict[str, Any]] = {}
     for row in rows:
         plate_id = row[0]
         repeats_info = row[1 : 1 + len(repeats_columns)]

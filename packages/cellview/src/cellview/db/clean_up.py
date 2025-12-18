@@ -3,6 +3,8 @@
 This module provides functions for cleaning up the database by removing orphaned records.
 """
 
+import contextlib
+
 import duckdb
 from rich.table import Table
 
@@ -37,7 +39,7 @@ def clean_up_db(db: CellViewDB, conn: duckdb.DuckDBPyConnection) -> None:
     table.add_column("Records Affected", style=Colors.ACCENT.value)
 
     # Start a transaction to ensure atomicity
-    conn.begin()
+    # conn.begin() # Removed: Auto-commit mode for best-effort cleanup
     try:
         total_cleaned = 0
         iteration = 1
@@ -49,79 +51,45 @@ def clean_up_db(db: CellViewDB, conn: duckdb.DuckDBPyConnection) -> None:
         while True:
             iteration_cleaned = 0
 
-            # Check and clean projects
-            ui.progress("Checking projects")
-            p_count = del_orphaned_projects(db, conn)
-            if p_count > 0:
-                table.add_row(
-                    f"Iteration {iteration}: Orphaned Projects",
-                    str(p_count),
-                )
-                iteration_cleaned += p_count
-                continue  # Start over if we found orphaned projects
-
-            # Check and clean experiments
-            ui.progress("Checking experiments")
-            e_count = del_orphaned_experiments(db, conn)
-            if e_count > 0:
-                table.add_row(
-                    f"Iteration {iteration}: Orphaned Experiments",
-                    str(e_count),
-                )
-                iteration_cleaned += e_count
-                continue  # Start over if we found orphaned experiments
-
-            # Check and clean repeats
-            ui.progress("Checking repeats")
-            r_count = del_orphaned_repeats(db, conn)
-            if r_count > 0:
-                table.add_row(
-                    f"Iteration {iteration}: Orphaned Repeats",
-                    str(r_count),
-                )
-                iteration_cleaned += r_count
-                continue  # Start over if we found orphaned repeats
-
-            # Check and clean measurements first (bottom-up)
+            # 1. Clean measurements (Bottom-up: refer to nothing useful)
             ui.progress("Checking measurements")
             m_count = del_orphaned_measurements(db, conn)
-            if m_count > 0:
-                table.add_row(
-                    f"Iteration {iteration}: Orphaned Measurements",
-                    str(m_count),
-                )
-                iteration_cleaned += m_count
-                continue  # Start over if we found orphaned measurements
+            iteration_cleaned += m_count
 
-            # Check and clean condition variables
+            # 2. Clean condition variables
             ui.progress("Checking condition variables")
             cv_count = del_orphaned_condition_variables(db, conn)
-            if cv_count > 0:
-                table.add_row(
-                    f"Iteration {iteration}: Orphaned Condition Variables",
-                    str(cv_count),
-                )
-                iteration_cleaned += cv_count
-                continue  # Start over if we found orphaned condition variables
+            iteration_cleaned += cv_count
 
-            # Check and clean conditions
+            # 3. Clean conditions ( aggressive: OR means if either half is missing, it's garbage )
             ui.progress("Checking conditions")
             c_count = del_orphaned_conditions(db, conn)
-            if c_count > 0:
-                table.add_row(
-                    f"Iteration {iteration}: Orphaned Conditions",
-                    str(c_count),
-                )
-                iteration_cleaned += c_count
-                continue  # Start over if we found orphaned conditions
+            iteration_cleaned += c_count
+
+            # 4. Clean repeats
+            ui.progress("Checking repeats")
+            r_count = del_orphaned_repeats(db, conn)
+            iteration_cleaned += r_count
+
+            # 5. Clean experiments
+            ui.progress("Checking experiments")
+            e_count = del_orphaned_experiments(db, conn)
+            iteration_cleaned += e_count
+
+            # 6. Clean projects
+            ui.progress("Checking projects")
+            p_count = del_orphaned_projects(db, conn)
+            iteration_cleaned += p_count
 
             total_cleaned += iteration_cleaned
             if iteration_cleaned == 0:
                 break  # No more orphaned records found
             iteration += 1
+            if iteration > 10:  # Safety break
+                break
 
         # Commit the transaction if all operations succeed
-        conn.commit()
+        # conn.commit() # Removed: Auto-commit mode
 
         # Display the results
         ui.header(
@@ -136,9 +104,107 @@ def clean_up_db(db: CellViewDB, conn: duckdb.DuckDBPyConnection) -> None:
 
     except Exception as e:
         # Rollback on any error
-        conn.rollback()
+        # conn.rollback() # Removed: No transaction
         ui.error(f"Error during cleanup: {str(e)}")
+        # If standard cleanup fails, attempt deep cleanup
+        try:
+            deep_clean_db(db, conn)
+        except Exception as deep_e:
+            ui.error(f"Deep cleanup also failed: {str(deep_e)}")
         raise e
+    finally:
+        # Final safety cleanup for any dangling experiments/projects without children
+        # We don't start a new transaction here, just try to clear them up
+        with contextlib.suppress(Exception):
+            del_orphaned_projects(db, conn)
+
+
+def deep_clean_db(db: CellViewDB, conn: duckdb.DuckDBPyConnection) -> None:
+    """Perform an aggressive database scan and cleanup of all broken references.
+
+    This function explicitly checks for children pointing to non-existent parents
+    across all tables, and then performs a full bottom-up orphan cleanup.
+    """
+    ui.header(
+        "Deep Database Cleanup", "Aggressively removing all dangling records"
+    )
+    # Note: We do NOT start a transaction here (conn.begin()).
+    # Deep cleanup is a "best effort" operation. If one delete fails (e.g. strict FK),
+    # we want to continue trying to delete other records.
+    # Individual delete statements will be auto-committed.
+
+    try:
+        # 1. Clean broken references (Children pointing to missing parents)
+
+        # Measurements -> Conditions
+        m_count = conn.execute("""
+            DELETE FROM measurements
+            WHERE condition_id NOT IN (SELECT condition_id FROM conditions)
+        """).rowcount
+        if m_count > 0:
+            ui.info(f"Cleaned {m_count} measurements with missing conditions")
+
+        # Condition Variables -> Conditions
+        cv_count = conn.execute("""
+            DELETE FROM condition_variables
+            WHERE condition_id NOT IN (SELECT condition_id FROM conditions)
+        """).rowcount
+        if cv_count > 0:
+            ui.info(
+                f"Cleaned {cv_count} condition variables with missing conditions"
+            )
+
+        # Conditions -> Repeats
+        c_count = conn.execute("""
+            DELETE FROM conditions
+            WHERE repeat_id NOT IN (SELECT repeat_id FROM repeats)
+        """).rowcount
+        if c_count > 0:
+            ui.info(f"Cleaned {c_count} conditions with missing repeats")
+
+        # Repeats -> Experiments
+        r_count = conn.execute("""
+            DELETE FROM repeats
+            WHERE experiment_id NOT IN (SELECT experiment_id FROM experiments)
+        """).rowcount
+        if r_count > 0:
+            ui.info(f"Cleaned {r_count} repeats with missing experiments")
+
+        # Experiments -> Projects
+        e_count = conn.execute("""
+            DELETE FROM experiments
+            WHERE project_id NOT IN (SELECT project_id FROM projects)
+        """).rowcount
+        if e_count > 0:
+            ui.info(f"Cleaned {e_count} experiments with missing projects")
+
+        # 2. Perform exhaustive orphan cleanup (Parents with no children)
+        # Loop multiple times to handle multi-level orphans (e.g. project -> exp -> repeat)
+        total_orphans = 0
+        for _ in range(3):
+            iteration_cleaned = 0
+            iteration_cleaned += del_orphaned_measurements(db, conn)
+            iteration_cleaned += del_orphaned_condition_variables(db, conn)
+            iteration_cleaned += del_orphaned_conditions(db, conn)
+            iteration_cleaned += del_orphaned_repeats(db, conn)
+            iteration_cleaned += del_orphaned_experiments(db, conn)
+            iteration_cleaned += del_orphaned_projects(db, conn)
+            total_orphans += iteration_cleaned
+            if iteration_cleaned == 0:
+                break
+
+        # conn.commit() # Removed: Auto-commit mode
+        if total_orphans > 0:
+            ui.success(
+                f"Deep cleanup removed {total_orphans} orphaned records"
+            )
+        ui.success("Deep database cleanup completed successfully")
+
+    except Exception as e:
+        # conn.rollback() # Removed: No transaction to rollback
+        ui.error(f"Deep cleanup failed: {str(e)}")
+        # We don't re-raise here to allow the application to proceed if possible,
+        # or at least show what WAS cleaned.
 
 
 def del_orphaned_projects(
@@ -153,33 +219,51 @@ def del_orphaned_projects(
     Returns:
         The number of projects deleted
     """
-    result = conn.execute("""
-        SELECT COUNT(*)
-        FROM projects p
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM experiments e
-            WHERE e.project_id = p.project_id
+    # Find orphans first
+    orphans = conn.execute("""
+        SELECT project_id, project_name
+        FROM projects
+        WHERE project_id NOT IN (
+            SELECT DISTINCT project_id
+            FROM experiments
+            WHERE project_id IS NOT NULL
         )
-    """).fetchone()
-    count = result[0] if result else 0
+    """).fetchall()
 
-    if count > 0:
-        conn.execute("""
-            DELETE FROM projects p
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM experiments e
-                WHERE e.project_id = p.project_id
+    if not orphans:
+        return 0
+
+    count = 0
+    for p_id, p_name in orphans:
+        try:
+            # Triple check dependencies before delete for diagnosis
+            refs = conn.execute(
+                "SELECT experiment_id FROM experiments WHERE project_id = ?",
+                [p_id],
+            ).fetchall()
+
+            if refs:
+                ui.warning(
+                    f"Project {p_name} (ID: {p_id}) was marked as orphan, but "
+                    f"DEBUG check found remaining experiments: {refs}"
+                )
+                continue
+
+            conn.execute("DELETE FROM projects WHERE project_id = ?", [p_id])
+            count += 1
+            ui.info(f"Deleted orphaned project: {p_name} (ID: {p_id})")
+        except Exception as e:
+            ui.warning(
+                f"Could not delete project {p_name} (ID: {p_id}). It might be referenced by a table not explicitly checked: {str(e)}"
             )
-        """)
+
     return count
 
 
 def del_orphaned_experiments(
     db: CellViewDB, conn: duckdb.DuckDBPyConnection
 ) -> int:
-    """Delete experiments that don't have any repeats.
+    """Delete experiments that don't have any repeats or valid projects.
 
     Args:
         db: The CellViewDB instance
@@ -188,33 +272,40 @@ def del_orphaned_experiments(
     Returns:
         The number of experiments deleted
     """
-    result = conn.execute("""
-        SELECT COUNT(*)
-        FROM experiments e
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM repeats r
-            WHERE r.experiment_id = e.experiment_id
+    # Find orphans
+    orphans = conn.execute("""
+        SELECT experiment_id, experiment_name
+        FROM experiments
+        WHERE experiment_id NOT IN (
+            SELECT DISTINCT experiment_id
+            FROM repeats
+            WHERE experiment_id IS NOT NULL
         )
-    """).fetchone()
-    count = result[0] if result else 0
+        OR project_id NOT IN (SELECT project_id FROM projects)
+    """).fetchall()
 
-    if count > 0:
-        conn.execute("""
-            DELETE FROM experiments e
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM repeats r
-                WHERE r.experiment_id = e.experiment_id
+    if not orphans:
+        return 0
+
+    count = 0
+    for e_id, e_name in orphans:
+        try:
+            conn.execute(
+                "DELETE FROM experiments WHERE experiment_id = ?", [e_id]
             )
-        """)
+            count += 1
+            ui.info(f"Deleted orphaned experiment: {e_name} (ID: {e_id})")
+        except Exception as e:
+            ui.warning(
+                f"Could not delete experiment {e_name} (ID: {e_id}): {str(e)}"
+            )
     return count
 
 
 def del_orphaned_repeats(
     db: CellViewDB, conn: duckdb.DuckDBPyConnection
 ) -> int:
-    """Delete repeats that don't have any conditions.
+    """Delete repeats that don't have any conditions or valid experiments.
 
     Args:
         db: The CellViewDB instance
@@ -223,33 +314,36 @@ def del_orphaned_repeats(
     Returns:
         The number of repeats deleted
     """
-    result = conn.execute("""
-        SELECT COUNT(*)
-        FROM repeats r
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM conditions c
-            WHERE c.repeat_id = r.repeat_id
+    # Find orphans
+    orphans = conn.execute("""
+        SELECT repeat_id, experiment_id, plate_id
+        FROM repeats
+        WHERE repeat_id NOT IN (
+            SELECT DISTINCT repeat_id
+            FROM conditions
+            WHERE repeat_id IS NOT NULL
         )
-    """).fetchone()
-    count = result[0] if result else 0
+        OR experiment_id NOT IN (SELECT experiment_id FROM experiments)
+    """).fetchall()
 
-    if count > 0:
-        conn.execute("""
-            DELETE FROM repeats r
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM conditions c
-                WHERE c.repeat_id = r.repeat_id
-            )
-        """)
+    if not orphans:
+        return 0
+
+    count = 0
+    for r_id, _, plate_id in orphans:
+        try:
+            conn.execute("DELETE FROM repeats WHERE repeat_id = ?", [r_id])
+            count += 1
+            ui.info(f"Deleted orphaned repeat: ID {r_id} (Plate {plate_id})")
+        except Exception as e:
+            ui.warning(f"Could not delete repeat ID {r_id}: {str(e)}")
     return count
 
 
 def del_orphaned_conditions(
     db: CellViewDB, conn: duckdb.DuckDBPyConnection
 ) -> int:
-    """Delete conditions that don't have any measurements or condition variables.
+    """Delete conditions that don't have any measurements or valid repeats.
 
     Args:
         db: The CellViewDB instance
@@ -258,112 +352,64 @@ def del_orphaned_conditions(
     Returns:
         The number of conditions deleted
     """
-    result = conn.execute("""
-        SELECT c.condition_id, c.repeat_id, c.well, c.cell_line,
-               r.plate_id, r.experiment_id, e.project_id
-        FROM conditions c
-        JOIN repeats r ON c.repeat_id = r.repeat_id
-        JOIN experiments e ON r.experiment_id = e.experiment_id
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM measurements m
-            WHERE m.condition_id = c.condition_id
+    # First, delete conditions that point to missing repeats (Broken references)
+    broken = conn.execute("""
+        SELECT condition_id, well
+        FROM conditions
+        WHERE repeat_id NOT IN (SELECT repeat_id FROM repeats)
+    """).fetchall()
+
+    for c_id, well in broken:
+        try:
+            conn.execute(
+                "DELETE FROM conditions WHERE condition_id = ?", [c_id]
+            )
+            ui.info(f"Cleaned broken condition {well} (ID: {c_id})")
+        except Exception:
+            pass
+
+    # Then find conditions missing data (No measurements OR no condition variables)
+    orphans = conn.execute("""
+        SELECT condition_id, well
+        FROM conditions
+        WHERE condition_id NOT IN (
+            SELECT DISTINCT condition_id
+            FROM measurements
+            WHERE condition_id IS NOT NULL
         )
-        OR NOT EXISTS (
-            SELECT 1
-            FROM condition_variables cv
-            WHERE cv.condition_id = c.condition_id
+        OR condition_id NOT IN (
+            SELECT DISTINCT condition_id
+            FROM condition_variables
+            WHERE condition_id IS NOT NULL
         )
     """).fetchall()
 
-    if not result:
+    if not orphans:
         return 0
 
-    # Group results by plate_id
-    plates: dict[int, list[tuple[int, int, str, str, int, int, int]]] = {}
-    for row in result:
-        plate_id = row[4]
-        if plate_id not in plates:
-            plates[plate_id] = []
-        plates[plate_id].append(row)
-
-    total_deleted = 0
-    # Process each plate
-    for plate_id, plate_conditions in plates.items():
-        ui.header(
-            f"Plate {plate_id} Cleanup",
-            "Removing orphaned conditions and related data",
-        )
-
-        # Create table for this plate's conditions
-        table = Table(
-            title=f"Records to be deleted from plate {plate_id}",
-            title_style=Colors.TITLE.value,
-        )
-        table.add_column("Condition ID", style=Colors.PRIMARY.value)
-        table.add_column("Well", style=Colors.SECONDARY.value)
-        table.add_column("Cell Line", style=Colors.INFO.value)
-
-        for condition_id, _, well, cell_line, _, _, _ in plate_conditions:
-            table.add_row(str(condition_id), str(well), str(cell_line))
-
-            # Count and delete condition variables
-            cv_result = conn.execute(
-                """
-                SELECT COUNT(*)
-                FROM condition_variables
-                WHERE condition_id = ?
-            """,
-                [condition_id],
-            ).fetchone()
-            cv_count = cv_result[0] if cv_result else 0
-            if cv_count > 0:
-                conn.execute(
-                    """
-                    DELETE FROM condition_variables
-                    WHERE condition_id = ?
-                """,
-                    [condition_id],
-                )
-                conn.commit()  # Commit after deleting condition variables
-                total_deleted += cv_count
-
-            # Count and delete measurements
-            m_result = conn.execute(
-                """
-                SELECT COUNT(*)
-                FROM measurements
-                WHERE condition_id = ?
-            """,
-                [condition_id],
-            ).fetchone()
-            m_count = m_result[0] if m_result else 0
-            if m_count > 0:
-                conn.execute(
-                    """
-                    DELETE FROM measurements
-                    WHERE condition_id = ?
-                """,
-                    [condition_id],
-                )
-                conn.commit()  # Commit after deleting measurements
-                total_deleted += m_count
-
-            # Delete the condition itself
+    count = 0
+    for c_id, well in orphans:
+        try:
+            # 1. Clean child records first (Redundant but safe)
             conn.execute(
-                """
-                DELETE FROM conditions
-                WHERE condition_id = ?
-            """,
-                [condition_id],
+                "DELETE FROM condition_variables WHERE condition_id = ?",
+                [c_id],
             )
-            conn.commit()  # Commit after deleting condition
-            total_deleted += 1
+            conn.execute(
+                "DELETE FROM measurements WHERE condition_id = ?", [c_id]
+            )
 
-        ui.console.print(table)
-        ui.success(f"Deleted {total_deleted} records from plate {plate_id}")
-
-    return total_deleted
+            # 2. Delete the condition
+            conn.execute(
+                "DELETE FROM conditions WHERE condition_id = ?", [c_id]
+            )
+            count += 1
+            ui.info(f"Deleted orphaned condition: {well} (ID: {c_id})")
+        except Exception as e:
+            ui.warning(
+                f"Could not delete condition {well} (ID: {c_id}): {str(e)}"
+            )
+    return count
 
 
 def del_orphaned_measurements(
@@ -378,26 +424,27 @@ def del_orphaned_measurements(
     Returns:
         The number of measurements deleted
     """
-    result = conn.execute("""
-        SELECT COUNT(*)
-        FROM measurements m
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM conditions c
-            WHERE c.condition_id = m.condition_id
-        )
-    """).fetchone()
-    count = result[0] if result else 0
+    orphans = conn.execute("""
+        SELECT measurement_id, condition_id
+        FROM measurements
+        WHERE condition_id NOT IN (SELECT condition_id FROM conditions)
+    """).fetchall()
+
+    if not orphans:
+        return 0
+
+    count = 0
+    for m_id, _ in orphans:
+        try:
+            conn.execute(
+                "DELETE FROM measurements WHERE measurement_id = ?", [m_id]
+            )
+            count += 1
+        except Exception:
+            pass
 
     if count > 0:
-        conn.execute("""
-            DELETE FROM measurements m
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM conditions c
-                WHERE c.condition_id = m.condition_id
-            )
-        """)
+        ui.info(f"Deleted {count} orphaned measurements")
     return count
 
 
@@ -413,26 +460,31 @@ def del_orphaned_condition_variables(
     Returns:
         The number of condition variables deleted
     """
-    result = conn.execute("""
-        SELECT COUNT(*)
-        FROM condition_variables cv
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM conditions c
-            WHERE c.condition_id = cv.condition_id
+    orphans = conn.execute("""
+        SELECT variable_id, condition_id
+        FROM condition_variables
+        WHERE condition_id NOT IN (
+            SELECT DISTINCT condition_id
+            FROM conditions
+            WHERE condition_id IS NOT NULL
         )
-    """).fetchone()
-    count = result[0] if result else 0
+    """).fetchall()
+
+    if not orphans:
+        return 0
+
+    count = 0
+    for v_id, _ in orphans:
+        try:
+            conn.execute(
+                "DELETE FROM condition_variables WHERE variable_id = ?", [v_id]
+            )
+            count += 1
+        except Exception:
+            pass
 
     if count > 0:
-        conn.execute("""
-            DELETE FROM condition_variables cv
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM conditions c
-                WHERE c.condition_id = cv.condition_id
-            )
-        """)
+        ui.info(f"Deleted {count} orphaned condition variables")
     return count
 
 
@@ -523,16 +575,18 @@ def del_measurements_by_plate_id(
         # Delete the measurements
         conn.execute(
             """
-            DELETE FROM measurements m
-            USING conditions c, repeats r
-            WHERE m.condition_id = c.condition_id
-            AND c.repeat_id = r.repeat_id
-            AND r.plate_id = ?
+            DELETE FROM measurements
+            WHERE condition_id IN (
+                SELECT c.condition_id
+                FROM conditions c
+                JOIN repeats r ON c.repeat_id = r.repeat_id
+                WHERE r.plate_id = ?
+            )
         """,
             [plate_id],
         )
-        conn.commit()
-        clean_up_db(db, conn)
+        # We don't commit here, let the caller handle it or let it auto-commit
+        # clean_up_db(db, conn) # Removed recursive call to avoid transaction issues
         ui.header(
             f"Plate {plate_id} Successfully Deleted",
         )
