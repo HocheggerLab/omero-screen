@@ -3,7 +3,7 @@ from typing import Any
 
 from omero_screen.config import get_logger
 
-logger = get_logger("omero-screen-napari")
+logger = get_logger(__name__)
 
 
 @dataclass

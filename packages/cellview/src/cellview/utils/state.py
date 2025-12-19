@@ -25,7 +25,6 @@ from cellview.utils.error_classes import DataError, DBError, StateError
 from cellview.utils.ui import CellViewUI
 from omero_screen.config import get_logger
 
-# Initialize logger with the module's name
 logger = get_logger(__name__)
 
 JustifyMethod = Literal["default", "left", "center", "right", "full"]
@@ -86,7 +85,7 @@ class CellViewStateCore:
     def __post_init__(self) -> None:
         """Initialize logger and console after dataclass initialization."""
         if self.logger is None:
-            self.logger = get_logger(__name__)
+            self.logger = logger
 
     @classmethod
     def create_from_args(
@@ -103,9 +102,7 @@ class CellViewStateCore:
         Raises:
             DataError: If there are issues reading CSV data or processing
         """
-        instance = cls(
-            ui=CellViewUI(), console=Console(), logger=get_logger(__name__)
-        )
+        instance = cls(ui=CellViewUI(), console=Console(), logger=logger)
 
         # Initialize from args if provided
         if args and args.csv:

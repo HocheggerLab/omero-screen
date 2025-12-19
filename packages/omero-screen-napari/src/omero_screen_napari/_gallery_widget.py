@@ -1,15 +1,13 @@
-import logging
-
 from magicgui import magic_factory
 from magicgui.widgets import Container
+from omero_screen.config import get_logger
 from qtpy.QtWidgets import QMessageBox
 
 from omero_screen_napari.gallery_api import run_gallery_parser, show_gallery
 from omero_screen_napari.gallery_userdata_singleton import userdata
 from omero_screen_napari.omero_data_singleton import omero_data
 
-logger = logging.getLogger("omero-screen-napari")
-logging.basicConfig(level=logging.DEBUG)
+logger = get_logger(__name__)
 
 
 def gallery_gui_widget() -> Container:  # type: ignore

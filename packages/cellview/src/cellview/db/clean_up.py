@@ -10,6 +10,10 @@ from rich.table import Table
 
 from cellview.db.db import CellViewDB
 from cellview.utils.ui import CellViewUI, Colors
+from omero_screen.config import get_logger
+
+logger = get_logger(__name__)
+
 
 ui = CellViewUI()
 

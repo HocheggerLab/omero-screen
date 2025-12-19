@@ -24,7 +24,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Define project_root at module level
+# Define project_root at module level
 project_root = Path(__file__).parent.parent.parent.resolve()
+
+_LOGGING_CONFIGURED = False
 
 
 def find_project_root() -> Path:
@@ -89,13 +92,13 @@ def set_env_vars() -> None:
     # Try environment-specific file first
     env_specific_path = project_root / f".env.{env}"
     if env_specific_path.exists():
-        load_dotenv(env_specific_path)
+        load_dotenv(env_specific_path, override=True)
         return
 
     # Fall back to default .env file
     default_env_path = project_root / ".env"
     if default_env_path.exists():
-        load_dotenv(default_env_path)
+        load_dotenv(default_env_path, override=True)
         return
 
     # If no files found, check for required environment variables
@@ -199,18 +202,21 @@ def get_logger(name: str) -> logging.Logger:
         except ValueError:
             # Fallback if file is not in src directory
             name = module_path.stem
-    # Get or create the logger
+
+    # Get the requested logger
     logger = logging.getLogger(name)
 
-    # If the root logger isn't configured yet, configure it
-    root_logger = logging.getLogger()
-    if not root_logger.handlers:
+    # Configure logging system if not yet configured
+    global _LOGGING_CONFIGURED
+    if not _LOGGING_CONFIGURED:
+        _LOGGING_CONFIGURED = True
+
         validate_env_vars()
 
-        # Retrieve logging configurations from environment variables
+        # Load Config
         LOG_LEVEL = (
             os.getenv("LOG_LEVEL", "INFO").split("#")[0].strip().upper()
-        )  # Default to INFO level
+        )
         LOG_FORMAT = (
             os.getenv(
                 "LOG_FORMAT",
@@ -224,32 +230,27 @@ def get_logger(name: str) -> logging.Logger:
         LOG_FILE_PATH = (
             os.getenv("LOG_FILE_PATH", "logs/app.log").split("#")[0].strip()
         )
-        LOG_MAX_BYTES = getenv_as_int("LOG_MAX_BYTES", 1048576)  # 1MB default
+
+        # Ensure log path is absolute
+        log_path_obj = Path(LOG_FILE_PATH)
+        if not log_path_obj.is_absolute():
+            log_path_obj = project_root / LOG_FILE_PATH
+        LOG_FILE_PATH = str(log_path_obj)
+
+        LOG_MAX_BYTES = getenv_as_int("LOG_MAX_BYTES", 1048576)
         LOG_BACKUP_COUNT = getenv_as_int("LOG_BACKUP_COUNT", 5)
 
-        # Configure the root logger
-        root_logger.setLevel(
-            getattr(logging, LOG_LEVEL, logging.DEBUG)
-        )  # Use LOG_LEVEL from env
-
-        # Prevent propagation beyond our root logger
-        root_logger.propagate = False
-
-        # Suppress specific external package logs
-        omero_logger = logging.getLogger("omero")
-        omero_logger.setLevel(logging.WARNING)
-        omero_logger.propagate = True  # Allow OMERO logs to propagate to root
-
-        # Formatter
         formatter = logging.Formatter(LOG_FORMAT)
+
+        # Prepare Handlers
+        handlers: list[logging.Handler] = []
 
         # Console Handler
         if ENABLE_CONSOLE_LOGGING:
             ch = logging.StreamHandler()
-            ch.setLevel(
-                getattr(logging, LOG_LEVEL, logging.DEBUG)
-            )  # Set console handler to desired level
-            configure_log_handler(ch, LOG_LEVEL, formatter, root_logger)
+            ch.setLevel(getattr(logging, LOG_LEVEL, logging.DEBUG))
+            ch.setFormatter(formatter)
+            handlers.append(ch)
 
         # File Handler
         if ENABLE_FILE_LOGGING:
@@ -262,17 +263,60 @@ def get_logger(name: str) -> logging.Logger:
                 maxBytes=LOG_MAX_BYTES,
                 backupCount=LOG_BACKUP_COUNT,
             )
-            fh.setLevel(
-                getattr(logging, LOG_LEVEL, logging.DEBUG)
-            )  # Set file handler to desired level
-            configure_log_handler(fh, LOG_LEVEL, formatter, root_logger)
+            fh.setLevel(getattr(logging, LOG_LEVEL, logging.DEBUG))
+            fh.setFormatter(formatter)
+            handlers.append(fh)
 
-    # Suppress external logs
-    logging.getLogger("numba").setLevel(logging.WARNING)
-    logging.getLogger("matplotlib").setLevel(logging.WARNING)
-    logging.getLogger("omero").setLevel(logging.WARNING)
-    logging.getLogger("fontTools").setLevel(logging.WARNING)
-    logging.getLogger("cellpose").setLevel(logging.WARNING)
+        root_logger = logging.getLogger()
+
+        # Strategy Detection
+        # If root logger has handlers, we assume we are running as a plugin (e.g. Napari)
+        # and should avoid messing with the root logger to prevent console noise/duplication.
+        is_plugin_mode = len(root_logger.handlers) > 0
+
+        if is_plugin_mode:
+            # Plugin Mode: Configure specific package loggers only and isolate them
+            # We configure the top-level packages that we own
+            packages_to_configure = [
+                "omero_screen",
+                "cellview",
+                "omero_utils",
+                "omero_screen_napari",
+            ]
+
+            for pkg_name in packages_to_configure:
+                pkg_logger = logging.getLogger(pkg_name)
+                pkg_logger.setLevel(getattr(logging, LOG_LEVEL, logging.DEBUG))
+                pkg_logger.propagate = (
+                    False  # Stop bubbling to Napari root logger
+                )
+
+                # Clear existing handlers to avoid duplication if re-run (though _LOGGING_CONFIGURED protects us)
+                pkg_logger.handlers.clear()
+
+                for h in handlers:
+                    pkg_logger.addHandler(h)
+
+        else:
+            # Standalone Mode: Configure Root Logger
+            root_logger.setLevel(getattr(logging, LOG_LEVEL, logging.DEBUG))
+            root_logger.propagate = False
+
+            # Suppress external logs
+            logging.getLogger("omero").setLevel(logging.WARNING)
+            logging.getLogger("omero").propagate = True
+
+            for h in handlers:
+                # Avoid adding duplicate handlers if they somehow exist
+                if h not in root_logger.handlers:
+                    root_logger.addHandler(h)
+
+        # Common suppressions (apply to all modes)
+        logging.getLogger("numba").setLevel(logging.WARNING)
+        logging.getLogger("matplotlib").setLevel(logging.WARNING)
+        logging.getLogger("omero").setLevel(logging.WARNING)
+        logging.getLogger("fontTools").setLevel(logging.WARNING)
+        logging.getLogger("cellpose").setLevel(logging.WARNING)
 
     return logger
 

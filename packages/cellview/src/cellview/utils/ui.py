@@ -1,6 +1,5 @@
-"""Module for the CellViewUI class and related functions."""
+"""UI utilities for CellView application."""
 
-import logging
 from enum import Enum
 from typing import Any, Literal, Optional
 
@@ -10,6 +9,10 @@ from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
+
+from omero_screen.config import get_logger
+
+logger = get_logger(__name__)
 
 # Define justify method type to match Rich's expected values
 JustifyMethod = Literal["default", "left", "center", "right", "full"]
@@ -42,19 +45,13 @@ class CellViewUI:
     def __init__(
         self,
         console: Optional[Console] = None,
-        enable_logging: bool = False,
-        logger: Optional[logging.Logger] = None,
     ) -> None:
         """Initialize the CellViewUI class.
 
         Args:
             console: The console to use.
-            enable_logging: Whether to enable logging.
-            logger: The logger to use.
         """
         self.console = console or Console()
-        self.enable_logging = enable_logging
-        self.logger = logger
 
     def _log(self, message: str, level: str = "info") -> None:
         """Log a message.
@@ -63,9 +60,8 @@ class CellViewUI:
             message: The message to log.
             level: The level to log the message at.
         """
-        if self.enable_logging and self.logger:
-            log_func = getattr(self.logger, level, self.logger.info)
-            log_func(message)
+        log_func = getattr(logger, level, logger.info)
+        log_func(message)
 
     def section(self, title: str, subtitle: Optional[str] = None) -> None:
         """Draw a formatted section header.

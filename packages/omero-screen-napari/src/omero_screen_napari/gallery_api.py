@@ -20,7 +20,7 @@ from omero_screen_napari.omero_data import OmeroData
 from omero_screen_napari.utils import save_fig
 from omero_screen_napari.welldata_api import well_image_parser
 
-logger = get_logger("omero-screen-napari")
+logger = get_logger(__name__)
 
 
 def show_gallery(

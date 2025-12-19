@@ -1,6 +1,6 @@
 """Module for handling shared message and error management for OMERO utilities.
 
-This module provides a shared console instance for logging and printing messages,
+This module provides a shared console instance for logger and printing messages,
 as well as a base class for all OMERO-related errors.
 
 Available functions:

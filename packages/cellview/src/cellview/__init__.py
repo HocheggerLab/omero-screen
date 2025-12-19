@@ -16,8 +16,11 @@ Access Points:
 """
 
 __version__ = "0.1.2"
+from omero_screen.config import set_env_vars
+
+set_env_vars()
 
 
-from cellview.api import cellview_load_data
+from cellview.api import cellview_load_data  # noqa: E402
 
 __all__ = ["cellview_load_data"]

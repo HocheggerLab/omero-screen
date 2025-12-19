@@ -14,7 +14,6 @@ from cellview.utils.error_classes import MeasurementError
 from cellview.utils.state import CellViewState, CellViewStateCore
 from omero_screen.config import get_logger
 
-# Initialize logger with the module's name
 logger = get_logger(__name__)
 
 

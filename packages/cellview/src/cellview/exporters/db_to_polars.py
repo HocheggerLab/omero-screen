@@ -8,6 +8,9 @@ import duckdb
 import polars as pl
 
 from cellview.utils.ui import CellViewUI
+from omero_screen.config import get_logger
+
+logger = get_logger(__name__)
 
 
 class PlateParserPolars:
@@ -66,7 +69,7 @@ class PlateParserPolars:
                 df["variable_name"].drop_nulls().unique().to_list()
             )
 
-        self.ui.info(f"Unique variables: {variable_names}")
+        logger.info(f"Unique variables: {variable_names}")
 
         if (
             not df.is_empty()
@@ -162,12 +165,12 @@ class PlateParserPolars:
         # Debug logging
         if "cell_cycle" in df.columns:
             uniques = df["cell_cycle"].unique().to_list()
-            self.ui.info(
-                f"[DEBUG] Loaded measurements for plate {plate_id}. 'cell_cycle' uniques: {uniques}"
+            logger.debug(
+                f"Loaded measurements for plate {plate_id}. 'cell_cycle' uniques: {uniques}"
             )
         else:
-            self.ui.error(
-                "[DEBUG] 'cell_cycle' column MISSING from measurements query result!"
+            logger.debug(
+                "cell_cycle column MISSING from measurements query result!"
             )
 
         return df
@@ -188,7 +191,7 @@ class PlateParserPolars:
         measurements_df = self._get_measurements(plate_id)
 
         if measurements_df.is_empty():
-            self.ui.error(f"No measurements found for plate {plate_id}")
+            logger.error(f"No measurements found for plate {plate_id}")
             return pl.DataFrame(), variable_names
 
         # Merge measurements with condition variables
@@ -197,7 +200,7 @@ class PlateParserPolars:
             conditions_df, on=["well", "well_id"], how="left"
         )
 
-        self.ui.info(
+        logger.info(
             f"Retrieved DataFrame with {len(df)} rows and {len(df.columns)} columns"
         )
         return df, variable_names

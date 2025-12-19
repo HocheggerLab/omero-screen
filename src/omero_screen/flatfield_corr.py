@@ -8,7 +8,6 @@ function returns a dictionary mapping channel names to their corresponding
 flatfield correction masks.
 """
 
-import logging
 import os
 import platform
 import random
@@ -32,6 +31,7 @@ from tqdm import tqdm
 from typing_extensions import Generator
 
 from omero_screen.aggregator import ImageAggregator
+from omero_screen.config import get_logger
 from omero_screen.general_functions import scale_img
 
 # from omero_screen.general_functions import (
@@ -41,7 +41,7 @@ from omero_screen.general_functions import scale_img
 # )
 from .metadata_parser import MetadataParser
 
-logger = logging.getLogger("omero-screen")
+logger = get_logger(__name__)
 
 if platform.system() == "Darwin":
     matplotlib.use(

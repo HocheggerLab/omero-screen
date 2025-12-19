@@ -14,7 +14,9 @@ Available modules:
 """
 
 __version__ = "0.1.1"
+from omero_screen.config import set_env_vars
 
-from .omero_connect import omero_connect
+set_env_vars()
+from .omero_connect import omero_connect  # noqa: E402
 
 __all__ = ["omero_connect"]

@@ -7,12 +7,11 @@ import os
 from pathlib import Path
 
 import duckdb
-from omero_screen.config import get_logger
 
 from cellview.utils.error_classes import DBError
 from cellview.utils.ui import CellViewUI
+from omero_screen.config import get_logger
 
-# Initialize logger with the module's name
 logger = get_logger(__name__)
 
 
@@ -45,7 +44,7 @@ class CellViewDB:
             self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn: duckdb.DuckDBPyConnection | None = None
-        self.logger = get_logger(__name__)
+        self.logger = logger
 
     def _is_initialized(self) -> bool:
         """Check if the database has been initialized with tables.

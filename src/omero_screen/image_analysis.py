@@ -20,7 +20,6 @@ Key Features:
 - Quality control metrics for each image channel.
 """
 
-import logging
 from typing import Any
 
 import numpy as np
@@ -34,12 +33,13 @@ from pandas.api.types import is_integer_dtype
 from skimage import measure
 
 from omero_screen import default_config
+from omero_screen.config import get_logger
 from omero_screen.general_functions import filter_segmentation, scale_img
 from omero_screen.image_classifier import ImageClassifier
 from omero_screen.metadata_parser import MetadataParser
 from omero_screen.torch import get_device
 
-logger = logging.getLogger("omero-screen")
+logger = get_logger(__name__)
 
 
 class Image:

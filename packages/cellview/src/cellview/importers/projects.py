@@ -16,10 +16,9 @@ from cellview.utils.state import CellViewState, CellViewStateCore
 from cellview.utils.ui import CellViewUI
 from omero_screen.config import get_logger
 
-JustifyMethod = Literal["default", "left", "center", "right", "full"]
-
-# Initialize logger with the module's name
 logger = get_logger(__name__)
+
+JustifyMethod = Literal["default", "left", "center", "right", "full"]
 
 
 class ProjectManager:
