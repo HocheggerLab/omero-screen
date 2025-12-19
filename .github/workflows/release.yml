@@ -85,16 +85,17 @@ jobs:
               esac
 
               echo "New version: $NEW_VERSION"
+              echo "DEBUG: NEW_VERSION='${NEW_VERSION}'"
 
-              # Update version manually
-              sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" pyproject.toml
+              # Update version manually (using | as delimiter to avoid escaping issues)
+              sed -i "s|^version = \".*\"|version = \"${NEW_VERSION}\"|" pyproject.toml
 
               # Determine the correct __init__.py path based on package name
               PACKAGE_UNDERSCORE=$(echo "$PACKAGE" | tr '-' '_')
               INIT_FILE="src/${PACKAGE_UNDERSCORE}/__init__.py"
 
               if [ -f "$INIT_FILE" ]; then
-                sed -i "s/__version__ = \".*\"/__version__ = \"$NEW_VERSION\"/" "$INIT_FILE"
+                sed -i "s|__version__ = \".*\"|__version__ = \"${NEW_VERSION}\"|" "$INIT_FILE"
                 git add pyproject.toml "$INIT_FILE"
               else
                 echo "Warning: $INIT_FILE not found, updating pyproject.toml only"
