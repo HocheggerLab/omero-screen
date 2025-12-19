@@ -89,8 +89,8 @@ def test_env_files(tmp_path) -> Generator[Path, None, None]:
         """
     LOG_LEVEL=INFO
     HOST=localhost
-    USERNAME=default-user
-    PASSWORD=default-pass
+    USERNAME=root
+    PASSWORD=omero
     LOG_FILE_PATH=/tmp/omero_screen_default.log
     ENABLE_CONSOLE_LOGGING=true
     ENABLE_FILE_LOGGING=false
