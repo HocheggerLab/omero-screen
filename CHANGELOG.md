@@ -1,3 +1,9 @@
+## omero-screen-v0.2.5 (2025-12-21)
+
+### Fix
+
+- synchronize package versions and simplify release workflow
+
 ## omero-screen-v0.2.4 (2025-12-10)
 
 ### Fix

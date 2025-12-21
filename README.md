@@ -10,7 +10,7 @@ omero-utils (./packages/omero-utils) is a collection of helper functions to work
 
 ## Status
 
-Version: ![version](https://img.shields.io/badge/version-0.2.4-blue)
+Version: ![version](https://img.shields.io/badge/version-0.2.5-blue)
 
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 
