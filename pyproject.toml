@@ -4,7 +4,7 @@ version = "0.2.4"
 description = "Add your description here"
 readme = "README.md"
 authors = [{ name = "hh65", email = "hh65@sussex.ac.uk" }]
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "omero-screen-napari",
     "omero-utils",
@@ -222,6 +222,18 @@ tag_format = "omero-screen-v$version"
 version_files = [
     "src/omero_screen/__init__.py:__version__",
     "pyproject.toml:version",
+    "packages/cellview/pyproject.toml:version",
+    "packages/cellview/src/cellview/__init__.py:__version__",
+    "packages/cellview/README.md:version-[0-9]+\\.[0-9]+\\.[0-9]+",
+    "packages/omero-screen-napari/pyproject.toml:version",
+    "packages/omero-screen-napari/src/omero_screen_napari/__init__.py:__version__",
+    "packages/omero-screen-napari/README.md:version-[0-9]+\\.[0-9]+\\.[0-9]+",
+    "packages/omero-screen-plots/pyproject.toml:version",
+    "packages/omero-screen-plots/src/omero_screen_plots/__init__.py:__version__",
+    "packages/omero-screen-plots/README.md:version-[0-9]+\\.[0-9]+\\.[0-9]+",
+    "packages/omero-utils/pyproject.toml:version",
+    "packages/omero-utils/src/omero_utils/__init__.py:__version__",
+    "packages/omero-utils/README.md:version-[0-9]+\\.[0-9]+\\.[0-9]+",
     "README.md:version-[0-9]+\\.[0-9]+\\.[0-9]+",
 ]
 version_provider = "commitizen"

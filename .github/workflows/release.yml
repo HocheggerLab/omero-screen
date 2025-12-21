@@ -23,97 +23,20 @@ jobs:
 
       - name: Configure Git
         run: |
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
+      - name: Install commitizen
         run: pip install commitizen
 
-      - name: Get commit message
+      - name: Bump version
         run: |
-          # Get only the first line (subject) of the commit message
-          echo "COMMIT_MSG=$(git log -1 --pretty=%s)" >> $GITHUB_ENV
-
-      - name: Log commit message format check
-        run: |
-          if echo "${{ env.COMMIT_MSG }}" | grep -qE "^[a-z]+(\([^)]+\))?: "; then
-            echo "Conventional commit detected – a version bump will be applied."
-          else
-            echo "Non-conventional commit detected – no version bump will be applied."
-          fi
-
-      - name: Attempt version bump (if applicable)
-        run: |
-          set -e
-          COMMIT_MSG="${{ env.COMMIT_MSG }}"
-          # Only perform a bump if the commit message is conventional.
-          if echo "$COMMIT_MSG" | grep -qE "^[a-z]+(\([^)]+\))?: "; then
-            PACKAGE=""
-            # Check for a package scope in the commit message (e.g., "fix(package): ...")
-            if echo "$COMMIT_MSG" | grep -qE "^[a-z]+\([^)]+\)"; then
-              PACKAGE=$(echo "$COMMIT_MSG" | sed -n 's/^[a-z]\+(\([^)]\+\)).*/\1/p')
-            fi
-
-            # Extract commit type for manual version calculation
-            COMMIT_TYPE=$(echo "$COMMIT_MSG" | sed -n 's/^\([a-z]\+\).*/\1/p')
-
-            # Use the package if it exists, otherwise bump the root package.
-            if [ -n "$PACKAGE" ] && [ -d "packages/$PACKAGE" ]; then
-              echo "Bumping version for package: $PACKAGE in packages/$PACKAGE"
-              cd "packages/$PACKAGE"
-
-              # Get current version
-              CURRENT_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
-              echo "Current version: $CURRENT_VERSION"
-
-              # Calculate new version based on commit type
-              case "$COMMIT_TYPE" in
-                "fix")
-                  NEW_VERSION=$(echo "$CURRENT_VERSION" | awk -F. '{$3++; print $1"."$2"."$3}')
-                  ;;
-                "feat")
-                  NEW_VERSION=$(echo "$CURRENT_VERSION" | awk -F. '{$2++; $3=0; print $1"."$2"."$3}')
-                  ;;
-                *)
-                  NEW_VERSION=$(echo "$CURRENT_VERSION" | awk -F. '{$3++; print $1"."$2"."$3}')
-                  ;;
-              esac
-
-              echo "New version: $NEW_VERSION"
-              echo "DEBUG: NEW_VERSION='${NEW_VERSION}'"
-
-              # Update version manually (using | as delimiter to avoid escaping issues)
-              sed -i "s|^version = \".*\"|version = \"${NEW_VERSION}\"|" pyproject.toml
-
-              # Determine the correct __init__.py path based on package name
-              PACKAGE_UNDERSCORE=$(echo "$PACKAGE" | tr '-' '_')
-              INIT_FILE="src/${PACKAGE_UNDERSCORE}/__init__.py"
-
-              if [ -f "$INIT_FILE" ]; then
-                sed -i "s|__version__ = \".*\"|__version__ = \"${NEW_VERSION}\"|" "$INIT_FILE"
-                git add pyproject.toml "$INIT_FILE"
-              else
-                echo "Warning: $INIT_FILE not found, updating pyproject.toml only"
-                git add pyproject.toml
-              fi
-
-              # Create tag
-              git commit -m "bump: version $CURRENT_VERSION → $NEW_VERSION"
-              git tag "${PACKAGE}-v${NEW_VERSION}"
-
-            else
-              echo "No package scope found or package directory does not exist. Using root package."
-              # Use commitizen for root package (full git history approach)
-              cz bump --yes || echo "No version bump occurred for root."
-            fi
-          else
-            echo "Skipping version bump because commit message is not conventional."
-          fi
+          cz bump --yes || echo "No version bump needed"
 
       - name: Push changes
         run: git push --follow-tags
