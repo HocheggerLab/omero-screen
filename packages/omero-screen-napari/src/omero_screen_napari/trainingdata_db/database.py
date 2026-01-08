@@ -680,6 +680,50 @@ class TrainingDB:
                 row["class_label"]: row["count"] for row in cursor.fetchall()
             }
 
+    def get_image_stats(self, classifier_name: str) -> list[dict[str, Any]]:
+        """Get statistics per image/session.
+
+        Args:
+            classifier_name: Classifier name
+
+        Returns:
+            List of dicts containing:
+            - plate_id, well, image_id, timepoint
+            - total_cells
+            - class_distribution: dict[str, int]
+        """
+        classifier = self.get_classifier(classifier_name)
+        if not classifier:
+            raise ValueError(f"Classifier '{classifier_name}' does not exist")
+
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                QUERIES["get_image_stats"], (classifier["id"],)
+            )
+            stats = []
+            for row in cursor.fetchall():
+                # Manually count class labels from GROUP_CONCAT
+                class_labels = (
+                    row["class_labels"].split(",")
+                    if row["class_labels"]
+                    else []
+                )
+                from collections import Counter
+
+                dist = dict(Counter(class_labels))
+
+                stats.append(
+                    {
+                        "plate_id": row["plate_id"],
+                        "well": row["well"],
+                        "image_id": row["image_id"],
+                        "timepoint": row["timepoint"],
+                        "total_cells": row["total_cells"],
+                        "class_distribution": dist,
+                    }
+                )
+            return stats
+
     def get_session_count(self, classifier_name: str) -> int:
         """Get number of annotation sessions for a classifier.
 

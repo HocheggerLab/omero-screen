@@ -225,6 +225,16 @@ QUERIES = {
         JOIN annotation_sessions s ON a.session_id = s.id
         WHERE s.classifier_id = ?
     """,
+    "get_image_stats": """
+        SELECT s.plate_id, s.well, s.image_id, s.timepoint,
+               COUNT(a.id) as total_cells,
+               GROUP_CONCAT(a.class_label) as class_labels
+        FROM annotation_sessions s
+        LEFT JOIN annotations a ON s.id = a.session_id
+        WHERE s.classifier_id = ?
+        GROUP BY s.id
+        ORDER BY s.plate_id, s.well, s.image_id
+    """,
     # Version queries
     "get_schema_version": """
         SELECT version

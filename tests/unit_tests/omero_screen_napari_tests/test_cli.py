@@ -10,6 +10,7 @@ from omero_screen_napari.trainingdata_db.cli import (
     handle_migrate,
     handle_list,
     handle_stats,
+    handle_stats_detailed,
     handle_export,
     main,
 )
@@ -48,6 +49,12 @@ def test_parser_list(parser):
 def test_parser_stats(parser):
     args = parser.parse_args(["stats", "MyClassifier"])
     assert args.command == "stats"
+    assert args.classifier == "MyClassifier"
+
+
+def test_parser_stats_detailed(parser):
+    args = parser.parse_args(["stats-detailed", "MyClassifier"])
+    assert args.command == "stats-detailed"
     assert args.classifier == "MyClassifier"
 
 
@@ -107,10 +114,40 @@ def test_handle_stats_not_found(mock_db, mock_console):
         handle_stats(args)
 
 
+def test_handle_stats_detailed(mock_db, mock_console):
+    mock_db.get_classifier.return_value = {"id": 1, "name": "C1"}
+    mock_db.get_image_stats.return_value = [
+        {
+            "plate_id": 100,
+            "well": "A1",
+            "image_id": 12345,
+            "timepoint": 0,
+            "total_cells": 10,
+            "class_distribution": {"Pos": 5, "Neg": 5}
+        }
+    ]
+
+    args = argparse.Namespace(classifier="C1")
+    handle_stats_detailed(args)
+
+    mock_db.get_image_stats.assert_called_with("C1")
+    mock_console.print.assert_called()
+
+
+def test_handle_stats_detailed_empty(mock_db, mock_console):
+    mock_db.get_classifier.return_value = {"id": 1, "name": "C1"}
+    mock_db.get_image_stats.return_value = []
+
+    args = argparse.Namespace(classifier="C1")
+    handle_stats_detailed(args)
+
+    mock_console.print.assert_any_call("[yellow]No data found.[/yellow]")
+
+
 @patch("omero_screen_napari.trainingdata_db.cli.pd.DataFrame")
 def test_handle_export(mock_df_cls, mock_db, mock_console, tmp_path):
     # Setup
-    mock_db.get_classifier.return_value = {"id": 1}
+    mock_db.get_classifier.return_value = {"id": 1, "name": "C1"}
     mock_db.get_annotations_by_classifier.return_value = [{"col": "val"}]
     mock_df = MagicMock()
     mock_df_cls.return_value = mock_df
@@ -129,7 +166,7 @@ def test_handle_export(mock_df_cls, mock_db, mock_console, tmp_path):
 
 
 def test_handle_export_no_data(mock_db, mock_console):
-    mock_db.get_classifier.return_value = {"id": 1}
+    mock_db.get_classifier.return_value = {"id": 1, "name": "C1"}
     mock_db.get_annotations_by_classifier.return_value = []
 
     args = argparse.Namespace(
@@ -139,3 +176,34 @@ def test_handle_export_no_data(mock_db, mock_console):
     handle_export(args)
 
     mock_console.print.assert_any_call("[yellow]No data found to export.[/yellow]")
+
+
+def test_handle_stats_by_id(mock_db, mock_console):
+    mock_db.get_classifier_by_id.return_value = {"id": 1, "name": "C1"}
+    mock_db.get_session_count.return_value = 10
+    mock_db.get_total_annotations.return_value = 500
+    mock_db.get_classes.return_value = ["A", "B"]
+    mock_db.get_class_distribution.return_value = {"A": 300, "B": 200}
+
+    # Pass "1" as classifier argument
+    args = argparse.Namespace(classifier="1")
+    handle_stats(args)
+
+    mock_db.get_classifier_by_id.assert_called_with(1)
+    # Shouldn't call get_classifier(name) if found by ID
+    mock_db.get_classifier.assert_not_called()
+    mock_console.print.assert_called()
+
+
+def test_handle_stats_not_found_id(mock_db, mock_console):
+    mock_db.get_classifier_by_id.return_value = None
+    mock_db.get_classifier.return_value = None
+
+    args = argparse.Namespace(classifier="999")
+
+    with pytest.raises(SystemExit):
+        handle_stats(args)
+
+    mock_db.get_classifier_by_id.assert_called_with(999)
+    # Fallback to name check
+    mock_db.get_classifier.assert_called_with("999")

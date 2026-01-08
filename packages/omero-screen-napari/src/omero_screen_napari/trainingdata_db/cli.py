@@ -10,6 +10,7 @@ This module provides a command-line interface for:
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 from rich.console import Console
@@ -26,7 +27,17 @@ console = Console()
 def setup_parser() -> argparse.ArgumentParser:
     """Create and configure argument parser."""
     parser = argparse.ArgumentParser(
-        description="Manage Omero Screen Training Data Database",
+        description="""
+Manage Omero Screen Training Data Database.
+
+This CLI allows you to:
+  - Migrate existing .npy training data files into the SQLite database.
+  - List available classifiers and see summary statistics.
+  - view detailed statistics for specific classifiers/images.
+  - Export training data to CSV, JSON, or Parquet for analysis.
+
+You can refer to classifiers by either their ID (e.g., 1) or Name (e.g., 'Experiment_1').
+""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
@@ -36,7 +47,9 @@ def setup_parser() -> argparse.ArgumentParser:
 
     # Command: migrate
     migrate_parser = subparsers.add_parser(
-        "migrate", help="Migrate existing .npy files to database"
+        "migrate",
+        help="Migrate existing .npy files to database",
+        description="Scan the specified directory for training data folders and import them into the database.",
     )
     migrate_parser.add_argument(
         "--dry-run",
@@ -50,19 +63,33 @@ def setup_parser() -> argparse.ArgumentParser:
     )
 
     # Command: list
-    subparsers.add_parser("list", help="List all classifiers")
+    subparsers.add_parser(
+        "list",
+        help="List all classifiers",
+        description="Show a table of all available classifiers with their IDs, names, and summary stats.",
+    )
 
     # Command: stats
     stats_parser = subparsers.add_parser(
-        "stats", help="Show statistics for a classifier"
+        "stats",
+        help="Show statistics for a classifier",
+        description="Show general statistics and class distribution for a specific classifier.",
     )
-    stats_parser.add_argument("classifier", help="Name of the classifier")
+    stats_parser.add_argument(
+        "classifier",
+        help="ID or Name of the classifier (e.g., 1 or 'MyClassifier')",
+    )
 
     # Command: export
     export_parser = subparsers.add_parser(
-        "export", help="Export training data to file"
+        "export",
+        help="Export training data to file",
+        description="Export annotations to a file (CSV, JSON, Parquet) with optional filtering.",
     )
-    export_parser.add_argument("classifier", help="Name of the classifier")
+    export_parser.add_argument(
+        "classifier",
+        help="ID or Name of the classifier (e.g., 1 or 'MyClassifier')",
+    )
     export_parser.add_argument(
         "--format",
         choices=["csv", "json", "parquet"],
@@ -73,12 +100,40 @@ def setup_parser() -> argparse.ArgumentParser:
         "--output",
         "-o",
         type=Path,
-        help="Output file path (default: {classifier}_export.{format})",
+        help="Output file path (default: {name}_export.{format})",
     )
     export_parser.add_argument("--plate", type=int, help="Filter by Plate ID")
     export_parser.add_argument("--well", help="Filter by Well")
 
+    # Command: stats-detailed
+    stats_detailed_parser = subparsers.add_parser(
+        "stats-detailed",
+        help="Show detailed per-image statistics",
+        description="Show detailed breakdown of cells and classes for each image in the classifier.",
+    )
+    stats_detailed_parser.add_argument(
+        "classifier",
+        help="ID or Name of the classifier (e.g., 1 or 'MyClassifier')",
+    )
+
     return parser
+
+
+def resolve_classifier(db: TrainingDB, identifier: str) -> dict[str, Any]:
+    """Resolve classifier by ID (if int) or name."""
+    # Try as ID first if it looks like an integer
+    if identifier.isdigit():
+        clf = db.get_classifier_by_id(int(identifier))
+        if clf:
+            return clf
+
+    # Try as name
+    clf = db.get_classifier(identifier)
+    if clf:
+        return clf
+
+    console.print(f"[red]Classifier '{identifier}' not found.[/red]")
+    sys.exit(1)
 
 
 def handle_migrate(args: argparse.Namespace) -> None:
@@ -144,12 +199,10 @@ def handle_list(args: argparse.Namespace) -> None:
 def handle_stats(args: argparse.Namespace) -> None:
     """Handle stats command."""
     db = TrainingDB()
-    name = args.classifier
+    identifier = args.classifier
 
-    classifier = db.get_classifier(name)
-    if not classifier:
-        console.print(f"[red]Classifier '{name}' not found.[/red]")
-        sys.exit(1)
+    classifier = resolve_classifier(db, identifier)
+    name = classifier["name"]
 
     console.print(Panel(f"Statistics for: [bold]{name}[/bold]", style="blue"))
 
@@ -181,14 +234,50 @@ def handle_stats(args: argparse.Namespace) -> None:
     console.print(table)
 
 
+def handle_stats_detailed(args: argparse.Namespace) -> None:
+    """Handle stats-detailed command."""
+    db = TrainingDB()
+    identifier = args.classifier
+
+    classifier = resolve_classifier(db, identifier)
+    name = classifier["name"]
+
+    stats = db.get_image_stats(name)
+    if not stats:
+        console.print("[yellow]No data found.[/yellow]")
+        return
+
+    table = Table(title=f"Detailed Statistics: {name}")
+    table.add_column("Plate ID", justify="right", style="cyan")
+    table.add_column("Well", style="green")
+    table.add_column("Image ID", justify="right")
+    table.add_column("Timepoint", justify="right")
+    table.add_column("Total Cells", justify="right", style="bold")
+    table.add_column("Class Breakdown")
+
+    for s in stats:
+        breakdown = ", ".join(
+            [f"{k}: {v}" for k, v in s["class_distribution"].items()]
+        )
+        table.add_row(
+            str(s["plate_id"]),
+            str(s["well"]),
+            str(s["image_id"]),
+            str(s["timepoint"]),
+            str(s["total_cells"]),
+            breakdown,
+        )
+
+    console.print(table)
+
+
 def handle_export(args: argparse.Namespace) -> None:
     """Handle export command."""
     db = TrainingDB()
-    name = args.classifier
+    identifier = args.classifier
 
-    if not db.get_classifier(name):
-        console.print(f"[red]Classifier '{name}' not found.[/red]")
-        sys.exit(1)
+    classifier = resolve_classifier(db, identifier)
+    name = classifier["name"]
 
     console.print(f"Fetching data for [bold]{name}[/bold]...")
 
@@ -246,6 +335,8 @@ def main() -> None:
             handle_list(args)
         elif args.command == "stats":
             handle_stats(args)
+        elif args.command == "stats-detailed":
+            handle_stats_detailed(args)
         elif args.command == "export":
             handle_export(args)
     except KeyboardInterrupt:
