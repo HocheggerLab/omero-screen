@@ -105,15 +105,28 @@ You can refer to classifiers by either their ID (e.g., 1) or Name (e.g., 'Experi
     export_parser.add_argument("--plate", type=int, help="Filter by Plate ID")
     export_parser.add_argument("--well", help="Filter by Well")
 
-    # Command: stats-detailed
-    stats_detailed_parser = subparsers.add_parser(
-        "stats-detailed",
-        help="Show detailed per-image statistics",
-        description="Show detailed breakdown of cells and classes for each image in the classifier.",
+    # Command: delete
+    delete_parser = subparsers.add_parser(
+        "delete",
+        help="Delete a classifier",
+        description="Delete a classifier and all its associated data (classes, sessions, annotations).",
     )
-    stats_detailed_parser.add_argument(
-        "classifier",
-        help="ID or Name of the classifier (e.g., 1 or 'MyClassifier')",
+    delete_parser.add_argument(
+        "identifiers",
+        nargs="+",
+        help="IDs or Names of the classifiers to delete (e.g., 1 2 'MyClassifier')",
+    )
+    delete_parser.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="Skip confirmation prompt",
+    )
+    delete_parser.add_argument(
+        "--plate",
+        type=int,
+        nargs="+",
+        help="Delete only sessions for specific Plate ID(s). If not specified, deletes entire classifier.",
     )
 
     return parser
@@ -165,6 +178,7 @@ def handle_list(args: argparse.Namespace) -> None:
     table.add_column("Name", style="green")
     table.add_column("Description")
     table.add_column("Created At", style="dim")
+    table.add_column("Classes", style="yellow")
     table.add_column("Sessions", justify="right")
     table.add_column("Annotations", justify="right")
 
@@ -184,11 +198,14 @@ def handle_list(args: argparse.Namespace) -> None:
                 n_sessions = 0
                 n_annotations = 0
 
+            classes_str = clf.get("class_labels") or ""
+
             table.add_row(
                 str(clf["id"]),
                 name,
                 clf["description"] or "",
                 str(clf["created_at"]),
+                classes_str,
                 str(n_sessions),
                 str(n_annotations),
             )
@@ -232,19 +249,12 @@ def handle_stats(args: argparse.Namespace) -> None:
         table.add_row(label, str(count), f"{percentage:.1f}%")
 
     console.print(table)
+    console.print()
 
-
-def handle_stats_detailed(args: argparse.Namespace) -> None:
-    """Handle stats-detailed command."""
-    db = TrainingDB()
-    identifier = args.classifier
-
-    classifier = resolve_classifier(db, identifier)
-    name = classifier["name"]
-
+    # Detailed Stats
     stats = db.get_image_stats(name)
     if not stats:
-        console.print("[yellow]No data found.[/yellow]")
+        console.print("[yellow]No per-image data found.[/yellow]")
         return
 
     table = Table(title=f"Detailed Statistics: {name}")
@@ -269,6 +279,144 @@ def handle_stats_detailed(args: argparse.Namespace) -> None:
         )
 
     console.print(table)
+
+
+def handle_delete(args: argparse.Namespace) -> None:
+    """Handle delete command."""
+
+    identifiers = args.identifiers
+    db_instance = TrainingDB()
+
+    # Resolve all classifiers first
+    targets = []
+    for ident in identifiers:
+        try:
+            # We use a slight variant of resolve logic here to avoid sys.exit inside loop if possible,
+            # but resolve_classifier currently exits. Let's just use it and fail fast for now,
+            # or better, catch the exit? resolve_classifier exits on failure.
+            # Ideally we refactor resolve, but for now let's assume valid inputs or fail on first invalid.
+            clf = resolve_classifier(db_instance, ident)
+            targets.append(clf)
+        except SystemExit:
+            # resolve_classifier printed the error already
+            return
+
+    # Collect stats for all targets
+    console.print(
+        Panel(f"Delete Operation: {len(targets)} classifier(s)", style="red")
+    )
+
+    total_sessions = 0
+    total_annotations = 0
+    deletion_plan: list[dict[str, Any]] = []
+
+    for clf in targets:
+        name = clf["name"]
+
+        if args.plate:
+            # Partial delete logic per classifier
+            all_sessions = db_instance.list_sessions(name)
+            target_plates = set(args.plate)
+            sessions_to_delete = [
+                s for s in all_sessions if s["plate_id"] in target_plates
+            ]
+
+            if not sessions_to_delete:
+                console.print(
+                    f"[yellow]Skipping '{name}': No sessions found for plates {args.plate}.[/yellow]"
+                )
+                continue
+
+            n_sess = len(sessions_to_delete)
+            # Count annotations for these sessions if possible, or just estimate
+            # Since we don't have a cheap way to count annotations for list of sessions without query
+            # We'll just list session count.
+            deletion_plan.append(
+                {
+                    "type": "partial",
+                    "classifier": clf,
+                    "sessions": sessions_to_delete,
+                    "desc": f"Sessions for Plate(s) {args.plate}",
+                }
+            )
+            total_sessions += n_sess
+
+        else:
+            # Full delete
+            n_sess = db_instance.get_session_count(name)
+            n_ann = db_instance.get_total_annotations(name)
+
+            deletion_plan.append(
+                {
+                    "type": "full",
+                    "classifier": clf,
+                    "n_sessions": n_sess,
+                    "n_annotations": n_ann,
+                    "desc": "Entire Classifier",
+                }
+            )
+            total_sessions += n_sess
+            total_annotations += n_ann
+
+    if not deletion_plan:
+        console.print("[yellow]Nothing to delete.[/yellow]")
+        return
+
+    # Summary
+    for plan in deletion_plan:
+        clf_name = plan["classifier"]["name"]
+        if plan["type"] == "full":
+            console.print(
+                f"[bold]{clf_name}[/bold]: {plan['desc']} ({plan['n_sessions']} sessions, {plan['n_annotations']} annotations)"
+            )
+        else:
+            console.print(
+                f"[bold]{clf_name}[/bold]: {plan['desc']} ({len(plan['sessions'])} sessions)"
+            )
+
+    if not args.yes:
+        confirm = console.input(
+            "\n[bold red]Are you sure you want to proceed with deletion? [y/N]: [/bold red]"
+        )
+        if confirm.lower() not in ["y", "yes"]:
+            console.print("[yellow]Operation cancelled.[/yellow]")
+            return
+
+    # Execute
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            transient=True,
+        ) as progress:
+            task = progress.add_task("Deleting...", total=len(deletion_plan))
+
+            for plan in deletion_plan:
+                clf_name = plan["classifier"]["name"]
+
+                if plan["type"] == "full":
+                    if db_instance.delete_classifier(clf_name):
+                        console.print(
+                            f"[green]Deleted classifier '{clf_name}'.[/green]"
+                        )
+                    else:
+                        console.print(
+                            f"[red]Failed to delete classifier '{clf_name}'.[/red]"
+                        )
+                else:
+                    # Partial
+                    count = 0
+                    for session in plan["sessions"]:
+                        if db_instance.delete_session(session["id"]):
+                            count += 1
+                    console.print(
+                        f"[green]Deleted {count} sessions from '{clf_name}'.[/green]"
+                    )
+
+                progress.advance(task)
+
+    except Exception as e:
+        console.print(f"\n[red]Error during deletion: {e}[/red]")
 
 
 def handle_export(args: argparse.Namespace) -> None:
@@ -335,10 +483,10 @@ def main() -> None:
             handle_list(args)
         elif args.command == "stats":
             handle_stats(args)
-        elif args.command == "stats-detailed":
-            handle_stats_detailed(args)
         elif args.command == "export":
             handle_export(args)
+        elif args.command == "delete":
+            handle_delete(args)
     except KeyboardInterrupt:
         console.print("\n[yellow]Operation cancelled by user.[/yellow]")
         sys.exit(130)

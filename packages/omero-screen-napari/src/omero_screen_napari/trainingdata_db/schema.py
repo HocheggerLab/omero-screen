@@ -100,9 +100,11 @@ QUERIES = {
         WHERE id = ?
     """,
     "list_classifiers": """
-        SELECT id, name, description, created_at
-        FROM classifiers
-        ORDER BY created_at DESC
+        SELECT c.id, c.name, c.description, c.created_at, GROUP_CONCAT(cl.label, ', ') as class_labels
+        FROM classifiers c
+        LEFT JOIN classes cl ON c.id = cl.classifier_id
+        GROUP BY c.id
+        ORDER BY c.created_at DESC
     """,
     "insert_classifier": """
         INSERT INTO classifiers (name, description)

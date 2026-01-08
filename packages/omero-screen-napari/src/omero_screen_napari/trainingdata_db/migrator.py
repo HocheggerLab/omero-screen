@@ -112,13 +112,19 @@ class TrainingDataMigrator:
                     logger.info(f"Created classifier: {classifier_name}")
                     self.stats["classifiers_created"] += 1
 
-                # Add classes
+                # Always attempt to population classes if they are in metadata
+                # Since db.add_classes uses insert OR IGNORE, this is safe
                 if "class_options" in metadata:
                     class_labels = metadata["class_options"]
-                    self.db.add_classes(classifier_name, class_labels)
-                    logger.info(
-                        f"Added {len(class_labels)} classes to {classifier_name}"
-                    )
+                    try:
+                        self.db.add_classes(classifier_name, class_labels)
+                        logger.info(
+                            f"Added/Updated classes for {classifier_name}"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Could not populate classes for {classifier_name}: {e}"
+                        )
             else:
                 logger.info(
                     f"[DRY RUN] Would create classifier: {classifier_name}"

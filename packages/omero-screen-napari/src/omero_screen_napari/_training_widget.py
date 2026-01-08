@@ -18,6 +18,7 @@ from omero_screen_napari.gallery_api import (
 )
 from omero_screen_napari.gallery_userdata_singleton import userdata
 from omero_screen_napari.omero_data_singleton import omero_data
+from omero_screen_napari.trainingdata_db.database import TrainingDB
 
 if TYPE_CHECKING:
     from napari.viewer import Viewer
@@ -236,7 +237,24 @@ class TrainingWidget:
             classifier_name = text_input.strip()
             if not classifier_name:
                 raise ValueError("Classifier name cannot be empty.")
+
             self.class_name = classifier_name
+
+            # Database check/registration
+            db = TrainingDB()
+            if not db.get_classifier(self.class_name):
+                # Auto-register if missing (e.g., legacy data or manual folder creation)
+                logger.info(
+                    f"Classifier '{self.class_name}' found locally but not in DB. Registering."
+                )
+                try:
+                    db.create_classifier(self.class_name)
+                except Exception as e:
+                    _show_error_message(
+                        f"Failed to register classifier in DB: {e}"
+                    )
+                    return
+
             file_name, file_path, metadata_path = self._set_paths()
             if file_path.exists():
                 logger.debug(
@@ -572,6 +590,8 @@ class TrainingDataSaver:
         self.training_dict = self._create_training_dict()
         np.save(self.file_path, self.training_dict)  # type: ignore
         self._save_metadata(self.meta_data_path, self.metadata)
+        self._save_to_database()
+
         logger.info(f"File and metadata saved to: {self.classifier_dir}")
         _show_success_message(
             f"Data for {self.file_name} and metadata successfully saved."
@@ -580,6 +600,10 @@ class TrainingDataSaver:
     def _save_training_data(self) -> None:
         self.training_dict = self._create_training_dict()
         np.save(self.file_path, self.training_dict)  # type: ignore
+
+        # Save to DB
+        self._save_to_database()
+
         logger.info(
             f"File saved to: {self.file_path}, metadata already present"
         )
@@ -627,6 +651,83 @@ class TrainingDataSaver:
             raise ValueError(
                 f"Failed to create directory {directory}: {e}"
             ) from e
+
+    def _save_to_database(self) -> None:
+        """Save training data to SQLite database."""
+        try:
+            db = TrainingDB()
+
+            # Resolve Image ID
+            try:
+                # Try to get single image ID from image_input
+                image_id = int(self.omero_data.image_input)
+            except (ValueError, TypeError):
+                # Fallback: use first ID from the list if available
+                if self.omero_data.image_ids:
+                    image_id = self.omero_data.image_ids[0]
+                else:
+                    logger.warning(
+                        "Could not resolve Image ID for database. Defaulting to 0."
+                    )
+                    image_id = 0
+
+            # Create/Get session (create_session handles insertion)
+            # We want to overwrite if exists for this specific image/timepoint combo.
+            # TrainingDB.create_session raises IntegrityError if exists.
+            # We should try to get, if exists, update. If not, create.
+
+            # Using get_session to check existence
+            existing_session = db.get_session(
+                self.classifier_name,
+                self.omero_data.plate_id,
+                self.omero_data.well_pos_list[0],
+                image_id,
+                self.user_data.timepoint,
+            )
+
+            if existing_session:
+                session_id = existing_session["id"]
+                # Update file path and metadata
+                db.update_session(
+                    session_id,
+                    file_path=str(self.file_path),
+                    metadata=self.metadata,
+                )
+            else:
+                session_id = db.create_session(
+                    classifier_name=self.classifier_name,
+                    plate_id=self.omero_data.plate_id,
+                    well=self.omero_data.well_pos_list[0],
+                    image_id=image_id,
+                    timepoint=self.user_data.timepoint,
+                    file_path=str(self.file_path),
+                    metadata=self.metadata,
+                )
+
+            # Prepare annotations
+            annotations = []
+            for label_mask, class_label in zip(
+                self.omero_data.selected_labels,
+                self.omero_data.selected_classes,
+                strict=False,
+            ):
+                if label_mask.size > 0:
+                    cell_index = int(np.max(label_mask))
+                    if cell_index > 0:
+                        annotations.append((cell_index, class_label))
+
+            # Replace annotations
+            db.delete_annotations(session_id)
+            if annotations:
+                db.add_annotations(session_id, annotations)
+
+            logger.info(
+                f"Saved {len(annotations)} annotations to database session {session_id}."
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to save to database: {e}")
+            _show_error_message(f"Database Save Error: {e}")
 
     def _create_training_dict(self) -> dict[str, Any]:
         logger.info(

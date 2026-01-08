@@ -135,9 +135,50 @@ class MetaDataSaver:
     def save_data(self) -> None:
         try:
             self._validate_classifier_name(self.classifier_name)
+
+            # Database integration
+            from omero_screen_napari.trainingdata_db.database import TrainingDB
+
+            db = TrainingDB()
+            exists_in_db = db.get_classifier(self.classifier_name)
+
             if not self.classifier_dir.exists():
+                if exists_in_db:
+                    raise ValueError(
+                        f"Classifier '{self.classifier_name}' already exists in the database. "
+                        "Please choose a different name."
+                    )
+
+                # Register new classifier in DB
+                db.create_classifier(self.classifier_name)
+                if self.image_navigator.class_options:
+                    db.add_classes(
+                        self.classifier_name,
+                        self.image_navigator.class_options,
+                    )
                 self._create_and_save()
                 return
+
+            # Directory exists
+            if not exists_in_db:
+                # Add existing local classifier to DB if missing
+                logger.info(
+                    f"Adding existing local classifier '{self.classifier_name}' to database."
+                )
+                db.create_classifier(self.classifier_name)
+                # We should also populate classes if possible, but reading from metadata file might be needed
+                # For now, let's just create the classifier.
+                # If we have class_options loaded in self (which we should if we loaded metadata), add them
+                if self.image_navigator.class_options:
+                    try:
+                        db.add_classes(
+                            self.classifier_name,
+                            self.image_navigator.class_options,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Could not populate classes for existing classifier: {e}"
+                        )
 
             file_check = self._check_directory_contents()
             self._handle_saving_logic(file_check)
