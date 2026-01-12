@@ -8,10 +8,12 @@ from magicgui.widgets import Container, Label
 from omero_screen.config import get_logger
 from qtpy.QtWidgets import QMessageBox
 
+from omero_screen_napari._classifier_selector import ClassifierSelector
 from omero_screen_napari.gallery_userdata_singleton import (
     userdata as global_user_data,
 )
 from omero_screen_napari.omero_data_singleton import omero_data
+from omero_screen_napari.trainingdata_db.database import TrainingDB
 
 if TYPE_CHECKING:
     from omero_screen_napari.gallery_userdata import UserData
@@ -71,12 +73,25 @@ class SetupTrainingWidget:
         self.user_data = user_data
         self.omero_data = omero_data_inst
         self.class_name = class_name or "Classifier Name"
+
+        # Initialize database and classifier selector
+        self.db = TrainingDB()
+        self.classifier_selector = ClassifierSelector(
+            db=self.db, auto_fill_callback=None
+        )
+
         self.meta_data_saver = MetaDataSaver(
             self.class_name,
             self.omero_data,
             self.user_data,
             self.image_navigator,
         )
+
+        # Register callback to refresh selector when classifier is saved
+        self.meta_data_saver.on_save_callback = (
+            self.classifier_selector.refresh_classifiers
+        )
+
         self.add_class_widget = magicgui(
             call_button="Enter", text_input={"label": "Class name"}
         )(self.add_class)
@@ -104,14 +119,29 @@ class SetupTrainingWidget:
         self.meta_data_saver.save_data()
 
     def create_container(self) -> Container:  # type: ignore
-        return Container(
-            widgets=[
-                self.add_class_widget,
-                self.reset_class_options_widget,
-                self.image_navigator.class_labels,
-                self.save_meta_data_widget,
-            ]
+        # Create container with magicgui widgets
+        widgets = [
+            self.add_class_widget,
+            self.reset_class_options_widget,
+            self.image_navigator.class_labels,
+            self.save_meta_data_widget,
+        ]
+        container = Container(widgets=widgets)
+
+        # Insert Qt selector widget at the top of the native layout
+        # Access the native Qt layout and insert our selector widget
+        layout = container.native.layout()
+        layout.insertWidget(0, self.classifier_selector.get_selector_widget())
+        # Insert info panel label after selector
+        layout.insertWidget(
+            1, self.classifier_selector.info_panel.info_label.native
         )
+        # Insert detail button after info panel
+        layout.insertWidget(
+            2, self.classifier_selector.info_panel.detail_button
+        )
+
+        return container
 
 
 class MetaDataSaver:
@@ -131,6 +161,7 @@ class MetaDataSaver:
         self.meta_data_path = self._set_paths()
         self.metadata = self._create_metadata_dict()
         self._update_paths_and_metadata()
+        self.on_save_callback: Any = None  # Callback to trigger after save
 
     def save_data(self) -> None:
         try:
@@ -157,6 +188,13 @@ class MetaDataSaver:
                         self.image_navigator.class_options,
                     )
                 self._create_and_save()
+
+                # Trigger callback after successful save
+                if self.on_save_callback:
+                    try:
+                        self.on_save_callback()
+                    except Exception as e:
+                        logger.warning(f"Save callback failed: {e}")
                 return
 
             # Directory exists
@@ -182,6 +220,14 @@ class MetaDataSaver:
 
             file_check = self._check_directory_contents()
             self._handle_saving_logic(file_check)
+
+            # Trigger callback after successful save
+            if self.on_save_callback:
+                try:
+                    self.on_save_callback()
+                except Exception as e:
+                    logger.warning(f"Save callback failed: {e}")
+
         except Exception as e:
             logger.exception("Error saving data")
             self._show_error_message(str(e))

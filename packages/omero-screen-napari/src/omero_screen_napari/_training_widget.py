@@ -10,6 +10,7 @@ from magicgui.widgets import Container, RadioButtons
 from omero_screen.config import get_logger
 from qtpy.QtWidgets import QMessageBox
 
+from omero_screen_napari._classifier_selector import ClassifierSelector
 from omero_screen_napari.gallery_api import (
     CroppedImageParser,
     RandomImageParser,
@@ -215,6 +216,12 @@ class TrainingWidget:
         self.class_options_dict: list[str] = []
         self.training_data_saver: TrainingDataSaver | None = None
         self.setup_key_bindings(napari.current_viewer())
+
+        # Initialize database and classifier selector with auto-fill callback
+        self.db = TrainingDB()
+        self.classifier_selector = ClassifierSelector(
+            db=self.db, auto_fill_callback=self._auto_fill_classifier_name
+        )
 
         self.load_image_widget = magicgui(
             call_button="Load Images",
@@ -499,16 +506,40 @@ class TrainingWidget:
         def trigger_previous_image(event: Any = None) -> None:
             self.previous_image()
 
+    def _auto_fill_classifier_name(self, classifier_name: str) -> None:
+        """Auto-populate the load images text field when classifier is selected.
+
+        Args:
+            classifier_name: Name of the selected classifier
+        """
+        if classifier_name:
+            self.load_image_widget.text_input.value = classifier_name
+
     def create_container(self) -> Container:  # type: ignore
-        return Container(
-            widgets=[
-                self.load_image_widget,
-                self.previous_image_widget,
-                self.next_image_widget,
-                self.image_navigator.class_choice,
-                self.save_training_data_widget,
-            ]
+        # Create container with magicgui widgets
+        widgets = [
+            self.load_image_widget,
+            self.previous_image_widget,
+            self.next_image_widget,
+            self.image_navigator.class_choice,
+            self.save_training_data_widget,
+        ]
+        container = Container(widgets=widgets)
+
+        # Insert Qt selector widget at the top of the native layout
+        # Access the native Qt layout and insert our selector widget
+        layout = container.native.layout()
+        layout.insertWidget(0, self.classifier_selector.get_selector_widget())
+        # Insert info panel label after selector
+        layout.insertWidget(
+            1, self.classifier_selector.info_panel.info_label.native
         )
+        # Insert detail button after info panel
+        layout.insertWidget(
+            2, self.classifier_selector.info_panel.detail_button
+        )
+
+        return container
 
 
 class TrainingDataSaver:
