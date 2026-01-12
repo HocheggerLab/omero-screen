@@ -1,3 +1,10 @@
+## omero-screen-v0.2.6 (2026-01-12)
+
+### Fix
+
+- training-db with cli and links to plugins finalised and tests running
+- training-db with cli and links to plugins finalised
+
 ## omero-screen-v0.2.5 (2025-12-21)
 
 ### Fix

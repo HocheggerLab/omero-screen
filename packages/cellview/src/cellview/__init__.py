@@ -15,7 +15,7 @@ Access Points:
     For example, use `cellview.api.cellview_load_data(plate_id)` to load data for a given plate.
 """
 
-__version__ = "0.2.5"
+__version__ = "0.2.6"
 from omero_screen.config import set_env_vars
 
 set_env_vars()
