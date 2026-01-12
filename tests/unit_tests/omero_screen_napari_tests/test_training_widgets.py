@@ -10,6 +10,7 @@ import pytest
 # Mock ClassifierSelector in sys.modules BEFORE importing widget modules
 sys.modules['omero_screen_napari._classifier_selector'] = MagicMock()
 
+# Import modules first (magicgui needs to import normally)
 from omero_screen_napari._setup_training_widget import \
     ImageNavigator as SetupImageNavigator
 from omero_screen_napari._setup_training_widget import MetaDataSaver
@@ -19,10 +20,58 @@ from omero_screen_napari._training_widget import TrainingDataSaver
 from omero_screen_napari.gallery_userdata import UserData
 from omero_screen_napari.omero_data import OmeroData
 
+
+# Create mock widget classes for headless testing
+class MockContainer:
+    def __init__(self, widgets=None):
+        self.widgets = widgets or []
+
+    def clear(self):
+        self.widgets.clear()
+
+    def append(self, widget):
+        self.widgets.append(widget)
+
+class MockLabel:
+    def __init__(self, value=""):
+        self.value = value
+        self.visible = False
+
+class MockRadioButtons:
+    def __init__(self, label="", choices=None):
+        self.label = label
+        self.choices = choices or []
+        self.value = choices[0] if choices else None
+        self.changed = MagicMock()
+
+    def connect(self, callback):
+        self.changed.connect(callback)
+
 # NOTE: SetupTrainingWidget and TrainingWidget tests have been removed because they
 # require Qt widgets (ClassifierSelector) which need QApplication to run.
 
 # --- Mocks and Fixtures ---
+
+# Fixture to patch widget classes for headless testing
+# This prevents Qt initialization in headless CI environments
+@pytest.fixture(scope="module", autouse=True)
+def mock_widgets():
+    """Patch magicgui widgets to prevent Qt initialization in headless environments."""
+    import omero_screen_napari._setup_training_widget as setup_module
+    import omero_screen_napari._training_widget as training_module
+
+    # Use patch.object to properly handle the patching
+    patches = [
+        patch.object(setup_module, 'Container', MockContainer),
+        patch.object(setup_module, 'Label', MockLabel),
+        patch.object(training_module, 'Container', MockContainer),
+        patch.object(training_module, 'RadioButtons', MockRadioButtons),
+    ]
+    for p in patches:
+        p.start()
+    yield
+    for p in patches:
+        p.stop()
 
 @pytest.fixture
 def mock_omero_data():
