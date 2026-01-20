@@ -70,3 +70,22 @@ Document key architectural and technical decisions with context and trade-offs.
 ## Active Decisions
 
 (Add new ADRs below this line, incrementing the ADR number)
+
+### ADR-003: Prioritize Critical Unit Testing for Core Pipeline (2026-01-20)
+
+**Context:**
+- Preparing for Nature Communications submission (Target: May 2026)
+- Audit revealed critical gaps in unit testing for `image_analysis.py` (core segmentation) and `flatfield_corr.py`
+- Reviewers require robust validation of core algorithms, not just integration tests
+
+**Decision:**
+- Complete comprehensive unit tests for `image_analysis.py` and `flatfield_corr.py`
+- **Target Date for Completion:** 2026-01-23
+
+**Alternatives Considered:**
+- Postpone testing -> High risk of rejection for lack of technical validation
+- Rely on E2E tests -> Validates workflow but not algorithmic correctness or edge cases
+
+**Consequences:**
+- Benefits: Ensures scientific reproducibility, satisfies peer review requirements, increases confidence in screening results
+- Trade-offs: Delays advanced feature work by ~1 week
