@@ -38,7 +38,7 @@ def main() -> None:
         "--gallery",
         type=int,
         default=10,
-        help="Width N of for the inference galleray NxN (default: %(default)s)",
+        help="Width N for the inference NxN example gallery (default: %(default)s)",
     )
     group.add_argument(
         "--batch",
