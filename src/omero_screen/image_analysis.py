@@ -25,7 +25,6 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-from cellpose import models
 from ezomero import get_image
 from omero.gateway import BlitzGateway, ImageWrapper, WellWrapper
 from omero_utils.images import parse_mip, upload_masks
@@ -37,7 +36,7 @@ from omero_screen.config import get_logger
 from omero_screen.general_functions import filter_segmentation, scale_img
 from omero_screen.image_classifier import ImageClassifier
 from omero_screen.metadata_parser import MetadataParser
-from omero_screen.torch import get_device
+from omero_screen.segmentation import SegmentationModel
 
 logger = get_logger(__name__)
 
@@ -219,33 +218,36 @@ class Image:
         else:
             self.nuc_diameter = 10
 
-        segmentation_model = models.CellposeModel(
-            device=get_device(),
-            model_type=default_config.MODEL_DICT["nuclei"],
-        )
+        model_name = default_config.MODEL_DICT.get("nuclei")
+        if model_name is None:
+            raise RuntimeError("Unknown model for nuclei")
+
+        segmentation_model = SegmentationModel(model_name)
         # Get the image array
         img_array = self.img_dict["DAPI"]
 
         # Initialize an array to store the segmentation masks
         segmentation_masks = np.zeros_like(img_array, dtype=np.uint32)
 
+        # Cellpose 3 requires scaling of nuclei models; cellpose 4 is scale independent
+        if segmentation_model.get_type() == "cellpose3":
+            diameter = self.nuc_diameter
+            logger.info("Segmenting nuclei with diameter %s", diameter)
+        else:
+            diameter = None
+
         for t in range(img_array.shape[0]):
             # Select the image at the current timepoint
             img_t = img_array[t]
 
             # Prepare the image for segmentation
-            scaled_img_t = scale_img(img_t)
+            scaled_img_t = np.stack([scale_img(img_t)])
 
             # Perform segmentation
-            n_channels = [[0, 0]]
-            logger.info(
-                "Segmenting nuclei with diameter %s", self.nuc_diameter
-            )
             try:
-                n_mask_array, n_flows, n_styles = segmentation_model.eval(
+                n_mask_array = segmentation_model.eval(
                     scaled_img_t,
-                    channels=n_channels,
-                    diameter=self.nuc_diameter,
+                    diameter=diameter,
                     normalize=False,
                 )
             except IndexError:
@@ -264,11 +266,12 @@ class Image:
         Returns:
             npt.NDArray[Any]: Segmentation mask for cells.
         """
-        segmentation_model = models.CellposeModel(
-            device=get_device(),
-            model_type=get_cell_model(self.cell_line),
-        )
-        c_channels = [[2, 1]]
+        model_name = get_cell_model(self.cell_line)
+        if model_name is None:
+            raise RuntimeError(
+                f"Unknown model for cell line: {self.cell_line}"
+            )
+        segmentation_model = SegmentationModel(model_name)
 
         # Get the image arrays for DAPI and Tubulin channels
         dapi_array = self.img_dict["DAPI"]
@@ -289,12 +292,12 @@ class Image:
             tub_t = tub_array[t]
 
             # Combine the 2 channel numpy array for cell segmentation with the nuclei channel
-            comb_image_t = np.dstack([scale_img(dapi_t), scale_img(tub_t)])
+            comb_image_t = np.stack([scale_img(tub_t), scale_img(dapi_t)])
 
             # Perform segmentation
             try:
-                c_masks_array, c_flows, c_styles = segmentation_model.eval(
-                    comb_image_t, channels=c_channels, normalize=False
+                c_masks_array = segmentation_model.eval(
+                    comb_image_t, normalize=False
                 )
             except IndexError:
                 c_masks_array = np.zeros_like(comb_image_t).astype(np.uint8)

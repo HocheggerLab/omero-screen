@@ -24,7 +24,7 @@ dependencies = [
     "tifffile>=2025.3.30",
     "scipy>=1.15.2",
     "scikit-image>=0.25.2",
-    "cellpose>=3.1.1.1",
+    "cellpose>=4.0",
     "ezomero>=3.1.1",
     "tqdm>=4.67.1",
     "matplotlib>=3.10.1",
@@ -130,6 +130,11 @@ pretty = true
 warn_unused_configs = false
 warn_unused_ignores = false
 
+[[tool.mypy.overrides]]
+# Ignore everything ported from Cellpose v3
+module = "omero_screen.cellpose3.*"
+ignore_errors = true
+
 # ===========================
 # Ruff Configuration Section
 # ===========================
@@ -192,6 +197,7 @@ extend-exclude = [
     "**/examples/**",          # Everything in any examples dir
     "**/docs/**",              # Everything in any docs dir
     "**/notebooks/**",         # Everything in any notebooks dir
+    "**/cellpose3/**",         # Everything ported from Cellpose v3
 ]
 
 fix = true

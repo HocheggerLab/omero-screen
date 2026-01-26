@@ -134,12 +134,12 @@ class TestImageInitialization:
         return data
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.models.CellposeModel")
+    @patch("omero_screen.image_analysis.SegmentationModel")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_image_initialization_basic(
         self,
         mock_upload,
-        mock_cellpose,
+        mock_segmentation,
         mock_get_image,
         mock_conn,
         mock_well,
@@ -160,11 +160,9 @@ class TestImageInitialization:
         # Mock Cellpose model
         mock_model_instance = MagicMock()
         mock_model_instance.eval.return_value = (
-            np.zeros((512, 512), dtype=np.uint32),  # mask
-            None,  # flows
-            None,  # styles
+            np.zeros((512, 512), dtype=np.uint32)
         )
-        mock_cellpose.return_value = mock_model_instance
+        mock_segmentation.return_value = mock_model_instance
 
         # Create Image instance
         img = Image(
@@ -185,12 +183,12 @@ class TestImageInitialization:
         assert "Tub" in img.img_dict
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.models.CellposeModel")
+    @patch("omero_screen.image_analysis.SegmentationModel")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_image_initialization_with_40x(
         self,
         mock_upload,
-        mock_cellpose,
+        mock_segmentation,
         mock_get_image,
         mock_conn,
         mock_well,
@@ -213,11 +211,9 @@ class TestImageInitialization:
 
         mock_model_instance = MagicMock()
         mock_model_instance.eval.return_value = (
-            np.zeros((512, 512), dtype=np.uint32),
-            None,
-            None,
+            np.zeros((512, 512), dtype=np.uint32)
         )
-        mock_cellpose.return_value = mock_model_instance
+        mock_segmentation.return_value = mock_model_instance
 
         img = Image(
             conn=mock_conn,
@@ -232,12 +228,12 @@ class TestImageInitialization:
         assert img.nuc_diameter == 100
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.models.CellposeModel")
+    @patch("omero_screen.image_analysis.SegmentationModel")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_image_initialization_with_20x(
         self,
         mock_upload,
-        mock_cellpose,
+        mock_segmentation,
         mock_get_image,
         mock_conn,
         mock_well,
@@ -260,11 +256,9 @@ class TestImageInitialization:
 
         mock_model_instance = MagicMock()
         mock_model_instance.eval.return_value = (
-            np.zeros((512, 512), dtype=np.uint32),
-            None,
-            None,
+            np.zeros((512, 512), dtype=np.uint32)
         )
-        mock_cellpose.return_value = mock_model_instance
+        mock_segmentation.return_value = mock_model_instance
 
         img = Image(
             conn=mock_conn,
@@ -279,12 +273,12 @@ class TestImageInitialization:
         assert img.nuc_diameter == 25
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.models.CellposeModel")
+    @patch("omero_screen.image_analysis.SegmentationModel")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_image_flatfield_correction(
         self,
         mock_upload,
-        mock_cellpose,
+        mock_segmentation,
         mock_get_image,
         mock_conn,
         mock_well,
@@ -306,11 +300,9 @@ class TestImageInitialization:
 
         mock_model_instance = MagicMock()
         mock_model_instance.eval.return_value = (
-            np.zeros((512, 512), dtype=np.uint32),
-            None,
-            None,
+            np.zeros((512, 512), dtype=np.uint32)
         )
-        mock_cellpose.return_value = mock_model_instance
+        mock_segmentation.return_value = mock_model_instance
 
         img = Image(
             conn=mock_conn,
@@ -379,10 +371,10 @@ class TestImageSegmentation:
         }
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.models.CellposeModel")
+    @patch("omero_screen.image_analysis.SegmentationModel")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_nucleus_segmentation_called(
-        self, mock_upload, mock_cellpose, mock_get_image, mock_setup
+        self, mock_upload, mock_segmentation, mock_get_image, mock_setup
     ):
         """Test that Cellpose is called for nucleus segmentation."""
         mock_get_image.return_value = (None, mock_setup["synthetic_data"])
@@ -397,11 +389,9 @@ class TestImageSegmentation:
 
         mock_model_instance = MagicMock()
         mock_model_instance.eval.return_value = (
-            synthetic_mask,
-            None,  # flows
-            None,  # styles
+            synthetic_mask
         )
-        mock_cellpose.return_value = mock_model_instance
+        mock_segmentation.return_value = mock_model_instance
 
         img = Image(
             conn=mock_setup["conn"],
@@ -413,7 +403,7 @@ class TestImageSegmentation:
         )
 
         # Verify Cellpose was called
-        assert mock_cellpose.called
+        assert mock_segmentation.called
         assert mock_model_instance.eval.called
 
         # Verify mask was created
@@ -421,10 +411,10 @@ class TestImageSegmentation:
         assert img.n_mask.shape == (1, 256, 256)  # TYX format
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.models.CellposeModel")
+    @patch("omero_screen.image_analysis.SegmentationModel")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_cell_segmentation_with_tubulin(
-        self, mock_upload, mock_cellpose, mock_get_image, mock_setup
+        self, mock_upload, mock_segmentation, mock_get_image, mock_setup
     ):
         """Test that cell segmentation is called when Tub channel exists."""
         # Modify metadata to include Tub channel
@@ -453,10 +443,10 @@ class TestImageSegmentation:
         mock_model_instance = MagicMock()
         # First call returns nucleus mask, second call returns cell mask
         mock_model_instance.eval.side_effect = [
-            (nuc_mask, None, None),
-            (cell_mask, None, None),
+            nuc_mask,
+            cell_mask,
         ]
-        mock_cellpose.return_value = mock_model_instance
+        mock_segmentation.return_value = mock_model_instance
 
         img = Image(
             conn=mock_setup["conn"],
@@ -476,10 +466,10 @@ class TestImageSegmentation:
         assert img.cyto_mask is not None
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.models.CellposeModel")
+    @patch("omero_screen.image_analysis.SegmentationModel")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_segmentation_with_existing_masks(
-        self, mock_upload, mock_cellpose, mock_get_image, mock_setup
+        self, mock_upload, mock_segmentation, mock_get_image, mock_setup
     ):
         """Test that existing masks are loaded instead of re-segmenting."""
         # Create existing mask data
@@ -514,28 +504,26 @@ class TestImageSegmentation:
         )
 
         # Verify Cellpose was NOT called (masks already existed)
-        assert not mock_cellpose.called
+        assert not mock_segmentation.called
 
         # Verify masks were loaded
         assert img.n_mask is not None
         assert np.max(img.n_mask) == 1  # The cell we created
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.models.CellposeModel")
+    @patch("omero_screen.image_analysis.SegmentationModel")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_segmentation_uploads_masks(
-        self, mock_upload, mock_cellpose, mock_get_image, mock_setup
+        self, mock_upload, mock_segmentation, mock_get_image, mock_setup
     ):
         """Test that newly created masks are uploaded to OMERO."""
         mock_get_image.return_value = (None, mock_setup["synthetic_data"])
 
         mock_model_instance = MagicMock()
         mock_model_instance.eval.return_value = (
-            np.zeros((256, 256), dtype=np.uint32),
-            None,
-            None,
+            np.zeros((256, 256), dtype=np.uint32)
         )
-        mock_cellpose.return_value = mock_model_instance
+        mock_segmentation.return_value = mock_model_instance
 
         img = Image(
             conn=mock_setup["conn"],
@@ -629,10 +617,10 @@ class TestMultiTimepoint:
     """Test Image class with multi-timepoint data."""
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.models.CellposeModel")
+    @patch("omero_screen.image_analysis.SegmentationModel")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_multi_timepoint_segmentation(
-        self, mock_upload, mock_cellpose, mock_get_image
+        self, mock_upload, mock_segmentation, mock_get_image
     ):
         """Test segmentation with multiple timepoints."""
         # Setup mocks
@@ -669,16 +657,16 @@ class TestMultiTimepoint:
         # Mock Cellpose to return different masks for each timepoint
         mock_model_instance = MagicMock()
 
-        def cellpose_eval_side_effect(img, **kwargs):
+        def segmentation_eval_side_effect(img, **kwargs):
             # Return different masks based on call count
             t = mock_model_instance.eval.call_count - 1
             mask = np.zeros((128, 128), dtype=np.uint32)
             # Add cells that change position over time
             mask[20 + t * 10 : 40 + t * 10, 20:40] = 1
-            return (mask, None, None)
+            return mask
 
-        mock_model_instance.eval.side_effect = cellpose_eval_side_effect
-        mock_cellpose.return_value = mock_model_instance
+        mock_model_instance.eval.side_effect = segmentation_eval_side_effect
+        mock_segmentation.return_value = mock_model_instance
 
         img = Image(
             conn=conn,
