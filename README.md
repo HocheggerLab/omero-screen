@@ -3,10 +3,10 @@
 OmeroScreen is an end to end high content image analysis pipeline with additional data storage and visualisation tools.
 It is built on top of the OMERO server and uses the omero-py API to interact with the data.
 The root project ./src/omero_screen handles the analysis pipeline and data storage using cellpose segmentation.
-cellview (./packages/cellview) is a database for storing single cell image data and additional metadata.
-omero-screen-plots (./packages/omero-screen-plots) is a collection of tools to visualise the data.
-omero-screen-napari (./packages/omero-screen-napari) is a collection of napari plugins to interact with the data.
-omero-utils (./packages/omero-utils) is a collection of helper functions to work with the omero-py API.
+[cellview](./packages/cellview) is a database for storing single cell image data and additional metadata.
+[omero-screen-plots](./packages/omero-screen-plots) is a collection of tools to visualise the data.
+[omero-screen-napari](./packages/omero-screen-napari) is a collection of napari plugins to interact with the data.
+[omero-utils](./packages/omero-utils) is a collection of helper functions to work with the omero-py API.
 
 ## Status
 
@@ -186,6 +186,9 @@ The following variables are required for proper operation:
    - `LOG_MAX_BYTES`: Maximum size of log files before rotation (defaults to 1MB)
    - `LOG_BACKUP_COUNT`: Number of backup log files to keep (defaults to 5)
 
+3. **OMERO Screen Configuration**:
+    - `OMERO_SCREEN_CONFIG`: File path to configure the OMERO screen cell line segmentation models and analysis metrics. An example configuration is provided in [omero_screen_config.json](./src/data/omero_screen_config.json).
+
 ### Logging Setup
 The logging system is configured through the `get_logger()` function in `config.py`:
 - Creates a hierarchical logger structure based on module names
@@ -199,6 +202,12 @@ The OMERO server connection is configured through environment variables:
 - For development/testing, a local test server can be run on 127.0.0.2:4064
 - Production server settings are configured through the environment variables
 - The system validates all required server credentials before establishing connections
+
+### OMERO Screen Analysis
+
+OMERO Screen will segment the nuclear and optional cytoplasm channels using models based on the annotated cell line. Metrics are computed for each segmented object using the features available in [skimage.measure.regionprops_table](https://scikit-image.org/docs/stable/api/skimage.measure.html#skimage.measure.regionprops_table).
+
+The default configuration can be changed by passing a configuration file specifed in the `OMERO_SCREEN_CONFIG` environment variable. The cell line-to-model mapping is specified as a dictionary; and the computed features is a list. An example configuration is provided in [omero_screen_config.json](./src/data/omero_screen_config.json). Only those entries that are present will be used allowing partial or full update of the default values.
 
 ### Error Handling
 - The system raises an `OSError` if:

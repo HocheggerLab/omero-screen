@@ -1,0 +1,19 @@
+{
+  "MODEL_DICT": {
+    "nuclei": "Nuclei_Hoechst",
+    "RPE": "RPE-1_Tub_Hoechst",
+    "HELA": "HeLa_Tub_Hoechst",
+    "U2OS": "U2OS_Tub_Hoechst",
+    "HCC1143": "RPE-1_Tub_Hoechst",
+    "MM231": "MM231_Tub_Hoechst",
+    "PALB": "only_PALB"
+  },
+  "FEATURELIST": [
+    "label",
+    "area",
+    "intensity_max",
+    "intensity_min",
+    "intensity_mean",
+    "centroid"
+  ]
+}

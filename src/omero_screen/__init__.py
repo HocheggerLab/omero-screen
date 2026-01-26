@@ -2,10 +2,11 @@
 
 __version__ = "0.2.6"
 
-
+import json
+import os
 from dataclasses import dataclass, field
 
-from .config import set_env_vars
+from .config import get_logger, set_env_vars
 
 
 @dataclass
@@ -40,3 +41,21 @@ class DefaultConfig:
 default_config = DefaultConfig()
 
 set_env_vars()
+
+# Load configuration from file if available
+path = os.getenv("OMERO_SCREEN_CONFIG")
+if path is not None and os.path.exists(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+            models = data.get("MODEL_DICT", None)
+            if isinstance(models, dict):
+                default_config.MODEL_DICT = models
+            features = data.get("FEATURELIST", None)
+            if isinstance(features, list):
+                default_config.FEATURELIST = features
+    except Exception as e:  # noqa: BLE001
+        get_logger(__name__).error(
+            "Failed to load configuration '%s': %s", path, e
+        )
+        raise e
