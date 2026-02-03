@@ -279,7 +279,8 @@ class CroppedImageParser:
             channel_idx = 0 if self._user_data.segmentation == "nucleus" else 1
             current_labels = current_labels_all[..., channel_idx]
         else:
-            current_labels = current_labels_all
+            # Squeeze trailing dimension for single-channel labels (e.g. nucleus-only)
+            current_labels = np.squeeze(current_labels_all)
 
         for row, col, obj_id in zip(
             self._centroids_row, self._centroids_col, self._ids, strict=False
@@ -529,7 +530,8 @@ class RandomImageParser:
         self._omero_data.cropped_labels = self._remove_chosen_crops(
             self._omero_data.cropped_labels
         )
-        self._apply_mask_to_images()
+        if self._user_data.no_background:
+            self._apply_mask_to_images()
 
         # Convert channel names to indices
         channel_indices = []
@@ -622,13 +624,16 @@ class RandomImageParser:
 
     def _apply_mask_to_images(self) -> None:
         """Nullify pixels in color images that don't overlap with the corresponding masks.
-        Images are expected to be in the shape of (H, W, 3) and masks in the shape of (H, W).
+        Images are expected to be in the shape of (H, W, C) and masks in the shape of (H, W).
         """
         masked_images = []
         for image, mask in zip(
             self._random_images, self._random_labels, strict=False
         ):  # type: ignore
-            # Ensure the mask is expanded to match the image's 3 channels
+            # Ensure mask is 2D (H, W) before expanding to match image channels
+            if mask.ndim > 2:
+                mask = np.squeeze(mask)
+            # Ensure the mask is expanded to match the image channels
             expanded_mask = (
                 np.repeat(mask[:, :, np.newaxis], image.shape[2], axis=2) > 0
             )
@@ -645,28 +650,42 @@ class RandomImageParser:
 def fill_missing_channels(
     img: np.ndarray[Any, Any], channel_indices: list[int]
 ) -> np.ndarray[Any, Any]:
-    # Initialize an empty list to hold the channel arrays
+    """
+    Select and rearrange image channels for display.
+
+    For a single channel, returns (H, W, 1) for grayscale display.
+    For multiple channels, maps to RGB (H, W, 3) format.
+
+    Args:
+        img: Input image with shape (H, W, C) where C can be 1, 2, 3, or more
+        channel_indices: List of channel indices to extract (in B, G, R order)
+
+    Returns:
+        Image with shape (H, W, 1) for single channel or (H, W, 3) for multi-channel
+    """
     empty_image = np.zeros((img.shape[0], img.shape[1]), dtype=img.dtype)
     ch_arrays = []
 
+    # Extract requested channels
     for idx in channel_indices:
         if idx < img.shape[-1]:
             ch_arrays.append(img[..., idx])
         else:
             ch_arrays.append(empty_image)
 
+    # Single channel: return as (H, W, 1) for grayscale display
+    if len(ch_arrays) == 1:
+        return ch_arrays[0][..., np.newaxis]
+
     # Map to RGB [Red, Green, Blue] based on input [Blue, Green, Red] list
-    if len(ch_arrays) == 3:
-        # [B, G, R] -> [R, G, B]
+    if len(ch_arrays) >= 3:
+        # [B, G, R, ...] -> [R, G, B] (take first 3)
         result_img = [ch_arrays[2], ch_arrays[1], ch_arrays[0]]
     elif len(ch_arrays) == 2:
         # [B, G] -> [Empty, G, B] (Blue in Blue channel, Green in Green)
         result_img = [empty_image, ch_arrays[1], ch_arrays[0]]
-    elif len(ch_arrays) == 1:
-        # [B] -> [Empty, Empty, B]
-        result_img = [empty_image, empty_image, ch_arrays[0]]
     else:
-        # Fallback
+        # Fallback: all black
         result_img = [empty_image, empty_image, empty_image]
 
     return np.stack(result_img, axis=-1)
@@ -736,10 +755,27 @@ class ParseGallery:
     def _create_gallery_image(
         self, padding_height: int, padding_width: int
     ) -> np.ndarray[Any, Any]:
-        img_height, img_width, img_channels = self._omero_data.selected_images[
-            0
-        ].shape
+        if not self._omero_data.selected_images:
+            raise ValueError("No images selected for gallery")
+
+        # Verify all images have the same shape
+        first_shape = self._omero_data.selected_images[0].shape
+        for i, img in enumerate(self._omero_data.selected_images):
+            if img.shape != first_shape:
+                logger.error(
+                    "Image %d has shape %s, expected %s",
+                    i,
+                    img.shape,
+                    first_shape,
+                )
+                raise ValueError(
+                    f"All gallery images must have the same shape. "
+                    f"Image {i} has shape {img.shape}, expected {first_shape}"
+                )
+
+        img_height, img_width, img_channels = first_shape
         n_row, n_col = self._user_data.rows, self._user_data.columns
+
         # Adjust gallery dimensions to include border padding
         gallery_height = n_row * img_height + (n_row + 1) * padding_height
         gallery_width = n_col * img_width + (n_col + 1) * padding_width

@@ -17,6 +17,7 @@ class UserData:
     columns: int = field(default_factory=int)
     rows: int = field(default_factory=int)
     contour: bool = field(default_factory=bool)
+    no_background: bool = True
     channels: list[str] = field(default_factory=list)
 
     def populate_from_dict(self, data: dict[str, Any]) -> None:

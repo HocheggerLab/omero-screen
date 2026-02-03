@@ -58,6 +58,7 @@ def gallery_widget(
     rows: int = 4,
     reload: bool = True,
     contour: bool = True,
+    no_background: bool = True,
     blue_channel: str = "DAPI",
     green_channel: str = "Tub",
     red_channel: str = "EdU",
@@ -84,6 +85,7 @@ def gallery_widget(
         "columns": columns,
         "rows": rows,
         "contour": contour,
+        "no_background": no_background,
         "channels": channels,
     }
     try:
@@ -91,8 +93,8 @@ def gallery_widget(
         userdata.populate_from_dict(user_data_dict)
         show_gallery(omero_data, userdata)
     except ValueError as e:
-        logger.error("Gallery Error: %s", e)
+        logger.exception("Gallery Error: %s", e)
         QMessageBox.critical(None, "Gallery Error", str(e))
     except Exception as e:  # noqa: BLE001
-        logger.error("Unexpected Error: %s", e)
+        logger.exception("Unexpected Error: %s", e)
         QMessageBox.critical(None, "Unexpected Error", str(e))

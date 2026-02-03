@@ -1732,30 +1732,25 @@ class FlatfieldMaskParser:
 
 class ScaleIntensityParser:
     """
-    The class extracts the caling values for image contrasts to display the different channels in napari.
-    To compare intesities across different wells a single global contrasting value is set. This is based on the
+    The class extracts the scaling values for image contrasts to display the different channels in napari.
+    To compare intensities across different wells a single global contrasting value is set. This is based on the
     the min and max values for each channel. These data are extracted from the polars LazyFrame object stored in
     omero_data.plate_data.
     public method:
     parse_intensities: Parse the intensities from the plate data and store them in the omero_data object.
-    private methods:
-    _set_keyword: Set the keyword based on the presence of "_cell" or "_nucleus" in the dataframe columns.
-    _get_values: Filter the dataframe to only include columns with the channel keyword.
     """
 
     def __init__(self, omero_data: OmeroData):
         self._omero_data = omero_data
         self._plate_data: pl.LazyFrame = omero_data.plate_data
-        self._keyword: Optional[str] = None
         self._intensities: Optional[dict[int, tuple[int, int]]] = None
 
     def parse_intensities(self) -> None:
         """
         Parse the intensities from the plate data and store them in the omero_data object.
         Raises:
-            ValueError: when intesities cannot be collected from the plate csv data.
+            ValueError: when intensities cannot be collected from the plate csv data.
         """
-        self._set_keyword()
         self._get_values()
         if self._intensities:
             self._omero_data.intensities = self._intensities  # type: ignore
@@ -1765,57 +1760,81 @@ class ScaleIntensityParser:
                 "Problem with loading intensities to scale channels."
             )
 
-    def _set_keyword(self) -> None:
+    def _get_values(self) -> None:
         """
-        Set the keyword based on the presence of "_cell" or "_nucleus" in the dataframe columns.
-        Raises:
-            ValueError: when the dataframe does not contain the channel keywords.
-            ValueError: when neither "_cell" nor "_nucleus" is present in the dataframe columns.
+        Filter the dataframe to include columns with the channel keyword.
+        Prioritizes "_cell" suffix if available, falls back to "_nucleus".
+        Raises ValueError if "_nucleus" columns are missing or contain only nulls.
         """
         if not hasattr(self, "_plate_data") or self._plate_data is None:
             raise ValueError("Dataframe 'plate_data' does not exist.")
 
-        # Initialize keyword to None
-        self._keyword = None
-
-        # Check for presence of "_cell" and "_nucleus" in the list of strings
-        columns = self._plate_data.collect_schema().names()
-        has_cell = any("_cell" in s for s in columns)
-        has_nucleus = any("_nucleus" in s for s in columns)
-
-        # Set keyword based on presence of "_cell" or "_nucleus"
-        if has_cell:
-            self._keyword = "_cell"
-        elif has_nucleus:
-            self._keyword = "_nucleus"
-        else:
-            # If neither is found, raise an exception
-            raise ValueError(
-                "Neither '_cell' nor '_nucleus' is present in the dataframe columns."
-            )
-
-    def _get_values(self) -> None:
-        """
-        Filter the dataframe to only include columns with the channel keyword.
-        """
         intensity_dict = {}
         columns = self._plate_data.collect_schema().names()
-        for channel, channel_value in self._omero_data.channel_data.items():
-            cols = (
-                f"intensity_max_{channel}{self._keyword}",
-                f"intensity_min_{channel}{self._keyword}",
-            )
-            for col in cols:
-                if col not in columns:
-                    logger.error("Column '%s' not found in DataFrame.", col)
-                    raise ValueError(f"Column '{col}' not found in DataFrame.")
 
+        for channel, channel_value in self._omero_data.channel_data.items():
+            # Define potential column sets
+            cell_cols = (
+                f"intensity_max_{channel}_cell",
+                f"intensity_min_{channel}_cell",
+            )
+            nucleus_cols = (
+                f"intensity_max_{channel}_nucleus",
+                f"intensity_min_{channel}_nucleus",
+            )
+
+            target_cols = None
+            # Try cell columns first
+            if all(col in columns for col in cell_cols):
+                # Check if cell columns have non-null values
+                max_value = (
+                    self._plate_data.select(pl.col(cell_cols[0]))
+                    .mean()
+                    .collect()
+                )
+                if max_value[0, 0] is not None:
+                    target_cols = cell_cols
+                else:
+                    logger.debug(
+                        "Cell intensity columns for channel '%s' exist but contain only nulls, falling back to nucleus columns.",
+                        channel,
+                    )
+
+            # Fallback to nucleus columns if cell columns don't work
+            if target_cols is None:
+                if all(col in columns for col in nucleus_cols):
+                    target_cols = nucleus_cols
+                else:
+                    logger.error(
+                        "Neither cell nor nucleus intensity columns found for channel '%s'. Expected %s or %s.",
+                        channel,
+                        cell_cols,
+                        nucleus_cols,
+                    )
+                    raise ValueError(
+                        f"Neither cell nor nucleus intensity columns found for channel '{channel}'."
+                    )
+
+            # Extract values from the chosen columns
             max_value = (
-                self._plate_data.select(pl.col(cols[0])).mean().collect()
+                self._plate_data.select(pl.col(target_cols[0]))
+                .mean()
+                .collect()
             )
             min_value = (
-                self._plate_data.select(pl.col(cols[1])).min().collect()
+                self._plate_data.select(pl.col(target_cols[1])).min().collect()
             )
+
+            # Verify values are not None
+            if max_value[0, 0] is None or min_value[0, 0] is None:
+                logger.error(
+                    "Intensity values for channel '%s' are null even in %s columns.",
+                    channel,
+                    "nucleus" if target_cols == nucleus_cols else "cell",
+                )
+                raise ValueError(
+                    f"Intensity values for channel '{channel}' contain only nulls."
+                )
 
             intensity_dict[int(channel_value)] = (
                 int(min_value[0, 0]),

@@ -114,10 +114,7 @@ class ImageNavigator:
         self, viewer: "Viewer", image: "np.ndarray[Any, Any]"
     ) -> None:
         try:
-            if (
-                self.omero_data.selected_crops
-                and self.omero_data.selected_crops[0].shape[-1] == 1
-            ):
+            if image.shape[-1] == 1:
                 self._add_grayscale_image(viewer, image)
             else:
                 self._add_rgb_image(viewer, image)
