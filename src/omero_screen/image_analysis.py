@@ -20,6 +20,7 @@ Key Features:
 - Quality control metrics for each image channel.
 """
 
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
@@ -222,7 +223,7 @@ class Image:
         if model_name is None:
             raise RuntimeError("Unknown model for nuclei")
 
-        segmentation_model = SegmentationModel(model_name)
+        segmentation_model = _get_segmentation_model(model_name)
         # Get the image array
         img_array = self.img_dict["DAPI"]
 
@@ -271,7 +272,7 @@ class Image:
             raise RuntimeError(
                 f"Unknown model for cell line: {self.cell_line}"
             )
-        segmentation_model = SegmentationModel(model_name)
+        segmentation_model = _get_segmentation_model(model_name)
 
         # Get the image arrays for DAPI and Tubulin channels
         dapi_array = self.img_dict["DAPI"]
@@ -323,6 +324,12 @@ class Image:
         if m < 2**16:
             return mask.astype(np.uint16)
         return mask
+
+
+@lru_cache(maxsize=4)
+def _get_segmentation_model(model_name: str) -> SegmentationModel:
+    """Gets the segmentation model."""
+    return SegmentationModel(model_name)
 
 
 def get_cell_model(
