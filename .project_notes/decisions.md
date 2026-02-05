@@ -89,3 +89,30 @@ Document key architectural and technical decisions with context and trade-offs.
 **Consequences:**
 - Benefits: Ensures scientific reproducibility, satisfies peer review requirements, increases confidence in screening results
 - Trade-offs: Delays advanced feature work by ~1 week
+
+### ADR-004: Extract CyclicIF Data Cleaning as Standalone Utility (2026-02-05)
+
+**Context:**
+- `agg_data.csv` files from cyclicIF experiments contain duplicate columns with numeric suffixes (`.0`, `.1`) from pandas merge operations
+- CLI import pathway had cleaning logic in `CellViewStateCore._clean_agg_data()` method
+- Napari widget import pathway bypassed this cleaning, reading CSV with raw `pd.read_csv()`
+- This caused database schema pollution and import failures when problematic plates were imported via napari
+
+**Decision:**
+- Extract `_clean_agg_data()` as standalone `clean_agg_data()` function at module level in `cellview/utils/state.py`
+- Apply cleaning in both import pathways:
+  - CLI: via `CellViewStateCore._clean_agg_data()` wrapper (backward compatible)
+  - Napari: directly in `welldata_api._perform_import()` when detecting `agg_data.csv`
+- Function automatically detects and handles:
+  - Redundant columns with suffixes (drops if base exists)
+  - Unique measurements with suffixes (renames to clean base name)
+  - Metadata columns, empty rows/columns, data type validation
+
+**Alternatives Considered:**
+- Keep as class method -> Would require creating state object just for cleaning
+- Duplicate logic in napari -> Code duplication, maintenance burden
+- Skip cleaning in napari -> Continues to allow problematic data into database
+
+**Consequences:**
+- Benefits: Single source of truth for data cleaning, prevents schema pollution, works for both CLI and GUI imports
+- Trade-offs: None significant - adds minimal complexity, improves robustness

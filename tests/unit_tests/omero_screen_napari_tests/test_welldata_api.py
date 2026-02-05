@@ -90,30 +90,12 @@ class TestUserInput:
         assert mock_omero_data.crop_length == (100, 100, 1, 3, 3)
 
 class TestScaleIntensityParser:
-    def test_set_keyword_cell(self, mock_omero_data):
-        parser = ScaleIntensityParser(mock_omero_data)
-        parser._plate_data = pl.LazyFrame({"intensity_max_DAPI_cell": [1]})
-        parser._set_keyword()
-        assert parser._keyword == "_cell"
-
-    def test_set_keyword_nucleus(self, mock_omero_data):
-        parser = ScaleIntensityParser(mock_omero_data)
-        parser._plate_data = pl.LazyFrame({"intensity_max_DAPI_nucleus": [1]})
-        parser._set_keyword()
-        assert parser._keyword == "_nucleus"
-
-    def test_set_keyword_invalid(self, mock_omero_data):
-        parser = ScaleIntensityParser(mock_omero_data)
-        parser._plate_data = pl.LazyFrame({"intensity_max_DAPI": [1]})
-        with pytest.raises(ValueError, match="Neither '_cell' nor '_nucleus' is present"):
-            parser._set_keyword()
-
-    def test_get_values(self, mock_omero_data):
+    def test_get_values_with_cell_columns(self, mock_omero_data):
+        """Test that parser prefers cell columns when available and non-null."""
         mock_omero_data.channel_data = {"DAPI": 0}
         parser = ScaleIntensityParser(mock_omero_data)
-        parser._keyword = "_cell"
 
-        # Create a DataFrame with necessary columns
+        # Create a DataFrame with cell columns
         df = pl.DataFrame({
             "intensity_max_DAPI_cell": [100, 200],
             "intensity_min_DAPI_cell": [10, 20]
@@ -125,6 +107,58 @@ class TestScaleIntensityParser:
         # Mean of max: (100+200)/2 = 150
         # Min of min: 10
         assert parser._intensities == {0: (10, 150)}
+
+    def test_get_values_with_nucleus_columns(self, mock_omero_data):
+        """Test that parser uses nucleus columns when cell columns not available."""
+        mock_omero_data.channel_data = {"DAPI": 0}
+        parser = ScaleIntensityParser(mock_omero_data)
+
+        # Create a DataFrame with only nucleus columns
+        df = pl.DataFrame({
+            "intensity_max_DAPI_nucleus": [100, 200],
+            "intensity_min_DAPI_nucleus": [10, 20]
+        })
+        parser._plate_data = df.lazy()
+
+        parser._get_values()
+
+        # Mean of max: (100+200)/2 = 150
+        # Min of min: 10
+        assert parser._intensities == {0: (10, 150)}
+
+    def test_get_values_fallback_to_nucleus(self, mock_omero_data):
+        """Test that parser falls back to nucleus when cell columns contain only nulls."""
+        mock_omero_data.channel_data = {"DAPI": 0}
+        parser = ScaleIntensityParser(mock_omero_data)
+
+        # Create a DataFrame with null cell columns and valid nucleus columns
+        df = pl.DataFrame({
+            "intensity_max_DAPI_cell": [None, None],
+            "intensity_min_DAPI_cell": [None, None],
+            "intensity_max_DAPI_nucleus": [100, 200],
+            "intensity_min_DAPI_nucleus": [10, 20]
+        })
+        parser._plate_data = df.lazy()
+
+        parser._get_values()
+
+        # Should use nucleus columns
+        assert parser._intensities == {0: (10, 150)}
+
+    def test_get_values_missing_columns_raises_error(self, mock_omero_data):
+        """Test that parser raises ValueError when neither cell nor nucleus columns exist."""
+        mock_omero_data.channel_data = {"DAPI": 0}
+        parser = ScaleIntensityParser(mock_omero_data)
+
+        # Create a DataFrame without the required columns
+        df = pl.DataFrame({
+            "intensity_max_DAPI": [100, 200],
+            "some_other_column": [1, 2]
+        })
+        parser._plate_data = df.lazy()
+
+        with pytest.raises(ValueError, match="Neither cell nor nucleus intensity columns found"):
+            parser._get_values()
 
 class TestPixelSizeParser:
     def test_check_pixel_values_matching(self, mock_omero_data):

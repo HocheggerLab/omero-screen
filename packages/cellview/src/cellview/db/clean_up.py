@@ -1,6 +1,7 @@
 """Module for cleaning up the database.
 
-This module provides functions for cleaning up the database by removing orphaned records.
+This module provides functions for cleaning up the database by removing orphaned records
+and fixing schema issues (e.g., removing problematic columns with numeric suffixes).
 """
 
 import contextlib
@@ -19,14 +20,15 @@ ui = CellViewUI()
 
 
 def clean_up_db(db: CellViewDB, conn: duckdb.DuckDBPyConnection) -> None:
-    """Clean up the database by removing orphaned records.
+    """Clean up the database by removing orphaned records and fixing schema issues.
 
     The cleanup process works recursively from top to bottom:
-    1. Check projects -> experiments
-    2. Check experiments -> repeats
-    3. Check repeats -> conditions
-    4. Check conditions -> measurements
-    5. Repeat until no more orphaned records are found
+    1. Clean schema (remove problematic columns with numeric suffixes)
+    2. Check projects -> experiments
+    3. Check experiments -> repeats
+    4. Check repeats -> conditions
+    5. Check conditions -> measurements
+    6. Repeat until no more orphaned records are found
 
     Args:
         db: The CellViewDB instance
@@ -51,6 +53,14 @@ def clean_up_db(db: CellViewDB, conn: duckdb.DuckDBPyConnection) -> None:
         ui.header(
             "Database Cleanup", "Analyzing and removing orphaned records"
         )
+
+        # Clean schema first (remove problematic suffixed columns)
+        ui.progress("Checking schema for problematic columns")
+        schema_cols_cleaned = clean_schema_columns(db, conn)
+        if schema_cols_cleaned > 0:
+            ui.success(
+                f"Cleaned {schema_cols_cleaned} problematic schema columns"
+            )
 
         while True:
             iteration_cleaned = 0
@@ -127,7 +137,7 @@ def deep_clean_db(db: CellViewDB, conn: duckdb.DuckDBPyConnection) -> None:
     """Perform an aggressive database scan and cleanup of all broken references.
 
     This function explicitly checks for children pointing to non-existent parents
-    across all tables, and then performs a full bottom-up orphan cleanup.
+    across all tables, performs schema cleanup, and a full bottom-up orphan cleanup.
     """
     ui.header(
         "Deep Database Cleanup", "Aggressively removing all dangling records"
@@ -138,6 +148,13 @@ def deep_clean_db(db: CellViewDB, conn: duckdb.DuckDBPyConnection) -> None:
     # Individual delete statements will be auto-committed.
 
     try:
+        # 0. Clean schema first (remove problematic suffixed columns)
+        schema_cols_cleaned = clean_schema_columns(db, conn)
+        if schema_cols_cleaned > 0:
+            ui.success(
+                f"Deep cleanup removed {schema_cols_cleaned} problematic schema columns"
+            )
+
         # 1. Clean broken references (Children pointing to missing parents)
 
         # Measurements -> Conditions
@@ -601,3 +618,74 @@ def del_measurements_by_plate_id(
         ui.info(f"No measurements found for plate {plate_id}")
 
     return count
+
+
+def clean_schema_columns(
+    db: CellViewDB, conn: duckdb.DuckDBPyConnection
+) -> int:
+    """Clean up problematic schema columns with numeric suffixes.
+
+    This function removes columns from the measurements table that have
+    numeric suffixes (e.g., .0, .1, .2, .3). These columns are typically
+    created when pandas DataFrames with duplicate column names are imported,
+    and they cause import failures because new data doesn't have values for
+    these spurious columns.
+
+    Args:
+        db: The CellViewDB instance
+        conn: The database connection
+
+    Returns:
+        The number of columns dropped
+
+    Raises:
+        Exception: If unable to clean schema columns
+    """
+    try:
+        # Get all columns from measurements table
+        result = conn.execute("SELECT * FROM measurements LIMIT 0").description
+        all_columns = [col[0] for col in result]
+
+        # Find columns with numeric suffixes (.0, .1, .2, .3, etc.)
+        import re
+
+        suffix_pattern = re.compile(r"\.\d+$")
+        suffixed_columns = [
+            col for col in all_columns if suffix_pattern.search(col)
+        ]
+
+        if not suffixed_columns:
+            logger.debug("No problematic schema columns found")
+            return 0
+
+        # Drop each suffixed column
+        dropped_count = 0
+        failed_columns = []
+
+        for col in suffixed_columns:
+            try:
+                # Use double quotes for column names with special characters
+                conn.execute(f'ALTER TABLE measurements DROP COLUMN "{col}"')
+                logger.info(f"Dropped problematic column: {col}")
+                dropped_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to drop column {col}: {e}")
+                failed_columns.append(col)
+
+        # Report results
+        if dropped_count > 0:
+            ui.info(
+                f"Removed {dropped_count} problematic schema columns from measurements table"
+            )
+
+        if failed_columns:
+            ui.warning(
+                f"Failed to drop {len(failed_columns)} columns: {', '.join(failed_columns[:5])}"
+            )
+
+        return dropped_count
+
+    except Exception as e:
+        logger.error(f"Error during schema cleanup: {e}")
+        ui.warning(f"Schema cleanup encountered an error: {e}")
+        return 0

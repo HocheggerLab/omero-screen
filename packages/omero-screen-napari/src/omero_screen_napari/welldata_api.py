@@ -25,7 +25,7 @@ from cellview.db.clean_up import (
 )
 from cellview.db.db import CellViewDB
 from cellview.importers.import_functions import import_data
-from cellview.utils.state import CellViewStateCore
+from cellview.utils.state import CellViewStateCore, clean_agg_data
 from cellview.utils.ui import CellViewUI
 from ezomero import get_image
 from omero.gateway import (
@@ -1288,6 +1288,18 @@ class CellViewParser:
             # Load CSV data first (as pandas DataFrame for cellview)
             logger.info(f"Loading CSV data from: {csv_path}")
             df = pd.read_csv(csv_path)
+
+            # Apply cleaning if this is an aggregated data file
+            # Check if the filename is agg_data.csv
+            csv_filename = Path(csv_path).name.lower()
+            if csv_filename == "agg_data.csv":
+                logger.info(
+                    "Detected agg_data.csv - applying data cleaning for cyclicIF"
+                )
+                df = clean_agg_data(df)
+                logger.info(
+                    f"Cleaned dataframe: {len(df)} rows, {len(df.columns)} columns"
+                )
 
             # Create a CellViewUI instance for the state (required parameter)
             ui = CellViewUI()

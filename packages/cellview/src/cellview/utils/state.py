@@ -30,6 +30,120 @@ logger = get_logger(__name__)
 JustifyMethod = Literal["default", "left", "center", "right", "full"]
 
 
+def clean_agg_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Clean aggregated data by removing redundant columns and empty values.
+
+    This is a standalone utility function for cleaning agg_data.csv files
+    that may have duplicate columns from pandas merge operations.
+    Can be used by both CLI and napari import pathways.
+
+    Args:
+        df: The raw dataframe from agg_data.csv
+
+    Returns:
+        Cleaned dataframe with:
+        - Unnamed columns removed
+        - Spaces replaced with underscores in column names
+        - Redundant metadata columns (with .0, .1 suffixes) dropped
+        - Intelligent handling of measurement columns with suffixes
+        - Columns renamed to match DB schema
+        - Empty columns/rows removed
+        - NaN values cleaned
+        - Data types validated
+    """
+    # 1. Drop Unnamed columns (index columns)
+    df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
+
+    # 2. Replace spaces with underscores in column names
+    df.columns = df.columns.str.replace(" ", "_")
+
+    # 3. Drop redundant metadata columns (ending in .0, .1, etc.)
+    # We assume the first occurrence (without suffix) is correct
+    metadata_patterns = [
+        r"^experiment\.\d+$",
+        r"^plate_id\.\d+$",
+        r"^well\.\d+$",
+        r"^well_id\.\d+$",
+        r"^image_id\.\d+$",
+        r"^cell_line\.\d+$",
+        r"^si\.\d+$",
+        r"^stimulus\.\d+$",
+        r"^hours\.\d+$",
+        r"^timepoint\.\d+$",
+        r"^label\.\d+$",
+        r"^area_nucleus\.\d+$",
+        r"^centroid-0\.\d+$",
+        r"^centroid-1\.\d+$",
+        r"^integrated_int_DAPI\.\d+$",
+    ]
+
+    for pattern in metadata_patterns:
+        df = df.loc[:, ~df.columns.str.match(pattern)]
+
+    # 4. Handle suffixed measurement columns
+    # If a column has a suffix (e.g. .0, .1):
+    # - If the base name already exists, it's redundant (e.g. DAPI) -> Drop it
+    # - If the base name doesn't exist, it's a unique measurement -> Rename it
+
+    # Get all columns that have a numeric suffix
+    suffixed_cols = [col for col in df.columns if re.search(r"\.\d+$", col)]
+
+    rename_map = {}
+    drop_cols = []
+
+    for col in suffixed_cols:
+        base_name = re.sub(r"\.\d+$", "", col)
+        if base_name in df.columns:
+            # Base name exists (e.g. intensity_max_DAPI_nucleus)
+            # This suffixed version is redundant
+            drop_cols.append(col)
+        else:
+            # Base name does not exist (e.g. intensity_max_p21_nucleus)
+            # This is a unique measurement that got suffixed
+            rename_map[col] = base_name
+
+    # Apply drops and renames
+    if drop_cols:
+        df = df.drop(columns=drop_cols)
+        logger.info(f"Dropped {len(drop_cols)} redundant suffixed columns")
+    if rename_map:
+        df = df.rename(columns=rename_map)
+        logger.info(f"Renamed {len(rename_map)} unique suffixed columns")
+
+    # 5. Rename columns to match DB schema
+    column_mapping = {
+        "centroid-0": "centroid-0-nuc",
+        "centroid-1": "centroid-1-nuc",
+        "integrated_int_DAPI": "integrated_int_DAPI_norm",
+    }
+    df = df.rename(columns=column_mapping)
+
+    # 6. Drop columns that are not in the measurements table schema
+    # but keep metadata columns needed for conditions table
+    columns_to_drop = [
+        "Unnamed: 0",
+    ]
+    # Only drop if they exist
+    df = df.drop(columns=[c for c in columns_to_drop if c in df.columns])
+
+    # 7. Drop empty columns and rows
+    df = df.dropna(axis=1, how="all")
+    df = df.dropna(axis=0, how="all")
+
+    # 8. Drop ANY rows with NaN values (strict cleaning)
+    df = df.dropna(axis=0, how="any")
+
+    # 9. Ensure required columns are present and valid
+    # We still cast to int for safety, but we expect no NaNs now
+    if "timepoint" in df.columns:
+        df["timepoint"] = df["timepoint"].astype(int)
+
+    if "image_id" in df.columns:
+        df["image_id"] = df["image_id"].astype(int)
+
+    return df
+
+
 @dataclass
 class CellViewStateCore:
     """Core state manager for CellView application (dependency-injectable).
@@ -365,103 +479,15 @@ class CellViewStateCore:
     def _clean_agg_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """Clean aggregated data by removing redundant columns and empty values.
 
+        This is a wrapper around the standalone clean_agg_data() function.
+
         Args:
             df: The raw dataframe from agg_data.csv
 
         Returns:
             Cleaned dataframe
         """
-        # 1. Drop Unnamed columns (index columns)
-        df = df.loc[:, ~df.columns.str.contains("^Unnamed")]
-
-        # 2. Replace spaces with underscores in column names
-        df.columns = df.columns.str.replace(" ", "_")
-
-        # 3. Drop redundant metadata columns (ending in .0, .1, etc.)
-        # We assume the first occurrence (without suffix) is correct
-        metadata_patterns = [
-            r"^experiment\.\d+$",
-            r"^plate_id\.\d+$",
-            r"^well\.\d+$",
-            r"^well_id\.\d+$",
-            r"^image_id\.\d+$",
-            r"^cell_line\.\d+$",
-            r"^si\.\d+$",
-            r"^stimulus\.\d+$",
-            r"^hours\.\d+$",
-            r"^timepoint\.\d+$",
-            r"^label\.\d+$",
-            r"^area_nucleus\.\d+$",
-            r"^centroid-0\.\d+$",
-            r"^centroid-1\.\d+$",
-            r"^integrated_int_DAPI\.\d+$",
-        ]
-
-        for pattern in metadata_patterns:
-            df = df.loc[:, ~df.columns.str.match(pattern)]
-
-        # 3. Handle suffixed measurement columns
-        # If a column has a suffix (e.g. .0, .1):
-        # - If the base name already exists, it's redundant (e.g. DAPI) -> Drop it
-        # - If the base name doesn't exist, it's a unique measurement -> Rename it
-
-        # Get all columns that have a numeric suffix
-        suffixed_cols = [
-            col for col in df.columns if re.search(r"\.\d+$", col)
-        ]
-
-        rename_map = {}
-        drop_cols = []
-
-        for col in suffixed_cols:
-            base_name = re.sub(r"\.\d+$", "", col)
-            if base_name in df.columns:
-                # Base name exists (e.g. intensity_max_DAPI_nucleus)
-                # This suffixed version is redundant
-                drop_cols.append(col)
-            else:
-                # Base name does not exist (e.g. intensity_max_p21_nucleus)
-                # This is a unique measurement that got suffixed
-                rename_map[col] = base_name
-
-        # Apply drops and renames
-        if drop_cols:
-            df = df.drop(columns=drop_cols)
-        if rename_map:
-            df = df.rename(columns=rename_map)
-
-        # 4. Rename columns to match DB schema
-        column_mapping = {
-            "centroid-0": "centroid-0-nuc",
-            "centroid-1": "centroid-1-nuc",
-            "integrated_int_DAPI": "integrated_int_DAPI_norm",
-        }
-        df = df.rename(columns=column_mapping)
-
-        # 5. Drop columns that are not in the measurements table schema
-        # but keep metadata columns needed for conditions table
-        columns_to_drop = [
-            "Unnamed: 0",
-        ]
-        # Only drop if they exist
-        df = df.drop(columns=[c for c in columns_to_drop if c in df.columns])
-
-        # 6. Drop empty columns and rows
-        df = df.dropna(axis=1, how="all")
-        df = df.dropna(axis=0, how="all")
-
-        # 7. Drop ANY rows with NaN values (strict cleaning)
-        df = df.dropna(axis=0, how="any")
-
-        # 8. Ensure required columns are present and valid
-        # We still cast to int for safety, but we expect no NaNs now
-        if "timepoint" in df.columns:
-            df["timepoint"] = df["timepoint"].astype(int)
-
-        if "image_id" in df.columns:
-            df["image_id"] = df["image_id"].astype(int)
-
-        return df
+        return clean_agg_data(df)
 
     def _get_project_info(
         self,
