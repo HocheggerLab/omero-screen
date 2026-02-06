@@ -284,6 +284,7 @@ def align_plates(
     tolerance: float = 5,
     seed: int | None = None,
     output_alignments: bool = False,
+    iqr: float = 1.5,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[list[npt.NDArray[Any]]] | None]:
     """Align plates in 2D using the specified channel.
 
@@ -304,6 +305,7 @@ def align_plates(
         tolerance: Distance threshold for all alignments to the centroid
         seed: Seed for random selection of well samples
         output_alignments: Set to True to return the alignment images
+        iqr: Factor of inter-quartile range to exclude outliers (zero to ignore)
 
     Returns:
         DataFrame of alignment shifts (X,Y) required to align each plate well to the master plate,
@@ -442,6 +444,22 @@ def align_plates(
                 [np.sqrt((np.array(x) ** 2).sum()) for x in shifts]
             )
             logger.info("Alignment distances: %s", distances)
+            # Exclude outliers
+            if iqr > 0:
+                q1, q3 = np.quantile(distances, [0.25, 0.75])
+                outlier = iqr * (q3 - q1)
+                ignore = distances > outlier
+                if np.any(ignore):
+                    logger.info(
+                        "Ignoring outlier distances: %s > %.2f (%.2f * (%.2f - %.2f))",
+                        distances[ignore],
+                        outlier,
+                        iqr,
+                        q3,
+                        q1,
+                    )
+                    distances = distances[~ignore]
+                    shifts = np.array(shifts)[~ignore]
             if np.any(distances >= threshold):
                 raise OmeroError(
                     f"Plate alignment {plate_id} to {plate_other} [{well}] above distance threshold {threshold}: {distances[distances >= threshold]}",

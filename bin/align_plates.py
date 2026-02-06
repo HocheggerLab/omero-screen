@@ -56,6 +56,12 @@ def main() -> None:
         help="Distance tolerance for alignments to their centroids (default: %(default)s)",
     )
     parser.add_argument(
+        "--iqr",
+        type=float,
+        default=1.5,
+        help="Factor of inter-quartile range to exclude outliers (zero to ignore) (default: %(default)s)",
+    )
+    parser.add_argument(
         "--gallery",
         type=int,
         default=4,
@@ -122,6 +128,7 @@ def main() -> None:
             threshold=args.threshold,
             tolerance=args.tolerance,
             output_alignments=args.gallery > 0,
+            iqr=args.iqr,
         )
         if examples is not None:
             plate = conn.getObject("Plate", plate_id)
