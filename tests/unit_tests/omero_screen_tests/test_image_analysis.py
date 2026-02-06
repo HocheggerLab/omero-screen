@@ -134,7 +134,7 @@ class TestImageInitialization:
         return data
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.SegmentationModel")
+    @patch("omero_screen.image_analysis._get_segmentation_model")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_image_initialization_basic(
         self,
@@ -183,7 +183,7 @@ class TestImageInitialization:
         assert "Tub" in img.img_dict
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.SegmentationModel")
+    @patch("omero_screen.image_analysis._get_segmentation_model")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_image_initialization_with_40x(
         self,
@@ -228,7 +228,7 @@ class TestImageInitialization:
         assert img.nuc_diameter == 100
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.SegmentationModel")
+    @patch("omero_screen.image_analysis._get_segmentation_model")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_image_initialization_with_20x(
         self,
@@ -273,7 +273,7 @@ class TestImageInitialization:
         assert img.nuc_diameter == 25
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.SegmentationModel")
+    @patch("omero_screen.image_analysis._get_segmentation_model")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_image_flatfield_correction(
         self,
@@ -371,7 +371,7 @@ class TestImageSegmentation:
         }
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.SegmentationModel")
+    @patch("omero_screen.image_analysis._get_segmentation_model")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_nucleus_segmentation_called(
         self, mock_upload, mock_segmentation, mock_get_image, mock_setup
@@ -411,7 +411,7 @@ class TestImageSegmentation:
         assert img.n_mask.shape == (1, 256, 256)  # TYX format
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.SegmentationModel")
+    @patch("omero_screen.image_analysis._get_segmentation_model")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_cell_segmentation_with_tubulin(
         self, mock_upload, mock_segmentation, mock_get_image, mock_setup
@@ -466,7 +466,7 @@ class TestImageSegmentation:
         assert img.cyto_mask is not None
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.SegmentationModel")
+    @patch("omero_screen.image_analysis._get_segmentation_model")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_segmentation_with_existing_masks(
         self, mock_upload, mock_segmentation, mock_get_image, mock_setup
@@ -511,7 +511,7 @@ class TestImageSegmentation:
         assert np.max(img.n_mask) == 1  # The cell we created
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.SegmentationModel")
+    @patch("omero_screen.image_analysis._get_segmentation_model")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_segmentation_uploads_masks(
         self, mock_upload, mock_segmentation, mock_get_image, mock_setup
@@ -617,7 +617,7 @@ class TestMultiTimepoint:
     """Test Image class with multi-timepoint data."""
 
     @patch("omero_screen.image_analysis.get_image")
-    @patch("omero_screen.image_analysis.SegmentationModel")
+    @patch("omero_screen.image_analysis._get_segmentation_model")
     @patch("omero_screen.image_analysis.upload_masks")
     def test_multi_timepoint_segmentation(
         self, mock_upload, mock_segmentation, mock_get_image
