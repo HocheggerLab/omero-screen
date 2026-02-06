@@ -451,7 +451,7 @@ def align_plates(
                 ignore = distances > outlier
                 if np.any(ignore):
                     logger.info(
-                        "Ignoring outlier distances: %s > %.2f (q3 + %.2f * (%.2f - %.2f))",
+                        "Ignoring outlier distances: %s > %.2f (%.2f + %.2f * (%.2f - %.2f))",
                         distances[ignore],
                         outlier,
                         q3,
