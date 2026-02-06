@@ -30,6 +30,7 @@ from cellview.utils.ui import CellViewUI
 from ezomero import get_image
 from omero.gateway import (
     BlitzGateway,
+    FileAnnotationWrapper,
     ImageWrapper,
     MapAnnotationWrapper,
     PlateWrapper,
@@ -111,7 +112,7 @@ def parse_omero_data(
             omero_data.reset_well_and_image_data()
             for well_pos in omero_data.well_pos_list:
                 logger.info(f"Processing well {well_pos}")  # noqa: G004
-                well_image_parser(omero_data, well_pos, conn)
+                well_image_parser(omero_data, well_pos, conn, options)
         except Exception as e:  # noqa: BLE001
             logger.error(
                 "Error parsing plate data: %s\n%s",
@@ -160,14 +161,20 @@ def parse_plate_data(
         )
         user_input.parse_data()
         logger.info("Loaded data for plate with ID %s", plate_id)
-        cellview_parser = CellViewParser(omero_data)
+        cellview_parser = CellViewParser(omero_data, options)
         cellview_parser.parse_data()
         channel_parser = ChannelDataParser(omero_data)
         channel_parser.parse_channel_data()
         flatfield_parser = FlatfieldMaskParser(omero_data, conn)
         flatfield_parser.parse_flatfieldmask()
-        scale_intensity_parser = ScaleIntensityParser(omero_data)
-        scale_intensity_parser.parse_intensities()
+        # Skip intensity parsing if cellview was skipped (aligned plates)
+        if "skip_cellview" not in options:
+            scale_intensity_parser = ScaleIntensityParser(omero_data)
+            scale_intensity_parser.parse_intensities()
+        else:
+            logger.info(
+                "Skipping intensity parsing (skip_cellview option set)"
+            )
         pixel_size_parser = PixelSizeParser(omero_data)
         pixel_size_parser.parse_pixel_size_values()
 
@@ -182,7 +189,10 @@ def parse_plate_data(
 
 
 def well_image_parser(
-    omero_data: OmeroData, well_pos: str, conn: BlitzGateway
+    omero_data: OmeroData,
+    well_pos: str,
+    conn: BlitzGateway,
+    options: Optional[list[str]] = None,
 ) -> None:
     """
     Function that combines the different parser classes that are responsible to process well, image and label data.
@@ -192,8 +202,11 @@ def well_image_parser(
         omero_data (OmeroData): OmeroData class object that receives the parsed data
         well_pos (str): List of wells provided by welldata_widget (e.g 'A1, A2')
         conn (BlitzGateway): BlitzGateway connection
+        options (Optional[list[str]]): Options to control parsing behavior
     """
-    well_data_parser = WellDataParser(omero_data, well_pos)
+    if options is None:
+        options = []
+    well_data_parser = WellDataParser(omero_data, well_pos, options)
     well_data_parser.parse_well()
     if well := well_data_parser._well:
         image_parser = ImageParser(omero_data, well, conn)
@@ -454,17 +467,28 @@ class CellViewParser:
     parse_data: Orchestrate the data retrieval.
     """
 
-    def __init__(self, omero_data: OmeroData):
+    def __init__(
+        self, omero_data: OmeroData, options: Optional[list[str]] = None
+    ):
         self._omero_data = omero_data
         self._plate_id: int = omero_data.plate_id
         self._db: Optional[CellViewDB] = None
         self._conn: Optional[duckdb.DuckDBPyConnection] = None
+        self._options: list[str] = options if options is not None else []
 
     def parse_data(self) -> None:
         """
         Orchestrate the data retrieval from CellView database.
         Automatically creates database and imports plate data if needed.
         """
+        # Skip cellview loading if option is set (e.g., for aligned plates where data already loaded)
+        if "skip_cellview" in self._options:
+            logger.info(
+                "Skipping cellview data loading for plate %s (option set)",
+                self._plate_id,
+            )
+            return
+
         logger.info(
             "Loading data from CellView database for plate %s", self._plate_id
         )
@@ -1957,6 +1981,7 @@ class WellDataParser:
         self,
         omero_data: OmeroData,
         well_pos: str,
+        options: Optional[list[str]] = None,
     ):
         self._omero_data = omero_data
         self._plate = omero_data.plate
@@ -1965,6 +1990,7 @@ class WellDataParser:
         self._well_id: Optional[int] = None
         self._metadata: Optional[dict[str, Any]] = None
         self._well_ifdata: Optional[pl.DataFrame] = None
+        self._options: list[str] = options if options is not None else []
 
     def parse_well(self) -> None:
         self._parse_well_object()
@@ -1982,15 +2008,24 @@ class WellDataParser:
         else:
             logger.error("No metadata found for well %s.", self._well_pos)
             raise ValueError(f"No metadata found for well {self._well_pos}.")
-        self._load_well_csvdata()
-        if self._well_ifdata is not None:
-            self._omero_data.well_ifdata = pl.concat(
-                [self._omero_data.well_ifdata, self._well_ifdata]
-            )
+
+        # Skip loading CSV data if cellview was skipped (aligned plates)
+        if "skip_cellview" not in self._options:
+            self._load_well_csvdata()
+            if self._well_ifdata is not None:
+                self._omero_data.well_ifdata = pl.concat(
+                    [self._omero_data.well_ifdata, self._well_ifdata]
+                )
+            else:
+                logger.error(
+                    "No well csv data found for well %s.", self._well_pos
+                )
+                raise ValueError(
+                    f"No well csv data found for well {self._well_pos}."
+                )
         else:
-            logger.error("No well csv data found for well %s.", self._well_pos)
-            raise ValueError(
-                f"No well csv data found for well {self._well_pos}."
+            logger.info(
+                "Skipping well CSV data loading (skip_cellview option set)"
             )
 
     def _parse_well_object(self) -> None:
@@ -2866,3 +2901,54 @@ def _merge_nonoverlapping_labels(
     im1[yp : yp + s[0], xp : xp + s[1]] += im2
 
     return im1
+
+
+@omero_connect
+def get_plate_alignments(
+    plate_id: int,
+    sample_alignments: bool = False,
+    conn: Optional[BlitzGateway] = None,
+) -> pd.DataFrame:
+    """Get the alignments for the plate.
+
+    Reads alignment CSV file attached to the plate in OMERO.
+    The CSV contains translation data to align images from multiple plates.
+
+    Args:
+        plate_id: The plate ID
+        sample_alignments: Set to True to obtain alignments for each well sample
+        conn: The BlitzGateway connection
+
+    Returns:
+        DataFrame with columns: plate, well, x, y, [image_id if sample_alignments]
+
+    Raises:
+        Exception: if plate doesn't exist or alignment CSV not found
+    """
+    if conn is None:
+        raise ValueError("Connection is required")
+    plate = conn.getObject("Plate", plate_id)
+    if plate is None:
+        raise Exception(f"Plate:{plate_id}")
+    filename = "sample_alignment.csv" if sample_alignments else "alignment.csv"
+    original_file = None
+    for ann in plate.listAnnotations():
+        if isinstance(ann, FileAnnotationWrapper):
+            fn = ann.getFile().getName()
+            if fn and fn.lower() == filename:
+                original_file = ann.getFile()
+                break
+    df = None
+    if original_file:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            tmp_path = os.path.join(temp_dir, original_file.getName())
+            with open(tmp_path, "wb") as file_on_disk:
+                for chunk in original_file.asFileObj():
+                    file_on_disk.write(chunk)
+            logger.info("Parsing CSV alignment file: %s", filename)
+            df = pd.read_csv(tmp_path)
+    if df is None:
+        raise Exception(
+            f"Plate {plate_id} is missing alignment result data: {filename}"
+        )
+    return df
