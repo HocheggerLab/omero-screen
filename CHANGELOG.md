@@ -1,3 +1,9 @@
+## omero-screen-v0.3.0 (2026-02-06)
+
+### Feat
+
+- Add support for cellpose 3 and 4 models
+
 ## omero-screen-v0.2.6 (2026-01-12)
 
 ### Fix
