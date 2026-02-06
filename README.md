@@ -50,7 +50,6 @@ In the root directory create a .env file with the following variables:
 ENV=production  # Options: development, testing, production
 
 # Omero configuration
-
 USERNAME="omero-login-name"
 PASSWORD="omero-password"
 HOST="omero-server-host"
@@ -70,6 +69,9 @@ LOG_BACKUP_COUNT=5
 TEST_DATABASE=false
 DATABASE_PATH=~/cellview_date/cellview.db
 
+# Image cache options (optional)
+OMERO_SCREEN_IMAGE_CACHE_PATH=/path/to/home/.cache/omero_screen/images
+OMERO_SCREEN_IMAGE_CACHE_SIZE_LIMIT=4294967296
 ```
 
 

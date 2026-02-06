@@ -4,18 +4,22 @@ as well as segmentation masks (if avaliable) into napari.
 The plugin can be run from napari as Welldata Widget under Plugins.
 """
 
+import os
 from typing import Any, Optional
 
 import numpy as np
 from magicgui import magic_factory
 from magicgui.widgets import Container
 from napari.layers import Image
+from napari.qt.threading import create_worker
 from napari.viewer import Viewer
+from omero.gateway import BlitzGateway
 from omero_screen.config import get_logger
 from qtpy.QtWidgets import QLabel, QVBoxLayout, QWidget
 from vispy.color import Colormap
 
 from omero_screen_napari.omero_data_singleton import omero_data
+from omero_screen_napari.omero_image import cache_plate_images
 from omero_screen_napari.welldata_api import (
     parse_omero_data,
     stitch_images,
@@ -94,6 +98,7 @@ def welldata_widget(
     well_pos_list: str = "Well Position",
     images: str = "All",
     time: str = "All",
+    cache: bool = False,
 ) -> None:
     """
     This function is a widget for handling well data in a napari viewer.
@@ -101,6 +106,9 @@ def welldata_widget(
     and then adds the images and labels to the viewer. It also handles metadata,
     sets color maps, and adds label layers to the viewer.
     """
+    if cache:
+        cache_plate(int(plate_id))
+
     try:
         parse_omero_data(
             omero_data, plate_id, well_pos_list, images, time=time
@@ -132,6 +140,30 @@ def welldata_widget(
             msg.setText(f"An unexpected error occurred: {e}")
             msg.setWindowTitle("Widget Error")
             msg.exec_()
+
+
+def cache_plate(plate_id: int, conn: BlitzGateway | None = None) -> None:
+    # Note: Cannot use omero_connect as the worker is asynchronous
+    # and the connection is cleaned up after this function exits.
+    # Have to create a connection manually and then cleanup when
+    # the worker terminates.
+    username = os.getenv("USERNAME")
+    password = os.getenv("PASSWORD")
+    host = os.getenv("HOST")
+    conn = BlitzGateway(username, password, host=host)
+    conn.connect()
+    if not conn.isConnected():
+        raise RuntimeError(
+            f"Failed to establish connection to OMERO server at {host} as {username}"
+        )
+
+    # Create a method to close the connection on return.
+    def close_conn(nbytes: int) -> None:
+        conn.close(hard=True)
+
+    worker = create_worker(cache_plate_images, conn, plate_id)
+    worker.returned.connect(close_conn)
+    worker.start()
 
 
 def clear_viewer_layers(viewer: Viewer) -> None:

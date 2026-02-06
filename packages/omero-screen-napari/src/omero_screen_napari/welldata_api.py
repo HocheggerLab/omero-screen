@@ -9,7 +9,6 @@ import re
 import sys
 import tempfile
 import traceback
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Optional, cast
 
@@ -27,7 +26,6 @@ from cellview.db.db import CellViewDB
 from cellview.importers.import_functions import import_data
 from cellview.utils.state import CellViewStateCore, clean_agg_data
 from cellview.utils.ui import CellViewUI
-from ezomero import get_image
 from omero.gateway import (
     BlitzGateway,
     FileAnnotationWrapper,
@@ -63,13 +61,11 @@ from omero_screen_napari.omero_data_singleton import (
     omero_data,
     reset_omero_data,
 )
+from omero_screen_napari.omero_image import get_image
 from omero_screen_napari.utils import correct_channel_order
 
 # Initialize logger with the module's name
 logger = get_logger(__name__)
-
-
-get_image: Callable = get_image  # allows type hints for get_image
 
 
 @omero_connect
@@ -1673,7 +1669,10 @@ class FlatfieldMaskParser:
             if flatfield_mask_name == image_name:
                 flatfield_mask_found = True
                 flatfield_mask_id = image.getId()
-                self._flatfield_obj, self._flatfield_array = get_image(
+                self._flatfield_obj = self._conn.getObject(
+                    "Image", flatfield_mask_id
+                )
+                self._flatfield_array = get_image(
                     self._conn, flatfield_mask_id
                 )
                 break  # Exit the loop once the flatfield mask is found
@@ -2187,8 +2186,11 @@ class ImageParser:
 
         logger.info("Collecting images for well %s", self._well.getWellPos())
         start, length = _get_crop(self._omero_data)
-        if start:
+        tstart, tend = None, None
+        if start and length:
             logger.info("Using crop: %s - %s", start, length)
+            # Crop supports only time
+            tstart, tend = start[-1], start[-1] + length[-1]
 
         for index in tqdm(self._image_index):
             if image := self._well.getImage(index):
@@ -2198,18 +2200,18 @@ class ImageParser:
                         index,
                         mip_id,
                     )
-                    _, image_array = get_image(
+                    image_array = get_image(
                         self._conn,
                         int(mip_id),
-                        start_coords=start,
-                        axis_lengths=length,
+                        start=tstart,
+                        end=tend,
                     )
                 else:
-                    _, image_array = get_image(
+                    image_array = get_image(
                         self._conn,
                         image.getId(),
-                        start_coords=start,
-                        axis_lengths=length,
+                        start=tstart,
+                        end=tend,
                     )
                 flatfield_corrected_image = self._flatfield_correct_image(
                     image_array
@@ -2284,6 +2286,11 @@ class ImageParser:
 
     def _collect_labels(self) -> None:
         start, length = _get_crop(self._omero_data)
+        tstart, tend = None, None
+        if start and length:
+            # Crop supports only time
+            tstart, tend = start[-1], start[-1] + length[-1]
+
         dataset_children = list(self._omero_data.screen_dataset.listChildren())
 
         for img_id in self._image_ids:
@@ -2323,21 +2330,12 @@ class ImageParser:
 
                 label_data = candidates[0]
 
-            # Process this single label
-            axis_lengths = length
-            if length and length[3] > 1:
-                image = self._conn.getObject("Image", label_data.getId())
-                if image and image.getSizeC() != length[3]:
-                    axis_lengths = (
-                        length[:3] + (image.getSizeC(),) + length[4:]
-                    )
-
             try:
-                _, label_array = get_image(
+                label_array = get_image(
                     self._conn,
                     label_data.getId(),
-                    start_coords=start,
-                    axis_lengths=axis_lengths,
+                    start=tstart,
+                    end=tend,
                 )
                 if label_array.shape[-1] == 2:
                     corrected_label_array = correct_channel_order(label_array)

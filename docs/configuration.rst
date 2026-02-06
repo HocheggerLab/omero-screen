@@ -44,3 +44,10 @@ Create a ``.env`` file in the root directory with the following variables:
 
     TEST_DATABASE=false
     DATABASE_PATH=~/cellview_date/cellview.db
+
+**Image Cache Configuration (optional)**
+
+.. code-block:: bash
+
+    OMERO_SCREEN_IMAGE_CACHE_PATH=/path/to/home/.cache/omero_screen/images
+    OMERO_SCREEN_IMAGE_CACHE_SIZE_LIMIT=4294967296
