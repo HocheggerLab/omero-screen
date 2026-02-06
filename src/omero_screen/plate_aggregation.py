@@ -447,13 +447,14 @@ def align_plates(
             # Exclude outliers
             if iqr > 0:
                 q1, q3 = np.quantile(distances, [0.25, 0.75])
-                outlier = iqr * (q3 - q1)
+                outlier = q3 + iqr * (q3 - q1)
                 ignore = distances > outlier
                 if np.any(ignore):
                     logger.info(
-                        "Ignoring outlier distances: %s > %.2f (%.2f * (%.2f - %.2f))",
+                        "Ignoring outlier distances: %s > %.2f (q3 + %.2f * (%.2f - %.2f))",
                         distances[ignore],
                         outlier,
+                        q3,
                         iqr,
                         q3,
                         q1,
