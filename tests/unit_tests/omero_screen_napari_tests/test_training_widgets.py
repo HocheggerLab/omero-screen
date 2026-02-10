@@ -83,6 +83,7 @@ def mock_omero_data():
     mock.selected_crops = [np.zeros((10, 10, 3)), np.zeros((10, 10, 3))]
     mock.selected_labels = [np.zeros((10, 10)), np.zeros((10, 10))]
     mock.selected_classes = ["class1", "class2"]
+    mock.channel_data = {}
     return mock
 
 @pytest.fixture
