@@ -1,3 +1,9 @@
+## omero-screen-v0.3.1 (2026-02-10)
+
+### Fix
+
+- **omero-screen-napari**: adapt tests to new training data handling and test new functions
+
 ## omero-screen-v0.3.0 (2026-02-06)
 
 ### Feat

@@ -6,7 +6,7 @@ The omero_screen_plots package provides plotting and analysis tools for OMERO sc
 
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 
 # Import user-facing plot functions
