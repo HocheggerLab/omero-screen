@@ -3,12 +3,12 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+import numpy as np
 from magicgui import magicgui
 from magicgui.widgets import Container, Label
 from omero_screen.config import get_logger
 from qtpy.QtWidgets import QMessageBox
 
-from omero_screen_napari._classifier_selector import ClassifierSelector
 from omero_screen_napari.gallery_userdata_singleton import (
     userdata as global_user_data,
 )
@@ -74,22 +74,13 @@ class SetupTrainingWidget:
         self.omero_data = omero_data_inst
         self.class_name = class_name or "Classifier Name"
 
-        # Initialize database and classifier selector
         self.db = TrainingDB()
-        self.classifier_selector = ClassifierSelector(
-            db=self.db, auto_fill_callback=None
-        )
 
         self.meta_data_saver = MetaDataSaver(
             self.class_name,
             self.omero_data,
             self.user_data,
             self.image_navigator,
-        )
-
-        # Register callback to refresh selector when classifier is saved
-        self.meta_data_saver.on_save_callback = (
-            self.classifier_selector.refresh_classifiers
         )
 
         self.add_class_widget = magicgui(
@@ -119,29 +110,13 @@ class SetupTrainingWidget:
         self.meta_data_saver.save_data()
 
     def create_container(self) -> Container:  # type: ignore
-        # Create container with magicgui widgets
         widgets = [
             self.add_class_widget,
             self.reset_class_options_widget,
             self.image_navigator.class_labels,
             self.save_meta_data_widget,
         ]
-        container = Container(widgets=widgets)
-
-        # Insert Qt selector widget at the top of the native layout
-        # Access the native Qt layout and insert our selector widget
-        layout = container.native.layout()
-        layout.insertWidget(0, self.classifier_selector.get_selector_widget())
-        # Insert info panel label after selector
-        layout.insertWidget(
-            1, self.classifier_selector.info_panel.info_label.native
-        )
-        # Insert detail button after info panel
-        layout.insertWidget(
-            2, self.classifier_selector.info_panel.detail_button
-        )
-
-        return container
+        return Container(widgets=widgets)
 
 
 class MetaDataSaver:
@@ -188,6 +163,7 @@ class MetaDataSaver:
                         self.image_navigator.class_options,
                     )
                 self._create_and_save()
+                self._save_initial_session(db)
 
                 # Trigger callback after successful save
                 if self.on_save_callback:
@@ -244,6 +220,117 @@ class MetaDataSaver:
     def _create_and_save(self) -> None:
         self._create_directory(self.classifier_dir)
         self._save_metadata()
+
+    def _save_initial_session(self, db: "TrainingDB") -> None:
+        """Save the current in-memory gallery data as the initial session.
+
+        This ensures that when a new classifier is created, the crop data
+        already loaded in the gallery widget is persisted as an NPY file
+        and registered in the database so it appears in session management.
+
+        The gallery widget runs with classifier=False, so selected_crops is
+        not populated. We re-parse with classifier=True using the gallery's
+        rows/columns so the session contains the same number of crops the
+        user chose for the gallery display.
+        """
+        if self.omero_data.images.size == 0:
+            logger.info("No images in memory — skipping initial session save.")
+            return
+        if not self.user_data:
+            logger.info("No user_data — skipping initial session save.")
+            return
+
+        # Re-parse crops with classifier=True to populate selected_crops.
+        # Keep the gallery's rows/columns so the session size matches the
+        # gallery display (e.g. 4×4 = 16 crops, not all 211).
+        from omero_screen_napari.gallery_api import (
+            CroppedImageParser,
+            RandomImageParser,
+        )
+
+        cropper = CroppedImageParser(self.omero_data, self.user_data)
+        cropper.parse_crops()
+        selector = RandomImageParser(
+            self.omero_data, self.user_data, classifier=True
+        )
+        selector.parse_random_images()
+
+        if not self.omero_data.selected_crops:
+            logger.info("No crops generated — skipping initial session save.")
+            return
+
+        # Populate selected_classes with "unassigned" for all crops
+        self.omero_data.selected_classes = [
+            "unassigned" for _ in self.omero_data.selected_crops
+        ]
+
+        # Resolve image ID for DB record
+        try:
+            image_id = int(self.omero_data.image_input)
+        except (ValueError, TypeError):
+            if self.omero_data.image_ids:
+                image_id = self.omero_data.image_ids[0]
+            else:
+                image_id = 0
+
+        well = (
+            self.omero_data.well_pos_list[0]
+            if self.omero_data.well_pos_list
+            else "unknown"
+        )
+        timepoint = self.user_data.timepoint
+
+        # Build file path using image_input (not image_id) to match
+        # TrainingWidget._set_paths() convention
+        file_name = f"{self.omero_data.plate_id}_{well}_{self.omero_data.image_input}_{timepoint}.npy"
+        file_path = self.classifier_dir / file_name
+
+        # Save NPY file (same format as TrainingDataSaver._create_training_dict)
+        training_dict: dict[str, Any] = {
+            "data": (
+                self.omero_data.selected_crops,
+                self.omero_data.selected_labels,
+            ),
+            "target": self.omero_data.selected_classes,
+        }
+        np.save(file_path, training_dict, allow_pickle=True)  # type: ignore[arg-type,call-overload]
+        logger.info(f"Initial session NPY saved to {file_path}")
+
+        # Store image_input string in metadata for session manager display
+        self.metadata["image_input"] = self.omero_data.image_input
+
+        # Create DB session
+        try:
+            session_id = db.create_session(
+                classifier_name=self.classifier_name,
+                plate_id=self.omero_data.plate_id,
+                well=well,
+                image_id=image_id,
+                timepoint=timepoint,
+                file_path=str(file_path),
+                metadata=self.metadata,
+            )
+
+            # Save annotations (all "unassigned")
+            # Use sequential crop index for cell_index to guarantee
+            # uniqueness; np.max(label_mask) can collide when
+            # neighbouring cells bleed into multiple crops.
+            annotations: list[tuple[int, str]] = [
+                (idx, class_label)
+                for idx, class_label in enumerate(
+                    self.omero_data.selected_classes
+                )
+            ]
+
+            if annotations:
+                db.add_annotations(session_id, annotations)
+
+            logger.info(
+                f"Initial session {session_id} created with "
+                f"{len(annotations)} annotations."
+            )
+        except Exception as e:
+            logger.error(f"Failed to save initial session to database: {e}")
 
     def _check_directory_contents(self) -> Literal["metadata", "no_data"]:
         logger.info(f"Directory {self.classifier_dir} already exists.")
@@ -316,10 +403,21 @@ class MetaDataSaver:
             }
         user_data_dict = asdict(self.user_data)
         user_data_dict.pop("well", None)
-        return {
+        # Compute n_crops from gallery grid so loaders know how many
+        # crops each session should contain without loading the NPY.
+        rows = user_data_dict.get("rows", 0)
+        columns = user_data_dict.get("columns", 0)
+        n_crops = rows * columns if rows > 0 and columns > 0 else 0
+
+        metadata: dict[str, Any] = {
             "user_data": user_data_dict,
             "class_options": self.image_navigator.class_options,
+            "n_crops": n_crops,
         }
+        # Save channel_data so saved sessions can resolve channel names
+        if self.omero_data.channel_data:
+            metadata["channel_data"] = dict(self.omero_data.channel_data)
+        return metadata
 
     def _show_error_message(self, message: str) -> None:
         msg_box = QMessageBox()

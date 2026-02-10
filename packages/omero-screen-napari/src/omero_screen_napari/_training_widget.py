@@ -11,12 +11,6 @@ from omero_screen.config import get_logger
 from qtpy.QtWidgets import QMessageBox
 
 from omero_screen_napari._classifier_selector import ClassifierSelector
-from omero_screen_napari.gallery_api import (
-    CroppedImageParser,
-    RandomImageParser,
-    draw_contours,
-    fill_missing_channels,
-)
 from omero_screen_napari.gallery_userdata_singleton import userdata
 from omero_screen_napari.omero_data_singleton import omero_data
 from omero_screen_napari.trainingdata_db.database import TrainingDB
@@ -137,7 +131,9 @@ class ImageNavigator:
     def _add_rgb_image(
         self, viewer: "Viewer", image: "np.ndarray[Any, Any]"
     ) -> None:
-        viewer.add_image(image, name=f"Cropped Image {self.current_index}")
+        viewer.add_image(
+            image, name=f"Cropped Image {self.current_index}", rgb=True
+        )
         logger.debug("RGB image added to viewer.")
 
     def _verify_layer_added(self, viewer: "Viewer") -> None:
@@ -209,21 +205,20 @@ class TrainingWidget:
         self.omero_data = omero_data_inst
         self.class_name = class_name
 
-        self.user_data_dict: dict[str, Any] = {}
-        self.class_options_dict: list[str] = []
         self.training_data_saver: TrainingDataSaver | None = None
         self.setup_key_bindings(napari.current_viewer())
 
-        # Initialize database and classifier selector with auto-fill callback
+        # Initialize database and classifier selector
         self.db = TrainingDB()
         self.classifier_selector = ClassifierSelector(
-            db=self.db, auto_fill_callback=self._auto_fill_classifier_name
+            db=self.db,
+            auto_fill_callback=None,
+            on_session_loaded_callback=self._on_session_loaded,
+            on_direct_load_callback=self._on_direct_load,
+            omero_data=omero_data_inst,
+            user_data=user_data,
         )
 
-        self.load_image_widget = magicgui(
-            call_button="Load Images",
-            text_input={"label": "filename", "value": self.class_name},
-        )(self.load_image)
         self.next_image_widget = magicgui(call_button="Next Image")(
             self.next_image
         )
@@ -235,241 +230,6 @@ class TrainingWidget:
         )(self.save_training_data)
 
         self.container = self.create_container()
-
-    def load_image(self, text_input: str) -> None:
-        try:
-            classifier_name = text_input.strip()
-            if not classifier_name:
-                raise ValueError("Classifier name cannot be empty.")
-
-            self.class_name = classifier_name
-
-            # Database check/registration
-            db = TrainingDB()
-            if not db.get_classifier(self.class_name):
-                # Auto-register if missing (e.g., legacy data or manual folder creation)
-                logger.info(
-                    f"Classifier '{self.class_name}' found locally but not in DB. Registering."
-                )
-                try:
-                    db.create_classifier(self.class_name)
-                except Exception as e:
-                    _show_error_message(
-                        f"Failed to register classifier in DB: {e}"
-                    )
-                    return
-
-            file_name, file_path, metadata_path = self._set_paths()
-            if file_path.exists():
-                logger.debug(
-                    f"Classifier data for {file_path} exists, loading existing data."
-                )
-                self._parse_classified_data(file_path, metadata_path)
-            else:
-                logger.debug(
-                    f"Classifier data for {file_path} does not exists, parsing new data."
-                )
-                self._parse_metadata(metadata_path)
-                if self._check_metadata():
-                    self._parse_data()
-                    selected_images_length = len(
-                        self.omero_data.selected_images
-                    )
-                    self.omero_data.selected_classes = [
-                        "unassigned" for _ in range(selected_images_length)
-                    ]
-
-            if not self.omero_data.selected_images:
-                logger.warning("Could not load images.")
-                return
-
-            self.update_class_options(self.class_options_dict)
-            self.image_navigator.current_index = 0
-            self.image_navigator.update_image()
-
-            if self.user_data and self.class_name:
-                # Initialize TrainingDataSaver after class_name is set
-                self.training_data_saver = TrainingDataSaver(
-                    self.class_name,
-                    self.omero_data,
-                    self.user_data,
-                    self.image_navigator,
-                )
-                logger.info(
-                    f"TrainingDataSaver initialized for classifier {self.class_name}"
-                )
-
-        except ValueError as ve:
-            logger.error(f"ValueError: {ve}")
-            _show_error_message(f"Error: {ve}")
-
-        except FileNotFoundError as fnf_error:
-            logger.error(f"FileNotFoundError: {fnf_error}")
-            _show_error_message(f"Metadata file not found: {metadata_path}")  # type: ignore
-
-        except json.JSONDecodeError as json_error:
-            logger.error(f"JSONDecodeError: {json_error}")
-            _show_error_message(
-                f"Error decoding metadata file: {metadata_path}"  # type: ignore
-            )
-
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"Unexpected error: {e}")
-            _show_error_message(f"An unexpected error occurred: {e}")
-
-    def _set_paths(self) -> tuple[str, Path, Path]:
-        plate = self.omero_data.plate_id
-        well = self.omero_data.well_pos_list[0]
-        image = self.omero_data.image_input
-        timepoint = self.user_data.timepoint if self.user_data else 0
-
-        file_name = f"{plate}_{well}_{image}_{timepoint}.npy"
-        # Assuming class_name is not None here as it's checked in load_image
-        classifier_dir = (
-            Path.home() / "omeroscreen_trainingdata" / (self.class_name or "")
-        )
-        file_path = classifier_dir / file_name
-        meta_data_path = classifier_dir / "metadata.json"
-        return file_name, file_path, meta_data_path
-
-    def _parse_classified_data(
-        self, file_path: Path, metadata_path: Path
-    ) -> None:
-        if metadata_path.exists():
-            logger.info(
-                f"Classifier data file and metadata file exist: {file_path}, loading data"
-            )
-            self._parse_metadata(metadata_path)
-            if self.user_data:
-                self.user_data.populate_from_dict(self.user_data_dict)
-            self._parse_saved_imagedata(file_path)
-        else:
-            logger.error(
-                f"Classifier data file {file_path} but metadata file {metadata_path} not found."
-            )
-            _show_error_message(
-                f"metadata file not found in: {self.class_name} directory"
-            )
-
-    def _parse_saved_imagedata(self, file_path: Path) -> None:
-        if not self.user_data:
-            return
-        try:
-            self.omero_data.selected_crops, self.omero_data.selected_labels = (
-                np.load(file_path, allow_pickle=True).item()["data"]
-            )
-            self.omero_data.selected_classes = np.load(
-                file_path, allow_pickle=True
-            ).item()["target"]
-            masked_images = self._apply_mask_to_images()
-            processed_masked_images = [
-                fill_missing_channels(img, self.user_data.channels)  # type: ignore
-                for img in masked_images
-            ]
-            if (
-                self.user_data.contour
-                and self.omero_data.selected_labels is not None
-            ):
-                processed_masked_images = [
-                    draw_contours(img, label)
-                    for img, label in zip(
-                        processed_masked_images,
-                        self.omero_data.selected_labels,
-                        strict=False,
-                    )
-                ]
-            self.omero_data.selected_images = processed_masked_images
-            logger.info(
-                f"Loaded {len(self.omero_data.selected_images)} images."
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"Error loading images: {e}")
-            _show_error_message(f"Error loading images: {e}")
-
-    def _apply_mask_to_images(self) -> "list[np.ndarray[Any, Any]]":
-        """Nullify pixels in color images that don't overlap with the corresponding masks.
-        Images are expected to be in the shape of (H, W, 3) and masks in the shape of (H, W).
-        """
-        masked_images = []
-        if (
-            self.omero_data.selected_crops is None
-            or self.omero_data.selected_labels is None
-        ):
-            return []
-
-        for image, mask in zip(
-            self.omero_data.selected_crops,
-            self.omero_data.selected_labels,
-            strict=False,
-        ):  # type: ignore
-            # Ensure the mask is expanded to match the image's 3 channels
-            expanded_mask = (
-                np.repeat(mask[:, :, np.newaxis], image.shape[2], axis=2) > 0
-            )
-            # Apply the expanded mask to the image
-            masked_image = np.where(expanded_mask, image, 0)
-            masked_images.append(masked_image)
-
-        return masked_images
-
-    def _parse_metadata(self, metadata_path: Path) -> None:
-        try:
-            with metadata_path.open("r") as json_file:
-                metadata = json.load(json_file)
-        except FileNotFoundError as e:
-            logger.error(f"Metadata file not found: {metadata_path}")
-            raise FileNotFoundError(
-                f"Metadata file not found: {metadata_path}"
-            ) from e
-        except json.JSONDecodeError as e:
-            logger.error(f"Error decoding metadata file: {metadata_path}")
-            raise ValueError(
-                f"Error decoding metadata file: {metadata_path}"
-            ) from e
-        self.user_data_dict = metadata["user_data"]
-        self.class_options_dict = metadata["class_options"]
-        if self.user_data_dict:
-            self.user_data_dict["well"] = omero_data.well_pos_list[0]
-
-    def _check_metadata(self) -> bool:
-        required_keys: dict[str, type] = {
-            "well": str,
-            "segmentation": str,
-            "reload": bool,
-            "crop_size": int,
-            "cellcycle": str,
-            "timepoint": int,
-            "contour": bool,
-            "channels": list,
-        }
-
-        for key, expected_type in required_keys.items():
-            if key == "timepoint" and key not in self.user_data_dict:
-                self.user_data_dict[key] = 0
-            elif key != "timepoint" and key not in self.user_data_dict:
-                print(f"Missing key: {key}")
-                return False
-            if self.user_data_dict[key] is None:
-                print(f"None value for key: {key}")
-                return False
-            if not isinstance(self.user_data_dict[key], expected_type):
-                print(
-                    f"Incorrect type for key: {key}. Expected {expected_type}, got {type(self.user_data_dict[key])}"
-                )
-                return False
-
-        return True
-
-    def _parse_data(self) -> None:
-        if self.user_data:
-            self.user_data.populate_from_dict(self.user_data_dict)
-            manager = CroppedImageParser(omero_data, self.user_data)
-            manager.parse_crops()
-            data_selector = RandomImageParser(
-                omero_data, self.user_data, classifier=True
-            )
-            data_selector.parse_random_images()
-            logger.info(f"Loaded {len(omero_data.selected_images)} images.")
 
     def update_class_options(self, class_options: list[str]) -> None:
         self.image_navigator.class_options = class_options
@@ -495,27 +255,164 @@ class TrainingWidget:
             print("Training data saver not initialized.")
 
     def setup_key_bindings(self, viewer: "Viewer") -> None:
-        @viewer.bind_key("w")
+        @viewer.bind_key("w", overwrite=True)
         def trigger_next_image(event: Any = None) -> None:
             self.next_image()
 
-        @viewer.bind_key("q")
+        @viewer.bind_key("q", overwrite=True)
         def trigger_previous_image(event: Any = None) -> None:
             self.previous_image()
 
-    def _auto_fill_classifier_name(self, classifier_name: str) -> None:
-        """Auto-populate the load images text field when classifier is selected.
+    def _on_session_loaded(self) -> None:
+        """Callback triggered when a session is loaded from the browser.
 
-        Args:
-            classifier_name: Name of the selected classifier
+        This updates the viewer to display the first image from the loaded session.
         """
-        if classifier_name:
-            self.load_image_widget.text_input.value = classifier_name
+        if not self.omero_data.selected_images:
+            logger.warning("No images loaded from session")
+            return
+
+        logger.info(
+            f"Session loaded with {len(self.omero_data.selected_images)} images"
+        )
+
+        # Extract unique class labels from the loaded data
+        if self.omero_data.selected_classes:
+            unique_classes = list(set(self.omero_data.selected_classes))
+            logger.info(f"Found unique classes in session: {unique_classes}")
+
+            # Also try to load class options from metadata
+            classifier_name = self.classifier_selector.combobox.currentText()
+            if classifier_name and classifier_name != "-- Select --":
+                try:
+                    metadata_path = (
+                        Path.home()
+                        / "omeroscreen_trainingdata"
+                        / classifier_name
+                        / "metadata.json"
+                    )
+                    if metadata_path.exists():
+                        with metadata_path.open() as f:
+                            metadata = json.load(f)
+                        class_options = metadata.get(
+                            "class_options", unique_classes
+                        )
+                        logger.info(
+                            f"Loaded class options from metadata: {class_options}"
+                        )
+                        self.update_class_options(class_options)
+                    else:
+                        # Use unique classes from the data if no metadata
+                        logger.info(
+                            "No metadata found, using unique classes from data"
+                        )
+                        self.update_class_options(unique_classes)
+                except Exception as e:
+                    logger.warning(
+                        f"Could not load class options, using unique classes: {e}"
+                    )
+                    self.update_class_options(unique_classes)
+
+        # Always (re-)create TrainingDataSaver so file paths reflect the
+        # currently-loaded data.  Reusing a stale saver would write to the
+        # previous session's NPY path.
+        classifier_name = self.classifier_selector.combobox.currentText()
+        if (
+            classifier_name
+            and classifier_name != "-- Select --"
+            and not classifier_name.startswith("(")
+            and self.user_data
+        ):
+            self.class_name = classifier_name
+            self.training_data_saver = TrainingDataSaver(
+                classifier_name,
+                self.omero_data,
+                self.user_data,
+                self.image_navigator,
+            )
+            logger.info(
+                f"TrainingDataSaver (re)initialized for classifier {classifier_name}"
+            )
+
+        self.image_navigator.current_index = 0
+        self.image_navigator.update_image()
+        logger.info(
+            f"Displaying {len(self.omero_data.selected_images)} "
+            "images from loaded session"
+        )
+
+    def _on_direct_load(self) -> None:
+        """Callback triggered when data is loaded directly from OMERO.
+
+        This updates the viewer to display the first image from the loaded data.
+        """
+        if not self.omero_data.selected_images:
+            logger.warning("No images loaded via direct OMERO loading")
+            return
+
+        logger.info(
+            f"Direct load callback triggered with {len(self.omero_data.selected_images)} images"
+        )
+
+        # Get classifier name from the classifier selector
+        classifier_name = self.classifier_selector.combobox.currentText()
+        if (
+            classifier_name
+            and classifier_name != "-- Select --"
+            and not classifier_name.startswith("(")
+        ):
+            self.class_name = classifier_name
+            logger.info(f"Using classifier: {classifier_name}")
+
+            # Load class options from metadata
+            try:
+                metadata_path = (
+                    Path.home()
+                    / "omeroscreen_trainingdata"
+                    / classifier_name
+                    / "metadata.json"
+                )
+                if metadata_path.exists():
+                    with metadata_path.open() as f:
+                        metadata = json.load(f)
+                    class_options = metadata.get(
+                        "class_options", ["unassigned"]
+                    )
+                    logger.info(f"Loaded class options: {class_options}")
+                    self.update_class_options(class_options)
+
+                    # Always (re-)create TrainingDataSaver so file paths
+                    # reflect the newly-loaded data, not a previous session.
+                    if self.class_name and self.user_data:
+                        self.training_data_saver = TrainingDataSaver(
+                            self.class_name,
+                            self.omero_data,
+                            self.user_data,
+                            self.image_navigator,
+                        )
+                        logger.info(
+                            f"TrainingDataSaver (re)initialized for classifier {self.class_name}"
+                        )
+                else:
+                    logger.warning(f"Metadata file not found: {metadata_path}")
+            except Exception as e:
+                logger.exception(f"Could not load class options: {e}")
+        else:
+            logger.warning(
+                "No classifier selected - cannot load class options"
+            )
+
+        # Update viewer
+        self.image_navigator.current_index = 0
+        self.image_navigator.update_image()
+        logger.info(
+            f"Displaying {len(self.omero_data.selected_images)} "
+            "images loaded directly from OMERO"
+        )
 
     def create_container(self) -> Container:  # type: ignore
         # Create container with magicgui widgets
         widgets = [
-            self.load_image_widget,
             self.previous_image_widget,
             self.next_image_widget,
             self.image_navigator.class_choice,
@@ -531,9 +428,9 @@ class TrainingWidget:
         layout.insertWidget(
             1, self.classifier_selector.info_panel.info_label.native
         )
-        # Insert detail button after info panel
+        # Insert manage button after info panel
         layout.insertWidget(
-            2, self.classifier_selector.info_panel.detail_button
+            2, self.classifier_selector.info_panel.manage_button
         )
 
         return container
@@ -685,6 +582,9 @@ class TrainingDataSaver:
         try:
             db = TrainingDB()
 
+            # Store image_input string in metadata for session manager display
+            self.metadata["image_input"] = self.omero_data.image_input
+
             # Resolve Image ID
             try:
                 # Try to get single image ID from image_input
@@ -732,17 +632,15 @@ class TrainingDataSaver:
                     metadata=self.metadata,
                 )
 
-            # Prepare annotations
-            annotations = []
-            for label_mask, class_label in zip(
-                self.omero_data.selected_labels,
-                self.omero_data.selected_classes,
-                strict=False,
-            ):
-                if label_mask.size > 0:
-                    cell_index = int(np.max(label_mask))
-                    if cell_index > 0:
-                        annotations.append((cell_index, class_label))
+            # Prepare annotations – use sequential crop index for
+            # cell_index to guarantee uniqueness; np.max(label_mask)
+            # can collide when neighbouring cells bleed into crops.
+            annotations = [
+                (idx, class_label)
+                for idx, class_label in enumerate(
+                    self.omero_data.selected_classes
+                )
+            ]
 
             # Replace annotations
             db.delete_annotations(session_id)
@@ -772,10 +670,14 @@ class TrainingDataSaver:
     def _create_metadata_dict(self) -> dict[str, Any]:
         user_data_dict = asdict(self.user_data)
         user_data_dict.pop("well", None)
-        return {
+        metadata: dict[str, Any] = {
             "user_data": user_data_dict,
             "class_options": self.image_navigator.class_options,
         }
+        # Save channel_data so saved sessions can resolve channel names
+        if self.omero_data.channel_data:
+            metadata["channel_data"] = dict(self.omero_data.channel_data)
+        return metadata
 
     def _save_metadata(
         self, meta_data_path: Path, metadata: "dict[str, Any]"

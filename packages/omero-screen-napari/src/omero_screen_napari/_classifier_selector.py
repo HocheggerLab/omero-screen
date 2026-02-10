@@ -5,139 +5,24 @@ available classifiers from the training database and shows detailed statistics.
 """
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import Any
 
 from magicgui.widgets import Container, Label
 from omero_screen.config import get_logger
 from qtpy.QtWidgets import (
     QComboBox,
-    QDialog,
-    QHeaderView,
     QLabel,
     QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from omero_screen_napari.gallery_userdata_singleton import userdata
+from omero_screen_napari.omero_data_singleton import omero_data
 from omero_screen_napari.trainingdata_db.database import TrainingDB
 
-if TYPE_CHECKING:
-    pass
-
 logger = get_logger(__name__)
-
-
-class DetailedStatsDialog(QDialog):  # type: ignore[misc]
-    """Dialog showing detailed per-image statistics in a table."""
-
-    def __init__(
-        self,
-        classifier_name: str,
-        db: TrainingDB,
-        parent: QWidget | None = None,
-    ) -> None:
-        """Initialize the dialog.
-
-        Args:
-            classifier_name: Name of the classifier
-            db: TrainingDB instance for querying
-            parent: Parent widget
-        """
-        super().__init__(parent)
-        self.setWindowTitle(f"Detailed Statistics - {classifier_name}")
-        self.setMinimumSize(800, 400)
-
-        # Create layout
-        layout = QVBoxLayout()
-
-        # Add table
-        self.table = QTableWidget()
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(
-            [
-                "Plate ID",
-                "Well",
-                "Image ID",
-                "Timepoint",
-                "Total Cells",
-                "Class Distribution",
-            ]
-        )
-
-        # Make table read-only and enable sorting
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.table.setSortingEnabled(True)
-
-        # Load data
-        self._load_data(classifier_name, db)
-
-        # Resize columns to content
-        header = self.table.horizontalHeader()
-        if header:
-            for i in range(5):  # First 5 columns
-                header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
-            header.setSectionResizeMode(
-                5, QHeaderView.Stretch
-            )  # Last column stretches
-
-        layout.addWidget(self.table)
-
-        # Add close button
-        close_button = QPushButton("Close")
-        close_button.clicked.connect(self.accept)
-        layout.addWidget(close_button)
-
-        self.setLayout(layout)
-
-    def _load_data(self, classifier_name: str, db: TrainingDB) -> None:
-        """Load per-image statistics from database.
-
-        Args:
-            classifier_name: Name of the classifier
-            db: TrainingDB instance
-        """
-        try:
-            stats = db.get_image_stats(classifier_name)
-
-            if not stats:
-                self.table.setRowCount(1)
-                self.table.setItem(0, 0, QTableWidgetItem("No data available"))
-                return
-
-            # Populate table
-            self.table.setRowCount(len(stats))
-            for row_idx, stat in enumerate(stats):
-                # Plate ID
-                self.table.setItem(
-                    row_idx, 0, QTableWidgetItem(str(stat["plate_id"]))
-                )
-                # Well
-                self.table.setItem(row_idx, 1, QTableWidgetItem(stat["well"]))
-                # Image ID
-                self.table.setItem(
-                    row_idx, 2, QTableWidgetItem(str(stat["image_id"]))
-                )
-                # Timepoint
-                self.table.setItem(
-                    row_idx, 3, QTableWidgetItem(str(stat["timepoint"]))
-                )
-                # Total Cells
-                self.table.setItem(
-                    row_idx, 4, QTableWidgetItem(str(stat["total_cells"]))
-                )
-                # Class Distribution
-                dist = stat["class_distribution"]
-                dist_str = ", ".join(
-                    [f"{label}: {count}" for label, count in dist.items()]
-                )
-                self.table.setItem(row_idx, 5, QTableWidgetItem(dist_str))
-
-        except Exception as e:
-            logger.exception(f"Failed to load detailed statistics: {e}")
-            self.table.setRowCount(1)
-            self.table.setItem(0, 0, QTableWidgetItem(f"Error: {e!s}"))
 
 
 class ClassifierInfoPanel:
@@ -146,44 +31,66 @@ class ClassifierInfoPanel:
     Displays information matching the `omero-train stats` CLI output format:
     - General stats (ID, sessions, annotations, classes)
     - Class distribution with percentages
-    - Button to view detailed per-image statistics in popup
+    - Button to open unified session manager
     """
 
-    def __init__(self) -> None:
-        """Initialize the info panel."""
-        # Use magicgui Label widget for simplicity
+    def __init__(
+        self,
+        on_session_loaded_callback: Callable[[], None] | None = None,
+        on_direct_load_callback: Callable[[], None] | None = None,
+    ) -> None:
+        """Initialize the info panel.
+
+        Args:
+            on_session_loaded_callback: Optional callback when session is loaded
+            on_direct_load_callback: Optional callback when new data is loaded via OMERO
+        """
         self.info_label = Label(value="Select a classifier to view details")
-        self.info_label.visible = False  # Hidden by default
+        self.info_label.visible = False
 
-        # Button for detailed stats (Qt widget, not magicgui)
-        self.detail_button = QPushButton("View Detailed Statistics")
-        self.detail_button.clicked.connect(self._show_detailed_stats)
-        self.detail_button.setVisible(False)  # Hidden by default
+        # Button for managing sessions (Qt widget, not magicgui)
+        self.manage_button = QPushButton("Manage Sessions")
+        self.manage_button.clicked.connect(self._show_session_manager)
+        self.manage_button.setVisible(False)
 
-        # Store current classifier and db for detail view
+        # Store current classifier and db for session manager
         self._current_classifier: str | None = None
         self._current_db: TrainingDB | None = None
+        self._omero_data: Any = None
+        self._user_data: Any = None
 
-    def update_info(self, classifier_name: str, db: TrainingDB) -> None:
+        # Store callbacks
+        self._on_session_loaded_callback = on_session_loaded_callback
+        self._on_direct_load_callback = on_direct_load_callback
+
+    def update_info(
+        self,
+        classifier_name: str,
+        db: TrainingDB,
+        omero_data: Any = None,
+        user_data: Any = None,
+    ) -> None:
         """Update panel with statistics for the selected classifier.
 
         Args:
             classifier_name: Name of the classifier
             db: TrainingDB instance for querying
+            omero_data: OmeroData instance (for session manager)
+            user_data: UserData instance (for session manager)
         """
-        # Store for detailed stats view
         self._current_classifier = classifier_name
         self._current_db = db
+        self._omero_data = omero_data
+        self._user_data = user_data
 
         try:
-            # Get classifier info
             classifier = db.get_classifier(classifier_name)
             if not classifier:
                 self.info_label.value = (
                     f"Classifier '{classifier_name}' not found in database"
                 )
                 self.info_label.visible = True
-                self.detail_button.setVisible(False)
+                self.manage_button.setVisible(False)
                 return
 
             # Query stats
@@ -192,7 +99,6 @@ class ClassifierInfoPanel:
             classes = db.get_classes(classifier_name)
             dist = db.get_class_distribution(classifier_name)
 
-            # Format stats text matching CLI output
             info_text = self._format_stats(
                 classifier["id"],
                 n_sessions,
@@ -202,16 +108,23 @@ class ClassifierInfoPanel:
             )
 
             self.info_label.value = info_text
-            self.info_label.visible = True  # Show when data is loaded
+            self.info_label.visible = True
 
-            # Show detail button only if there are sessions/annotations
-            self.detail_button.setVisible(n_sessions > 0)
+            # Show manage button if classifier has metadata or sessions
+            has_metadata = (
+                Path.home()
+                / "omeroscreen_trainingdata"
+                / classifier_name
+                / "metadata.json"
+            ).exists()
+            has_sessions = n_sessions > 0
+            self.manage_button.setVisible(has_metadata or has_sessions)
 
         except Exception as e:
             logger.error(f"Failed to load classifier stats: {e}")
             self.info_label.value = f"Error loading statistics: {e!s}"
             self.info_label.visible = True
-            self.detail_button.setVisible(False)
+            self.manage_button.setVisible(False)
 
     def _format_stats(
         self,
@@ -233,7 +146,6 @@ class ClassifierInfoPanel:
         Returns:
             Formatted text for display
         """
-        # General Stats Section
         classes_str = ", ".join(classes) if classes else "None"
         text = "Dataset Information:\n\n"
         text += f"ID: {classifier_id}\n"
@@ -241,7 +153,6 @@ class ClassifierInfoPanel:
         text += f"Total Annotations: {n_annotations}\n"
         text += f"Defined Classes: {classes_str}\n"
 
-        # Class Distribution Section
         if distribution and n_annotations > 0:
             text += "\nClass Distribution:\n"
             for label, count in distribution.items():
@@ -256,22 +167,43 @@ class ClassifierInfoPanel:
         """Clear the info panel and hide it."""
         self.info_label.value = "Select a classifier to view details"
         self.info_label.visible = False
-        self.detail_button.setVisible(False)
+        self.manage_button.setVisible(False)
         self._current_classifier = None
         self._current_db = None
+        self._omero_data = None
+        self._user_data = None
 
-    def _show_detailed_stats(self) -> None:
-        """Show detailed statistics dialog."""
+    def _show_session_manager(self) -> None:
+        """Show unified session manager dialog."""
         if self._current_classifier and self._current_db:
             try:
-                dialog = DetailedStatsDialog(
-                    self._current_classifier,
-                    self._current_db,
-                    parent=self.detail_button,
+                from omero_screen_napari._session_manager_widget import (
+                    AnnotationSessionManager,
+                )
+
+                od = (
+                    self._omero_data
+                    if self._omero_data is not None
+                    else omero_data
+                )
+                ud = (
+                    self._user_data
+                    if self._user_data is not None
+                    else userdata
+                )
+
+                dialog = AnnotationSessionManager(
+                    classifier_name=self._current_classifier,
+                    db=self._current_db,
+                    omero_data=od,
+                    user_data=ud,
+                    on_session_loaded_callback=self._on_session_loaded_callback,
+                    on_direct_load_callback=self._on_direct_load_callback,
+                    parent=self.manage_button,
                 )
                 dialog.exec_()
             except Exception as e:
-                logger.exception(f"Failed to show detailed statistics: {e}")
+                logger.exception(f"Failed to show session manager: {e}")
 
 
 class ClassifierSelector:
@@ -285,6 +217,10 @@ class ClassifierSelector:
         self,
         db: TrainingDB | None = None,
         auto_fill_callback: Callable[[str], None] | None = None,
+        on_session_loaded_callback: Callable[[], None] | None = None,
+        on_direct_load_callback: Callable[[], None] | None = None,
+        omero_data: Any = None,
+        user_data: Any = None,
     ) -> None:
         """Initialize the classifier selector.
 
@@ -292,10 +228,18 @@ class ClassifierSelector:
             db: TrainingDB instance. If None, creates a new one.
             auto_fill_callback: Optional callback to trigger when classifier
                 is selected. Receives the classifier name as argument.
+            on_session_loaded_callback: Optional callback to trigger when a
+                session is loaded from the session manager.
+            on_direct_load_callback: Optional callback to trigger when new
+                data is loaded via direct OMERO loading.
+            omero_data: OmeroData instance for session manager.
+            user_data: UserData instance for session manager.
         """
         self.db = db if db is not None else TrainingDB()
         self.auto_fill_callback = auto_fill_callback
-        self._initializing = True  # Flag to prevent auto-trigger on init
+        self.omero_data = omero_data
+        self.user_data = user_data
+        self._initializing = True
 
         # Create Qt widget container for label and combobox
         self.selector_widget = QWidget()
@@ -312,7 +256,10 @@ class ClassifierSelector:
         self.selector_widget.setLayout(selector_layout)
 
         # Create info panel
-        self.info_panel = ClassifierInfoPanel()
+        self.info_panel = ClassifierInfoPanel(
+            on_session_loaded_callback=on_session_loaded_callback,
+            on_direct_load_callback=on_direct_load_callback,
+        )
 
         # Initial load (before connecting signal to avoid trigger)
         self.refresh_classifiers()
@@ -333,10 +280,8 @@ class ClassifierSelector:
                 f"Found {len(classifiers) if classifiers else 0} classifiers"
             )
 
-            # Store current value to preserve selection if refreshing
             current_text = self.combobox.currentText()
 
-            # Clear and repopulate
             self.combobox.clear()
 
             if not classifiers:
@@ -347,12 +292,10 @@ class ClassifierSelector:
                 self.info_panel.clear()
                 return
 
-            # Add placeholder and classifier names
             self.combobox.addItem("-- Select --")
             for clf in classifiers:
                 self.combobox.addItem(clf["name"])
 
-            # Restore previous selection if it still exists
             if current_text and current_text != "-- Select --":
                 index = self.combobox.findText(current_text)
                 if index >= 0:
@@ -379,19 +322,17 @@ class ClassifierSelector:
         Args:
             text: Selected classifier name
         """
-        # Ignore changes during initialization
         if self._initializing:
             return
 
-        # Clear info panel if placeholder or no valid selection
         if not text or text == "-- Select --" or text.startswith("("):
             self.info_panel.clear()
             return
 
-        # Update info panel with selected classifier
-        self.info_panel.update_info(text, self.db)
+        self.info_panel.update_info(
+            text, self.db, omero_data=self.omero_data, user_data=self.user_data
+        )
 
-        # Trigger auto-fill callback if provided
         if self.auto_fill_callback:
             try:
                 self.auto_fill_callback(text)
@@ -402,11 +343,8 @@ class ClassifierSelector:
         """Get list of widgets to add to parent container.
 
         Returns:
-            List containing selector widget and info panel label
+            List containing info panel label
         """
-        # Return the combined Qt widget and the magicgui info label
-        # Note: magicgui Containers don't handle raw Qt widgets well
-        # So we just return the magicgui info_label which works
         return [
             self.info_panel.info_label,
         ]
