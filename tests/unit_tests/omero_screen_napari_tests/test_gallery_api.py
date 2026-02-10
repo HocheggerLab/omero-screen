@@ -69,34 +69,33 @@ class TestGalleryHelpers:
         assert np.sum(results[0] == 2) == 0
 
     def test_fill_missing_channels_3_channels(self):
-        # Input 3 channels [B, G, R] logic -> Output [R, G, B]
+        # 3 channels: [ch0, ch1, ch2] -> RGB direct mapping
         img = np.zeros((10, 10, 5))
-        img[..., 0] = 1 # B -> becomes B in output (index 2)
-        img[..., 1] = 2 # G -> becomes G in output (index 1)
-        img[..., 2] = 3 # R -> becomes R in output (index 0)
+        img[..., 0] = 1
+        img[..., 1] = 2
+        img[..., 2] = 3
 
-        indices = [0, 1, 2] # user provided indices
+        indices = [0, 1, 2]
         res = fill_missing_channels(img, indices)
 
-        # Expected: [ch2, ch1, ch0]
         assert res.shape == (10, 10, 3)
-        assert res[0, 0, 0] == 3 # R
-        assert res[0, 0, 1] == 2 # G
-        assert res[0, 0, 2] == 1 # B
+        assert res[0, 0, 0] == 1  # Red = ch0
+        assert res[0, 0, 1] == 2  # Green = ch1
+        assert res[0, 0, 2] == 3  # Blue = ch2
 
     def test_fill_missing_channels_missing(self):
-        # 2 channels provided -> [Empty, G, B]
+        # 2 channels: [ch0, ch1] -> [Red=ch0, Green=ch1, Blue=0]
         img = np.zeros((10, 10, 5))
-        img[..., 0] = 1 # B
-        img[..., 1] = 2 # G
+        img[..., 0] = 1
+        img[..., 1] = 2
 
         indices = [0, 1]
         res = fill_missing_channels(img, indices)
 
         assert res.shape == (10, 10, 3)
-        assert res[0, 0, 0] == 0 # Empty (Red)
-        assert res[0, 0, 1] == 2 # Green
-        assert res[0, 0, 2] == 1 # Blue
+        assert res[0, 0, 0] == 1  # Red = ch0
+        assert res[0, 0, 1] == 2  # Green = ch1
+        assert res[0, 0, 2] == 0  # Blue = empty
 
 from unittest.mock import MagicMock
 import polars as pl
