@@ -4,6 +4,7 @@ as well as segmentation masks (if avaliable) into napari.
 The plugin can be run from napari as Welldata Widget under Plugins.
 """
 
+import contextlib
 import os
 from typing import Any, Optional
 
@@ -223,7 +224,8 @@ def handle_metadata_widget(viewer: Viewer, slider_position: int) -> None:
     well_index = min(well_index, len(omero_data.well_metadata_list) - 1)
 
     if metadata_widget is not None:
-        viewer.window.remove_dock_widget(metadata_widget)  # type: ignore
+        with contextlib.suppress(LookupError):
+            viewer.window.remove_dock_widget(metadata_widget)  # type: ignore
     well_metadata = omero_data.well_metadata_list[well_index]
     metadata_widget = MetadataWidget(well_metadata)
     viewer.window.add_dock_widget(metadata_widget)

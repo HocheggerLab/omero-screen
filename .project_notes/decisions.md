@@ -90,7 +90,54 @@ Document key architectural and technical decisions with context and trade-offs.
 - Benefits: Ensures scientific reproducibility, satisfies peer review requirements, increases confidence in screening results
 - Trade-offs: Delays advanced feature work by ~1 week
 
-### ADR-004: Extract CyclicIF Data Cleaning as Standalone Utility (2026-02-05)
+### ADR-004: Direct OMERO Loading for Training Workflow (2026-02-06)
+
+**Context:**
+- Original training workflow required repetitive steps for each annotation session:
+  1. Load welldata_widget for entire plate
+  2. Generate gallery from loaded data
+  3. Setup classifier metadata
+  4. Annotate cells in training_widget
+  5. Repeat all steps for each new well/image to annotate
+- Users needed to reload welldata_widget every time they wanted to annotate a different image
+- Memory inefficient (loads entire well when only need one image)
+- No visibility into what's already been annotated across sessions
+
+**Decision:**
+- Implement direct OMERO loading that bypasses welldata_widget for annotation sessions
+- Create new components:
+  - `direct_omero_loader.py`: Loads crops directly from OMERO using plate/well/image index
+  - `_session_manager_widget.py`: Dashboard showing all annotation sessions for a classifier
+  - `_direct_load_dialog.py`: UI for selecting plate/well/image to annotate
+- Integrate with existing `_classifier_selector.py` and `_training_widget.py`
+- Data loading process:
+  1. Load classifier metadata from saved JSON
+  2. Fetch specific image from OMERO by well and index (not OMERO ID)
+  3. Load segmentation masks from dataset
+  4. Query CellView for centroids
+  5. Apply flatfield correction
+  6. Generate crops on-demand
+  7. Populate omero_data singleton for display
+
+**Alternatives Considered:**
+- Keep existing workflow -> Users find it too tedious for multiple sessions
+- Pre-load all images in project -> Memory intensive, slow startup
+- Build caching layer -> Adds complexity, still requires initial welldata load
+
+**Consequences:**
+- Benefits:
+  - One-time welldata loading for initial setup
+  - Direct image loading for subsequent annotation sessions
+  - Session management dashboard shows annotation progress
+  - Can add new plates/wells without restarting workflow
+  - Memory efficient (loads only needed images)
+  - NOT a breaking change (old flow still works)
+- Trade-offs:
+  - More complex architecture with additional components
+  - Requires CellView database for centroids
+  - Image index confusion (uses well index 0,1,2 not OMERO image ID)
+
+### ADR-005: Extract CyclicIF Data Cleaning as Standalone Utility (2026-02-05)
 
 **Context:**
 - `agg_data.csv` files from cyclicIF experiments contain duplicate columns with numeric suffixes (`.0`, `.1`) from pandas merge operations

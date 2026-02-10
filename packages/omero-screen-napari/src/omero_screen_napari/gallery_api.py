@@ -653,12 +653,14 @@ def fill_missing_channels(
     """
     Select and rearrange image channels for display.
 
-    For a single channel, returns (H, W, 1) for grayscale display.
-    For multiple channels, maps to RGB (H, W, 3) format.
+    Channel mapping:
+    - 1 channel: Grayscale (H, W, 1)
+    - 2 channels: RGB with Red=ch0, Green=ch1, Blue=0
+    - 3+ channels: RGB with Red=ch0, Green=ch1, Blue=ch2
 
     Args:
         img: Input image with shape (H, W, C) where C can be 1, 2, 3, or more
-        channel_indices: List of channel indices to extract (in B, G, R order)
+        channel_indices: List of channel indices to extract
 
     Returns:
         Image with shape (H, W, 1) for single channel or (H, W, 3) for multi-channel
@@ -677,15 +679,15 @@ def fill_missing_channels(
     if len(ch_arrays) == 1:
         return ch_arrays[0][..., np.newaxis]
 
-    # Map to RGB [Red, Green, Blue] based on input [Blue, Green, Red] list
+    # Map to RGB [Red, Green, Blue]
     if len(ch_arrays) >= 3:
-        # [B, G, R, ...] -> [R, G, B] (take first 3)
-        result_img = [ch_arrays[2], ch_arrays[1], ch_arrays[0]]
+        # 3+ channels: [ch0, ch1, ch2] -> RGB
+        result_img = [ch_arrays[0], ch_arrays[1], ch_arrays[2]]
     elif len(ch_arrays) == 2:
-        # [B, G] -> [Empty, G, B] (Blue in Blue channel, Green in Green)
-        result_img = [empty_image, ch_arrays[1], ch_arrays[0]]
+        # 2 channels: [ch0, ch1] -> [Red=ch0, Green=ch1, Blue=0]
+        result_img = [ch_arrays[0], ch_arrays[1], empty_image]
     else:
-        # Fallback: all black
+        # Fallback: all black (shouldn't happen with valid input)
         result_img = [empty_image, empty_image, empty_image]
 
     return np.stack(result_img, axis=-1)

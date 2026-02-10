@@ -8,6 +8,7 @@ This module provides a command-line interface for:
 """
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -383,6 +384,8 @@ def handle_delete(args: argparse.Namespace) -> None:
             return
 
     # Execute
+    training_data_dir = Path.home() / "omeroscreen_trainingdata"
+
     try:
         with Progress(
             SpinnerColumn(),
@@ -393,25 +396,62 @@ def handle_delete(args: argparse.Namespace) -> None:
 
             for plan in deletion_plan:
                 clf_name = plan["classifier"]["name"]
+                classifier_dir = training_data_dir / clf_name
 
                 if plan["type"] == "full":
+                    # Delete NPY files for all sessions first
+                    all_sessions = db_instance.list_sessions(clf_name)
+                    for session in all_sessions:
+                        npy_path = Path(session["file_path"])
+                        if npy_path.exists():
+                            npy_path.unlink()
+
+                    # Delete classifier from DB
                     if db_instance.delete_classifier(clf_name):
                         console.print(
-                            f"[green]Deleted classifier '{clf_name}'.[/green]"
+                            f"[green]Deleted classifier '{clf_name}' from database.[/green]"
                         )
                     else:
                         console.print(
-                            f"[red]Failed to delete classifier '{clf_name}'.[/red]"
+                            f"[red]Failed to delete classifier '{clf_name}' from database.[/red]"
                         )
+
+                    # Remove classifier folder on disk
+                    if classifier_dir.exists():
+                        shutil.rmtree(classifier_dir)
+                        console.print(
+                            f"[green]Removed folder: {classifier_dir}[/green]"
+                        )
+
                 else:
-                    # Partial
+                    # Partial: delete selected sessions + their NPY files
                     count = 0
                     for session in plan["sessions"]:
+                        npy_path = Path(session["file_path"])
+                        if npy_path.exists():
+                            npy_path.unlink()
                         if db_instance.delete_session(session["id"]):
                             count += 1
                     console.print(
-                        f"[green]Deleted {count} sessions from '{clf_name}'.[/green]"
+                        f"[green]Deleted {count} sessions (+ NPY files) from '{clf_name}'.[/green]"
                     )
+
+                    # If no sessions remain, clean up the whole classifier
+                    remaining = db_instance.get_session_count(clf_name)
+                    if remaining == 0:
+                        console.print(
+                            f"[yellow]No sessions remain for '{clf_name}'.[/yellow]"
+                        )
+                        confirm_full = console.input(
+                            f"[bold red]Delete entire classifier '{clf_name}' and its folder? [y/N]: [/bold red]"
+                        )
+                        if confirm_full.lower() in ["y", "yes"]:
+                            db_instance.delete_classifier(clf_name)
+                            if classifier_dir.exists():
+                                shutil.rmtree(classifier_dir)
+                            console.print(
+                                f"[green]Removed classifier '{clf_name}' and folder {classifier_dir}.[/green]"
+                            )
 
                 progress.advance(task)
 
