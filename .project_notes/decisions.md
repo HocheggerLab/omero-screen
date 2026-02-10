@@ -163,3 +163,47 @@ Document key architectural and technical decisions with context and trade-offs.
 **Consequences:**
 - Benefits: Single source of truth for data cleaning, prevents schema pollution, works for both CLI and GUI imports
 - Trade-offs: None significant - adds minimal complexity, improves robustness
+
+### ADR-005: Replace Image ID with Image Input String in Training Session Management (2026-02-10)
+
+**Context:**
+- The session manager displayed numeric OMERO image IDs (e.g., 693056) which are meaningless to users
+- The "Add New Data" dialog only accepted a single integer image index via QSpinBox
+- The welldata widget already supported flexible image selection formats: `"All"`, `"0"`, `"0, 1, 2"`, `"3-5"`
+- Users needed to load crops from multiple images per well in a single session
+
+**Decision:**
+- Replace Image ID display with image input string throughout session management
+- Store `image_input` string in session metadata JSON for display
+- Keep DB `image_id` INTEGER column for backward-compatible lookups (set to first resolved image ID)
+- Add `_parse_image_input()` helper in `direct_omero_loader.py` matching welldata widget's regex
+- Restructure `load_crops_from_omero()` to loop over parsed indices, accumulating crops across images
+
+**Alternatives Considered:**
+- Keep numeric image ID -> Inconsistent with gallery widget, confusing for users
+- Store image_input in a new DB column -> Schema migration needed, metadata JSON is simpler
+
+**Consequences:**
+- Benefits: Consistent UI across widgets, multi-image sessions, human-readable session descriptions
+- Trade-offs: Old sessions without metadata fall back to displaying numeric image_id
+
+### ADR-006: Remove Load Functionality from Training Widget (2026-02-10)
+
+**Context:**
+- Training widget had its own "Load Images" button and `load_image()` method for loading classifier data
+- Session manager widget was introduced to handle session browsing, loading, and deletion
+- Having two ways to load data (widget button + session manager) was confusing
+- Setup widget also had a ClassifierSelector dropdown that was confusing since it's only for creating new classifiers
+
+**Decision:**
+- Remove `load_image_widget` and all helper methods (`_set_paths`, `_parse_classified_data`, `_parse_saved_imagedata`, `_parse_metadata`, `_check_metadata`, `_parse_data`) from `TrainingWidget`
+- Remove `ClassifierSelector` from `SetupTrainingWidget` — only keep it in `TrainingWidget`
+- Sessions are loaded exclusively via the ClassifierSelector's session manager in the training widget
+
+**Alternatives Considered:**
+- Keep both load paths -> Confusing UX, duplicate code paths
+- Move load into session manager only -> ClassifierSelector still needed for classifier selection context
+
+**Consequences:**
+- Benefits: Single load path, cleaner code (~190 lines removed), less confusing UI
+- Trade-offs: Users must select a classifier before loading sessions (enforced by ClassifierSelector)
