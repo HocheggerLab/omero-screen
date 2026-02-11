@@ -12,7 +12,7 @@ Plotting Functions for Omero-Screen Immuno-Fluorescence Data.
 
 ## Status
 
-Version: ![version](https://img.shields.io/badge/version-0.3.0-blue)
+Version: ![version](https://img.shields.io/badge/version-0.3.1-blue)
 
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 
