@@ -20,6 +20,7 @@ from omero_screen_napari.gallery_api import (
     fill_missing_channels,
     pad_region,
 )
+from omero_screen_napari.omero_image import get_image_timepoint
 from omero_screen_napari.session_utils import apply_masks_to_crops
 
 if TYPE_CHECKING:
@@ -178,16 +179,9 @@ def load_crops_from_omero(
             )
             all_image_ids.append(image_id)
 
-            # Load pixels
-            pixels = image.getPrimaryPixels()
-            size_c = image.getSizeC()
-            size_y = image.getSizeY()
-            size_x = image.getSizeX()
-
-            image_array = np.zeros((size_y, size_x, size_c), dtype=np.float32)
-            for c in range(size_c):
-                plane = pixels.getPlane(0, c, timepoint)
-                image_array[..., c] = np.array(plane)
+            # Load pixels (via diskcache)
+            cached = get_image_timepoint(conn, image_id, timepoint)  # ZYXC
+            image_array = cached.squeeze(axis=0).astype(np.float32)  # YXC
 
             # Apply flatfield correction
             if ff_success and flatfield is not None:
@@ -405,17 +399,11 @@ def _load_segmentation_masks(
         if not seg_image:
             return False, f"Segmentation masks not found for image {image_id}"
 
-        # Load segmentation pixels
-        pixels = seg_image.getPrimaryPixels()
-        size_y = seg_image.getSizeY()
-        size_x = seg_image.getSizeX()
-        size_c = seg_image.getSizeC()  # Usually 2 channels: nucleus, cell
-
-        # Load masks for the specific timepoint
-        masks = np.zeros((size_y, size_x, size_c), dtype=np.int32)
-        for c in range(size_c):
-            plane = pixels.getPlane(0, c, timepoint)
-            masks[..., c] = np.array(plane, dtype=np.int32)
+        # Load segmentation pixels (via diskcache)
+        cached = get_image_timepoint(
+            conn, seg_image.getId(), timepoint
+        )  # ZYXC
+        masks = cached.squeeze(axis=0).astype(np.int32)  # YXC
 
         logger.info(f"Loaded segmentation masks with shape: {masks.shape}")
         return True, masks
@@ -461,16 +449,9 @@ def _load_flatfield_correction(
             logger.warning("No flatfield correction image found")
             return False, None
 
-        # Load flatfield pixels
-        pixels = ff_image.getPrimaryPixels()
-        size_y = ff_image.getSizeY()
-        size_x = ff_image.getSizeX()
-        size_c = ff_image.getSizeC()
-
-        flatfield = np.zeros((size_y, size_x, size_c), dtype=np.float32)
-        for c in range(size_c):
-            plane = pixels.getPlane(0, c, 0)
-            flatfield[..., c] = np.array(plane, dtype=np.float32)
+        # Load flatfield pixels (via diskcache)
+        cached = get_image_timepoint(conn, ff_image.getId(), 0)  # ZYXC
+        flatfield = cached.squeeze(axis=0).astype(np.float32)  # YXC
 
         logger.info(
             f"Loaded flatfield correction with shape: {flatfield.shape}"
