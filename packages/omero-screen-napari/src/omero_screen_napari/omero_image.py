@@ -1,4 +1,5 @@
 import os
+import threading
 from collections.abc import Generator
 from typing import Any
 
@@ -12,6 +13,10 @@ from omero_screen.config import get_logger, getenv_as_int
 from omero_screen.plate_dataset import PlateDataset
 
 logger = get_logger(__name__)
+
+# Lock to prevent duplicate downloads when multiple generators
+# run concurrently (e.g. background caching + foreground image load).
+_download_lock = threading.Lock()
 
 # Configure cache path and size using environment
 __path = os.getenv("OMERO_SCREEN_IMAGE_CACHE_PATH")
@@ -62,11 +67,12 @@ def get_image(
     # It would be more efficient to collate missing ranges and download together.
     for t in range(start, end):
         k = _get_key(image_id, t)
-        a = _cache.get(k)
-        if a is None:
-            logger.info("Downloading image %s", k)
-            a = _get_omero_image_timepoint(image, t)
-            _cache[k] = a
+        with _download_lock:
+            a = _cache.get(k)
+            if a is None:
+                logger.info("Downloading image %s", k)
+                a = _get_omero_image_timepoint(image, t)
+                _cache[k] = a
         stack.append(a)
     return np.stack(stack)
 
@@ -85,12 +91,13 @@ def get_image_timepoint(
         Image (ZYXC)
     """
     k = _get_key(image_id, t)
-    a = _cache.get(k)
-    if a is None:
-        logger.info("Downloading image %s", k)
-        image = _get_omero_image_wrapper(conn, image_id)
-        a = _get_omero_image_timepoint(image, t)
-        _cache[k] = a
+    with _download_lock:
+        a = _cache.get(k)
+        if a is None:
+            logger.info("Downloading image %s", k)
+            image = _get_omero_image_wrapper(conn, image_id)
+            a = _get_omero_image_timepoint(image, t)
+            _cache[k] = a
     return a  # type: ignore[no-any-return]
 
 
@@ -232,28 +239,30 @@ def cache_plate_images(
     for image_id, size_t in images:
         image = None
         for t in range(size_t):
-            # Check and fill cache if missing
             k = _get_key(image_id, t)
-            a = _cache.get(k)
-            if a is None:
-                logger.info("Downloading image %s", k)
-                if image is None:
-                    image = _get_omero_image_wrapper(conn, image_id)
-                a = _get_omero_image_timepoint(image, t)
-                _cache[k] = a
-                nbytes = a.nbytes
-                total += nbytes
-                yield nbytes
-                # Fill until cache size is full
-                if total > max_bytes:
-                    logger.info(
-                        "Filled image cache with %d > %d bytes",
-                        total,
-                        max_bytes,
-                    )
-                    return total
-            else:
-                yield 0
+            # Lock prevents duplicate downloads when a foreground
+            # get_image_timepoint() call races with this generator.
+            with _download_lock:
+                a = _cache.get(k)
+                if a is None:
+                    logger.info("Downloading image %s", k)
+                    if image is None:
+                        image = _get_omero_image_wrapper(conn, image_id)
+                    a = _get_omero_image_timepoint(image, t)
+                    _cache[k] = a
+                    nbytes = a.nbytes
+                    total += nbytes
+                else:
+                    nbytes = 0
+
+            yield nbytes
+            if nbytes > 0 and total > max_bytes:
+                logger.info(
+                    "Filled image cache with %d > %d bytes",
+                    total,
+                    max_bytes,
+                )
+                return total
 
     return total
 

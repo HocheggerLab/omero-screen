@@ -143,7 +143,38 @@ def welldata_widget(
             msg.exec_()
 
 
+_active_cache_worker: Any = None
+_active_cache_plate_id: int | None = None
+
+
 def cache_plate(plate_id: int, conn: BlitzGateway | None = None) -> None:
+    """Start background caching for a plate.
+
+    Skips if a worker is already running for the same plate.
+    Cancels the previous worker if the plate changed.
+    """
+    global _active_cache_worker, _active_cache_plate_id
+
+    # Already caching this plate — skip
+    if (
+        _active_cache_worker is not None
+        and _active_cache_worker.is_running
+        and _active_cache_plate_id == plate_id
+    ):
+        logger.info(
+            "Cache worker already running for plate %d — skipping",
+            plate_id,
+        )
+        return
+
+    # Different plate or finished — cancel old worker if still running
+    if _active_cache_worker is not None and _active_cache_worker.is_running:
+        logger.info(
+            "Cancelling cache worker for plate %d",
+            _active_cache_plate_id,
+        )
+        _active_cache_worker.quit()
+
     # Note: Cannot use omero_connect as the worker is asynchronous
     # and the connection is cleaned up after this function exits.
     # Have to create a connection manually and then cleanup when
@@ -158,13 +189,18 @@ def cache_plate(plate_id: int, conn: BlitzGateway | None = None) -> None:
             f"Failed to establish connection to OMERO server at {host} as {username}"
         )
 
-    # Create a method to close the connection on return.
     def close_conn(nbytes: int) -> None:
+        global _active_cache_worker
         conn.close(hard=True)
+        _active_cache_worker = None
 
     worker = create_worker(cache_plate_images, conn, plate_id)
     worker.returned.connect(close_conn)
     worker.start()
+
+    _active_cache_worker = worker
+    _active_cache_plate_id = plate_id
+    logger.info("Started cache worker for plate %d", plate_id)
 
 
 def clear_viewer_layers(viewer: Viewer) -> None:

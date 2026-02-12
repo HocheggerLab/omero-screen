@@ -77,6 +77,12 @@ Track recurring bugs, their solutions, and prevention strategies. This helps avo
 - **Solution**: Build a `stats_lookup` dict from `get_image_stats()` results, keyed by `(plate_id, image_id)`, and retrieve `total_cells` from there.
 - **Prevention**: Verify data sources — check which DB query returns which fields before assuming a key exists in a dict.
 
+### 2026-02-11 - Plate Cache Downloads Each Image Multiple Times
+- **Issue**: When `cache=True` and user navigates between wells, the same images get downloaded 2x, 3x, etc. Logs show duplicate "Downloading image 692913:0" entries multiplying with each well navigation.
+- **Root Cause**: Two problems: (1) `cache_plate()` in `_welldata_widget.py` spawns a new `create_worker()` every time the widget is submitted with `cache=True`, without cancelling or tracking previous workers. Each worker runs the full `cache_plate_images()` generator independently. (2) No locking in `omero_image.py` — foreground `get_image_timepoint()` and background `cache_plate_images()` can both see a cache miss for the same key and both download.
+- **Solution**: (1) Added `_active_cache_worker` / `_active_cache_plate_id` globals to `_welldata_widget.py` — skips if same plate already caching, cancels old worker if plate changed. (2) Added `threading.Lock()` (`_download_lock`) around all cache-check-then-download blocks in `get_image()`, `get_image_timepoint()`, and `cache_plate_images()`.
+- **Prevention**: Any background worker that can be re-triggered by user interaction must track its running state and prevent duplicate spawning.
+
 ### 2026-02-06 - Direct OMERO Loader: Various Initial Bugs
 - **Issues**: PlateI has no getWell (use iteration), Image ID vs Index confusion, CellView returns Pandas not Polars, incorrect channel mapping (BGR→RGB), keybinding conflicts, grayscale/color management, incorrect cell count, gallery crops not persisted, well position lost, TrainingDataSaver not initialized, yellow screen (channel name resolution), annotation count mismatch (cell_index collisions)
 - **Prevention**: See MEMORY.md for patterns on channel resolution, keybindings, RandomImageParser usage, and DB annotation cell_index
