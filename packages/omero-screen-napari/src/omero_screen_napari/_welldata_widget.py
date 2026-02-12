@@ -13,6 +13,7 @@ from magicgui import magic_factory
 from magicgui.widgets import Container
 from napari.layers import Image
 from napari.qt.threading import create_worker
+from napari.utils import progress as napari_progress
 from napari.viewer import Viewer
 from omero.gateway import BlitzGateway
 from omero_screen.config import get_logger
@@ -20,7 +21,13 @@ from qtpy.QtWidgets import QLabel, QVBoxLayout, QWidget
 from vispy.color import Colormap
 
 from omero_screen_napari.omero_data_singleton import omero_data
-from omero_screen_napari.omero_image import cache_plate_images
+from omero_screen_napari.plate_cache import (
+    cache_plate as cache_plate_full,
+)
+from omero_screen_napari.plate_cache import (
+    is_plate_cached,
+    load_from_cache,
+)
 from omero_screen_napari.welldata_api import (
     parse_omero_data,
     stitch_images,
@@ -107,13 +114,22 @@ def welldata_widget(
     and then adds the images and labels to the viewer. It also handles metadata,
     sets color maps, and adds label layers to the viewer.
     """
+    plate_num = int(plate_id)
+
     if cache:
-        cache_plate(int(plate_id))
+        start_cache_worker(plate_num)
 
     try:
-        parse_omero_data(
-            omero_data, plate_id, well_pos_list, images, time=time
-        )
+        # Fast path: load from cache without OMERO connection
+        if is_plate_cached(plate_num):
+            logger.info("Loading plate %d from cache (fast path)", plate_num)
+            load_from_cache(
+                omero_data, plate_num, well_pos_list, images, time=time
+            )
+        else:
+            parse_omero_data(
+                omero_data, plate_id, well_pos_list, images, time=time
+            )
         clear_viewer_layers(viewer)
         add_image_to_viewer(viewer)
         set_color_maps(viewer)
@@ -147,13 +163,25 @@ _active_cache_worker: Any = None
 _active_cache_plate_id: int | None = None
 
 
-def cache_plate(plate_id: int, conn: BlitzGateway | None = None) -> None:
-    """Start background caching for a plate.
+def start_cache_worker(plate_id: int) -> None:
+    """Start background caching for a plate using plate_cache.
 
-    Skips if a worker is already running for the same plate.
-    Cancels the previous worker if the plate changed.
+    Downloads all metadata, flatfield-corrected images, and labels
+    so that subsequent well navigation is fully offline.  Shows a
+    progress bar in the napari activity dock.
+
+    Skips if a worker is already running for the same plate or
+    if the plate is already fully cached.
     """
     global _active_cache_worker, _active_cache_plate_id
+
+    # Already fully cached — skip
+    if is_plate_cached(plate_id):
+        logger.info(
+            "Plate %d already cached — skipping background download",
+            plate_id,
+        )
+        return
 
     # Already caching this plate — skip
     if (
@@ -175,10 +203,7 @@ def cache_plate(plate_id: int, conn: BlitzGateway | None = None) -> None:
         )
         _active_cache_worker.quit()
 
-    # Note: Cannot use omero_connect as the worker is asynchronous
-    # and the connection is cleaned up after this function exits.
-    # Have to create a connection manually and then cleanup when
-    # the worker terminates.
+    # Create a connection manually (worker is async, can't use decorator)
     username = os.getenv("USERNAME")
     password = os.getenv("PASSWORD")
     host = os.getenv("HOST")
@@ -189,13 +214,48 @@ def cache_plate(plate_id: int, conn: BlitzGateway | None = None) -> None:
             f"Failed to establish connection to OMERO server at {host} as {username}"
         )
 
-    def close_conn(nbytes: int) -> None:
+    # Napari progress bar — created lazily on the first progress signal
+    # when we know the total count.
+    pbr: list[Any] = []  # mutable container so closures can share it
+    _prev_done = 0
+
+    def on_finished() -> None:
         global _active_cache_worker
         conn.close(hard=True)
         _active_cache_worker = None
+        if pbr:
+            pbr[0].set_description(f"Plate {plate_id} cached")
+            pbr[0].close()
+        logger.info("Cache worker finished for plate %d", plate_id)
 
-    worker = create_worker(cache_plate_images, conn, plate_id)
-    worker.returned.connect(close_conn)
+    def on_error(exc: BaseException) -> None:
+        global _active_cache_worker
+        conn.close(hard=True)
+        _active_cache_worker = None
+        if pbr:
+            pbr[0].set_description(f"Cache error: {exc}")
+            pbr[0].close()
+        logger.error("Cache worker error for plate %d: %s", plate_id, exc)
+
+    def on_progress(prog: tuple[int, int]) -> None:
+        nonlocal _prev_done
+        done, total = prog
+        if total <= 0:
+            return
+        # Create the bar on first real signal so total is correct from the start
+        if not pbr:
+            pbr.append(
+                napari_progress(total=total, desc=f"Caching plate {plate_id}")
+            )
+        delta = done - _prev_done
+        if delta > 0:
+            pbr[0].update(delta)
+        _prev_done = done
+
+    worker = create_worker(cache_plate_full, plate_id, conn, max_workers=3)
+    worker.yielded.connect(on_progress)
+    worker.finished.connect(on_finished)
+    worker.errored.connect(on_error)
     worker.start()
 
     _active_cache_worker = worker

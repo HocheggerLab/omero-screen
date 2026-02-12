@@ -265,6 +265,10 @@ scratch/
 **/*cache*
 **/.cache*
 
+# But keep source files with "cache" in the name
+!**/plate_cache.py
+!**/test_plate_cache.py
+
 # =========================
 # Ignore large image files
 examples/*
