@@ -367,6 +367,25 @@ def _default_intensities(
     return {int(v): (0, 65535) for v in channel_data.values()}
 
 
+def _unwrap_length(value: Any) -> float | None:
+    """Convert an OMERO Length value to a plain float.
+
+    ``unwrap()`` on OMERO ``Length`` types returns a dict like
+    ``{'value': 1234.5, 'unit': 'MICROMETER', 'symbol': 'µm'}``.
+    This helper normalises that (or a plain numeric) to ``float``,
+    returning ``None`` when the value cannot be converted.
+    """
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        v = value.get("value")
+        return float(v) if v is not None else None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _fetch_well_map(
     conn: BlitzGateway, plate_id: int
 ) -> dict[str, dict[str, Any]]:
@@ -423,8 +442,8 @@ def _fetch_well_map(
                 "image_id": image_id,
                 "size_t": size_t,
                 "index": len(well_map[well_pos]["images"]),
-                "pos_x": pos_x,
-                "pos_y": pos_y,
+                "pos_x": _unwrap_length(pos_x),
+                "pos_y": _unwrap_length(pos_y),
             }
         )
 
@@ -664,6 +683,7 @@ def load_from_cache(
     image_arrays: list[npt.NDArray[Any]] = []
     label_arrays: list[npt.NDArray[Any]] = []
     image_ids: list[int] = []
+    positions: list[tuple[float, float] | None] = []
 
     for well_pos in selected_wells:
         if well_pos not in wells:
@@ -686,6 +706,14 @@ def load_from_cache(
             image_id = img_info["image_id"]
             size_t = img_info["size_t"]
             image_ids.append(image_id)
+
+            # Collect stage position (handle dict from old caches)
+            px = _unwrap_length(img_info.get("pos_x"))
+            py = _unwrap_length(img_info.get("pos_y"))
+            if px is not None and py is not None:
+                positions.append((px, py))
+            else:
+                positions.append(None)
 
             # Determine timepoint range
             t_start = tstart if tstart is not None else 0
@@ -741,6 +769,7 @@ def load_from_cache(
         omero_data.images = np.empty((0,))
 
     omero_data.image_ids = image_ids
+    omero_data.image_positions = positions
 
     if label_arrays:
         # Log shapes for debugging mismatches

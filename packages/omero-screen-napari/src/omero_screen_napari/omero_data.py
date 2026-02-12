@@ -74,6 +74,9 @@ class OmeroData:
     # Image data
     images: NDArray[Any] = field(default_factory=lambda: np.empty((0,)))
     image_ids: list[int] = field(default_factory=list)
+    image_positions: list[tuple[float, float] | None] = field(
+        default_factory=list
+    )
     labels: NDArray[Any] = field(default_factory=lambda: np.empty((0,)))
 
     # Stitched images
@@ -113,6 +116,7 @@ class OmeroData:
         self.well_ifdata = pl.DataFrame()
         self.images = np.empty((0,))
         self.image_ids = []
+        self.image_positions = []
         self.labels = np.empty((0,))
         self.stitched_images = np.empty((0,))
         self.cropped_images = []
@@ -133,4 +137,5 @@ class OmeroData:
         self.well_image_index = []
         self.images = np.empty((0,))
         self.image_ids = []
+        self.image_positions = []
         self.labels = np.empty((0,))

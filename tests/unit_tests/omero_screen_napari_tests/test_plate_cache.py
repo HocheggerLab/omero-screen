@@ -261,6 +261,101 @@ class TestLoadFromCache:
             with pytest.raises(ValueError, match="not fully cached"):
                 load_from_cache(od, 999, "A1", "All")
 
+    def test_load_from_cache_stores_positions(
+        self, mock_cache, sample_meta, sample_wells, sample_label_map
+    ):
+        """Verify that image positions are populated from cached well data."""
+        fake_cache, store = mock_cache
+        store["plate:42:meta"] = sample_meta
+        store["plate:42:wells"] = sample_wells
+        store["plate:42:labels"] = sample_label_map
+
+        img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
+        store["100:0"] = img_array
+        store["101:0"] = img_array
+        label_array = np.ones((1, 100, 100, 1), dtype=np.int32)
+        store["500:0"] = label_array
+        store["501:0"] = label_array
+
+        with patch("omero_screen_napari.plate_cache._cache", fake_cache):
+            from omero_screen_napari.plate_cache import load_from_cache
+
+            od = OmeroData()
+            load_from_cache(od, 42, "A1", "All")
+
+            assert len(od.image_positions) == 2
+            assert od.image_positions[0] == (0.0, 0.0)
+            assert od.image_positions[1] == (1.0, 0.0)
+
+    def test_load_from_cache_dict_positions(
+        self, mock_cache, sample_meta, sample_label_map
+    ):
+        """Verify dict-format positions (old caches) are handled correctly."""
+        fake_cache, store = mock_cache
+
+        wells_dict_pos = {
+            "A1": {
+                "well_id": 10,
+                "metadata": {"cell_line": "RPE"},
+                "images": [
+                    {
+                        "image_id": 100,
+                        "size_t": 1,
+                        "index": 0,
+                        "pos_x": {"value": 5.0, "unit": "MICROMETER"},
+                        "pos_y": {"value": 10.0, "unit": "MICROMETER"},
+                    },
+                ],
+            },
+        }
+        store["plate:42:meta"] = sample_meta
+        store["plate:42:wells"] = wells_dict_pos
+        store["plate:42:labels"] = sample_label_map
+
+        img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
+        store["100:0"] = img_array
+
+        with patch("omero_screen_napari.plate_cache._cache", fake_cache):
+            from omero_screen_napari.plate_cache import load_from_cache
+
+            od = OmeroData()
+            load_from_cache(od, 42, "A1", "All")
+
+            assert len(od.image_positions) == 1
+            assert od.image_positions[0] == (5.0, 10.0)
+
+    def test_load_from_cache_null_positions(self, mock_cache, sample_meta, sample_label_map):
+        """Verify None is used when pos_x/pos_y are missing."""
+        fake_cache, store = mock_cache
+
+        wells_no_pos = {
+            "A1": {
+                "well_id": 10,
+                "metadata": {"cell_line": "RPE"},
+                "images": [
+                    {"image_id": 100, "size_t": 1, "index": 0},
+                    {"image_id": 101, "size_t": 1, "index": 1},
+                ],
+            },
+        }
+        store["plate:42:meta"] = sample_meta
+        store["plate:42:wells"] = wells_no_pos
+        store["plate:42:labels"] = sample_label_map
+
+        img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
+        store["100:0"] = img_array
+        store["101:0"] = img_array
+
+        with patch("omero_screen_napari.plate_cache._cache", fake_cache):
+            from omero_screen_napari.plate_cache import load_from_cache
+
+            od = OmeroData()
+            load_from_cache(od, 42, "A1", "All")
+
+            assert len(od.image_positions) == 2
+            assert od.image_positions[0] is None
+            assert od.image_positions[1] is None
+
     def test_load_with_image_selection(self, mock_cache, sample_meta, sample_wells, sample_label_map):
         fake_cache, store = mock_cache
         store["plate:42:meta"] = sample_meta
@@ -280,6 +375,41 @@ class TestLoadFromCache:
 
             assert len(od.image_ids) == 1
             assert od.image_ids[0] == 100
+
+
+# --------------- _unwrap_length ---------------
+
+
+class TestUnwrapLength:
+    def test_plain_float(self):
+        from omero_screen_napari.plate_cache import _unwrap_length
+
+        assert _unwrap_length(42.5) == 42.5
+
+    def test_int(self):
+        from omero_screen_napari.plate_cache import _unwrap_length
+
+        assert _unwrap_length(10) == 10.0
+
+    def test_dict_with_value(self):
+        from omero_screen_napari.plate_cache import _unwrap_length
+
+        assert _unwrap_length({"value": 123.4, "unit": "MICROMETER", "symbol": "µm"}) == 123.4
+
+    def test_dict_without_value(self):
+        from omero_screen_napari.plate_cache import _unwrap_length
+
+        assert _unwrap_length({"unit": "MICROMETER"}) is None
+
+    def test_none(self):
+        from omero_screen_napari.plate_cache import _unwrap_length
+
+        assert _unwrap_length(None) is None
+
+    def test_unconvertible(self):
+        from omero_screen_napari.plate_cache import _unwrap_length
+
+        assert _unwrap_length("not_a_number") is None
 
 
 # --------------- _parse_channel_data ---------------

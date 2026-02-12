@@ -10,14 +10,19 @@ from typing import Any, Optional
 
 import numpy as np
 from magicgui import magic_factory
-from magicgui.widgets import Container
 from napari.layers import Image
 from napari.qt.threading import create_worker
 from napari.utils import progress as napari_progress
 from napari.viewer import Viewer
 from omero.gateway import BlitzGateway
 from omero_screen.config import get_logger
-from qtpy.QtWidgets import QLabel, QVBoxLayout, QWidget
+from qtpy.QtWidgets import (
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 from vispy.color import Colormap
 
 from omero_screen_napari.omero_data_singleton import omero_data
@@ -27,6 +32,11 @@ from omero_screen_napari.plate_cache import (
 from omero_screen_napari.plate_cache import (
     is_plate_cached,
     load_from_cache,
+)
+from omero_screen_napari.position_stitching import (
+    has_valid_positions,
+    stitch_from_positions,
+    stitch_labels_from_positions,
 )
 from omero_screen_napari.welldata_api import (
     parse_omero_data,
@@ -78,22 +88,90 @@ class MockEvent:
 # Global variable to keep track of the existing metadata widget
 metadata_widget: Optional[MetadataWidget] = None
 
+# Reference to the stitch widget so auto-stitch can read its parameters
+_stitch_widget_ref: Any = None
+
 # Combine Welldata and Stiched data widgets
 
 
-def well_widget_combined() -> Container:  # type: ignore
-    """
-    This function combines the well and stitched data widgets into a single widget.
-    """
-    # Call the magic factories to get the widget instances
-    welldata_widget_instance = welldata_widget()
-    stitched_data_widget_instance = stitched_data_widget()
-    return Container(
-        widgets=[
-            welldata_widget_instance,
-            stitched_data_widget_instance,
-        ]
+def well_widget_combined() -> QWidget:  # type: ignore
+    """Combine the well and stitched data widgets with a Plate Info button."""
+    global _stitch_widget_ref
+    from omero_screen_napari._plate_info_dialog import PlateInfoDialog
+
+    welldata_instance = welldata_widget()
+    stitched_instance = stitched_data_widget()
+    _stitch_widget_ref = stitched_instance
+
+    # Insert "Plate Info" button into the welldata form, right below plate_id
+    plate_info_btn = QPushButton("Plate Info")
+    native_layout = welldata_instance.native.layout()
+    native_layout.insertWidget(1, plate_info_btn)
+
+    widget = QWidget()
+    layout = QVBoxLayout(widget)
+    layout.addWidget(welldata_instance.native)
+    layout.addWidget(stitched_instance.native)
+
+    plate_info_btn.clicked.connect(
+        lambda: _open_plate_info(welldata_instance, PlateInfoDialog, widget)
     )
+    return widget
+
+
+def _open_plate_info(
+    welldata_instance: Any,
+    dialog_cls: type,
+    parent: QWidget,
+) -> None:
+    """Open the Plate Info dialog for the current plate ID."""
+    plate_id_str = welldata_instance.plate_id.value
+    try:
+        plate_id = int(plate_id_str)
+    except (ValueError, TypeError):
+        QMessageBox.warning(
+            parent, "Invalid Plate ID", "Enter a valid plate ID first."
+        )
+        return
+
+    def load_callback(well_pos: str) -> None:
+        welldata_instance.well_pos_list.value = well_pos
+        welldata_instance()
+
+    dialog = dialog_cls(
+        plate_id, on_load_callback=load_callback, parent=parent
+    )
+    dialog.exec_()
+
+
+# Defaults matching the stitched_data_widget signature (Operetta calibration)
+_STITCH_DEFAULTS: dict[str, Any] = {
+    "rotation": 0.15,
+    "overlap_x": 7,
+    "overlap_y": 7,
+    "edge": 7,
+    "mode": "reflect",
+}
+
+
+def _get_stitch_params() -> dict[str, Any]:
+    """Read current stitch parameters from the sibling stitch widget.
+
+    Falls back to Operetta defaults when the widget is not available.
+    """
+    w = _stitch_widget_ref
+    if w is not None:
+        try:
+            return {
+                "rotation": w.rotation.value,
+                "overlap_x": w.overlap_x.value,
+                "overlap_y": w.overlap_y.value,
+                "edge": w.edge.value,
+                "mode": w.mode.value,
+            }
+        except AttributeError:
+            pass
+    return dict(_STITCH_DEFAULTS)
 
 
 # Widget to call Omero and load well images
@@ -126,21 +204,52 @@ def welldata_widget(
             load_from_cache(
                 omero_data, plate_num, well_pos_list, images, time=time
             )
+            # Auto-stitch when single well with valid stage positions
+            if len(omero_data.well_id_list) == 1 and has_valid_positions(
+                omero_data.image_positions
+            ):
+                logger.info("Auto-stitching from stage positions")
+                # Read blending parameters from the stitch widget
+                sp = _get_stitch_params()
+                stitched = stitch_from_positions(
+                    omero_data.images,
+                    omero_data.image_positions,  # type: ignore[arg-type]
+                    omero_data.pixel_size,  # type: ignore[arg-type]
+                    rotation=sp["rotation"],
+                    edge=sp["edge"],
+                    mode=sp["mode"],
+                    fallback_overlap=(sp["overlap_x"], sp["overlap_y"]),
+                )
+                stitched_lbl = None
+                if omero_data.labels.size > 0:
+                    stitched_lbl = stitch_labels_from_positions(
+                        omero_data.labels,
+                        omero_data.image_positions,  # type: ignore[arg-type]
+                        omero_data.pixel_size,  # type: ignore[arg-type]
+                        rotation=sp["rotation"],
+                        fallback_overlap=(sp["overlap_x"], sp["overlap_y"]),
+                    )
+                clear_viewer_layers(viewer)
+                _display_stitched(viewer, stitched, stitched_lbl)
+            else:
+                clear_viewer_layers(viewer)
+                add_image_to_viewer(viewer)
+                set_color_maps(viewer)
+                add_label_layers(viewer)
         else:
             parse_omero_data(
                 omero_data, plate_id, well_pos_list, images, time=time
             )
-        clear_viewer_layers(viewer)
-        add_image_to_viewer(viewer)
-        set_color_maps(viewer)
-        add_label_layers(viewer)
+            clear_viewer_layers(viewer)
+            add_image_to_viewer(viewer)
+            set_color_maps(viewer)
+            add_label_layers(viewer)
 
         def slider_position_change(event: Any) -> None:
             current_position = event.source.current_step[0]
             handle_metadata_widget(viewer, current_position)
 
         viewer.dims.events.current_step.connect(slider_position_change)
-        # _initial_position = viewer.dims.current_step[0]
         mock_event = MockEvent(viewer.dims)
         slider_position_change(mock_event)
     except Exception as e:
@@ -406,6 +515,30 @@ def _generate_color_map(channel_names: list[str]) -> list[str | Colormap]:
         else remaining_colors.pop()
         for ch in channel_names
     ]
+
+
+def _display_stitched(
+    viewer: Viewer,
+    stitched_images: np.ndarray[Any, np.dtype[Any]],
+    stitched_labels: Optional[np.ndarray[Any, np.dtype[Any]]] = None,
+) -> None:
+    """Display a stitched image in the viewer with channel colouring."""
+    names = ["Stitched Image"] * len(omero_data.channel_data)
+    for k, v in omero_data.channel_data.items():
+        names[int(v)] = k
+    viewer.add_image(
+        stitched_images,
+        contrast_limits=list(omero_data.intensities[0]),
+        gamma=1,
+        channel_axis=-1,
+        scale=omero_data.pixel_size,
+        name=names,
+    )
+    set_color_maps(viewer)
+    if stitched_labels is not None:
+        add_label_layers(viewer, labels=stitched_labels[np.newaxis, ...])
+    viewer.scale_bar.visible = True
+    viewer.scale_bar.unit = "µm"
 
 
 @magic_factory(call_button="Enter")
