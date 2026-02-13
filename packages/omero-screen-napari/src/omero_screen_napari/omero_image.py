@@ -1,4 +1,6 @@
+import io
 import os
+import sqlite3
 import threading
 from collections.abc import Generator
 from typing import Any
@@ -6,13 +8,76 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import omero
-from diskcache import Cache
+from diskcache import Cache, Disk
+from diskcache.core import UNKNOWN
 from omero.gateway import BlitzGateway, ImageWrapper
 from omero.rtypes import unwrap
 from omero_screen.config import get_logger, getenv_as_int
 from omero_screen.plate_dataset import PlateDataset
 
 logger = get_logger(__name__)
+
+MODE_NUMPY = 5
+
+
+class NumpyDisk(Disk):  # type: ignore[misc]
+    """Diskcache Disk that uses numpy .npy format for ndarray values.
+
+    Falls back to the default pickle serialization for non-array values
+    (dicts, strings, etc.) and for reading old pickle-serialized entries.
+    """
+
+    def store(
+        self, value: Any, read: bool, key: Any = UNKNOWN
+    ) -> tuple[Any, ...]:
+        """Serialize value for storage in cache.
+
+        Args:
+            value: Value to store. Numpy arrays use .npy format;
+                everything else falls back to pickle.
+            read: True when value is a file-like object.
+            key: Cache key (passed through to parent).
+
+        Returns:
+            Tuple of (size, mode, filename, value) for the cache table.
+        """
+        if isinstance(value, np.ndarray):
+            buf = io.BytesIO()
+            np.save(buf, value, allow_pickle=False)
+            npy_bytes = buf.getvalue()
+            size = len(npy_bytes)
+            if size < self.min_file_size:
+                return size, MODE_NUMPY, None, sqlite3.Binary(npy_bytes)
+            filename, full_path = self.filename(key, value)
+            full_dir = os.path.dirname(full_path)
+            os.makedirs(full_dir, exist_ok=True)
+            with open(full_path, "xb") as f:
+                f.write(npy_bytes)
+            return size, MODE_NUMPY, filename, None
+        return super().store(value, read, key)  # type: ignore[no-any-return]
+
+    def fetch(
+        self, mode: int, filename: str | None, value: Any, read: bool
+    ) -> Any:
+        """Deserialize value from cache.
+
+        Args:
+            mode: Serialization mode tag.
+            filename: Relative path to file (joined with cache dir),
+                or None for inline values.
+            value: Inline bytes when filename is None.
+            read: True to return file-like object.
+
+        Returns:
+            Deserialized value.
+        """
+        if mode == MODE_NUMPY:
+            if filename is not None:
+                full_path = os.path.join(self._directory, filename)
+                return np.load(full_path, allow_pickle=False)
+            return np.load(io.BytesIO(value), allow_pickle=False)
+        return super().fetch(mode, filename, value, read)
+
 
 # Lock to prevent duplicate downloads when multiple generators
 # run concurrently (e.g. background caching + foreground image load).
@@ -30,6 +95,7 @@ if __path is None:
 # not create a cache at all and abstract out method calls to the object.
 _cache = Cache(
     __path,
+    disk=NumpyDisk,
     size_limit=getenv_as_int(
         "OMERO_SCREEN_IMAGE_CACHE_SIZE_LIMIT", 20 * 2**30
     ),

@@ -266,6 +266,7 @@ def _open_plate_info(
 # Defaults matching the stitched_data_widget signature (Operetta calibration)
 _STITCH_DEFAULTS: dict[str, Any] = {
     "rotation": 0.15,
+    "precise_rotation": False,
     "overlap_x": 7,
     "overlap_y": 7,
     "edge": 7,
@@ -281,8 +282,9 @@ def _get_stitch_params() -> dict[str, Any]:
     w = _stitch_widget_ref
     if w is not None:
         try:
+            precise = w.precise_rotation.value
             return {
-                "rotation": w.rotation.value,
+                "rotation": w.rotation.value if precise else 0.0,
                 "overlap_x": w.overlap_x.value,
                 "overlap_y": w.overlap_y.value,
                 "edge": w.edge.value,
@@ -290,10 +292,27 @@ def _get_stitch_params() -> dict[str, Any]:
             }
         except AttributeError:
             pass
-    return dict(_STITCH_DEFAULTS)
+    defaults = dict(_STITCH_DEFAULTS)
+    if not defaults["precise_rotation"]:
+        defaults["rotation"] = 0.0
+    return defaults
 
 
 # Widget to call Omero and load well images
+
+
+def _is_already_loaded(
+    omero_data: Any, plate_id: int, well_pos_list: str, images: str
+) -> bool:
+    """Check whether omero_data already holds the requested plate/wells/images."""
+    if omero_data.plate_id != plate_id:
+        return False
+    if omero_data.images.size == 0:
+        return False
+    requested_wells = [w.strip() for w in well_pos_list.split(",")]
+    if omero_data.well_pos_list != requested_wells:
+        return False
+    return bool(omero_data.image_input == images)
 
 
 @magic_factory(call_button="Enter")
@@ -319,10 +338,19 @@ def welldata_widget(
     try:
         # Fast path: load from cache without OMERO connection
         if is_plate_cached(plate_num):
-            logger.info("Loading plate %d from cache (fast path)", plate_num)
-            load_from_cache(
-                omero_data, plate_num, well_pos_list, images, time=time
-            )
+            if _is_already_loaded(
+                omero_data, plate_num, well_pos_list, images
+            ):
+                logger.info(
+                    "Plate %d already in memory, skipping reload", plate_num
+                )
+            else:
+                logger.info(
+                    "Loading plate %d from cache (fast path)", plate_num
+                )
+                load_from_cache(
+                    omero_data, plate_num, well_pos_list, images, time=time
+                )
 
             n_wells = len(omero_data.well_id_list)
             n_per_well = len(omero_data.image_index)
@@ -411,9 +439,16 @@ def welldata_widget(
                 mock_event = MockEvent(viewer.dims)
                 slider_position_change(mock_event)
         else:
-            parse_omero_data(
-                omero_data, plate_id, well_pos_list, images, time=time
-            )
+            if _is_already_loaded(
+                omero_data, plate_num, well_pos_list, images
+            ):
+                logger.info(
+                    "Plate %d already in memory, skipping reload", plate_num
+                )
+            else:
+                parse_omero_data(
+                    omero_data, plate_id, well_pos_list, images, time=time
+                )
             clear_viewer_layers(viewer)
             add_image_to_viewer(viewer)
             set_color_maps(viewer)
@@ -713,17 +748,32 @@ def _display_stitched(
     Handles both single-well (Y, X, C) and multi-well (N, Y, X, C) shapes.
     For multi-well, napari creates a slider for the well dimension.
     """
-    names = ["Stitched Image"] * len(omero_data.channel_data)
+    num_channels = stitched_images.shape[-1]
+    names = ["Stitched Image"] * num_channels
     for k, v in omero_data.channel_data.items():
-        names[int(v)] = k
+        idx = int(v)
+        if idx < num_channels:
+            names[idx] = k
+
+    # Per-channel contrast limits from stored intensities
+    per_channel_limits = [
+        list(omero_data.intensities.get(i, (0, 65535)))
+        for i in range(num_channels)
+    ]
+
     viewer.add_image(
         stitched_images,
-        contrast_limits=list(omero_data.intensities[0]),
+        contrast_limits=per_channel_limits,
         gamma=1,
         channel_axis=-1,
         scale=omero_data.pixel_size,
         name=names,
     )
+    # Set slider range to full 16-bit so user can adjust beyond auto limits
+    for layer in viewer.layers:
+        if isinstance(layer, Image):
+            layer.contrast_limits_range = (0, 65535)
+
     set_color_maps(viewer)
     if stitched_labels is not None:
         # Single-well labels are (Y, X, C) — need batch dim for add_label_layers
@@ -739,15 +789,17 @@ def _display_stitched(
 def stitched_data_widget(
     viewer: Viewer,
     rotation: float = 0.15,
+    precise_rotation: bool = False,
     overlap_x: int = 7,
     overlap_y: int = 7,
     edge: int = 7,
     mode: str = "reflect",
 ) -> None:
+    effective_rotation = rotation if precise_rotation else 0.0
     clear_viewer_layers(viewer)
     stitched_images = stitch_images(
         omero_data,
-        rotation=rotation,
+        rotation=effective_rotation,
         overlap_x=overlap_x,
         overlap_y=overlap_y,
         edge=edge,
@@ -756,22 +808,34 @@ def stitched_data_widget(
     logger.debug(
         f"Stitched shape {stitched_images.shape} ({stitched_images.dtype})"
     )
-    names = ["Stitched Image"] * len(omero_data.channel_data)
+    num_channels = stitched_images.shape[-1]
+    names = ["Stitched Image"] * num_channels
     for k, v in omero_data.channel_data.items():
-        names[int(v)] = k
+        idx = int(v)
+        if idx < num_channels:
+            names[idx] = k
+
+    per_channel_limits = [
+        list(omero_data.intensities.get(i, (0, 65535)))
+        for i in range(num_channels)
+    ]
+
     viewer.add_image(
         stitched_images,
-        contrast_limits=list(omero_data.intensities[0]),
+        contrast_limits=per_channel_limits,
         gamma=1,
         channel_axis=-1,
         scale=omero_data.pixel_size,
         name=names,
     )
+    for layer in viewer.layers:
+        if isinstance(layer, Image):
+            layer.contrast_limits_range = (0, 65535)
     set_color_maps(viewer)
     if len(omero_data.labels):
         stitched_labels = stitch_labels(
             omero_data,
-            rotation=rotation,
+            rotation=effective_rotation,
             overlap_x=overlap_x,
             overlap_y=overlap_y,
         )

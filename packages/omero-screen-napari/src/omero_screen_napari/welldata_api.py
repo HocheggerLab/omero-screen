@@ -9,6 +9,7 @@ import re
 import sys
 import tempfile
 import traceback
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Optional, cast
 
@@ -2468,6 +2469,36 @@ def _get_stitch_pattern(n: int) -> list[list[int]]:
     return indices_pattern
 
 
+def _rotate_and_mask(
+    channel: np.ndarray[Any, np.dtype[Any]],
+    rotation: float,
+    mask: np.ndarray[Any, np.dtype[Any]],
+    mode: str,
+    order: int,
+) -> np.ndarray[Any, np.dtype[Any]]:
+    """Rotate a single 2D channel and multiply by mask weights."""
+    rotated = transform.rotate(  # type: ignore[no-untyped-call]
+        channel,
+        rotation,
+        resize=True,
+        preserve_range=True,
+        order=order,
+        mode=mode,
+    )
+    return mask * rotated  # type: ignore[no-any-return]
+
+
+def _rotate_channel(
+    channel: np.ndarray[Any, np.dtype[Any]],
+    rotation: float,
+    order: int = 0,
+) -> np.ndarray[Any, np.dtype[Any]]:
+    """Rotate a single 2D channel (no mask)."""
+    return transform.rotate(  # type: ignore[no-untyped-call,no-any-return]
+        channel, rotation, resize=True, preserve_range=True, order=order
+    )
+
+
 def compose_tiles(
     tiles: dict[int, dict[int, np.ndarray[Any, np.dtype[Any]]]],
     rotation: float = 0,
@@ -2531,32 +2562,36 @@ def compose_tiles(
     )
     sum_arr = np.zeros(out.shape[0:2])
 
-    # Rotate each image and insert
-    for x, d in tiles.items():
-        for y, im in d.items():
-            layers = []
-            for c in range(channels):
-                # Multiply the rotation by the mask (which optionally weights pixels).
-                # The rotation uses bilinear interpolation with edge-pixel extension to generate
-                # reasonable intensity edge pixels. The mode can be varied.
-                layers.append(
-                    m
-                    * transform.rotate(
-                        im[..., c],
-                        rotation,
-                        resize=True,
-                        preserve_range=True,
-                        order=1,
-                        mode=mode,
-                    )  # type: ignore
-                )
-            # Original shape sets the translation
-            xp = x * (os[1] + ox)
-            yp = y * (os[0] + oy)
-            # New shape defines the range of the rotation image.
-            # Note that arrays are YX format.
-            out[yp : yp + ns[0], xp : xp + ns[1], :] += np.dstack(layers)
-            sum_arr[yp : yp + ns[0], xp : xp + ns[1]] += m
+    if rotation == 0:
+        # Fast path: no rotation — direct tile placement (no interpolation)
+        for x, d in tiles.items():
+            for y, im in d.items():
+                xp = x * (os[1] + ox)
+                yp = y * (os[0] + oy)
+                for c in range(channels):
+                    out[yp : yp + ns[0], xp : xp + ns[1], c] += m * im[..., c]
+                sum_arr[yp : yp + ns[0], xp : xp + ns[1]] += m
+    else:
+        # Rotate each image and insert (threaded — skimage releases the GIL)
+        with ThreadPoolExecutor() as executor:
+            tasks: list[tuple[int, int, list[Any]]] = []
+            for x, d in tiles.items():
+                for y, im in d.items():
+                    futures = [
+                        executor.submit(
+                            _rotate_and_mask, im[..., c], rotation, m, mode, 1
+                        )
+                        for c in range(channels)
+                    ]
+                    tasks.append((x, y, futures))
+
+            # Accumulate results sequentially (tiles may overlap)
+            for x, y, futures in tasks:
+                xp = x * (os[1] + ox)
+                yp = y * (os[0] + oy)
+                for c, fut in enumerate(futures):
+                    out[yp : yp + ns[0], xp : xp + ns[1], c] += fut.result()
+                sum_arr[yp : yp + ns[0], xp : xp + ns[1]] += m
 
     indices = sum_arr != 0
     for c in range(channels):
@@ -2693,22 +2728,39 @@ def compose_labels(
     if oy < 0:
         border = max(border, -oy)
 
-    # Rotate each image and insert
-    for x, d in tiles.items():
-        for y, im in d.items():
-            # Original shape sets the translation
-            xp = x * (os[1] + ox)
-            yp = y * (os[0] + oy)
-            for c in range(channels):
-                # The rotation uses nearest neighbour interpolation to maintain IDs.
-                i = transform.rotate(
-                    im[..., c],
-                    rotation,
-                    resize=True,
-                    preserve_range=True,
-                    order=0,
-                )  # type: ignore
-                out[c] = merge_labels(out[c], i, xp=xp, yp=yp, border=border)
+    if rotation == 0:
+        # Fast path: no rotation — direct label merge
+        for x, d in tiles.items():
+            for y, im in d.items():
+                xp = x * (os[1] + ox)
+                yp = y * (os[0] + oy)
+                for c in range(channels):
+                    out[c] = merge_labels(
+                        out[c], im[..., c], xp=xp, yp=yp, border=border
+                    )
+    else:
+        # Pre-compute all rotations in parallel (threaded — skimage releases the GIL)
+        rotation_futures: dict[
+            tuple[int, int, int], Future[np.ndarray[Any, np.dtype[Any]]]
+        ] = {}
+        with ThreadPoolExecutor() as executor:
+            for x, d in tiles.items():
+                for y, im in d.items():
+                    for c in range(channels):
+                        rotation_futures[(x, y, c)] = executor.submit(
+                            _rotate_channel, im[..., c], rotation, 0
+                        )
+
+        # Merge labels sequentially (order-dependent)
+        for x, d in tiles.items():
+            for y, _im in d.items():
+                xp = x * (os[1] + ox)
+                yp = y * (os[0] + oy)
+                for c in range(channels):
+                    rotated = rotation_futures[(x, y, c)].result()
+                    out[c] = merge_labels(
+                        out[c], rotated, xp=xp, yp=yp, border=border
+                    )
 
     return np.dstack(out)
 
