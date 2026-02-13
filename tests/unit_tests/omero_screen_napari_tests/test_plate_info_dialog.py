@@ -3,6 +3,16 @@
 from unittest.mock import patch
 
 import pytest
+from qtpy.QtWidgets import QApplication
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    """Ensure a QApplication instance exists for Qt widget tests."""
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication([])
+    return app
 
 
 # --------------- Fixtures ---------------
@@ -58,16 +68,21 @@ def sample_label_map() -> dict:
     }
 
 
-def _patch_cache_fns(meta, wells, label_map=None):
+def _patch_cache_fns(meta, wells, label_map=None, well_cache_status=None):
     """Return a context manager that patches the cache accessor functions."""
     import contextlib
+
+    if well_cache_status is None:
+        well_cache_status = {}
 
     @contextlib.contextmanager
     def _ctx():
         with patch("omero_screen_napari._plate_info_dialog.is_plate_cached", return_value=True), \
              patch("omero_screen_napari._plate_info_dialog.get_cached_plate_metadata", return_value=meta), \
              patch("omero_screen_napari._plate_info_dialog.get_cached_well_data", return_value=wells), \
-             patch("omero_screen_napari._plate_info_dialog.get_cached_label_map", return_value=label_map):
+             patch("omero_screen_napari._plate_info_dialog.get_cached_label_map", return_value=label_map), \
+             patch("omero_screen_napari._plate_info_dialog.get_well_cache_status", return_value=well_cache_status), \
+             patch("omero_screen_napari._plate_info_dialog.PlateInfoDialog._start_cache_monitoring"):
             yield
 
     return _ctx()
@@ -286,3 +301,205 @@ class TestMissingMetadata:
             assert rows[0]["metadata"].get("siRNA") == "siCtrl"
             # A2 is missing siRNA — table will show ""
             assert rows[1]["metadata"].get("siRNA") is None
+
+
+# --------------- Checkbox selection (Qt widget tests) ---------------
+
+
+class TestPlateInfoDialogCheckboxes:
+    """Test the checkbox column in PlateInfoDialog."""
+
+    def test_table_has_checkbox_column(self, qapp, sample_meta, sample_wells, sample_label_map):
+        """Table should have a Select checkbox column at index 0."""
+        with _patch_cache_fns(sample_meta, sample_wells, sample_label_map):
+            from omero_screen_napari._plate_info_dialog import PlateInfoDialog
+
+            dialog = PlateInfoDialog(42, on_load_callback=lambda _: None)
+            table = dialog.table
+
+            # First column header should be empty (checkbox column)
+            header_item = table.horizontalHeaderItem(0)
+            assert header_item is not None
+            assert header_item.text() == ""
+
+            # Well column is now at index 1
+            header_item_well = table.horizontalHeaderItem(1)
+            assert header_item_well is not None
+            assert header_item_well.text() == "Well"
+
+            # Each row should have a checkbox widget in column 0
+            assert len(dialog._row_checkboxes) == 3
+            for row_idx in range(table.rowCount()):
+                cb_widget = table.cellWidget(row_idx, 0)
+                assert cb_widget is not None
+
+    def test_load_selected_collects_checked_wells(
+        self, qapp, sample_meta, sample_wells, sample_label_map
+    ):
+        """_on_load_selected should collect well positions from checked rows."""
+        loaded: list[str] = []
+
+        def callback(wells: str) -> None:
+            loaded.append(wells)
+
+        with _patch_cache_fns(sample_meta, sample_wells, sample_label_map):
+            from omero_screen_napari._plate_info_dialog import PlateInfoDialog
+
+            dialog = PlateInfoDialog(42, on_load_callback=callback)
+
+            # Check rows 0 and 2 (A1 and B1 after sorting)
+            dialog._row_checkboxes[0].setChecked(True)
+            dialog._row_checkboxes[2].setChecked(True)
+
+            dialog._on_load_selected()
+
+            assert len(loaded) == 1
+            wells_str = loaded[0]
+            # The checked wells should appear in the callback
+            assert "A1" in wells_str
+            assert "B1" in wells_str
+
+    def test_load_selected_falls_back_to_row_selection(
+        self, qapp, sample_meta, sample_wells, sample_label_map
+    ):
+        """When no checkboxes are checked, fall back to Qt row selection."""
+        loaded: list[str] = []
+
+        def callback(wells: str) -> None:
+            loaded.append(wells)
+
+        with _patch_cache_fns(sample_meta, sample_wells, sample_label_map):
+            from omero_screen_napari._plate_info_dialog import PlateInfoDialog
+
+            dialog = PlateInfoDialog(42, on_load_callback=callback)
+
+            # No checkboxes checked — select row 1 via Qt selection
+            dialog.table.selectRow(1)
+            dialog._on_load_selected()
+
+            assert len(loaded) == 1
+            assert "A2" in loaded[0]
+
+    def test_select_all_toggles_all_checkboxes(
+        self, qapp, sample_meta, sample_wells, sample_label_map
+    ):
+        """The Select All checkbox should toggle all row checkboxes."""
+        with _patch_cache_fns(sample_meta, sample_wells, sample_label_map):
+            from omero_screen_napari._plate_info_dialog import PlateInfoDialog
+
+            dialog = PlateInfoDialog(42, on_load_callback=lambda _: None)
+
+            # Initially none checked
+            assert not any(cb.isChecked() for cb in dialog._row_checkboxes)
+
+            # Check Select All
+            dialog._select_all_cb.setChecked(True)
+            assert all(cb.isChecked() for cb in dialog._row_checkboxes)
+
+            # Uncheck Select All
+            dialog._select_all_cb.setChecked(False)
+            assert not any(cb.isChecked() for cb in dialog._row_checkboxes)
+
+    def test_double_click_uses_well_column_index_1(
+        self, qapp, sample_meta, sample_wells, sample_label_map
+    ):
+        """Double-click should read well from column 1 (shifted by checkbox)."""
+        loaded: list[str] = []
+
+        def callback(wells: str) -> None:
+            loaded.append(wells)
+
+        with _patch_cache_fns(sample_meta, sample_wells, sample_label_map):
+            from omero_screen_napari._plate_info_dialog import PlateInfoDialog
+
+            dialog = PlateInfoDialog(42, on_load_callback=callback)
+
+            # Double-click row 0 — should load A1 from column 1
+            dialog._on_double_click(0, 1)
+
+            assert len(loaded) == 1
+            assert loaded[0] == "A1"
+
+
+# --------------- Cached column tests ---------------
+
+
+class TestPlateInfoDialogCacheStatus:
+    """Test the Cached column in PlateInfoDialog."""
+
+    def test_cached_column_exists(
+        self, qapp, sample_meta, sample_wells, sample_label_map
+    ):
+        """Table should have a 'Cached' column as the last column."""
+        with _patch_cache_fns(sample_meta, sample_wells, sample_label_map):
+            from omero_screen_napari._plate_info_dialog import PlateInfoDialog
+
+            dialog = PlateInfoDialog(42, on_load_callback=lambda _: None)
+            table = dialog.table
+
+            last_col = table.columnCount() - 1
+            header_item = table.horizontalHeaderItem(last_col)
+            assert header_item is not None
+            assert header_item.text() == "Cached"
+
+    def test_cached_shows_yes_when_fully_cached(
+        self, qapp, sample_meta, sample_wells, sample_label_map
+    ):
+        """All wells show 'Yes' when all images are in cache."""
+        all_cached = {"A1": True, "A2": True, "B1": True}
+        with _patch_cache_fns(
+            sample_meta, sample_wells, sample_label_map,
+            well_cache_status=all_cached,
+        ):
+            from omero_screen_napari._plate_info_dialog import PlateInfoDialog
+
+            dialog = PlateInfoDialog(42, on_load_callback=lambda _: None)
+            table = dialog.table
+            cached_col = table.columnCount() - 1
+
+            for row_idx in range(table.rowCount()):
+                item = table.item(row_idx, cached_col)
+                assert item is not None
+                assert item.text() == "Yes"
+
+    def test_cached_shows_no_when_not_cached(
+        self, qapp, sample_meta, sample_wells, sample_label_map
+    ):
+        """Wells show 'No' when not cached per get_well_cache_status."""
+        # Patch is_plate_cached to False and provide partial well status
+        well_status = {"A1": True, "A2": False, "B1": False}
+        with patch("omero_screen_napari._plate_info_dialog.is_plate_cached", return_value=False), \
+             patch("omero_screen_napari._plate_info_dialog.get_cached_plate_metadata", return_value=sample_meta), \
+             patch("omero_screen_napari._plate_info_dialog.get_cached_well_data", return_value=sample_wells), \
+             patch("omero_screen_napari._plate_info_dialog.get_cached_label_map", return_value=sample_label_map), \
+             patch("omero_screen_napari._plate_info_dialog.get_well_cache_status", return_value=well_status), \
+             patch("omero_screen_napari._plate_info_dialog._build_from_omero") as mock_omero, \
+             patch("omero_screen_napari._plate_info_dialog.PlateInfoDialog._start_cache_monitoring"):
+            # Make _build_from_omero return proper data
+            from omero_screen_napari._plate_info_dialog import (
+                _build_rows,
+                _collect_metadata_keys,
+                _build_header_info,
+            )
+            header_info = _build_header_info(sample_meta, sample_wells)
+            metadata_keys = _collect_metadata_keys(sample_wells)
+            rows = _build_rows(sample_wells, sample_label_map, label_unknown=True)
+            mock_omero.return_value = (header_info, metadata_keys, rows, False)
+
+            from omero_screen_napari._plate_info_dialog import PlateInfoDialog
+
+            dialog = PlateInfoDialog(42, on_load_callback=lambda _: None)
+            table = dialog.table
+            cached_col = table.columnCount() - 1
+
+            # Build a lookup: well_pos -> cached text
+            well_cached: dict[str, str] = {}
+            for row_idx in range(table.rowCount()):
+                well_item = table.item(row_idx, 1)
+                cached_item = table.item(row_idx, cached_col)
+                if well_item and cached_item:
+                    well_cached[well_item.text()] = cached_item.text()
+
+            assert well_cached["A1"] == "Yes"
+            assert well_cached["A2"] == "No"
+            assert well_cached["B1"] == "No"

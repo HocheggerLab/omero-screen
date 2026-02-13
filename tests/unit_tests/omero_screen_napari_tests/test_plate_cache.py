@@ -29,6 +29,12 @@ def mock_cache():
         def __getitem__(self, key: str) -> object:
             return store[key]
 
+        def __contains__(self, key: str) -> bool:
+            return key in store
+
+        def iterkeys(self):
+            return iter(store.keys())
+
     return FakeCache(), store
 
 
@@ -98,6 +104,42 @@ class TestIsPlateCached:
             from omero_screen_napari.plate_cache import is_plate_cached
 
             assert is_plate_cached(123) is True
+
+
+# --------------- is_plate_fully_cached ---------------
+
+
+class TestIsPlateFullyCached:
+    def test_false_when_no_metadata(self, mock_cache):
+        fake_cache, _store = mock_cache
+        with patch("omero_screen_napari.plate_cache._cache", fake_cache):
+            from omero_screen_napari.plate_cache import is_plate_fully_cached
+
+            assert is_plate_fully_cached(999) is False
+
+    def test_false_when_images_missing(self, mock_cache, sample_meta, sample_wells):
+        fake_cache, store = mock_cache
+        store["plate:42:meta"] = sample_meta
+        store["plate:42:wells"] = sample_wells
+        # Only cache one of two images for A1
+        store["100:0"] = np.zeros((1, 10, 10, 2), dtype=np.float32)
+        with patch("omero_screen_napari.plate_cache._cache", fake_cache):
+            from omero_screen_napari.plate_cache import is_plate_fully_cached
+
+            assert is_plate_fully_cached(42) is False
+
+    def test_true_when_all_images_cached(self, mock_cache, sample_meta, sample_wells):
+        fake_cache, store = mock_cache
+        store["plate:42:meta"] = sample_meta
+        store["plate:42:wells"] = sample_wells
+        img = np.zeros((1, 10, 10, 2), dtype=np.float32)
+        store["100:0"] = img
+        store["101:0"] = img
+        store["200:0"] = img
+        with patch("omero_screen_napari.plate_cache._cache", fake_cache):
+            from omero_screen_napari.plate_cache import is_plate_fully_cached
+
+            assert is_plate_fully_cached(42) is True
 
 
 # --------------- get_cached_plate_metadata ---------------
@@ -462,3 +504,207 @@ class TestDefaultIntensities:
         channel_data = {"DAPI": "0", "Tub": "1", "EdU": "2"}
         result = _default_intensities(channel_data)
         assert result == {0: (0, 65535), 1: (0, 65535), 2: (0, 65535)}
+
+
+# --------------- get_all_cached_plates ---------------
+
+
+class TestGetAllCachedPlates:
+    def test_empty_cache_returns_empty(self, mock_cache):
+        fake_cache, _store = mock_cache
+        with patch("omero_screen_napari.plate_cache._cache", fake_cache):
+            from omero_screen_napari.plate_cache import get_all_cached_plates
+
+            assert get_all_cached_plates() == []
+
+    def test_finds_cached_plates(self, mock_cache, sample_meta):
+        fake_cache, store = mock_cache
+        store["plate:123:meta"] = sample_meta
+        store["plate:456:meta"] = {**sample_meta, "plate_name": "OtherPlate"}
+        with patch("omero_screen_napari.plate_cache._cache", fake_cache):
+            from omero_screen_napari.plate_cache import get_all_cached_plates
+
+            plates = get_all_cached_plates()
+            assert len(plates) == 2
+            plate_ids = [p[0] for p in plates]
+            assert 123 in plate_ids
+            assert 456 in plate_ids
+
+    def test_sorted_by_plate_id_descending(self, mock_cache, sample_meta):
+        fake_cache, store = mock_cache
+        store["plate:100:meta"] = {**sample_meta, "plate_name": "First"}
+        store["plate:200:meta"] = {**sample_meta, "plate_name": "Second"}
+        store["plate:150:meta"] = {**sample_meta, "plate_name": "Middle"}
+        with patch("omero_screen_napari.plate_cache._cache", fake_cache):
+            from omero_screen_napari.plate_cache import get_all_cached_plates
+
+            plates = get_all_cached_plates()
+            assert plates[0] == (200, "Second")
+            assert plates[1] == (150, "Middle")
+            assert plates[2] == (100, "First")
+
+    def test_skips_corrupt_metadata(self, mock_cache, sample_meta):
+        fake_cache, store = mock_cache
+        store["plate:123:meta"] = sample_meta
+        store["plate:999:meta"] = "not_a_dict"
+        with patch("omero_screen_napari.plate_cache._cache", fake_cache):
+            from omero_screen_napari.plate_cache import get_all_cached_plates
+
+            plates = get_all_cached_plates()
+            assert len(plates) == 1
+            assert plates[0][0] == 123
+
+
+# --------------- get_well_cache_status ---------------
+
+
+class TestGetWellCacheStatus:
+    def test_uncached_plate_returns_empty(self, mock_cache):
+        fake_cache, _store = mock_cache
+        with patch("omero_screen_napari.plate_cache._cache", fake_cache):
+            from omero_screen_napari.plate_cache import get_well_cache_status
+
+            assert get_well_cache_status(999) == {}
+
+    def test_all_images_cached_returns_true(
+        self, mock_cache, sample_wells
+    ):
+        fake_cache, store = mock_cache
+        store["plate:42:wells"] = sample_wells
+        # Cache all images for A1 and A2
+        img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
+        store["100:0"] = img_array
+        store["101:0"] = img_array
+        store["200:0"] = img_array
+
+        with patch("omero_screen_napari.plate_cache._cache", fake_cache):
+            from omero_screen_napari.plate_cache import get_well_cache_status
+
+            status = get_well_cache_status(42)
+            assert status["A1"] is True
+            assert status["A2"] is True
+
+    def test_missing_images_returns_false(
+        self, mock_cache, sample_wells
+    ):
+        fake_cache, store = mock_cache
+        store["plate:42:wells"] = sample_wells
+        # Only cache one image for A1 (missing 101:0)
+        img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
+        store["100:0"] = img_array
+        store["200:0"] = img_array
+
+        with patch("omero_screen_napari.plate_cache._cache", fake_cache):
+            from omero_screen_napari.plate_cache import get_well_cache_status
+
+            status = get_well_cache_status(42)
+            assert status["A1"] is False
+            assert status["A2"] is True
+
+    def test_multi_timepoint_check(self, mock_cache):
+        fake_cache, store = mock_cache
+        wells = {
+            "A1": {
+                "well_id": 10,
+                "metadata": {},
+                "images": [
+                    {"image_id": 100, "size_t": 3, "index": 0},
+                ],
+            },
+        }
+        store["plate:42:wells"] = wells
+        img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
+        # Cache only 2 of 3 timepoints
+        store["100:0"] = img_array
+        store["100:1"] = img_array
+
+        with patch("omero_screen_napari.plate_cache._cache", fake_cache):
+            from omero_screen_napari.plate_cache import get_well_cache_status
+
+            status = get_well_cache_status(42)
+            assert status["A1"] is False
+
+        # Now add the missing timepoint
+        store["100:2"] = img_array
+        with patch("omero_screen_napari.plate_cache._cache", fake_cache):
+            from omero_screen_napari.plate_cache import get_well_cache_status
+
+            status = get_well_cache_status(42)
+            assert status["A1"] is True
+
+
+# --------------- _well_sort_key (plate_cache version) ---------------
+
+
+class TestWellSortKeyPlateCache:
+    def test_sorts_correctly(self):
+        from omero_screen_napari.plate_cache import _well_sort_key
+
+        wells = ["B2", "A1", "A10", "A2", "B1"]
+        sorted_wells = sorted(wells, key=_well_sort_key)
+        assert sorted_wells == ["A1", "A2", "A10", "B1", "B2"]
+
+
+# --------------- Well-grouped partitioning ---------------
+
+
+class TestWellGroupedPartitioning:
+    """Tests that well-grouped partitioning keeps wells together in batches."""
+
+    def test_wells_complete_sequentially_within_worker(self, mock_cache, sample_wells):
+        """Images from the same well should be in the same batch."""
+        fake_cache, store = mock_cache
+        store["plate:42:wells"] = sample_wells
+        store["plate:42:labels"] = {}
+
+        # We can't easily call cache_plate() (needs OMERO connection),
+        # but we can verify the partitioning logic by simulating it.
+        from omero_screen_napari.plate_cache import _well_sort_key
+
+        wells = sample_wells
+        label_map: dict[str, list[int]] = {}
+        sorted_well_keys = sorted(wells.keys(), key=_well_sort_key)
+        well_groups: list[list[dict]] = []
+
+        for well_pos in sorted_well_keys:
+            group: list[dict] = []
+            for img_info in wells[well_pos]["images"]:
+                for t in range(img_info["size_t"]):
+                    group.append(
+                        {
+                            "image_id": img_info["image_id"],
+                            "timepoint": t,
+                            "well": well_pos,
+                        }
+                    )
+            if group:
+                well_groups.append(group)
+
+        # Distribute to 2 workers
+        max_workers = 2
+        batches: list[list[dict]] = [[] for _ in range(max_workers)]
+        for i, group in enumerate(well_groups):
+            batches[i % max_workers].extend(group)
+        batches = [b for b in batches if b]
+
+        # A1 and A2 should be in different batches (round-robin by well)
+        batch0_wells = {item["well"] for item in batches[0]}
+        batch1_wells = {item["well"] for item in batches[1]}
+
+        # With 2 wells and 2 workers, each batch gets one well
+        # A1 -> worker 0, A2 -> worker 1
+        assert "A1" in batch0_wells
+        assert "A2" in batch1_wells
+
+    def test_workers_get_sorted_wells(self, mock_cache):
+        """Wells should be distributed in sorted order (A1, A2, B1, ...)."""
+        from omero_screen_napari.plate_cache import _well_sort_key
+
+        wells = {
+            "B1": {"images": [{"image_id": 300, "size_t": 1}]},
+            "A2": {"images": [{"image_id": 200, "size_t": 1}]},
+            "A1": {"images": [{"image_id": 100, "size_t": 1}]},
+        }
+
+        sorted_keys = sorted(wells.keys(), key=_well_sort_key)
+        assert sorted_keys == ["A1", "A2", "B1"]

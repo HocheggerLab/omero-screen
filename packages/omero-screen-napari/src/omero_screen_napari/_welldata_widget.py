@@ -6,6 +6,7 @@ The plugin can be run from napari as Welldata Widget under Plugins.
 
 import contextlib
 import os
+from collections.abc import Callable
 from typing import Any, Optional
 
 import numpy as np
@@ -17,9 +18,13 @@ from napari.viewer import Viewer
 from omero.gateway import BlitzGateway
 from omero_screen.config import get_logger
 from qtpy.QtWidgets import (
+    QHBoxLayout,
+    QHeaderView,
     QLabel,
     QMessageBox,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -30,7 +35,9 @@ from omero_screen_napari.plate_cache import (
     cache_plate as cache_plate_full,
 )
 from omero_screen_napari.plate_cache import (
+    get_all_cached_plates,
     is_plate_cached,
+    is_plate_fully_cached,
     load_from_cache,
 )
 from omero_screen_napari.position_stitching import (
@@ -79,6 +86,103 @@ class MetadataWidget(QWidget):  # type: ignore
         self.setLayout(self._layout)
 
 
+class CachedPlatesTable(QWidget):  # type: ignore[misc]
+    """Compact table showing plates available in the local cache.
+
+    Double-click a row to populate the plate_id field in welldata_widget.
+
+    Args:
+        on_plate_selected: Callback receiving the plate_id as string.
+        on_resume_cache: Callback receiving the plate_id as int to resume caching.
+    """
+
+    def __init__(
+        self,
+        on_plate_selected: Callable[[str], None] | None = None,
+        on_resume_cache: Callable[[int], None] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._on_plate_selected = on_plate_selected
+        self._on_resume_cache = on_resume_cache
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        header_row = QHBoxLayout()
+        header_row.addWidget(QLabel("<b>Cached Plates</b>"))
+        self._resume_btn = QPushButton("Resume")
+        self._resume_btn.setFixedWidth(60)
+        self._resume_btn.setToolTip("Resume caching for the selected plate")
+        self._resume_btn.clicked.connect(self._on_resume_clicked)
+        self._resume_btn.setEnabled(False)
+        header_row.addWidget(self._resume_btn)
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.setFixedWidth(60)
+        refresh_btn.clicked.connect(self.refresh)
+        header_row.addWidget(refresh_btn)
+        layout.addLayout(header_row)
+
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["Plate ID", "Name", "Status"])
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setMaximumHeight(120)
+        self.table.verticalHeader().setVisible(False)
+        header = self.table.horizontalHeader()
+        if header:
+            header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.Stretch)
+            header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.cellDoubleClicked.connect(self._on_double_click)
+        self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        layout.addWidget(self.table)
+
+        self.refresh()
+
+    def refresh(self) -> None:
+        """Re-scan the cache and repopulate the table."""
+        plates = get_all_cached_plates()
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(len(plates))
+        for row, (plate_id, plate_name) in enumerate(plates):
+            self.table.setItem(row, 0, QTableWidgetItem(str(plate_id)))
+            self.table.setItem(row, 1, QTableWidgetItem(plate_name))
+            fully = is_plate_fully_cached(plate_id)
+            status_item = QTableWidgetItem("Cached" if fully else "Partial")
+            self.table.setItem(row, 2, status_item)
+        self.table.setSortingEnabled(True)
+        self._on_selection_changed()
+
+    def _on_selection_changed(self) -> None:
+        """Enable Resume button only when a partial plate is selected."""
+        row = self.table.currentRow()
+        if row < 0:
+            self._resume_btn.setEnabled(False)
+            return
+        status_item = self.table.item(row, 2)
+        self._resume_btn.setEnabled(
+            status_item is not None and status_item.text() == "Partial"
+        )
+
+    def _on_resume_clicked(self) -> None:
+        """Resume caching for the selected partial plate."""
+        row = self.table.currentRow()
+        if row < 0 or self._on_resume_cache is None:
+            return
+        item = self.table.item(row, 0)
+        if item:
+            self._on_resume_cache(int(item.text()))
+
+    def _on_double_click(self, row: int, _column: int) -> None:
+        """Populate the plate_id field on double-click."""
+        if self._on_plate_selected is None:
+            return
+        item = self.table.item(row, 0)
+        if item:
+            self._on_plate_selected(item.text())
+
+
 # Mock event object with the current_step attribute
 class MockEvent:
     def __init__(self, source: Any) -> None:
@@ -94,9 +198,12 @@ _stitch_widget_ref: Any = None
 # Combine Welldata and Stiched data widgets
 
 
+_cached_plates_table_ref: CachedPlatesTable | None = None
+
+
 def well_widget_combined() -> QWidget:  # type: ignore
     """Combine the well and stitched data widgets with a Plate Info button."""
-    global _stitch_widget_ref
+    global _stitch_widget_ref, _cached_plates_table_ref
     from omero_screen_napari._plate_info_dialog import PlateInfoDialog
 
     welldata_instance = welldata_widget()
@@ -104,12 +211,24 @@ def well_widget_combined() -> QWidget:  # type: ignore
     _stitch_widget_ref = stitched_instance
 
     # Insert "Plate Info" button into the welldata form, right below plate_id
+    # Layout order: [0] Enter button, [1] plate_id field, [2] insert here
     plate_info_btn = QPushButton("Plate Info")
     native_layout = welldata_instance.native.layout()
-    native_layout.insertWidget(1, plate_info_btn)
+    native_layout.insertWidget(2, plate_info_btn)
+
+    # Cached plates table — double-click populates plate_id field,
+    # Resume button restarts caching for partially cached plates
+    cached_table = CachedPlatesTable(
+        on_plate_selected=lambda pid: setattr(
+            welldata_instance.plate_id, "value", pid
+        ),
+        on_resume_cache=start_cache_worker,
+    )
+    _cached_plates_table_ref = cached_table
 
     widget = QWidget()
     layout = QVBoxLayout(widget)
+    layout.addWidget(cached_table)
     layout.addWidget(welldata_instance.native)
     layout.addWidget(stitched_instance.native)
 
@@ -204,38 +323,93 @@ def welldata_widget(
             load_from_cache(
                 omero_data, plate_num, well_pos_list, images, time=time
             )
-            # Auto-stitch when single well with valid stage positions
-            if len(omero_data.well_id_list) == 1 and has_valid_positions(
-                omero_data.image_positions
-            ):
-                logger.info("Auto-stitching from stage positions")
-                # Read blending parameters from the stitch widget
-                sp = _get_stitch_params()
-                stitched = stitch_from_positions(
-                    omero_data.images,
-                    omero_data.image_positions,  # type: ignore[arg-type]
-                    omero_data.pixel_size,  # type: ignore[arg-type]
-                    rotation=sp["rotation"],
-                    edge=sp["edge"],
-                    mode=sp["mode"],
-                    fallback_overlap=(sp["overlap_x"], sp["overlap_y"]),
+
+            n_wells = len(omero_data.well_id_list)
+            n_per_well = len(omero_data.image_index)
+
+            # Check first well's positions to decide if stitching is possible
+            first_well_pos = omero_data.image_positions[:n_per_well]
+            if n_per_well > 0 and has_valid_positions(first_well_pos):
+                logger.info(
+                    "Auto-stitching %d well(s) from stage positions", n_wells
                 )
-                stitched_lbl = None
-                if omero_data.labels.size > 0:
-                    stitched_lbl = stitch_labels_from_positions(
-                        omero_data.labels,
-                        omero_data.image_positions,  # type: ignore[arg-type]
-                        omero_data.pixel_size,  # type: ignore[arg-type]
-                        rotation=sp["rotation"],
-                        fallback_overlap=(sp["overlap_x"], sp["overlap_y"]),
+                sp = _get_stitch_params()
+                stitched_imgs: list[np.ndarray[Any, np.dtype[Any]]] = []
+                stitched_lbls: list[np.ndarray[Any, np.dtype[Any]]] = []
+
+                for w in range(n_wells):
+                    start = w * n_per_well
+                    end = start + n_per_well
+                    well_images = omero_data.images[start:end]
+                    well_positions = omero_data.image_positions[start:end]
+
+                    stitched_imgs.append(
+                        stitch_from_positions(
+                            well_images,
+                            well_positions,  # type: ignore[arg-type]
+                            omero_data.pixel_size,  # type: ignore[arg-type]
+                            rotation=sp["rotation"],
+                            edge=sp["edge"],
+                            mode=sp["mode"],
+                            fallback_overlap=(
+                                sp["overlap_x"],
+                                sp["overlap_y"],
+                            ),
+                        )
                     )
+
+                    if omero_data.labels.size > 0:
+                        well_labels = omero_data.labels[start:end]
+                        stitched_lbls.append(
+                            stitch_labels_from_positions(
+                                well_labels,
+                                well_positions,  # type: ignore[arg-type]
+                                omero_data.pixel_size,  # type: ignore[arg-type]
+                                rotation=sp["rotation"],
+                                fallback_overlap=(
+                                    sp["overlap_x"],
+                                    sp["overlap_y"],
+                                ),
+                            )
+                        )
+
+                if n_wells == 1:
+                    result_img = stitched_imgs[0]
+                    result_lbl = stitched_lbls[0] if stitched_lbls else None
+                else:
+                    result_img = np.stack(stitched_imgs)
+                    result_lbl = (
+                        np.stack(stitched_lbls) if stitched_lbls else None
+                    )
+
                 clear_viewer_layers(viewer)
-                _display_stitched(viewer, stitched, stitched_lbl)
+                _display_stitched(viewer, result_img, result_lbl)
+
+                # For multi-well, each slider position = one well
+                iw_override = 1 if n_wells > 1 else None
+
+                def slider_position_change(event: Any) -> None:
+                    pos = event.source.current_step[0]
+                    handle_metadata_widget(
+                        viewer, pos, images_per_well_override=iw_override
+                    )
+
+                viewer.dims.events.current_step.connect(slider_position_change)
+                mock_event = MockEvent(viewer.dims)
+                slider_position_change(mock_event)
             else:
                 clear_viewer_layers(viewer)
                 add_image_to_viewer(viewer)
                 set_color_maps(viewer)
                 add_label_layers(viewer)
+
+                def slider_position_change(event: Any) -> None:
+                    pos = event.source.current_step[0]
+                    handle_metadata_widget(viewer, pos)
+
+                viewer.dims.events.current_step.connect(slider_position_change)
+                mock_event = MockEvent(viewer.dims)
+                slider_position_change(mock_event)
         else:
             parse_omero_data(
                 omero_data, plate_id, well_pos_list, images, time=time
@@ -245,13 +419,13 @@ def welldata_widget(
             set_color_maps(viewer)
             add_label_layers(viewer)
 
-        def slider_position_change(event: Any) -> None:
-            current_position = event.source.current_step[0]
-            handle_metadata_widget(viewer, current_position)
+            def slider_position_change(event: Any) -> None:
+                current_position = event.source.current_step[0]
+                handle_metadata_widget(viewer, current_position)
 
-        viewer.dims.events.current_step.connect(slider_position_change)
-        mock_event = MockEvent(viewer.dims)
-        slider_position_change(mock_event)
+            viewer.dims.events.current_step.connect(slider_position_change)
+            mock_event = MockEvent(viewer.dims)
+            slider_position_change(mock_event)
     except Exception as e:
         logger.error(f"Error in welldata_widget: {e}")
         # MessageBox is already shown in parse_omero_data if it failed there
@@ -284,10 +458,10 @@ def start_cache_worker(plate_id: int) -> None:
     """
     global _active_cache_worker, _active_cache_plate_id
 
-    # Already fully cached — skip
-    if is_plate_cached(plate_id):
+    # Already fully cached (metadata + all images) — skip
+    if is_plate_fully_cached(plate_id):
         logger.info(
-            "Plate %d already cached — skipping background download",
+            "Plate %d fully cached — skipping background download",
             plate_id,
         )
         return
@@ -335,6 +509,8 @@ def start_cache_worker(plate_id: int) -> None:
         if pbr:
             pbr[0].set_description(f"Plate {plate_id} cached")
             pbr[0].close()
+        if _cached_plates_table_ref is not None:
+            _cached_plates_table_ref.refresh()
         logger.info("Cache worker finished for plate %d", plate_id)
 
     def on_error(exc: BaseException) -> None:
@@ -416,11 +592,15 @@ def on_contrast_change(event: Any) -> None:
     omero_data.intensities[channel_number] = tuple(layer.contrast_limits)
 
 
-def handle_metadata_widget(viewer: Viewer, slider_position: int) -> None:
+def handle_metadata_widget(
+    viewer: Viewer,
+    slider_position: int,
+    images_per_well_override: int | None = None,
+) -> None:
     global metadata_widget
 
     # Calculate which well's metadata to use based on the slider position
-    images_per_well = len(omero_data.image_index)
+    images_per_well = images_per_well_override or len(omero_data.image_index)
     if images_per_well == 0:
         return
     well_index = slider_position // images_per_well
@@ -431,7 +611,13 @@ def handle_metadata_widget(viewer: Viewer, slider_position: int) -> None:
     if metadata_widget is not None:
         with contextlib.suppress(LookupError):
             viewer.window.remove_dock_widget(metadata_widget)  # type: ignore
-    well_metadata = omero_data.well_metadata_list[well_index]
+
+    # Include well position in the displayed metadata
+    well_metadata: dict[str, Any] = {}
+    if well_index < len(omero_data.well_pos_list):
+        well_metadata["Well"] = omero_data.well_pos_list[well_index]
+    well_metadata.update(omero_data.well_metadata_list[well_index])
+
     metadata_widget = MetadataWidget(well_metadata)
     viewer.window.add_dock_widget(metadata_widget)
 
@@ -522,7 +708,11 @@ def _display_stitched(
     stitched_images: np.ndarray[Any, np.dtype[Any]],
     stitched_labels: Optional[np.ndarray[Any, np.dtype[Any]]] = None,
 ) -> None:
-    """Display a stitched image in the viewer with channel colouring."""
+    """Display a stitched image in the viewer with channel colouring.
+
+    Handles both single-well (Y, X, C) and multi-well (N, Y, X, C) shapes.
+    For multi-well, napari creates a slider for the well dimension.
+    """
     names = ["Stitched Image"] * len(omero_data.channel_data)
     for k, v in omero_data.channel_data.items():
         names[int(v)] = k
@@ -536,7 +726,11 @@ def _display_stitched(
     )
     set_color_maps(viewer)
     if stitched_labels is not None:
-        add_label_layers(viewer, labels=stitched_labels[np.newaxis, ...])
+        # Single-well labels are (Y, X, C) — need batch dim for add_label_layers
+        # Multi-well labels are (N, Y, X, C) — already have it
+        if stitched_labels.ndim == 3:
+            stitched_labels = stitched_labels[np.newaxis, ...]
+        add_label_layers(viewer, labels=stitched_labels)
     viewer.scale_bar.visible = True
     viewer.scale_bar.unit = "µm"
 

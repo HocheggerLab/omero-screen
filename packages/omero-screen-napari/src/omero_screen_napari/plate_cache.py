@@ -39,12 +39,95 @@ logger = get_logger(__name__)
 # --------------- Public API ---------------
 
 
+def get_all_cached_plates() -> list[tuple[int, str]]:
+    """Return all cached plates as (plate_id, plate_name) pairs.
+
+    Scans cache keys for ``plate:*:meta`` entries and extracts plate info.
+    Results are sorted by plate_id descending (most recent first).
+
+    Returns:
+        List of (plate_id, plate_name) tuples.
+    """
+    plates: list[tuple[int, str]] = []
+    try:
+        for key in _cache.iterkeys():
+            if not isinstance(key, str):
+                continue
+            if not key.startswith("plate:") or not key.endswith(":meta"):
+                continue
+            try:
+                plate_id = int(key.split(":")[1])
+            except (ValueError, IndexError):
+                continue
+            meta = _cache.get(key)
+            if not isinstance(meta, dict):
+                continue
+            plate_name = meta.get("plate_name", str(plate_id))
+            plates.append((plate_id, plate_name))
+    except Exception:
+        logger.debug("Error scanning cache keys", exc_info=True)
+    plates.sort(key=lambda x: x[0], reverse=True)
+    return plates
+
+
+def get_well_cache_status(plate_id: int) -> dict[str, bool]:
+    """Check per-well cache completeness for a plate.
+
+    For each well, checks whether **all** its images x timepoints exist
+    in cache using the ``in`` operator (fast SQLite index lookup, no
+    data deserialization).
+
+    Args:
+        plate_id: OMERO plate ID.
+
+    Returns:
+        Dict mapping well_pos -> True if fully cached, False otherwise.
+        Empty dict if plate is not in cache.
+    """
+    wells = _cache.get(f"plate:{plate_id}:wells")
+    if not isinstance(wells, dict) or not wells:
+        return {}
+
+    status: dict[str, bool] = {}
+    for well_pos, well_info in wells.items():
+        all_cached = True
+        for img_info in well_info.get("images", []):
+            image_id = img_info["image_id"]
+            size_t = img_info.get("size_t", 1)
+            for t in range(size_t):
+                if f"{image_id}:{t}" not in _cache:
+                    all_cached = False
+                    break
+            if not all_cached:
+                break
+        status[well_pos] = all_cached
+    return status
+
+
 def is_plate_cached(plate_id: int) -> bool:
     """Check if plate metadata and well data exist in cache."""
     return (
         _cache.get(f"plate:{plate_id}:meta") is not None
         and _cache.get(f"plate:{plate_id}:wells") is not None
     )
+
+
+def is_plate_fully_cached(plate_id: int) -> bool:
+    """Check if plate metadata AND all well images are cached.
+
+    Unlike ``is_plate_cached`` (which only checks metadata), this verifies
+    that every image x timepoint key exists in the cache.
+
+    Args:
+        plate_id: OMERO plate ID.
+
+    Returns:
+        True only when every well's images are fully cached.
+    """
+    if not is_plate_cached(plate_id):
+        return False
+    status = get_well_cache_status(plate_id)
+    return bool(status) and all(status.values())
 
 
 def get_cached_plate_metadata(plate_id: int) -> dict[str, Any] | None:
@@ -106,28 +189,46 @@ def cache_plate(
             "Flatfield mask squeezed to shape %s", flatfield_masks.shape
         )
 
-    # Step 5: Collect ALL plate images to download.
-    # Always re-download even if already cached — old cache entries from
-    # get_image() are raw (no flatfield correction) and would create
-    # shape/value mismatches with the flatfield-corrected arrays we store.
-    all_images: list[dict[str, Any]] = []
-    for _well_pos, well_info in wells.items():
-        for img_info in well_info["images"]:
-            image_id = img_info["image_id"]
-            size_t = img_info["size_t"]
-            for t in range(size_t):
-                all_images.append({"image_id": image_id, "timepoint": t})
+    # Step 5: Build downloads grouped by well, sorted by well position.
+    # Well-grouped partitioning ensures wells complete sequentially so
+    # users can start loading cached wells before the entire plate is done.
+    sorted_well_keys = sorted(wells.keys(), key=_well_sort_key)
+    well_groups: list[list[dict[str, Any]]] = []
 
-    # Also collect label images (skip if already cached — labels don't
-    # need flatfield correction so old entries are fine).
-    all_label_images: list[dict[str, Any]] = []
-    for _well_pos, label_ids in label_map.items():
-        for label_id in label_ids:
-            key = f"{label_id}:0"
-            if _cache.get(key) is None:
-                all_label_images.append({"image_id": label_id, "timepoint": 0})
+    for well_pos in sorted_well_keys:
+        group: list[dict[str, Any]] = []
+        # Well images (need flatfield correction, skip if already cached)
+        for img_info in wells[well_pos]["images"]:
+            for t in range(img_info["size_t"]):
+                if f"{img_info['image_id']}:{t}" not in _cache:
+                    group.append(
+                        {
+                            "image_id": img_info["image_id"],
+                            "timepoint": t,
+                            "apply_flatfield": True,
+                        }
+                    )
+        # Well labels (no flatfield, skip if already cached)
+        if well_pos in label_map:
+            for label_id in label_map[well_pos]:
+                if f"{label_id}:0" not in _cache:
+                    group.append(
+                        {
+                            "image_id": label_id,
+                            "timepoint": 0,
+                            "apply_flatfield": False,
+                        }
+                    )
+        if group:
+            well_groups.append(group)
 
-    total = len(all_images) + len(all_label_images)
+    # Distribute whole well groups to workers round-robin
+    batches: list[list[dict[str, Any]]] = [[] for _ in range(max_workers)]
+    for i, group in enumerate(well_groups):
+        batches[i % max_workers].extend(group)
+    batches = [b for b in batches if b]
+
+    total = sum(len(b) for b in batches)
     done = 0
 
     if total == 0:
@@ -136,22 +237,17 @@ def cache_plate(
         return
 
     logger.info(
-        "Caching plate %d: downloading %d images + %d labels with %d workers",
+        "Caching plate %d: downloading %d items (%d wells) with %d workers",
         plate_id,
-        len(all_images),
-        len(all_label_images),
+        total,
+        len(well_groups),
         max_workers,
     )
 
     # Step 6 & 7: Download images + labels with per-image progress.
     # Workers signal each completed image via a shared queue so the
     # generator can yield smooth progress to the napari progress bar.
-    all_downloads = [
-        {**item, "apply_flatfield": True} for item in all_images
-    ] + [{**item, "apply_flatfield": False} for item in all_label_images]
-
     progress_q: queue.Queue[int] = queue.Queue()
-    batches = _partition_round_robin(all_downloads, max_workers)
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [
@@ -560,6 +656,23 @@ def _fetch_label_map(
         label_map[well_pos] = label_ids
 
     return label_map
+
+
+def _well_sort_key(well_pos: str) -> tuple[str, int]:
+    """Sort wells by letter then number (A1, A2, ..., B1, ...).
+
+    Args:
+        well_pos: Well position string like "A1", "B12".
+
+    Returns:
+        Tuple of (letter, number) for sorting.
+    """
+    letter = well_pos[0]
+    try:
+        number = int(well_pos[1:])
+    except ValueError:
+        number = 0
+    return (letter, number)
 
 
 # --------------- Download Workers ---------------

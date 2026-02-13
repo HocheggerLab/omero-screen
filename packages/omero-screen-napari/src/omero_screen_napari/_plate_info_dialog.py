@@ -10,8 +10,9 @@ from collections.abc import Callable
 from typing import Any
 
 from omero_screen.config import get_logger
-from qtpy.QtCore import Qt
+from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
+    QCheckBox,
     QDialog,
     QHBoxLayout,
     QHeaderView,
@@ -27,6 +28,7 @@ from omero_screen_napari.plate_cache import (
     get_cached_label_map,
     get_cached_plate_metadata,
     get_cached_well_data,
+    get_well_cache_status,
     is_plate_cached,
 )
 
@@ -241,6 +243,8 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
             return
 
         self._rows = rows
+        self._is_cached = is_cached
+        self._cached_wells: set[str] = set()
 
         self.setWindowTitle(
             f"Plate Info - {plate_id} ({header_info['plate_name']})"
@@ -253,12 +257,13 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
         main_layout.addWidget(self._build_header(header_info, is_cached))
 
         # Table
-        self.table = self._build_table(rows, metadata_keys)
+        self.table = self._build_table(rows, metadata_keys, is_cached)
         self.table.cellDoubleClicked.connect(self._on_double_click)
         main_layout.addWidget(self.table)
 
         # Buttons
         button_layout = QHBoxLayout()
+        button_layout.addWidget(self._select_all_cb)
         load_btn = QPushButton("Load Selected")
         load_btn.clicked.connect(self._on_load_selected)
         button_layout.addWidget(load_btn)
@@ -269,6 +274,10 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
         main_layout.addLayout(button_layout)
 
         self.setLayout(main_layout)
+
+        # Live cache monitoring
+        self._cache_timer: QTimer | None = None
+        self._start_cache_monitoring()
 
     def _build_header(
         self, header_info: dict[str, Any], is_cached: bool
@@ -294,15 +303,25 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
         self,
         rows: list[dict[str, Any]],
         metadata_keys: list[str],
+        is_cached: bool = False,
     ) -> QTableWidget:
         """Build the QTableWidget from row data with dynamic metadata columns.
 
-        Column layout: Well | <metadata keys...> | Images | Timepoints | Labels
+        Column layout: Select | Well | <metadata keys...> | Images | Timepoints | Labels | Cached
         """
-        # Build column headers: Well + dynamic metadata + fixed tail columns
+        # Build column headers: Select + Well + dynamic metadata + fixed tail
         meta_headers = [_key_to_header(k) for k in metadata_keys]
-        columns = ["Well"] + meta_headers + ["Images", "Timepoints", "Labels"]
+        columns = (
+            ["Select", "Well"]
+            + meta_headers
+            + ["Images", "Timepoints", "Labels", "Cached"]
+        )
         n_meta = len(metadata_keys)
+        self._cached_col_idx = len(columns) - 1
+
+        # Always check actual per-image cache status — is_plate_cached()
+        # returns True as soon as metadata is cached, before images download.
+        well_cache_status = get_well_cache_status(self.plate_id)
 
         table = QTableWidget(len(rows), len(columns))
         table.setHorizontalHeaderLabels(columns)
@@ -312,8 +331,17 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
         # each setItem(), scrambling row indices for subsequent columns.
         table.setSortingEnabled(False)
 
+        self._row_checkboxes: list[QCheckBox] = []
+
         for row_idx, row_data in enumerate(rows):
             col = 0
+
+            # Checkbox
+            cb = QCheckBox()
+            table.setCellWidget(row_idx, col, cb)
+            self._row_checkboxes.append(cb)
+            col += 1
+
             # Well
             table.setItem(row_idx, col, QTableWidgetItem(row_data["well"]))
             col += 1
@@ -342,18 +370,28 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
 
             # Labels
             table.setItem(row_idx, col, QTableWidgetItem(row_data["labels"]))
+            col += 1
+
+            # Cached status
+            well_pos = row_data["well"]
+            cached_text = "Yes" if well_cache_status.get(well_pos) else "No"
+            table.setItem(row_idx, col, QTableWidgetItem(cached_text))
+            if well_cache_status.get(well_pos):
+                self._cached_wells.add(well_pos)
 
         table.setSortingEnabled(True)
-        table.sortItems(0, Qt.AscendingOrder)  # type: ignore[arg-type]
+        table.sortItems(1, Qt.AscendingOrder)  # type: ignore[arg-type]
 
-        # Column resize modes
+        # Place "Select All" checkbox in the header (column 0)
         header = table.horizontalHeader()
         if header:
+            header.setSectionResizeMode(0, QHeaderView.Fixed)
+            table.setColumnWidth(0, 40)
             # Well column
-            header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
             # Metadata columns — last one stretches, rest resize to contents
-            for i in range(1, 1 + n_meta):
-                if i == n_meta:  # last metadata column
+            for i in range(2, 2 + n_meta):
+                if i == 1 + n_meta:  # last metadata column
                     header.setSectionResizeMode(i, QHeaderView.Stretch)
                 else:
                     header.setSectionResizeMode(
@@ -361,27 +399,46 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
                     )
             # If no metadata columns, stretch the Well column instead
             if n_meta == 0:
-                header.setSectionResizeMode(0, QHeaderView.Stretch)
-            # Tail columns: Images, Timepoints, Labels
-            for i in range(1 + n_meta, len(columns)):
+                header.setSectionResizeMode(1, QHeaderView.Stretch)
+            # Tail columns: Images, Timepoints, Labels, Cached
+            for i in range(2 + n_meta, len(columns)):
                 header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+
+        # Replace "Select" header text with a checkbox widget
+        self._select_all_cb = QCheckBox()
+        self._select_all_cb.setToolTip("Select / Deselect All")
+        self._select_all_cb.stateChanged.connect(self._on_select_all_toggled)
+        table.setHorizontalHeaderItem(0, QTableWidgetItem(""))
+        table.horizontalHeader().setMinimumSectionSize(40)
 
         return table
 
+    def _on_select_all_toggled(self, state: int) -> None:
+        """Toggle all row checkboxes when the Select All checkbox changes."""
+        checked = bool(state)
+        for cb in self._row_checkboxes:
+            cb.setChecked(checked)
+
     def _on_load_selected(self) -> None:
-        """Load wells for the selected table rows."""
+        """Load wells for the checked rows (falls back to row selection)."""
         if self.on_load_callback is None:
             return
 
-        selected_rows = self.table.selectionModel().selectedRows()
-        if not selected_rows:
-            return
+        # Primary: collect wells from checked checkboxes
+        well_positions: list[str] = []
+        for row_idx, cb in enumerate(self._row_checkboxes):
+            if cb.isChecked():
+                item = self.table.item(row_idx, 1)  # Well column at index 1
+                if item:
+                    well_positions.append(item.text())
 
-        well_positions = []
-        for index in selected_rows:
-            item = self.table.item(index.row(), 0)
-            if item:
-                well_positions.append(item.text())
+        # Fallback: use Qt row selection if no checkboxes are checked
+        if not well_positions:
+            selected_rows = self.table.selectionModel().selectedRows()
+            for index in selected_rows:
+                item = self.table.item(index.row(), 1)
+                if item:
+                    well_positions.append(item.text())
 
         if well_positions:
             self.on_load_callback(", ".join(well_positions))
@@ -392,10 +449,64 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
         if self.on_load_callback is None:
             return
 
-        item = self.table.item(row, 0)
+        item = self.table.item(row, 1)  # Well column shifted to index 1
         if item:
             self.on_load_callback(item.text())
             self.accept()
+
+    def _start_cache_monitoring(self) -> None:
+        """Start a QTimer to poll cache status if a worker is active."""
+        from omero_screen_napari._welldata_widget import (
+            _active_cache_plate_id,
+            _active_cache_worker,
+        )
+
+        if (
+            _active_cache_worker is not None
+            and _active_cache_worker.is_running
+            and _active_cache_plate_id == self.plate_id
+        ):
+            self._cache_timer = QTimer(self)
+            self._cache_timer.timeout.connect(self._poll_cache_status)
+            self._cache_timer.start(1000)
+
+    def _poll_cache_status(self) -> None:
+        """Check for newly cached wells and update the table."""
+        from omero_screen_napari._welldata_widget import (
+            _active_cache_worker,
+        )
+
+        status = get_well_cache_status(self.plate_id)
+        cached_col = self._cached_col_idx
+
+        for row_idx in range(self.table.rowCount()):
+            well_item = self.table.item(row_idx, 1)
+            if well_item is None:
+                continue
+            well_pos = well_item.text()
+            if well_pos in self._cached_wells:
+                continue  # already marked
+            if status.get(well_pos):
+                cached_item = self.table.item(row_idx, cached_col)
+                if cached_item is not None:
+                    cached_item.setText("Yes")
+                self._cached_wells.add(well_pos)
+
+        # Stop timer when all wells cached or worker stopped
+        all_done = len(self._cached_wells) == self.table.rowCount()
+        worker_stopped = (
+            _active_cache_worker is None or not _active_cache_worker.is_running
+        )
+        if (all_done or worker_stopped) and self._cache_timer is not None:
+            self._cache_timer.stop()
+            self._cache_timer = None
+
+    def closeEvent(self, event: Any) -> None:
+        """Stop the cache timer when the dialog closes."""
+        if self._cache_timer is not None:
+            self._cache_timer.stop()
+            self._cache_timer = None
+        super().closeEvent(event)
 
     def _show_error(self, message: str) -> None:
         """Set up a minimal error-state layout."""
