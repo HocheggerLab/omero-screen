@@ -189,7 +189,7 @@ The following variables are required for proper operation:
    - `LOG_BACKUP_COUNT`: Number of backup log files to keep (defaults to 5)
 
 3. **OMERO Screen Configuration**:
-    - `OMERO_SCREEN_CONFIG`: File path to configure the OMERO screen cell line segmentation models and analysis metrics. An example configuration is provided in [omero_screen_config.json](./src/data/omero_screen_config.json).
+    - `OMERO_SCREEN_CONFIG`: Optional. File path to configure the OMERO screen cell line segmentation models and analysis metrics. An example configuration is provided in [omero_screen_config.json](./src/data/omero_screen_config.json).
 
 ### Logging Setup
 The logging system is configured through the `get_logger()` function in `config.py`:

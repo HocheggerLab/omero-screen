@@ -1,11 +1,13 @@
 """Segmentation models."""
 
+import os
 from typing import Any
 
 import numpy.typing as npt
 import torch
 from cellpose.models import CellposeModel as CM4
 
+from omero_screen.cellpose3.models import MODEL_DIR as CP3_DIR
 from omero_screen.cellpose3.models import CellposeModel as CM3
 from omero_screen.torch import get_device
 
@@ -18,7 +20,11 @@ class SegmentationModel:
 
         Segmentation uses cellpose 3 or cellpose 4 models. The type is identified using
         a model prefix separated from the model name/path using a colon, e.g.
-        cp3:cyto3, or cp4:cpsam. Names not using a model prefix are assumed to be cellpose 3.
+        cp3:cyto3, or cp4:cpsam.
+
+        Names not using a model prefix are automatically detected using the cellpose
+        model directory and the corresponding model file. If detection fails
+        the model is assumed to be cellpose 3.
 
         Segmentation using cellpose 3 supports 1 or 2 channel input.
 
@@ -38,7 +44,7 @@ class SegmentationModel:
             model_type = model_name[0:index]
             model_name = model_name[index + 1 :]
         else:
-            model_type = "cp3"
+            model_type = _guess_model_type(model_name)
 
         # Dynamic switch between Cellpose 3 and 4
         self._cp3 = model_type == "cp3"
@@ -91,3 +97,36 @@ class SegmentationModel:
             kwargs["channels"] = [[0, 0]] if nchan == 1 else [[1, 2]]
         m, _flows, _styles = self.model.eval(img, **kwargs)  # type: ignore[no-untyped-call]
         return m  # type: ignore[no-any-return]
+
+
+def _guess_model_type(name: str) -> str:
+    """Guess the model type based on the model name.
+
+    Returns:
+        model type
+    """
+    # Check if the name is a file, or a file in the cellpose default directory
+    fn = None
+    if os.path.isfile(name):
+        fn = name
+    else:
+        path = os.path.join(CP3_DIR, name)
+        if os.path.isfile(path):
+            fn = path
+    if fn is not None:
+        try:
+            # Load the state dictionary memory mapped (to avoid loading the tensors to memory)
+            state_dict = torch.load(
+                fn, mmap=True, weights_only=True, map_location="cpu"
+            )
+            # Cellpose 3 and 4 do not share any state dictionary keys.
+            # Look for the keys that are specific to each model.
+            if "diam_mean" in state_dict:
+                return "cp3"
+            elif "encoder.blocks.16.norm1.weight" in state_dict:
+                return "cp4"
+        except Exception as _e:
+            # Ignore
+            pass
+    # Defaults to cellpose3
+    return "cp3"
