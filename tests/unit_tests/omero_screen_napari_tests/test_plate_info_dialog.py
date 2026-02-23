@@ -1,5 +1,6 @@
 """Tests for the plate info dialog data helpers."""
 
+import os
 from unittest.mock import patch
 
 import pytest
@@ -9,6 +10,7 @@ from qtpy.QtWidgets import QApplication
 @pytest.fixture(scope="session")
 def qapp():
     """Ensure a QApplication instance exists for Qt widget tests."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication.instance()
     if app is None:
         app = QApplication([])
