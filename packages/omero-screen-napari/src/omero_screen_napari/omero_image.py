@@ -2,22 +2,66 @@ import io
 import os
 import sqlite3
 import threading
-from collections.abc import Generator
 from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-import omero
 from diskcache import Cache, Disk
 from diskcache.core import UNKNOWN
 from omero.gateway import BlitzGateway, ImageWrapper
-from omero.rtypes import unwrap
 from omero_screen.config import get_logger, getenv_as_int
-from omero_screen.plate_dataset import PlateDataset
 
 logger = get_logger(__name__)
 
 MODE_NUMPY = 5
+
+# Mapping from OMERO pixel type names to big-endian numpy dtypes.
+# OMERO transmits raw pixel bytes in network (big-endian) byte order.
+_OMERO_PIXEL_DTYPES: dict[str, np.dtype[Any]] = {
+    "uint8": np.dtype(">u1"),
+    "uint16": np.dtype(">u2"),
+    "int8": np.dtype(">i1"),
+    "int16": np.dtype(">i2"),
+    "int32": np.dtype(">i4"),
+    "float": np.dtype(">f4"),
+    "double": np.dtype(">f8"),
+}
+
+
+def _parse_raw_timepoint(
+    raw_bytes: bytes,
+    size_z: int,
+    size_c: int,
+    size_y: int,
+    size_x: int,
+    dt_be: np.dtype[Any],
+) -> npt.NDArray[Any]:
+    """Parse raw bytes from RawPixelsStore.getTimepoint() into a ZYXC array.
+
+    OMERO dimension order is XYZCT (X fastest). For a fixed timepoint the
+    remaining dimensions are XYZC, which in row-major (C-order) memory
+    layout corresponds to shape ``(C, Z, Y, X)``.
+
+    Args:
+        raw_bytes: Raw pixel bytes from ``store.getTimepoint(t)``.
+        size_z: Number of Z slices.
+        size_c: Number of channels.
+        size_y: Image height in pixels.
+        size_x: Image width in pixels.
+        dt_be: Big-endian numpy dtype matching the OMERO pixel type.
+
+    Returns:
+        Contiguous array with shape ``(Z, Y, X, C)`` in native byte order.
+    """
+    arr = np.frombuffer(raw_bytes, dtype=dt_be).reshape(
+        size_c, size_z, size_y, size_x
+    )
+    # Transpose CZYX → ZYXC and produce a contiguous native-endian copy.
+    # order="C" is required because np.array defaults to order="K" which
+    # would preserve the transposed view's non-contiguous memory layout.
+    return np.array(
+        arr.transpose(1, 2, 3, 0), dtype=dt_be.newbyteorder("="), order="C"
+    )
 
 
 class NumpyDisk(Disk):  # type: ignore[misc]
@@ -261,145 +305,3 @@ def _get_key(image_id: int, t: int) -> str:
         Key
     """
     return f"{image_id}:{t}"
-
-
-def cache_plate_images(
-    conn: BlitzGateway, plate_id: int
-) -> Generator[int, None, int]:
-    """Cache the images for the OMERO plate.
-
-    This returns a generator that iterates over all images in
-    the plate and associated plate dataset fills the cache with missing
-    timepoints.
-
-    Yields the number of bytes downloaded for
-    each image timepoint and returns the total number of bytes.
-
-    This method stops when the number of bytes downloaded exceed the size
-    limit of the cache.
-
-    Args:
-        conn: OMERO connection.
-        plate_id: OMERO plate ID.
-
-    Yields:
-        Bytes downloaded for the plate image timepoint.
-
-    Returns:
-        Total bytes downloaded.
-
-    Raises:
-        Exception if the plate is not recognised.
-    """
-    max_bytes = _cache.size_limit
-    if max_bytes <= 0:
-        # Edge case with no cache
-        return 0
-
-    # Plate images
-    images = _get_image_ids(conn, plate_id)
-    # Plate associated images
-    dataset_id = PlateDataset(conn, plate_id).dataset_id
-    images.extend(_get_dataset_image_ids(conn, dataset_id))
-
-    total = 0
-    for image_id, size_t in images:
-        image = None
-        for t in range(size_t):
-            k = _get_key(image_id, t)
-            # Lock prevents duplicate downloads when a foreground
-            # get_image_timepoint() call races with this generator.
-            with _download_lock:
-                a = _cache.get(k)
-                if a is None:
-                    logger.info("Downloading image %s", k)
-                    if image is None:
-                        image = _get_omero_image_wrapper(conn, image_id)
-                    a = _get_omero_image_timepoint(image, t)
-                    _cache[k] = a
-                    nbytes = a.nbytes
-                    total += nbytes
-                else:
-                    nbytes = 0
-
-            yield nbytes
-            if nbytes > 0 and total > max_bytes:
-                logger.info(
-                    "Filled image cache with %d > %d bytes",
-                    total,
-                    max_bytes,
-                )
-                return total
-
-    return total
-
-
-def _get_image_ids(conn: BlitzGateway, plate_id: int) -> list[tuple[int, int]]:
-    """Get a list of images from the OMERO plate.
-
-    Args:
-        conn: OMERO connection.
-        plate_id: OMERO plate ID.
-
-    Returns:
-        list of image details (image_id, size_t).
-
-    Raises:
-        Exception if the plate is not recognised.
-    """
-    images = []
-    # Use the query service for enhanced performance over the OMERO object API
-    query_service = conn.getQueryService()
-    # https://omero.readthedocs.io/en/stable/developers/Model/EveryObject.html#plate
-    # https://omero.readthedocs.io/en/stable/developers/Model/EveryObject.html#image
-    params = omero.sys.ParametersI()
-    query = f"""select i.id, pi.sizeT from Plate as p
-        left join p.wells as w
-        left join w.wellSamples as ws
-        left join ws.image as i
-        left join i.pixels as pi
-        where p.id = '{plate_id}'
-    """
-    results = query_service.projection(query, params, None)
-    if not len(results):
-        raise Exception(f"OMERO plate does not exist: {plate_id}")
-    for image_id, size_t in results:
-        images.append((unwrap(image_id), unwrap(size_t)))
-
-    return images
-
-
-def _get_dataset_image_ids(
-    conn: BlitzGateway, dataset_id: int
-) -> list[tuple[int, int]]:
-    """Get a list of images from the OMERO dataset.
-
-    Args:
-        conn: OMERO connection.
-        dataset_id: OMERO dataset ID.
-
-    Returns:
-        list of image details (image_id, size_t).
-
-    Raises:
-        Exception if the dataset is not recognised.
-    """
-    images = []
-    # Use the query service for enhanced performance over the OMERO object API
-    query_service = conn.getQueryService()
-    # https://omero.readthedocs.io/en/stable/developers/Model/EveryObject.html#plate
-    # https://omero.readthedocs.io/en/stable/developers/Model/EveryObject.html#image
-    params = omero.sys.ParametersI()
-    query = f"""select i.id, pi.sizeT from Dataset as d
-        left join d.imageLinks as il
-        left join il.child as i
-        left join i.pixels as pi
-        where d.id = '{dataset_id}'
-    """
-    results = query_service.projection(query, params, None)
-    if not len(results):
-        raise Exception(f"OMERO dataset does not exist: {dataset_id}")
-    for image_id, size_t in results:
-        images.append((unwrap(image_id), unwrap(size_t)))
-
-    return images

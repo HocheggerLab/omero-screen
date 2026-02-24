@@ -1,8 +1,9 @@
 """Tests for the plate_cache module."""
 
+import queue
 import threading
 from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import numpy as np
 import pytest
@@ -101,8 +102,11 @@ def sample_wells() -> dict:
 @pytest.fixture
 def sample_label_map() -> dict:
     return {
-        "A1": [500, 501],
-        "A2": [600],
+        "A1": [
+            {"label_id": 500, "size_t": 1},
+            {"label_id": 501, "size_t": 1},
+        ],
+        "A2": [{"label_id": 600, "size_t": 1}],
     }
 
 
@@ -1423,3 +1427,478 @@ class TestDeletePlateUpdatesHistory:
         history = store["plate_history"]
         assert history[42]["status"] == "removed"
         assert history[42]["last_cached"] == "2026-01-10"
+
+
+# --------------- _normalize_label_entry ---------------
+
+
+class TestNormalizeLabelEntry:
+    def test_int_format(self):
+        from omero_screen_napari.plate_cache import _normalize_label_entry
+
+        result = _normalize_label_entry(500)
+        assert result == {"label_id": 500, "size_t": 1}
+
+    def test_dict_format(self):
+        from omero_screen_napari.plate_cache import _normalize_label_entry
+
+        entry = {"label_id": 500, "size_t": 3}
+        result = _normalize_label_entry(entry)
+        assert result == {"label_id": 500, "size_t": 3}
+
+
+# --------------- Label multi-timepoint ---------------
+
+
+class TestLabelMultiTimepoint:
+    def test_old_int_format_backwards_compat(self, mock_cache, sample_meta):
+        """Old caches with plain int label IDs should still work."""
+        fake_cache, store = mock_cache
+        store["plate:42:meta"] = sample_meta
+        store["plate:42:wells"] = {
+            "A1": {
+                "well_id": 10,
+                "metadata": {"cell_line": "RPE"},
+                "images": [
+                    {"image_id": 100, "size_t": 1, "index": 0},
+                ],
+            },
+        }
+        # Old format: plain int label IDs
+        store["plate:42:labels"] = {"A1": [500]}
+
+        img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
+        store["100:0"] = img_array
+        label_array = np.ones((1, 100, 100, 1), dtype=np.int32)
+        store["500:0"] = label_array
+
+        with patch("omero_screen_napari.plate_cache._cache", fake_cache):
+            from omero_screen_napari.plate_cache import load_from_cache
+
+            od = OmeroData()
+            load_from_cache(od, 42, "A1", "All")
+
+            assert od.labels.shape[0] == 1
+
+    def test_new_dict_format_multi_timepoint(self, mock_cache, sample_meta):
+        """New dict format with size_t > 1 loads labels correctly."""
+        fake_cache, store = mock_cache
+        store["plate:42:meta"] = sample_meta
+        store["plate:42:wells"] = {
+            "A1": {
+                "well_id": 10,
+                "metadata": {"cell_line": "RPE"},
+                "images": [
+                    {"image_id": 100, "size_t": 1, "index": 0},
+                ],
+            },
+        }
+        store["plate:42:labels"] = {
+            "A1": [{"label_id": 500, "size_t": 3}],
+        }
+
+        img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
+        store["100:0"] = img_array
+        label_array = np.ones((1, 100, 100, 1), dtype=np.int32)
+        store["500:0"] = label_array
+
+        with patch("omero_screen_napari.plate_cache._cache", fake_cache):
+            from omero_screen_napari.plate_cache import load_from_cache
+
+            od = OmeroData()
+            load_from_cache(od, 42, "A1", "All")
+
+            # load_from_cache only loads t=0 for labels, so 1 label
+            assert od.labels.shape[0] == 1
+
+    def test_delete_handles_multi_timepoint_labels(
+        self, mock_cache, sample_meta
+    ):
+        """delete_plate_from_cache removes all label timepoints."""
+        fake_cache, store = mock_cache
+        store["plate:42:meta"] = sample_meta
+        store["plate:42:wells"] = {
+            "A1": {
+                "well_id": 10,
+                "metadata": {},
+                "images": [{"image_id": 100, "size_t": 1, "index": 0}],
+            },
+        }
+        store["plate:42:labels"] = {
+            "A1": [{"label_id": 500, "size_t": 3}],
+        }
+        img = np.zeros((1, 10, 10, 2), dtype=np.float32)
+        store["100:0"] = img
+        store["500:0"] = img
+        store["500:1"] = img
+        store["500:2"] = img
+
+        with (
+            patch("omero_screen_napari.plate_cache._cache", fake_cache),
+            patch(
+                "omero_screen_napari.plate_cache._download_lock",
+                threading.Lock(),
+            ),
+        ):
+            from omero_screen_napari.plate_cache import delete_plate_from_cache
+
+            count = delete_plate_from_cache(42)
+
+        # meta + wells + labels + 1 image + 3 label timepoints = 7
+        assert count == 7
+        assert "500:0" not in store
+        assert "500:1" not in store
+        assert "500:2" not in store
+
+    def test_delete_handles_old_int_labels(self, mock_cache, sample_meta):
+        """delete_plate_from_cache works with old int-format label maps."""
+        fake_cache, store = mock_cache
+        store["plate:42:meta"] = sample_meta
+        store["plate:42:wells"] = {
+            "A1": {
+                "well_id": 10,
+                "metadata": {},
+                "images": [{"image_id": 100, "size_t": 1, "index": 0}],
+            },
+        }
+        # Old format
+        store["plate:42:labels"] = {"A1": [500]}
+        img = np.zeros((1, 10, 10, 2), dtype=np.float32)
+        store["100:0"] = img
+        store["500:0"] = img
+
+        with (
+            patch("omero_screen_napari.plate_cache._cache", fake_cache),
+            patch(
+                "omero_screen_napari.plate_cache._download_lock",
+                threading.Lock(),
+            ),
+        ):
+            from omero_screen_napari.plate_cache import delete_plate_from_cache
+
+            count = delete_plate_from_cache(42)
+
+        # meta + wells + labels + 1 image + 1 label = 5
+        assert count == 5
+        assert "500:0" not in store
+
+
+# --------------- _parse_raw_timepoint ---------------
+
+
+class TestParseRawTimepoint:
+    def test_basic_uint16(self):
+        """Parse big-endian uint16 bytes into ZYXC array."""
+        from omero_screen_napari.omero_image import _parse_raw_timepoint
+
+        size_z, size_c, size_y, size_x = 1, 2, 4, 4
+        dt_be = np.dtype(">u2")
+        # Create CZYX data in big-endian
+        data = np.arange(
+            size_c * size_z * size_y * size_x, dtype=">u2"
+        ).reshape(size_c, size_z, size_y, size_x)
+        raw_bytes = data.tobytes()
+
+        result = _parse_raw_timepoint(
+            raw_bytes, size_z, size_c, size_y, size_x, dt_be
+        )
+
+        assert result.shape == (size_z, size_y, size_x, size_c)
+        assert result.dtype == np.dtype("u2")  # native byte order
+        # Check that channel 0 data appears in result[:, :, :, 0]
+        np.testing.assert_array_equal(result[0, :, :, 0], data[0, 0])
+        np.testing.assert_array_equal(result[0, :, :, 1], data[1, 0])
+
+    def test_multi_z(self):
+        """Multi-Z slices are reshaped correctly."""
+        from omero_screen_napari.omero_image import _parse_raw_timepoint
+
+        size_z, size_c, size_y, size_x = 3, 2, 4, 4
+        dt_be = np.dtype(">u2")
+        data = np.arange(
+            size_c * size_z * size_y * size_x, dtype=">u2"
+        ).reshape(size_c, size_z, size_y, size_x)
+        raw_bytes = data.tobytes()
+
+        result = _parse_raw_timepoint(
+            raw_bytes, size_z, size_c, size_y, size_x, dt_be
+        )
+
+        assert result.shape == (3, 4, 4, 2)
+        # Z=1, C=0 should equal data[C=0, Z=1]
+        np.testing.assert_array_equal(result[1, :, :, 0], data[0, 1])
+
+    def test_float32(self):
+        """Float pixel types are handled correctly."""
+        from omero_screen_napari.omero_image import _parse_raw_timepoint
+
+        size_z, size_c, size_y, size_x = 1, 1, 2, 2
+        dt_be = np.dtype(">f4")
+        data = np.array([[1.5, 2.5], [3.5, 4.5]], dtype=">f4").reshape(
+            1, 1, 2, 2
+        )
+        raw_bytes = data.tobytes()
+
+        result = _parse_raw_timepoint(
+            raw_bytes, size_z, size_c, size_y, size_x, dt_be
+        )
+
+        assert result.shape == (1, 2, 2, 1)
+        assert result.dtype == np.float32
+        np.testing.assert_array_almost_equal(
+            result[0, :, :, 0], [[1.5, 2.5], [3.5, 4.5]]
+        )
+
+    def test_contiguous_output(self):
+        """Output array must be C-contiguous."""
+        from omero_screen_napari.omero_image import _parse_raw_timepoint
+
+        size_z, size_c, size_y, size_x = 2, 3, 8, 8
+        dt_be = np.dtype(">u2")
+        data = np.zeros(size_c * size_z * size_y * size_x, dtype=">u2")
+        raw_bytes = data.tobytes()
+
+        result = _parse_raw_timepoint(
+            raw_bytes, size_z, size_c, size_y, size_x, dt_be
+        )
+
+        assert result.flags["C_CONTIGUOUS"]
+
+
+# --------------- Helpers for RawPixelsStore tests ---------------
+
+
+def _make_wrapper_mock(
+    size_z: int = 1,
+    size_c: int = 2,
+    size_y: int = 10,
+    size_x: int = 10,
+    pixel_type: str = "uint16",
+) -> MagicMock:
+    """Create a mock ImageWrapper with proper pixel attributes."""
+    wrapper = MagicMock()
+    wrapper.getSizeZ.return_value = size_z
+    wrapper.getSizeC.return_value = size_c
+    wrapper.getSizeY.return_value = size_y
+    wrapper.getSizeX.return_value = size_x
+    pixels = MagicMock()
+    pixels.getPixelsType.return_value.getValue.return_value = pixel_type
+    pixels.getId.return_value = 1
+    wrapper.getPrimaryPixels.return_value = pixels
+    return wrapper
+
+
+# --------------- ImageWrapper reuse ---------------
+
+
+class TestImageWrapperReuse:
+    def test_reuses_wrapper_for_same_image_id(self):
+        """_get_omero_image_wrapper called once per unique image_id."""
+        from omero_screen_napari.plate_cache import _download_batch
+
+        batch = [
+            {"image_id": 100, "timepoint": 0, "apply_flatfield": False},
+            {"image_id": 100, "timepoint": 1, "apply_flatfield": False},
+            {"image_id": 100, "timepoint": 2, "apply_flatfield": False},
+            {"image_id": 200, "timepoint": 0, "apply_flatfield": False},
+        ]
+        arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
+        mock_conn = MagicMock()
+        wrapper = _make_wrapper_mock()
+
+        with (
+            patch("omero_screen_napari.plate_cache._cache"),
+            patch(
+                "omero_screen_napari.plate_cache._get_omero_image_wrapper",
+                return_value=wrapper,
+            ) as mock_get_wrapper,
+            patch(
+                "omero_screen_napari.plate_cache._parse_raw_timepoint",
+                return_value=arr,
+            ),
+        ):
+            progress_q: queue.Queue[int] = queue.Queue()
+            _download_batch(batch, None, progress_q, conn=mock_conn)
+
+            # Should be called exactly 2 times: once for 100, once for 200
+            assert mock_get_wrapper.call_count == 2
+            mock_get_wrapper.assert_any_call(mock_conn, 100)
+            mock_get_wrapper.assert_any_call(mock_conn, 200)
+
+    def test_fetches_each_unique_image_id(self):
+        """Each unique image_id triggers one wrapper fetch."""
+        from omero_screen_napari.plate_cache import _download_batch
+
+        batch = [
+            {"image_id": 100, "timepoint": 0, "apply_flatfield": False},
+            {"image_id": 200, "timepoint": 0, "apply_flatfield": False},
+            {"image_id": 300, "timepoint": 0, "apply_flatfield": False},
+        ]
+        arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
+        mock_conn = MagicMock()
+
+        with (
+            patch("omero_screen_napari.plate_cache._cache"),
+            patch(
+                "omero_screen_napari.plate_cache._get_omero_image_wrapper",
+                return_value=_make_wrapper_mock(),
+            ) as mock_get_wrapper,
+            patch(
+                "omero_screen_napari.plate_cache._parse_raw_timepoint",
+                return_value=arr,
+            ),
+        ):
+            _download_batch(batch, None, conn=mock_conn)
+
+            assert mock_get_wrapper.call_count == 3
+
+    def test_store_reused_across_timepoints(self):
+        """RawPixelsStore is kept open for consecutive timepoints of the same image."""
+        from omero_screen_napari.plate_cache import _download_batch
+
+        batch = [
+            {"image_id": 100, "timepoint": 0, "apply_flatfield": False},
+            {"image_id": 100, "timepoint": 1, "apply_flatfield": False},
+            {"image_id": 100, "timepoint": 2, "apply_flatfield": False},
+        ]
+        arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
+        mock_conn = MagicMock()
+
+        with (
+            patch("omero_screen_napari.plate_cache._cache"),
+            patch(
+                "omero_screen_napari.plate_cache._get_omero_image_wrapper",
+                return_value=_make_wrapper_mock(),
+            ),
+            patch(
+                "omero_screen_napari.plate_cache._parse_raw_timepoint",
+                return_value=arr,
+            ),
+        ):
+            _download_batch(batch, None, conn=mock_conn)
+
+            # Only one createRawPixelsStore call for the same image
+            assert mock_conn.c.sf.createRawPixelsStore.call_count == 1
+            store = mock_conn.c.sf.createRawPixelsStore.return_value
+            # getTimepoint called 3 times (one per batch item)
+            assert store.getTimepoint.call_count == 3
+
+    def test_store_recreated_for_different_images(self):
+        """New RawPixelsStore created when image_id changes."""
+        from omero_screen_napari.plate_cache import _download_batch
+
+        batch = [
+            {"image_id": 100, "timepoint": 0, "apply_flatfield": False},
+            {"image_id": 200, "timepoint": 0, "apply_flatfield": False},
+        ]
+        arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
+        mock_conn = MagicMock()
+
+        with (
+            patch("omero_screen_napari.plate_cache._cache"),
+            patch(
+                "omero_screen_napari.plate_cache._get_omero_image_wrapper",
+                return_value=_make_wrapper_mock(),
+            ),
+            patch(
+                "omero_screen_napari.plate_cache._parse_raw_timepoint",
+                return_value=arr,
+            ),
+        ):
+            _download_batch(batch, None, conn=mock_conn)
+
+            # Two different images → two createRawPixelsStore calls
+            assert mock_conn.c.sf.createRawPixelsStore.call_count == 2
+
+
+# --------------- Cache budget enforcement ---------------
+
+
+class TestCacheBudget:
+    def test_stop_event_halts_download(self):
+        """Workers stop when stop_event is set."""
+        from omero_screen_napari.plate_cache import _download_batch
+
+        batch = [
+            {"image_id": i, "timepoint": 0, "apply_flatfield": False}
+            for i in range(10)
+        ]
+        arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
+        mock_conn = MagicMock()
+
+        stop_event = threading.Event()
+        bytes_downloaded: list[int] = [0]
+        bytes_lock = threading.Lock()
+        # Very small budget: one image worth of bytes
+        budget = arr.nbytes
+
+        cached_keys: list[str] = []
+
+        class TrackingCache:
+            def __setitem__(self, key: str, value: object) -> None:
+                cached_keys.append(key)
+
+        with (
+            patch(
+                "omero_screen_napari.plate_cache._cache", TrackingCache()
+            ),
+            patch(
+                "omero_screen_napari.plate_cache._get_omero_image_wrapper",
+                return_value=_make_wrapper_mock(),
+            ),
+            patch(
+                "omero_screen_napari.plate_cache._parse_raw_timepoint",
+                return_value=arr,
+            ),
+        ):
+            progress_q: queue.Queue[int] = queue.Queue()
+            _download_batch(
+                batch,
+                None,
+                progress_q,
+                stop_event,
+                bytes_downloaded,
+                bytes_lock,
+                budget,
+                conn=mock_conn,
+            )
+
+        # After the first image, budget is reached and stop_event is set.
+        # The second item sees stop_event and breaks.
+        # So only 1 image should be cached.
+        assert len(cached_keys) == 1
+        assert stop_event.is_set()
+
+    def test_no_budget_downloads_all(self):
+        """With budget=0, all items are downloaded."""
+        from omero_screen_napari.plate_cache import _download_batch
+
+        batch = [
+            {"image_id": i, "timepoint": 0, "apply_flatfield": False}
+            for i in range(5)
+        ]
+        arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
+        mock_conn = MagicMock()
+
+        cached_keys: list[str] = []
+
+        class TrackingCache:
+            def __setitem__(self, key: str, value: object) -> None:
+                cached_keys.append(key)
+
+        with (
+            patch(
+                "omero_screen_napari.plate_cache._cache", TrackingCache()
+            ),
+            patch(
+                "omero_screen_napari.plate_cache._get_omero_image_wrapper",
+                return_value=_make_wrapper_mock(),
+            ),
+            patch(
+                "omero_screen_napari.plate_cache._parse_raw_timepoint",
+                return_value=arr,
+            ),
+        ):
+            _download_batch(batch, None, conn=mock_conn)
+
+        assert len(cached_keys) == 5

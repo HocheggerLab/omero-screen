@@ -7,12 +7,18 @@ plate is cached. Supports concurrent downloads with progress reporting.
 Cache key structure (stored in the shared diskcache from omero_image.py):
     plate:{plate_id}:meta   -> dict with channel_data, pixel_size, intensities, plate_name
     plate:{plate_id}:wells  -> dict mapping well_pos -> {well_id, metadata, images: [...]}
-    plate:{plate_id}:labels -> dict mapping well_pos -> [label_image_id, ...]
+    plate:{plate_id}:labels -> dict mapping well_pos -> [{"label_id", "size_t"}, ...]
     {image_id}:{timepoint}  -> flatfield-corrected float32 ZYXC numpy array
 """
 
+from __future__ import annotations
+
+import contextlib
+import logging
 import os
 import queue
+import threading
+import time
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
@@ -27,10 +33,11 @@ from omero.rtypes import unwrap
 from omero_screen.config import get_logger, getenv_as_int
 
 from omero_screen_napari.omero_image import (
+    _OMERO_PIXEL_DTYPES,
     _cache,
     _download_lock,
-    _get_omero_image_timepoint,
     _get_omero_image_wrapper,
+    _parse_raw_timepoint,
     get_image,
 )
 
@@ -230,8 +237,15 @@ def get_cached_well_data(plate_id: int) -> dict[str, Any] | None:
     return _cache.get(f"plate:{plate_id}:wells")  # type: ignore[no-any-return]
 
 
-def get_cached_label_map(plate_id: int) -> dict[str, list[int]] | None:
-    """Return cached label map or None."""
+def get_cached_label_map(
+    plate_id: int,
+) -> dict[str, list[dict[str, int] | int]] | None:
+    """Return cached label map or None.
+
+    Returns new-format entries ``{"label_id": int, "size_t": int}`` or
+    old-format plain ``int`` values for caches written before the
+    multi-timepoint label change.
+    """
     return _cache.get(f"plate:{plate_id}:labels")  # type: ignore[no-any-return]
 
 
@@ -269,12 +283,15 @@ def delete_plate_from_cache(plate_id: int) -> int:
                 for t in range(size_t):
                     keys_to_delete.append(f"{image_id}:{t}")
 
-    # Enumerate label keys from label map
+    # Enumerate label keys from label map (handles old int and new dict format)
     label_map = _cache.get(f"plate:{plate_id}:labels")
     if isinstance(label_map, dict):
-        for label_ids in label_map.values():
-            for label_id in label_ids:
-                keys_to_delete.append(f"{label_id}:0")
+        for label_entries in label_map.values():
+            for label_entry in label_entries:
+                entry = _normalize_label_entry(label_entry)
+                label_id = entry["label_id"]
+                for t in range(entry["size_t"]):
+                    keys_to_delete.append(f"{label_id}:{t}")
 
     # Metadata keys
     meta_keys = [
@@ -498,15 +515,18 @@ def cache_plate(
                     )
         # Well labels (no flatfield, skip if already cached)
         if well_pos in label_map:
-            for label_id in label_map[well_pos]:
-                if f"{label_id}:0" not in _cache:
-                    group.append(
-                        {
-                            "image_id": label_id,
-                            "timepoint": 0,
-                            "apply_flatfield": False,
-                        }
-                    )
+            for label_entry in label_map[well_pos]:
+                entry = _normalize_label_entry(label_entry)
+                label_id = entry["label_id"]
+                for t in range(entry["size_t"]):
+                    if f"{label_id}:{t}" not in _cache:
+                        group.append(
+                            {
+                                "image_id": label_id,
+                                "timepoint": t,
+                                "apply_flatfield": False,
+                            }
+                        )
         if group:
             well_groups.append(group)
 
@@ -537,36 +557,72 @@ def cache_plate(
     # generator can yield smooth progress to the napari progress bar.
     progress_q: queue.Queue[int] = queue.Queue()
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [
-            executor.submit(
-                _download_batch,
-                batch,
-                flatfield_masks,
-                progress_q,
-            )
-            for batch in batches
-        ]
+    # Budget enforcement: stop workers when cache is full
+    stop_event = threading.Event()
+    budget = (
+        max(0, _cache.size_limit - _cache.volume())
+        if _cache.size_limit > 0
+        else 0
+    )
+    bytes_downloaded: list[int] = [0]
+    bytes_lock = threading.Lock()
 
-        # Drain the queue, yielding after every image
-        while done < total:
-            try:
-                progress_q.get(timeout=1.0)
-                done += 1
-                yield (done, total)
-            except queue.Empty:
-                # Check if all workers have finished (error or success)
-                if all(f.done() for f in futures):
-                    break
+    # Pre-create OMERO connections so connection overhead is paid upfront
+    # rather than delaying the first download in each worker.
+    n_conns = len(batches)
+    worker_conns = _create_worker_connections(n_conns)
+    logger.info(
+        "Created %d worker connections for plate %d",
+        len(worker_conns),
+        plate_id,
+    )
 
-        # Re-raise the first worker exception, if any
-        for f in futures:
-            exc = f.exception()
-            if exc is not None:
-                logger.exception(
-                    "Error in download worker for plate %d", plate_id
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(
+                    _download_batch,
+                    batch,
+                    flatfield_masks,
+                    progress_q,
+                    stop_event,
+                    bytes_downloaded,
+                    bytes_lock,
+                    budget,
+                    worker_conn,
                 )
-                raise exc
+                for batch, worker_conn in zip(
+                    batches, worker_conns, strict=False
+                )
+            ]
+
+            # Drain the queue, yielding after every image
+            while done < total:
+                try:
+                    progress_q.get(timeout=1.0)
+                    done += 1
+                    yield (done, total)
+                except queue.Empty:
+                    # Check if all workers have finished (error or success)
+                    if all(f.done() for f in futures):
+                        break
+
+            # Re-raise the first worker exception, if any
+            for f in futures:
+                exc = f.exception()
+                if exc is not None:
+                    logger.exception(
+                        "Error in download worker for plate %d", plate_id
+                    )
+                    raise exc
+    finally:
+        # Clean up any connections not consumed by workers (e.g. on error)
+        for wc in worker_conns:
+            try:
+                if wc.isConnected():
+                    wc.close(hard=True)
+            except Exception:
+                pass
 
     logger.info("Plate %d: caching complete (%d items)", plate_id, total)
 
@@ -890,12 +946,30 @@ def _fetch_flatfield_mask(
     )
 
 
+def _normalize_label_entry(entry: dict[str, int] | int) -> dict[str, int]:
+    """Normalize a label map entry to the new dict format.
+
+    Old caches store plain ``int`` label IDs; new caches store
+    ``{"label_id": int, "size_t": int}``.  This helper ensures a
+    consistent dict format.
+
+    Args:
+        entry: Either an int (old format) or dict (new format).
+
+    Returns:
+        Dict with ``label_id`` and ``size_t`` keys.
+    """
+    if isinstance(entry, int):
+        return {"label_id": entry, "size_t": 1}
+    return entry
+
+
 def _fetch_label_map(
     conn: BlitzGateway,
     plate_id: int,
     project_id: int,
-) -> dict[str, list[int]]:
-    """Map well image_ids to their segmentation label image_ids.
+) -> dict[str, list[dict[str, int]]]:
+    """Map well image_ids to their segmentation label image_ids with size_t.
 
     Args:
         conn: Active OMERO connection.
@@ -903,7 +977,7 @@ def _fetch_label_map(
         project_id: OMERO project ID.
 
     Returns:
-        Dict mapping well_pos -> [label_image_id, ...].
+        Dict mapping well_pos -> [{"label_id": int, "size_t": int}, ...].
     """
     project = conn.getObject("Project", project_id)
     if project is None:
@@ -928,20 +1002,44 @@ def _fetch_label_map(
             except (ValueError, IndexError):
                 continue
 
+    if not label_lookup:
+        return {}
+
+    # Query size_t for all label images via HQL
+    label_size_t: dict[int, int] = {}
+    label_ids = list(label_lookup.values())
+    query_service = conn.getQueryService()
+    params = omero.sys.ParametersI()
+    params.addIds(label_ids)
+    query = (
+        "select i.id, pi.sizeT from Image i "
+        "join i.pixels pi where i.id in (:ids)"
+    )
+    for row in query_service.projection(query, params, conn.SERVICE_OPTS):
+        img_id = unwrap(row[0])
+        size_t = unwrap(row[1])
+        label_size_t[img_id] = size_t if size_t is not None else 1
+
     # Now get well map to associate labels with wells
     wells = get_cached_well_data(plate_id)
     if wells is None:
         # Well data should already be cached by cache_plate()
         return {}
 
-    label_map: dict[str, list[int]] = {}
+    label_map: dict[str, list[dict[str, int]]] = {}
     for well_pos, well_info in wells.items():
-        label_ids = []
+        label_entries: list[dict[str, int]] = []
         for img_info in well_info["images"]:
             image_id = img_info["image_id"]
             if image_id in label_lookup:
-                label_ids.append(label_lookup[image_id])
-        label_map[well_pos] = label_ids
+                label_id = label_lookup[image_id]
+                label_entries.append(
+                    {
+                        "label_id": label_id,
+                        "size_t": label_size_t.get(label_id, 1),
+                    }
+                )
+        label_map[well_pos] = label_entries
 
     return label_map
 
@@ -966,6 +1064,41 @@ def _well_sort_key(well_pos: str) -> tuple[str, int]:
 # --------------- Download Workers ---------------
 
 
+def _create_worker_connections(n: int) -> list[BlitzGateway]:
+    """Create *n* OMERO connections for download workers.
+
+    Connections are created concurrently so the TCP + Ice + auth
+    handshake overlaps instead of running sequentially.
+
+    Args:
+        n: Number of connections to create.
+
+    Returns:
+        List of connected ``BlitzGateway`` instances.
+    """
+    username = os.getenv("USERNAME")
+    password = os.getenv("PASSWORD")
+    host = os.getenv("HOST")
+
+    def _connect() -> BlitzGateway:
+        c = BlitzGateway(username, password, host=host)
+        c.connect()
+        if not c.isConnected():
+            raise RuntimeError(f"Worker connection failed to OMERO at {host}")
+        c.c.enableKeepAlive(60)
+        return c
+
+    if n <= 1:
+        return [_connect()]
+
+    conns: list[BlitzGateway] = []
+    with ThreadPoolExecutor(max_workers=n) as pool:
+        futures = [pool.submit(_connect) for _ in range(n)]
+        for fut in futures:
+            conns.append(fut.result())
+    return conns
+
+
 def _partition_round_robin(
     items: list[dict[str, Any]], n: int
 ) -> list[list[dict[str, Any]]]:
@@ -980,57 +1113,169 @@ def _download_batch(
     batch: list[dict[str, Any]],
     flatfield_masks: npt.NDArray[Any] | None,
     progress_q: queue.Queue[int] | None = None,
+    stop_event: threading.Event | None = None,
+    bytes_downloaded: list[int] | None = None,
+    bytes_lock: threading.Lock | None = None,
+    budget: int = 0,
+    conn: BlitzGateway | None = None,
 ) -> None:
     """Download and optionally flatfield-correct a batch of images.
 
-    Each worker opens its own OMERO connection.  After every image is
-    stored in the cache, a ``1`` is put on *progress_q* so the caller
-    can track per-image progress.
+    Uses the provided OMERO connection (pre-created by the caller) or
+    falls back to creating one.  The connection is always closed when
+    the batch finishes.
+
+    After every image is stored in the cache, a ``1`` is put on
+    *progress_q* so the caller can track per-image progress.
 
     Args:
         batch: List of dicts with image_id, timepoint, and apply_flatfield.
         flatfield_masks: Flatfield correction array (ZYXC), or None.
         progress_q: Optional queue for per-image progress signalling.
+        stop_event: Shared event to signal workers to stop downloading.
+        bytes_downloaded: Shared mutable counter ``[total_bytes]``.
+        bytes_lock: Lock protecting *bytes_downloaded*.
+        budget: Maximum bytes to download before setting *stop_event*.
+            Zero means unlimited.
+        conn: Pre-created OMERO connection. If ``None``, a new one is
+            created (slower — connection overhead is paid inside the worker).
     """
-    username = os.getenv("USERNAME")
-    password = os.getenv("PASSWORD")
-    host = os.getenv("HOST")
+    if conn is None:
+        username = os.getenv("USERNAME")
+        password = os.getenv("PASSWORD")
+        host = os.getenv("HOST")
 
-    conn = BlitzGateway(username, password, host=host)
-    conn.connect()
-    if not conn.isConnected():
-        raise RuntimeError(
-            f"Download worker failed to connect to OMERO at {host}"
-        )
+        conn = BlitzGateway(username, password, host=host)
+        conn.connect()
+        if not conn.isConnected():
+            raise RuntimeError(
+                f"Download worker failed to connect to OMERO at {host}"
+            )
+        conn.c.enableKeepAlive(60)
+
+    profiling = logger.isEnabledFor(logging.DEBUG)
 
     try:
-        conn.c.enableKeepAlive(60)
+        last_image_id: int | None = None
+        last_store: Any = None
+        last_dims: tuple[int, int, int, int, np.dtype[Any]] | None = None
+
+        # Accumulators for per-phase timing (only when DEBUG logging)
+        t_setup = 0.0
+        t_download = 0.0
+        t_numpy = 0.0
+        t_flatfield = 0.0
+        t_cache_write = 0.0
+        n_items = 0
+
         for item in batch:
+            if stop_event is not None and stop_event.is_set():
+                logger.info("Download worker stopping: cache budget reached")
+                break
+
             image_id = item["image_id"]
             timepoint = item["timepoint"]
             apply_flatfield = item.get("apply_flatfield", True)
             key = f"{image_id}:{timepoint}"
 
-            image = _get_omero_image_wrapper(conn, image_id)
-            arr = _get_omero_image_timepoint(image, timepoint)
+            # Keep the RawPixelsStore open across timepoints of the
+            # same image — setPixelsId is itself an RPC we only pay once.
+            if image_id != last_image_id:
+                t0 = time.perf_counter() if profiling else 0.0
+                if last_store is not None:
+                    last_store.close()
+                    last_store = None
+                wrapper = _get_omero_image_wrapper(conn, image_id)
+                pixels = wrapper.getPrimaryPixels()
+                pixel_type = pixels.getPixelsType().getValue()
+                dt_be = _OMERO_PIXEL_DTYPES.get(pixel_type)
+                if dt_be is None:
+                    raise ValueError(
+                        f"Unsupported OMERO pixel type: {pixel_type}"
+                    )
+                store = conn.c.sf.createRawPixelsStore()
+                store.setPixelsId(pixels.getId(), False)
+                last_store = store
+                last_dims = (
+                    wrapper.getSizeZ(),
+                    wrapper.getSizeC(),
+                    wrapper.getSizeY(),
+                    wrapper.getSizeX(),
+                    dt_be,
+                )
+                last_image_id = image_id
+                if profiling:
+                    t_setup += time.perf_counter() - t0
+
+            assert last_store is not None
+            assert last_dims is not None
+
+            # Single RPC for all Z×C planes instead of one per plane.
+            t0 = time.perf_counter() if profiling else 0.0
+            raw_bytes = last_store.getTimepoint(timepoint)
+            if profiling:
+                t_download += time.perf_counter() - t0
+
+            t0 = time.perf_counter() if profiling else 0.0
+            arr = _parse_raw_timepoint(raw_bytes, *last_dims)
 
             if apply_flatfield and flatfield_masks is not None:
-                # flatfield_masks is ZYXC (T already squeezed by caller).
-                # arr is also ZYXC, so division stays 4-D.
+                if profiling:
+                    t_numpy += time.perf_counter() - t0
+                    t0 = time.perf_counter()
                 arr = arr.astype(np.float32) / flatfield_masks.astype(
                     np.float32
                 )
+                if profiling:
+                    t_flatfield += time.perf_counter() - t0
             else:
                 arr = arr.astype(np.float32)
+                if profiling:
+                    t_numpy += time.perf_counter() - t0
 
-            with _download_lock:
-                _cache[key] = arr
+            t0 = time.perf_counter() if profiling else 0.0
+            _cache[key] = arr
+            if profiling:
+                t_cache_write += time.perf_counter() - t0
 
-            logger.debug("Cached %s (shape %s)", key, arr.shape)
+            # Track bytes and enforce budget
+            if (
+                bytes_downloaded is not None
+                and bytes_lock is not None
+                and stop_event is not None
+                and budget > 0
+            ):
+                with bytes_lock:
+                    bytes_downloaded[0] += arr.nbytes
+                    if bytes_downloaded[0] >= budget:
+                        stop_event.set()
+
+            n_items += 1
 
             if progress_q is not None:
                 progress_q.put(1)
+
+        if profiling and n_items > 0:
+            logger.debug(
+                "Batch timing (%d items): "
+                "setup=%.2fs download=%.2fs numpy=%.2fs "
+                "flatfield=%.2fs cache_write=%.2fs | "
+                "per-image: dl=%.0fms np=%.0fms ff=%.0fms wr=%.0fms",
+                n_items,
+                t_setup,
+                t_download,
+                t_numpy,
+                t_flatfield,
+                t_cache_write,
+                t_download / n_items * 1000,
+                t_numpy / n_items * 1000,
+                t_flatfield / n_items * 1000,
+                t_cache_write / n_items * 1000,
+            )
     finally:
+        if last_store is not None:
+            with contextlib.suppress(Exception):
+                last_store.close()
         conn.close(hard=True)
 
 
@@ -1134,12 +1379,13 @@ def load_from_cache(
             else:
                 image_arrays.append(np.stack(timepoint_arrays, axis=0))
 
-        # Get labels for this well
+        # Get labels for this well (handles old int and new dict format)
         if label_map and well_pos in label_map:
-            well_label_ids = label_map[well_pos]
-            for _, idx in enumerate(image_index):
-                if idx < len(well_label_ids):
-                    label_id = well_label_ids[idx]
+            well_label_entries = label_map[well_pos]
+            for idx in image_index:
+                if idx < len(well_label_entries):
+                    entry = _normalize_label_entry(well_label_entries[idx])
+                    label_id = entry["label_id"]
                     label_arr = _cache.get(f"{label_id}:0")
                     if label_arr is not None:
                         label_arrays.append(label_arr.squeeze())
