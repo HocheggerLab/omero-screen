@@ -15,6 +15,7 @@ import os
 import queue
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from typing import Any
 
 import numpy as np
@@ -23,7 +24,7 @@ import omero
 import polars as pl
 from omero.gateway import BlitzGateway, MapAnnotationWrapper
 from omero.rtypes import unwrap
-from omero_screen.config import get_logger
+from omero_screen.config import get_logger, getenv_as_int
 
 from omero_screen_napari.omero_image import (
     _cache,
@@ -68,6 +69,95 @@ def get_all_cached_plates() -> list[tuple[int, str]]:
         logger.debug("Error scanning cache keys", exc_info=True)
     plates.sort(key=lambda x: x[0], reverse=True)
     return plates
+
+
+def get_plate_history() -> dict[int, dict[str, str]]:
+    """Return persistent plate history from the cache.
+
+    History survives cache eviction — evicted plates appear with status
+    ``"removed"`` so the user can re-cache them later.
+
+    On the first call after an upgrade, existing ``plate:*:meta`` keys are
+    migrated into the history with status ``"cached"``.
+
+    Returns:
+        Dict mapping plate_id -> {"plate_name", "status", "last_cached"}.
+    """
+    history: dict[int, dict[str, str]] = _cache.get("plate_history") or {}
+
+    # Migration: populate history from existing plate:*:meta keys
+    migrated = False
+    try:
+        for key in _cache.iterkeys():
+            if not isinstance(key, str):
+                continue
+            if not key.startswith("plate:") or not key.endswith(":meta"):
+                continue
+            try:
+                plate_id = int(key.split(":")[1])
+            except (ValueError, IndexError):
+                continue
+            if plate_id in history:
+                continue
+            meta = _cache.get(key)
+            if not isinstance(meta, dict):
+                continue
+            history[plate_id] = {
+                "plate_name": meta.get("plate_name", str(plate_id)),
+                "status": "cached",
+                "last_cached": str(date.today()),
+            }
+            migrated = True
+    except Exception:
+        logger.debug("Error during plate history migration", exc_info=True)
+
+    if migrated:
+        _cache["plate_history"] = history
+
+    return history
+
+
+def _update_plate_history(plate_id: int, plate_name: str, status: str) -> None:
+    """Create or update a plate's history entry.
+
+    Args:
+        plate_id: OMERO plate ID.
+        plate_name: Human-readable plate name.
+        status: ``"cached"`` or ``"removed"``.
+    """
+    history: dict[int, dict[str, str]] = _cache.get("plate_history") or {}
+    existing = history.get(plate_id, {})
+
+    entry: dict[str, str] = {
+        "plate_name": plate_name,
+        "status": status,
+    }
+
+    if status == "cached":
+        entry["last_cached"] = str(date.today())
+    else:
+        # Preserve the previous last_cached date
+        entry["last_cached"] = existing.get("last_cached", str(date.today()))
+
+    history[plate_id] = entry
+    _cache["plate_history"] = history
+
+
+def remove_plate_from_history(plate_id: int) -> None:
+    """Forget a plate entirely — remove from history and delete cached data.
+
+    Args:
+        plate_id: OMERO plate ID.
+    """
+    # Delete cached data if present
+    if is_plate_cached(plate_id):
+        delete_plate_from_cache(plate_id)
+
+    history: dict[int, dict[str, str]] = _cache.get("plate_history") or {}
+    if plate_id in history:
+        del history[plate_id]
+        _cache["plate_history"] = history
+        logger.info("Removed plate %d from history", plate_id)
 
 
 def get_well_cache_status(plate_id: int) -> dict[str, bool]:
@@ -145,6 +235,193 @@ def get_cached_label_map(plate_id: int) -> dict[str, list[int]] | None:
     return _cache.get(f"plate:{plate_id}:labels")  # type: ignore[no-any-return]
 
 
+def delete_plate_from_cache(plate_id: int) -> int:
+    """Delete all cached data for a plate (metadata, images, labels).
+
+    Removes the three metadata keys plus every image and label key
+    referenced by the plate's well map and label map.  The plate is
+    preserved in the persistent history with status ``"removed"``.
+
+    Args:
+        plate_id: OMERO plate ID.
+
+    Returns:
+        Number of keys deleted.
+    """
+    deleted = 0
+    keys_to_delete: list[str] = []
+
+    # Read plate name before deleting metadata
+    meta = _cache.get(f"plate:{plate_id}:meta")
+    plate_name = (
+        meta.get("plate_name", str(plate_id))
+        if isinstance(meta, dict)
+        else str(plate_id)
+    )
+
+    # Enumerate image keys from wells
+    wells = _cache.get(f"plate:{plate_id}:wells")
+    if isinstance(wells, dict):
+        for well_info in wells.values():
+            for img_info in well_info.get("images", []):
+                image_id = img_info["image_id"]
+                size_t = img_info.get("size_t", 1)
+                for t in range(size_t):
+                    keys_to_delete.append(f"{image_id}:{t}")
+
+    # Enumerate label keys from label map
+    label_map = _cache.get(f"plate:{plate_id}:labels")
+    if isinstance(label_map, dict):
+        for label_ids in label_map.values():
+            for label_id in label_ids:
+                keys_to_delete.append(f"{label_id}:0")
+
+    # Metadata keys
+    meta_keys = [
+        f"plate:{plate_id}:meta",
+        f"plate:{plate_id}:wells",
+        f"plate:{plate_id}:labels",
+    ]
+    keys_to_delete.extend(meta_keys)
+
+    with _download_lock:
+        for key in keys_to_delete:
+            if _cache.pop(key, None) is not None:  # type: ignore[arg-type]
+                deleted += 1
+
+    # Preserve the plate in history as "removed"
+    _update_plate_history(plate_id, plate_name, "removed")
+
+    logger.info("Deleted %d keys for plate %d", deleted, plate_id)
+    return deleted
+
+
+def _estimate_plate_bytes(wells: dict[str, dict[str, Any]]) -> int:
+    """Estimate total bytes needed to cache a plate's images.
+
+    Counts the total number of image x timepoint slots and multiplies
+    by a per-image byte estimate (configurable via env var).
+
+    Args:
+        wells: Well map dict from ``_fetch_well_map()``.
+
+    Returns:
+        Estimated bytes.
+    """
+    per_image = getenv_as_int("OMERO_SCREEN_IMAGE_SIZE_ESTIMATE", 20 * 2**20)
+    total_slots = 0
+    for well_info in wells.values():
+        for img_info in well_info.get("images", []):
+            total_slots += img_info.get("size_t", 1)
+    return total_slots * per_image
+
+
+def ensure_cache_space(
+    needed_bytes: int, exclude_plate_ids: set[int] | None = None
+) -> list[int]:
+    """Evict whole plates (oldest first) until enough space is available.
+
+    Args:
+        needed_bytes: Bytes to free up.
+        exclude_plate_ids: Plate IDs to skip (e.g. the plate being cached).
+
+    Returns:
+        List of plate IDs that were evicted.
+    """
+    if _cache.size_limit <= 0:
+        return []
+
+    exclude = exclude_plate_ids or set()
+    evicted: list[int] = []
+
+    if _cache.volume() + needed_bytes <= _cache.size_limit:
+        return []
+
+    # Get plates sorted ascending by plate_id (oldest/smallest first)
+    candidates = get_all_cached_plates()
+    candidates.reverse()  # was desc, now asc
+
+    for plate_id, _name in candidates:
+        if plate_id in exclude:
+            continue
+        delete_plate_from_cache(plate_id)
+        evicted.append(plate_id)
+        if _cache.volume() + needed_bytes <= _cache.size_limit:
+            break
+
+    if _cache.volume() + needed_bytes > _cache.size_limit:
+        logger.warning(
+            "Cache still needs %d bytes after evicting %d plate(s). "
+            "volume=%d, limit=%d",
+            needed_bytes,
+            len(evicted),
+            _cache.volume(),
+            _cache.size_limit,
+        )
+
+    return evicted
+
+
+def _plate_image_completeness(plate_id: int) -> float:
+    """Compute fraction of expected images actually present in cache.
+
+    Args:
+        plate_id: OMERO plate ID.
+
+    Returns:
+        Float between 0.0 and 1.0, or 0.0 if wells data is missing.
+    """
+    wells = _cache.get(f"plate:{plate_id}:wells")
+    if not isinstance(wells, dict) or not wells:
+        return 0.0
+
+    total = 0
+    present = 0
+    for well_info in wells.values():
+        for img_info in well_info.get("images", []):
+            image_id = img_info["image_id"]
+            size_t = img_info.get("size_t", 1)
+            for t in range(size_t):
+                total += 1
+                if f"{image_id}:{t}" in _cache:
+                    present += 1
+
+    return present / total if total > 0 else 0.0
+
+
+def clean_orphaned_plates(
+    exclude_plate_ids: set[int] | None = None,
+) -> list[int]:
+    """Remove plates with less than 50% image completeness.
+
+    Useful for cleaning up partially cached plates that were
+    interrupted or corrupted by eviction.
+
+    Args:
+        exclude_plate_ids: Plate IDs to skip (e.g. plates being downloaded).
+
+    Returns:
+        List of cleaned plate IDs.
+    """
+    exclude = exclude_plate_ids or set()
+    cleaned: list[int] = []
+
+    for plate_id, _name in get_all_cached_plates():
+        if plate_id in exclude:
+            continue
+        completeness = _plate_image_completeness(plate_id)
+        if completeness < 0.5:
+            logger.info(
+                "Cleaning orphaned plate %d (%.0f%% complete)",
+                plate_id,
+                completeness * 100,
+            )
+            delete_plate_from_cache(plate_id)
+            cleaned.append(plate_id)
+
+    return cleaned
+
+
 def cache_plate(
     plate_id: int, conn: BlitzGateway, max_workers: int = 3
 ) -> Generator[tuple[int, int], None, None]:
@@ -166,10 +443,21 @@ def cache_plate(
     meta = _fetch_plate_metadata(conn, plate_id)
     _cache[f"plate:{plate_id}:meta"] = meta
 
+    # Record in persistent history
+    _update_plate_history(plate_id, meta["plate_name"], "cached")
+
     # Step 2: Fetch well map (all wells with images and stage positions)
     logger.info("Caching plate %d: fetching well data", plate_id)
     wells = _fetch_well_map(conn, plate_id)
     _cache[f"plate:{plate_id}:wells"] = wells
+
+    # Proactively evict old plates to make room for this one
+    estimated_bytes = _estimate_plate_bytes(wells)
+    evicted = ensure_cache_space(estimated_bytes, exclude_plate_ids={plate_id})
+    if evicted:
+        logger.info(
+            "Evicted plates %s to make room for plate %d", evicted, plate_id
+        )
 
     # Step 3: Fetch flatfield mask into memory (NOT cached)
     logger.info("Caching plate %d: fetching flatfield mask", plate_id)

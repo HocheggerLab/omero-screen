@@ -17,28 +17,32 @@ from napari.utils import progress as napari_progress
 from napari.viewer import Viewer
 from omero.gateway import BlitzGateway
 from omero_screen.config import get_logger
+from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QMessageBox,
     QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 from vispy.color import Colormap
 
 from omero_screen_napari.omero_data_singleton import omero_data
+from omero_screen_napari.omero_image import _cache
 from omero_screen_napari.plate_cache import (
     cache_plate as cache_plate_full,
 )
 from omero_screen_napari.plate_cache import (
-    get_all_cached_plates,
+    clean_orphaned_plates,
+    delete_plate_from_cache,
+    get_plate_history,
+    get_well_cache_status,
     is_plate_cached,
     is_plate_fully_cached,
     load_from_cache,
+    remove_plate_from_history,
 )
 from omero_screen_napari.position_stitching import (
     has_valid_positions,
@@ -86,14 +90,16 @@ class MetadataWidget(QWidget):  # type: ignore
         self.setLayout(self._layout)
 
 
-class CachedPlatesTable(QWidget):  # type: ignore[misc]
-    """Compact table showing plates available in the local cache.
+class CachedPlatesSelector(QWidget):  # type: ignore[misc]
+    """Compact dropdown showing plates from persistent history.
 
-    Double-click a row to populate the plate_id field in welldata_widget.
+    Includes cached plates (with images in the local cache) and removed
+    plates (previously cached, now evicted or deleted).  Users can select
+    a plate to load, re-cache a removed plate, or forget it entirely.
 
     Args:
         on_plate_selected: Callback receiving the plate_id as string.
-        on_resume_cache: Callback receiving the plate_id as int to resume caching.
+        on_resume_cache: Callback receiving the plate_id as int to start/resume caching.
     """
 
     def __init__(
@@ -109,78 +115,201 @@ class CachedPlatesTable(QWidget):  # type: ignore[misc]
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        header_row = QHBoxLayout()
-        header_row.addWidget(QLabel("<b>Cached Plates</b>"))
-        self._resume_btn = QPushButton("Resume")
-        self._resume_btn.setFixedWidth(60)
-        self._resume_btn.setToolTip("Resume caching for the selected plate")
-        self._resume_btn.clicked.connect(self._on_resume_clicked)
-        self._resume_btn.setEnabled(False)
-        header_row.addWidget(self._resume_btn)
+        # Row 1: cache size label
+        self._cache_size_label = QLabel()
+        layout.addWidget(self._cache_size_label)
+
+        # Row 2: combo + buttons
+        combo_row = QHBoxLayout()
+        self._combo = QComboBox()
+        self._combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self._combo.setMinimumWidth(200)
+        self._combo.currentIndexChanged.connect(self._on_index_changed)
+        self._combo.activated.connect(self._on_activated)
+        combo_row.addWidget(self._combo, stretch=1)
+
+        self._cache_btn = QPushButton("Cache")
+        self._cache_btn.setFixedWidth(60)
+        self._cache_btn.setToolTip("Download plate data to local cache")
+        self._cache_btn.clicked.connect(self._on_cache_clicked)
+        self._cache_btn.setEnabled(False)
+        combo_row.addWidget(self._cache_btn)
+
+        self._delete_btn = QPushButton("Delete")
+        self._delete_btn.setFixedWidth(60)
+        self._delete_btn.setToolTip(
+            "Delete cached data, or forget a removed plate"
+        )
+        self._delete_btn.clicked.connect(self._on_delete_clicked)
+        self._delete_btn.setEnabled(False)
+        combo_row.addWidget(self._delete_btn)
+
         refresh_btn = QPushButton("Refresh")
         refresh_btn.setFixedWidth(60)
         refresh_btn.clicked.connect(self.refresh)
-        header_row.addWidget(refresh_btn)
-        layout.addLayout(header_row)
+        combo_row.addWidget(refresh_btn)
+        layout.addLayout(combo_row)
 
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Plate ID", "Name", "Status"])
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.setMaximumHeight(120)
-        self.table.verticalHeader().setVisible(False)
-        header = self.table.horizontalHeader()
-        if header:
-            header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-            header.setSectionResizeMode(1, QHeaderView.Stretch)
-            header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.table.cellDoubleClicked.connect(self._on_double_click)
-        self.table.itemSelectionChanged.connect(self._on_selection_changed)
-        layout.addWidget(self.table)
+        # Row 3: detail label
+        self._detail_label = QLabel()
+        layout.addWidget(self._detail_label)
 
         self.refresh()
 
     def refresh(self) -> None:
-        """Re-scan the cache and repopulate the table."""
-        plates = get_all_cached_plates()
-        self.table.setSortingEnabled(False)
-        self.table.setRowCount(len(plates))
-        for row, (plate_id, plate_name) in enumerate(plates):
-            self.table.setItem(row, 0, QTableWidgetItem(str(plate_id)))
-            self.table.setItem(row, 1, QTableWidgetItem(plate_name))
-            fully = is_plate_fully_cached(plate_id)
-            status_item = QTableWidgetItem("Cached" if fully else "Partial")
-            self.table.setItem(row, 2, status_item)
-        self.table.setSortingEnabled(True)
-        self._on_selection_changed()
+        """Clean orphaned plates, rebuild the combo from plate history."""
+        # Clean up plates with <50% completeness (skip active download)
+        exclude: set[int] = set()
+        if _active_cache_plate_id is not None:
+            exclude.add(_active_cache_plate_id)
+        cleaned = clean_orphaned_plates(exclude_plate_ids=exclude)
+        if cleaned:
+            logger.info("Cleaned orphaned plates during refresh: %s", cleaned)
 
-    def _on_selection_changed(self) -> None:
-        """Enable Resume button only when a partial plate is selected."""
-        row = self.table.currentRow()
-        if row < 0:
-            self._resume_btn.setEnabled(False)
-            return
-        status_item = self.table.item(row, 2)
-        self._resume_btn.setEnabled(
-            status_item is not None and status_item.text() == "Partial"
+        # Update cache size label
+        volume_gb = _cache.volume() / 2**30
+        limit_gb = _cache.size_limit / 2**30
+        self._cache_size_label.setText(
+            f"Cache: {volume_gb:.1f} / {limit_gb:.1f} GB"
         )
 
-    def _on_resume_clicked(self) -> None:
-        """Resume caching for the selected partial plate."""
-        row = self.table.currentRow()
-        if row < 0 or self._on_resume_cache is None:
-            return
-        item = self.table.item(row, 0)
-        if item:
-            self._on_resume_cache(int(item.text()))
+        # Get history and determine actual status per plate
+        history = get_plate_history()
+        items: list[tuple[int, str, str]] = []  # (plate_id, name, status)
 
-    def _on_double_click(self, row: int, _column: int) -> None:
-        """Populate the plate_id field on double-click."""
-        if self._on_plate_selected is None:
+        for plate_id, info in history.items():
+            name = info.get("plate_name", str(plate_id))
+            if is_plate_cached(plate_id):
+                status = (
+                    "Cached" if is_plate_fully_cached(plate_id) else "Partial"
+                )
+            else:
+                status = "Removed"
+            items.append((plate_id, name, status))
+
+        # Sort: cached/partial first (by plate_id desc), then removed (by plate_id desc)
+        cached_items = sorted(
+            [i for i in items if i[2] != "Removed"],
+            key=lambda x: x[0],
+            reverse=True,
+        )
+        removed_items = sorted(
+            [i for i in items if i[2] == "Removed"],
+            key=lambda x: x[0],
+            reverse=True,
+        )
+        sorted_items = cached_items + removed_items
+
+        # Block signals to avoid spurious callbacks during repopulation
+        self._combo.blockSignals(True)
+        prev_plate_id = self._selected_plate_id()
+        self._combo.clear()
+        for plate_id, name, status in sorted_items:
+            display_text = f"{plate_id} - {name} [{status}]"
+            self._combo.addItem(display_text, userData=plate_id)
+
+        # Restore previous selection if still present
+        if prev_plate_id is not None:
+            for i in range(self._combo.count()):
+                if (
+                    self._combo.itemData(i, Qt.ItemDataRole.UserRole)
+                    == prev_plate_id
+                ):
+                    self._combo.setCurrentIndex(i)
+                    break
+
+        self._combo.blockSignals(False)
+        self._update_detail()
+
+    def _selected_plate_id(self) -> int | None:
+        """Return the plate_id of the currently selected combo item."""
+        idx = self._combo.currentIndex()
+        if idx < 0:
+            return None
+        return self._combo.itemData(idx, Qt.ItemDataRole.UserRole)  # type: ignore[no-any-return]
+
+    def _on_index_changed(self, _index: int) -> None:
+        """Update detail label and button states when selection changes."""
+        self._update_detail()
+
+    def _on_activated(self, _index: int) -> None:
+        """Populate the plate_id field when user activates an item."""
+        plate_id = self._selected_plate_id()
+        if plate_id is not None and self._on_plate_selected is not None:
+            self._on_plate_selected(str(plate_id))
+
+    def _update_detail(self) -> None:
+        """Refresh the detail label and button states for current selection."""
+        plate_id = self._selected_plate_id()
+        if plate_id is None:
+            self._detail_label.setText("")
+            self._cache_btn.setEnabled(False)
+            self._delete_btn.setEnabled(False)
             return
-        item = self.table.item(row, 0)
-        if item:
-            self._on_plate_selected(item.text())
+
+        self._delete_btn.setEnabled(True)
+
+        if is_plate_cached(plate_id):
+            fully = is_plate_fully_cached(plate_id)
+            status_text = "Cached" if fully else "Partial"
+            self._cache_btn.setEnabled(not fully)
+
+            # Well completeness summary
+            well_status = get_well_cache_status(plate_id)
+            if well_status:
+                complete = sum(1 for v in well_status.values() if v)
+                total = len(well_status)
+                well_info = f" | {complete}/{total} wells complete"
+            else:
+                well_info = ""
+        else:
+            status_text = "Removed"
+            well_info = ""
+            self._cache_btn.setEnabled(True)
+
+        # Get last_cached from history
+        history = get_plate_history()
+        info = history.get(plate_id, {})
+        last_cached = info.get("last_cached", "unknown")
+
+        self._detail_label.setText(
+            f"Status: {status_text} | Last cached: {last_cached}{well_info}"
+        )
+
+    def _on_cache_clicked(self) -> None:
+        """Start or resume caching for the selected plate."""
+        plate_id = self._selected_plate_id()
+        if plate_id is not None and self._on_resume_cache is not None:
+            self._on_resume_cache(plate_id)
+
+    def _on_delete_clicked(self) -> None:
+        """Delete cached data or forget a removed plate."""
+        plate_id = self._selected_plate_id()
+        if plate_id is None:
+            return
+
+        if is_plate_cached(plate_id):
+            reply = QMessageBox.question(
+                self,
+                "Delete Cached Plate",
+                f"Delete all cached data for plate {plate_id}?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply == QMessageBox.Yes:
+                delete_plate_from_cache(plate_id)
+                self.refresh()
+        else:
+            reply = QMessageBox.question(
+                self,
+                "Forget Plate",
+                f"Remove plate {plate_id} from history?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply == QMessageBox.Yes:
+                remove_plate_from_history(plate_id)
+                self.refresh()
 
 
 # Mock event object with the current_step attribute
@@ -198,12 +327,12 @@ _stitch_widget_ref: Any = None
 # Combine Welldata and Stiched data widgets
 
 
-_cached_plates_table_ref: CachedPlatesTable | None = None
+_cached_plates_selector_ref: CachedPlatesSelector | None = None
 
 
 def well_widget_combined() -> QWidget:  # type: ignore
     """Combine the well and stitched data widgets with a Plate Info button."""
-    global _stitch_widget_ref, _cached_plates_table_ref
+    global _stitch_widget_ref, _cached_plates_selector_ref
     from omero_screen_napari._plate_info_dialog import PlateInfoDialog
 
     welldata_instance = welldata_widget()
@@ -216,19 +345,19 @@ def well_widget_combined() -> QWidget:  # type: ignore
     native_layout = welldata_instance.native.layout()
     native_layout.insertWidget(2, plate_info_btn)
 
-    # Cached plates table — double-click populates plate_id field,
-    # Resume button restarts caching for partially cached plates
-    cached_table = CachedPlatesTable(
+    # Cached plates selector — selecting a plate populates plate_id field,
+    # Cache button starts/resumes caching
+    cached_selector = CachedPlatesSelector(
         on_plate_selected=lambda pid: setattr(
             welldata_instance.plate_id, "value", pid
         ),
         on_resume_cache=start_cache_worker,
     )
-    _cached_plates_table_ref = cached_table
+    _cached_plates_selector_ref = cached_selector
 
     widget = QWidget()
     layout = QVBoxLayout(widget)
-    layout.addWidget(cached_table)
+    layout.addWidget(cached_selector)
     layout.addWidget(welldata_instance.native)
     layout.addWidget(stitched_instance.native)
 
@@ -468,8 +597,6 @@ def welldata_widget(
         if "ValueError" not in str(
             type(e)
         ):  # Avoid double message for the common ValueError
-            from qtpy.QtWidgets import QMessageBox
-
             msg = QMessageBox()
             msg.setIcon(QMessageBox.Critical)
             msg.setText(f"An unexpected error occurred: {e}")
@@ -544,8 +671,8 @@ def start_cache_worker(plate_id: int) -> None:
         if pbr:
             pbr[0].set_description(f"Plate {plate_id} cached")
             pbr[0].close()
-        if _cached_plates_table_ref is not None:
-            _cached_plates_table_ref.refresh()
+        if _cached_plates_selector_ref is not None:
+            _cached_plates_selector_ref.refresh()
         logger.info("Cache worker finished for plate %d", plate_id)
 
     def on_error(exc: BaseException) -> None:

@@ -96,6 +96,7 @@ if __path is None:
 _cache = Cache(
     __path,
     disk=NumpyDisk,
+    eviction_policy="none",
     size_limit=getenv_as_int(
         "OMERO_SCREEN_IMAGE_CACHE_SIZE_LIMIT", 20 * 2**30
     ),
