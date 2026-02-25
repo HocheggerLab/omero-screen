@@ -96,6 +96,7 @@ docs = [ # installed only when we build docs
   "sphinx-autodoc-typehints",
   "sphinxcontrib-napoleon",
   "sphinx-argparse",
+  "sphinxcontrib-video",
 ]
 
 # ===========================

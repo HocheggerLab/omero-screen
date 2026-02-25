@@ -9,6 +9,7 @@ import pandas as pd
 sys.path.insert(0, os.path.abspath('../src'))
 sys.path.insert(0, os.path.abspath('../packages/omero-screen-plots/src'))
 sys.path.insert(0, os.path.abspath('../packages/cellview/src'))
+sys.path.insert(0, os.path.abspath('../packages/omero-screen-napari/src'))
 # Add extensions directory from omero-screen-plots
 sys.path.insert(0, os.path.abspath('../packages/omero-screen-plots/docs'))
 
@@ -87,6 +88,7 @@ extensions = [
     'myst_parser',
     'matplotlib.sphinxext.plot_directive',
     '_ext.generate_plots',  # Auto-generate example plots
+    'sphinxcontrib.video',
 ]
 
 # Add support for both RST and Markdown
