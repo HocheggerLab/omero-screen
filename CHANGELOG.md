@@ -1,3 +1,9 @@
+## omero-screen-v0.3.3 (2026-02-25)
+
+### Fix
+
+- **omero-screen-napari**: add Blosc compression to plate cache (~2× size reduction)
+
 ## omero-screen-v0.3.2 (2026-02-23)
 
 ### Fix
