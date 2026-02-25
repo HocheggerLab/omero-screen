@@ -45,7 +45,7 @@ logger = get_logger(__name__)
 
 # Bump this when the on-disk format changes (e.g. dtype, compression).
 # cache_plate() will delete and re-download plates cached with an older version.
-_CACHE_VERSION = 2  # v1: float32, v2: uint16
+_CACHE_VERSION = 3  # v1: float32, v2: uint16, v3: blosc-compressed
 
 
 # --------------- Public API ---------------
