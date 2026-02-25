@@ -8,7 +8,7 @@ Cache key structure (stored in the shared diskcache from omero_image.py):
     plate:{plate_id}:meta   -> dict with channel_data, pixel_size, intensities, plate_name
     plate:{plate_id}:wells  -> dict mapping well_pos -> {well_id, metadata, images: [...]}
     plate:{plate_id}:labels -> dict mapping well_pos -> [{"label_id", "size_t"}, ...]
-    {image_id}:{timepoint}  -> flatfield-corrected float32 ZYXC numpy array
+    {image_id}:{timepoint}  -> flatfield-corrected uint16 ZYXC numpy array
 """
 
 from __future__ import annotations
@@ -42,6 +42,10 @@ from omero_screen_napari.omero_image import (
 )
 
 logger = get_logger(__name__)
+
+# Bump this when the on-disk format changes (e.g. dtype, compression).
+# cache_plate() will delete and re-download plates cached with an older version.
+_CACHE_VERSION = 2  # v1: float32, v2: uint16
 
 
 # --------------- Public API ---------------
@@ -239,7 +243,7 @@ def get_cached_well_data(plate_id: int) -> dict[str, Any] | None:
 
 def get_cached_label_map(
     plate_id: int,
-) -> dict[str, list[dict[str, int] | int]] | None:
+) -> dict[str, list[dict[str, int | None] | int]] | None:
     """Return cached label map or None.
 
     Returns new-format entries ``{"label_id": int, "size_t": int}`` or
@@ -290,7 +294,7 @@ def delete_plate_from_cache(plate_id: int) -> int:
             for label_entry in label_entries:
                 entry = _normalize_label_entry(label_entry)
                 label_id = entry["label_id"]
-                for t in range(entry["size_t"]):
+                for t in range(entry.get("size_t") or 1):
                     keys_to_delete.append(f"{label_id}:{t}")
 
     # Metadata keys
@@ -313,24 +317,66 @@ def delete_plate_from_cache(plate_id: int) -> int:
     return deleted
 
 
-def _estimate_plate_bytes(wells: dict[str, dict[str, Any]]) -> int:
-    """Estimate total bytes needed to cache a plate's images.
+def _estimate_plate_bytes(
+    wells: dict[str, dict[str, Any]],
+    label_map: dict[str, list[dict[str, int | None]]] | None = None,
+) -> int:
+    """Estimate total bytes needed to cache a plate's images and labels.
 
-    Counts the total number of image x timepoint slots and multiplies
-    by a per-image byte estimate (configurable via env var).
+    Uses actual image dimensions (sizeZ, sizeY, sizeX, sizeC) from the
+    well map and label map when available; falls back to a configurable
+    per-image estimate otherwise.
 
     Args:
         wells: Well map dict from ``_fetch_well_map()``.
+        label_map: Label map dict from ``_fetch_label_map()``.
 
     Returns:
         Estimated bytes.
     """
-    per_image = getenv_as_int("OMERO_SCREEN_IMAGE_SIZE_ESTIMATE", 20 * 2**20)
-    total_slots = 0
+    fallback_per_image = getenv_as_int(
+        "OMERO_SCREEN_IMAGE_SIZE_ESTIMATE", 10 * 2**20
+    )
+    total_bytes = 0
+
     for well_info in wells.values():
         for img_info in well_info.get("images", []):
-            total_slots += img_info.get("size_t", 1)
-    return total_slots * per_image
+            total_bytes += _estimate_entry_bytes(img_info, fallback_per_image)
+
+    if label_map:
+        for label_entries in label_map.values():
+            for label_entry in label_entries:
+                entry = _normalize_label_entry(label_entry)
+                total_bytes += _estimate_entry_bytes(entry, fallback_per_image)
+
+    return total_bytes
+
+
+def _estimate_entry_bytes(entry: dict[str, Any], fallback: int) -> int:
+    """Estimate bytes for a single image/label entry.
+
+    Args:
+        entry: Dict with size_t and optionally size_z/c/y/x.
+        fallback: Bytes per timepoint when dimensions are missing.
+
+    Returns:
+        Estimated bytes.
+    """
+    size_t: int = entry.get("size_t", 1)
+    size_z: int | None = entry.get("size_z")
+    size_y: int | None = entry.get("size_y")
+    size_x: int | None = entry.get("size_x")
+    size_c: int | None = entry.get("size_c")
+    if (
+        size_z is not None
+        and size_y is not None
+        and size_x is not None
+        and size_c is not None
+    ):
+        # 2 bytes per pixel (uint16 storage)
+        per_timepoint: int = size_z * size_y * size_x * size_c * 2
+        return size_t * per_timepoint
+    return size_t * fallback
 
 
 def ensure_cache_space(
@@ -455,9 +501,23 @@ def cache_plate(
     Yields:
         Tuple of (images_done, images_total).
     """
+    # Step 0: Check if an old-format cache exists and invalidate it.
+    existing_meta = _cache.get(f"plate:{plate_id}:meta")
+    if isinstance(existing_meta, dict):
+        old_version = existing_meta.get("cache_version", 1)
+        if old_version < _CACHE_VERSION:
+            logger.info(
+                "Plate %d: cache version %d < %d, deleting stale data",
+                plate_id,
+                old_version,
+                _CACHE_VERSION,
+            )
+            delete_plate_from_cache(plate_id)
+
     # Step 1: Fetch and cache plate metadata
     logger.info("Caching plate %d: fetching metadata", plate_id)
     meta = _fetch_plate_metadata(conn, plate_id)
+    meta["cache_version"] = _CACHE_VERSION
     _cache[f"plate:{plate_id}:meta"] = meta
 
     # Record in persistent history
@@ -468,14 +528,6 @@ def cache_plate(
     wells = _fetch_well_map(conn, plate_id)
     _cache[f"plate:{plate_id}:wells"] = wells
 
-    # Proactively evict old plates to make room for this one
-    estimated_bytes = _estimate_plate_bytes(wells)
-    evicted = ensure_cache_space(estimated_bytes, exclude_plate_ids={plate_id})
-    if evicted:
-        logger.info(
-            "Evicted plates %s to make room for plate %d", evicted, plate_id
-        )
-
     # Step 3: Fetch flatfield mask into memory (NOT cached)
     logger.info("Caching plate %d: fetching flatfield mask", plate_id)
     project_id = int(os.getenv("PROJECT_ID", "0"))
@@ -485,6 +537,22 @@ def cache_plate(
     logger.info("Caching plate %d: fetching label map", plate_id)
     label_map = _fetch_label_map(conn, plate_id, project_id)
     _cache[f"plate:{plate_id}:labels"] = label_map
+
+    # Proactively evict old plates to make room for this one.
+    # Done after fetching the label map so the estimate includes labels.
+    estimated_bytes = _estimate_plate_bytes(wells, label_map)
+    logger.info(
+        "Plate %d: estimated size %.1f GB (cache volume %.1f / %.1f GB)",
+        plate_id,
+        estimated_bytes / 2**30,
+        _cache.volume() / 2**30,
+        _cache.size_limit / 2**30,
+    )
+    evicted = ensure_cache_space(estimated_bytes, exclude_plate_ids={plate_id})
+    if evicted:
+        logger.info(
+            "Evicted plates %s to make room for plate %d", evicted, plate_id
+        )
 
     # Squeeze flatfield mask from TZYXC to ZYXC so that division with
     # per-timepoint ZYXC images keeps the array 4-D (not 5-D).
@@ -518,7 +586,7 @@ def cache_plate(
             for label_entry in label_map[well_pos]:
                 entry = _normalize_label_entry(label_entry)
                 label_id = entry["label_id"]
-                for t in range(entry["size_t"]):
+                for t in range(entry.get("size_t") or 1):
                     if f"{label_id}:{t}" not in _cache:
                         group.append(
                             {
@@ -557,15 +625,14 @@ def cache_plate(
     # generator can yield smooth progress to the napari progress bar.
     progress_q: queue.Queue[int] = queue.Queue()
 
-    # Budget enforcement: stop workers when cache is full
-    stop_event = threading.Event()
-    budget = (
-        max(0, _cache.size_limit - _cache.volume())
-        if _cache.size_limit > 0
-        else 0
+    # Pause event for reactive eviction: workers block on this before
+    # each image.  The main loop clears it to pause workers, evicts old
+    # plates, then sets it again to resume.
+    pause_event = threading.Event()
+    pause_event.set()  # not paused initially
+    eviction_headroom = getenv_as_int(
+        "OMERO_SCREEN_CACHE_EVICTION_HEADROOM", 500 * 2**20
     )
-    bytes_downloaded: list[int] = [0]
-    bytes_lock = threading.Lock()
 
     # Pre-create OMERO connections so connection overhead is paid upfront
     # rather than delaying the first download in each worker.
@@ -585,11 +652,8 @@ def cache_plate(
                     batch,
                     flatfield_masks,
                     progress_q,
-                    stop_event,
-                    bytes_downloaded,
-                    bytes_lock,
-                    budget,
-                    worker_conn,
+                    pause_event,
+                    conn=worker_conn,
                 )
                 for batch, worker_conn in zip(
                     batches, worker_conns, strict=False
@@ -606,6 +670,42 @@ def cache_plate(
                     # Check if all workers have finished (error or success)
                     if all(f.done() for f in futures):
                         break
+                    continue
+
+                # Reactive eviction: when cache approaches its limit,
+                # pause workers → evict old plates → resume workers.
+                if _cache.size_limit > 0 and (
+                    _cache.volume() + eviction_headroom >= _cache.size_limit
+                ):
+                    pause_event.clear()
+                    # Brief sleep so in-flight writes complete before we
+                    # measure volume for eviction.
+                    time.sleep(0.2)
+
+                    remaining_frac = (total - done) / total
+                    needed = int(estimated_bytes * remaining_frac)
+                    re_evicted = ensure_cache_space(
+                        max(needed, eviction_headroom),
+                        exclude_plate_ids={plate_id},
+                    )
+                    if re_evicted:
+                        logger.info(
+                            "Reactive eviction for plate %d: "
+                            "freed plates %s (volume now %.1f GB)",
+                            plate_id,
+                            re_evicted,
+                            _cache.volume() / 2**30,
+                        )
+                    else:
+                        logger.warning(
+                            "Plate %d: cache near limit but no plates "
+                            "to evict (volume %.1f / %.1f GB). "
+                            "Continuing anyway.",
+                            plate_id,
+                            _cache.volume() / 2**30,
+                            _cache.size_limit / 2**30,
+                        )
+                    pause_event.set()
 
             # Re-raise the first worker exception, if any
             for f in futures:
@@ -616,6 +716,7 @@ def cache_plate(
                     )
                     raise exc
     finally:
+        pause_event.set()  # unblock any waiting workers on error
         # Clean up any connections not consumed by workers (e.g. on error)
         for wc in worker_conns:
             try:
@@ -844,7 +945,8 @@ def _fetch_well_map(
     params = omero.sys.ParametersI()
     params.addLong("plate_id", plate_id)
     query = """
-        select w.id, w.row, w.column, ws.posX, ws.posY, i.id, pi.sizeT
+        select w.id, w.row, w.column, ws.posX, ws.posY,
+               i.id, pi.sizeT, pi.sizeZ, pi.sizeC, pi.sizeY, pi.sizeX
         from Plate as p
           left join p.wells as w
           left join w.wellSamples as ws
@@ -867,6 +969,10 @@ def _fetch_well_map(
         pos_y = unwrap(row_data[4])
         image_id = unwrap(row_data[5])
         size_t = unwrap(row_data[6])
+        size_z = unwrap(row_data[7])
+        size_c = unwrap(row_data[8])
+        size_y = unwrap(row_data[9])
+        size_x = unwrap(row_data[10])
 
         well_pos = _row_col_to_well_pos(well_row, well_col)
 
@@ -881,6 +987,10 @@ def _fetch_well_map(
             {
                 "image_id": image_id,
                 "size_t": size_t,
+                "size_z": size_z,
+                "size_c": size_c,
+                "size_y": size_y,
+                "size_x": size_x,
                 "index": len(well_map[well_pos]["images"]),
                 "pos_x": _unwrap_length(pos_x),
                 "pos_y": _unwrap_length(pos_y),
@@ -946,18 +1056,20 @@ def _fetch_flatfield_mask(
     )
 
 
-def _normalize_label_entry(entry: dict[str, int] | int) -> dict[str, int]:
+def _normalize_label_entry(
+    entry: dict[str, int | None] | int,
+) -> dict[str, int | None]:
     """Normalize a label map entry to the new dict format.
 
     Old caches store plain ``int`` label IDs; new caches store
-    ``{"label_id": int, "size_t": int}``.  This helper ensures a
+    ``{"label_id": int, "size_t": int, ...}``.  This helper ensures a
     consistent dict format.
 
     Args:
         entry: Either an int (old format) or dict (new format).
 
     Returns:
-        Dict with ``label_id`` and ``size_t`` keys.
+        Dict with ``label_id`` and ``size_t`` keys (plus optional dims).
     """
     if isinstance(entry, int):
         return {"label_id": entry, "size_t": 1}
@@ -968,8 +1080,8 @@ def _fetch_label_map(
     conn: BlitzGateway,
     plate_id: int,
     project_id: int,
-) -> dict[str, list[dict[str, int]]]:
-    """Map well image_ids to their segmentation label image_ids with size_t.
+) -> dict[str, list[dict[str, int | None]]]:
+    """Map well image_ids to their segmentation label image_ids with dimensions.
 
     Args:
         conn: Active OMERO connection.
@@ -977,7 +1089,7 @@ def _fetch_label_map(
         project_id: OMERO project ID.
 
     Returns:
-        Dict mapping well_pos -> [{"label_id": int, "size_t": int}, ...].
+        Dict mapping well_pos -> [{"label_id", "size_t", "size_z", ...}, ...].
     """
     project = conn.getObject("Project", project_id)
     if project is None:
@@ -1005,20 +1117,25 @@ def _fetch_label_map(
     if not label_lookup:
         return {}
 
-    # Query size_t for all label images via HQL
-    label_size_t: dict[int, int] = {}
+    # Query size_t and dimensions for all label images via HQL
+    label_dims: dict[int, dict[str, int]] = {}
     label_ids = list(label_lookup.values())
     query_service = conn.getQueryService()
     params = omero.sys.ParametersI()
     params.addIds(label_ids)
     query = (
-        "select i.id, pi.sizeT from Image i "
-        "join i.pixels pi where i.id in (:ids)"
+        "select i.id, pi.sizeT, pi.sizeZ, pi.sizeC, pi.sizeY, pi.sizeX "
+        "from Image i join i.pixels pi where i.id in (:ids)"
     )
     for row in query_service.projection(query, params, conn.SERVICE_OPTS):
         img_id = unwrap(row[0])
-        size_t = unwrap(row[1])
-        label_size_t[img_id] = size_t if size_t is not None else 1
+        label_dims[img_id] = {
+            "size_t": unwrap(row[1]) or 1,
+            "size_z": unwrap(row[2]),
+            "size_c": unwrap(row[3]),
+            "size_y": unwrap(row[4]),
+            "size_x": unwrap(row[5]),
+        }
 
     # Now get well map to associate labels with wells
     wells = get_cached_well_data(plate_id)
@@ -1026,17 +1143,22 @@ def _fetch_label_map(
         # Well data should already be cached by cache_plate()
         return {}
 
-    label_map: dict[str, list[dict[str, int]]] = {}
+    label_map: dict[str, list[dict[str, int | None]]] = {}
     for well_pos, well_info in wells.items():
-        label_entries: list[dict[str, int]] = []
+        label_entries: list[dict[str, int | None]] = []
         for img_info in well_info["images"]:
             image_id = img_info["image_id"]
             if image_id in label_lookup:
                 label_id = label_lookup[image_id]
+                dims = label_dims.get(label_id, {})
                 label_entries.append(
                     {
                         "label_id": label_id,
-                        "size_t": label_size_t.get(label_id, 1),
+                        "size_t": dims.get("size_t", 1),
+                        "size_z": dims.get("size_z"),
+                        "size_c": dims.get("size_c"),
+                        "size_y": dims.get("size_y"),
+                        "size_x": dims.get("size_x"),
                     }
                 )
         label_map[well_pos] = label_entries
@@ -1113,10 +1235,7 @@ def _download_batch(
     batch: list[dict[str, Any]],
     flatfield_masks: npt.NDArray[Any] | None,
     progress_q: queue.Queue[int] | None = None,
-    stop_event: threading.Event | None = None,
-    bytes_downloaded: list[int] | None = None,
-    bytes_lock: threading.Lock | None = None,
-    budget: int = 0,
+    pause_event: threading.Event | None = None,
     conn: BlitzGateway | None = None,
 ) -> None:
     """Download and optionally flatfield-correct a batch of images.
@@ -1128,15 +1247,16 @@ def _download_batch(
     After every image is stored in the cache, a ``1`` is put on
     *progress_q* so the caller can track per-image progress.
 
+    If *pause_event* is provided, workers block on it before each image.
+    The caller can clear the event to pause workers while running
+    cache eviction, then set it again to resume.
+
     Args:
         batch: List of dicts with image_id, timepoint, and apply_flatfield.
         flatfield_masks: Flatfield correction array (ZYXC), or None.
         progress_q: Optional queue for per-image progress signalling.
-        stop_event: Shared event to signal workers to stop downloading.
-        bytes_downloaded: Shared mutable counter ``[total_bytes]``.
-        bytes_lock: Lock protecting *bytes_downloaded*.
-        budget: Maximum bytes to download before setting *stop_event*.
-            Zero means unlimited.
+        pause_event: Event that workers wait on before each image.
+            Workers block when cleared, resume when set.
         conn: Pre-created OMERO connection. If ``None``, a new one is
             created (slower — connection overhead is paid inside the worker).
     """
@@ -1169,9 +1289,8 @@ def _download_batch(
         n_items = 0
 
         for item in batch:
-            if stop_event is not None and stop_event.is_set():
-                logger.info("Download worker stopping: cache budget reached")
-                break
+            if pause_event is not None:
+                pause_event.wait()
 
             image_id = item["image_id"]
             timepoint = item["timepoint"]
@@ -1223,13 +1342,23 @@ def _download_batch(
                 if profiling:
                     t_numpy += time.perf_counter() - t0
                     t0 = time.perf_counter()
-                arr = arr.astype(np.float32) / flatfield_masks.astype(
+                corrected = arr.astype(np.float32) / flatfield_masks.astype(
                     np.float32
                 )
+                arr = np.clip(corrected, 0, 65535).astype(np.uint16)
                 if profiling:
                     t_flatfield += time.perf_counter() - t0
             else:
-                arr = arr.astype(np.float32)
+                # Labels are integer masks — compact from float64/uint32
+                # to the smallest uint type that fits all values.
+                if arr.dtype.kind == "f" or arr.dtype.itemsize > 2:
+                    max_val = int(arr.max())
+                    if max_val < 2**8:
+                        arr = arr.astype(np.uint8)
+                    elif max_val < 2**16:
+                        arr = arr.astype(np.uint16)
+                    else:
+                        arr = arr.astype(np.uint32)
                 if profiling:
                     t_numpy += time.perf_counter() - t0
 
@@ -1237,18 +1366,6 @@ def _download_batch(
             _cache[key] = arr
             if profiling:
                 t_cache_write += time.perf_counter() - t0
-
-            # Track bytes and enforce budget
-            if (
-                bytes_downloaded is not None
-                and bytes_lock is not None
-                and stop_event is not None
-                and budget > 0
-            ):
-                with bytes_lock:
-                    bytes_downloaded[0] += arr.nbytes
-                    if bytes_downloaded[0] >= budget:
-                        stop_event.set()
 
             n_items += 1
 
@@ -1372,6 +1489,10 @@ def load_from_cache(
                     raise ValueError(
                         f"Image {image_id}:{t} not found in cache"
                     )
+                # Convert to float32 for downstream consumers.
+                # Handles both old float32 caches and new uint16 caches.
+                if arr.dtype != np.float32:
+                    arr = arr.astype(np.float32)
                 timepoint_arrays.append(arr)
 
             if len(timepoint_arrays) == 1:
