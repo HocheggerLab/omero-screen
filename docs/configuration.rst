@@ -51,3 +51,4 @@ Create a ``.env`` file in the root directory with the following variables:
 
     OMERO_SCREEN_IMAGE_CACHE_PATH=/path/to/home/.cache/omero_screen/images
     OMERO_SCREEN_IMAGE_CACHE_SIZE_LIMIT=4294967296
+    OMERO_SCREEN_IMAGE_CACHE_WORKERS=3
