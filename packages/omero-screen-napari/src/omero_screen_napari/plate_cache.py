@@ -213,7 +213,7 @@ def get_well_cache_status(plate_id: int) -> dict[str, bool]:
         if all_cached:
             for label_entry in label_map[well_pos]:
                 entry = _normalize_label_entry(label_entry)
-                label_id = int(entry["label_id"] or 0)
+                label_id = entry["label_id"] or 0
                 for t in range(entry.get("size_t") or 1):
                     if get_key(label_id, t) not in _cache:
                         all_cached = False
@@ -319,7 +319,7 @@ def delete_plate_from_cache(plate_id: int) -> int:
         for label_entries in label_map.values():
             for label_entry in label_entries:
                 entry = _normalize_label_entry(label_entry)
-                label_id = int(entry["label_id"] or 0)
+                label_id = entry["label_id"] or 0
                 for t in range(entry.get("size_t") or 1):
                     keys_to_delete.append(get_key(label_id, t))
 
@@ -605,7 +605,7 @@ def cache_plate(
         if well_pos in label_map:
             for label_entry in label_map[well_pos]:
                 entry = _normalize_label_entry(label_entry)
-                label_id = int(entry["label_id"] or 0)
+                label_id = entry["label_id"] or 0
                 for t in range(entry.get("size_t") or 1):
                     key = get_key(label_id, t)
                     if key not in _cache:
@@ -1506,51 +1506,31 @@ def load_from_cache(
             for idx in image_index:
                 if idx < len(well_label_entries):
                     entry = _normalize_label_entry(well_label_entries[idx])
-                    label_id = int(entry["label_id"] or 0)
-                    # TODO: get all timepoints
-                    label_arr = _cache.get(get_key(label_id, 0))
-                    if label_arr is not None:
-                        # TODO: do not squeeze here. Delay and use same method as image squeeze.
-                        label_arrays.append(label_arr.squeeze())
+                    label_id = entry["label_id"] or 0
+                    size_t = entry.get("size_t") or 1
 
-    if image_arrays:
-        # Log shapes for debugging mismatches
-        shapes = {arr.shape for arr in image_arrays}
-        if len(shapes) > 1:
-            logger.warning("Image arrays have inconsistent shapes: %s", shapes)
-            for i, arr in enumerate(image_arrays):
-                logger.warning("  image_arrays[%d]: shape %s", i, arr.shape)
+                    # Determine timepoint range
+                    t_start = tstart if tstart is not None else 0
+                    t_end = tend if tend is not None else size_t
 
-        # Stack images: result is (N, Z, Y, X, C) for single timepoints
-        stacked = np.stack(image_arrays, axis=0)
+                    timepoint_arrays = []
+                    for t in range(t_start, t_end):
+                        arr = _cache.get(get_key(label_id, t))
+                        if arr is None:
+                            raise ValueError(
+                                f"Label {label_id}:{t} not found in cache"
+                            )
+                        timepoint_arrays.append(arr)
 
-        # Squeeze singleton dimensions (Z typically = 1) but keep N and C
-        # Match the shape convention used by ImageParser._parse_images()
-        shape = stacked.shape
-        squeeze_axes = tuple(
-            i
-            for i in range(1, len(shape) - 2)  # skip N (0) and Y,X,C at end
-            if shape[i] == 1
-        )
-        if squeeze_axes:
-            stacked = np.squeeze(stacked, axis=squeeze_axes)
-        omero_data.images = stacked
-    else:
-        omero_data.images = np.empty((0,))
+                    if len(timepoint_arrays) == 1:
+                        label_arrays.append(timepoint_arrays[0])
+                    else:
+                        label_arrays.append(np.stack(timepoint_arrays, axis=0))
 
     omero_data.image_ids = image_ids
     omero_data.image_positions = positions
-
-    if label_arrays:
-        # Log shapes for debugging mismatches
-        label_shapes = {arr.shape for arr in label_arrays}
-        if len(label_shapes) > 1:
-            logger.warning(
-                "Label arrays have inconsistent shapes: %s", label_shapes
-            )
-        omero_data.labels = np.stack(label_arrays, axis=0)
-    else:
-        omero_data.labels = np.empty((0,))
+    omero_data.images = _squeeze_stack(image_arrays, "images")
+    omero_data.labels = _squeeze_stack(label_arrays, "labels")
 
     logger.info(
         "Loaded plate %d from cache: %d images, %d labels",
@@ -1558,6 +1538,47 @@ def load_from_cache(
         len(image_arrays),
         len(label_arrays),
     )
+
+
+def _squeeze_stack(
+    arrays: list[npt.NDArray[Any]], name: str
+) -> npt.NDArray[Any]:
+    """Stack the arrays and remove unused dimensions from the images.
+
+    Returns an empty stack if the list is empty.
+
+    Args:
+        arrays: List of images (TZYXC or ZYXC).
+
+    Returns:
+        Image stack.
+    """
+    if len(arrays) == 0:
+        return np.empty((0,))
+
+    # Log shapes for debugging mismatches
+    shapes = {arr.shape for arr in arrays}
+    if len(shapes) > 1:
+        logger.warning("%s arrays have inconsistent shapes: %s", name, shapes)
+        for i, arr in enumerate(arrays):
+            logger.warning("  %s arrays[%d]: shape %s", name, i, arr.shape)
+        # Not possible to stack the images
+        raise ValueError(f"Cached {name} arrays have inconsistent shapes")
+
+    # Stack images: result is (N,[ T,] Z, Y, X, C)
+    stacked = np.stack(arrays, axis=0)
+
+    # Squeeze singleton dimensions (Z typically = 1) but keep N and C
+    # Match the shape convention used by ImageParser._parse_images()
+    shape = stacked.shape
+    squeeze_axes = tuple(
+        i
+        for i in range(1, len(shape) - 2)  # skip N (0) and Y,X,C at end
+        if shape[i] == 1
+    )
+    if squeeze_axes:
+        stacked = np.squeeze(stacked, axis=squeeze_axes)
+    return stacked
 
 
 def _parse_image_index(
