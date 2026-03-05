@@ -62,11 +62,10 @@ def _parse_raw_timepoint(
     arr = np.frombuffer(raw_bytes, dtype=dt_be).reshape(
         size_c, size_z, size_y, size_x
     )
-    # Transpose CZYX → ZYXC and produce a contiguous native-endian copy.
-    # order="C" is required because np.array defaults to order="K" which
-    # would preserve the transposed view's non-contiguous memory layout.
+    # Transpose CZYX → ZYXC and produce a native-endian copy.
+    # Preserve the transposed view to allow channel slicing to a contiguous array.
     return np.array(
-        arr.transpose(1, 2, 3, 0), dtype=dt_be.newbyteorder("="), order="C"
+        arr.transpose(1, 2, 3, 0), dtype=dt_be.newbyteorder("="), order="K"
     )
 
 
