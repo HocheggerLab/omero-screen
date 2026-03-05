@@ -72,6 +72,7 @@ DATABASE_PATH=~/cellview_date/cellview.db
 # Image cache options (optional)
 OMERO_SCREEN_IMAGE_CACHE_PATH=/path/to/home/.cache/omero_screen/images
 OMERO_SCREEN_IMAGE_CACHE_SIZE_LIMIT=4294967296
+OMERO_SCREEN_IMAGE_CACHE_WORKERS=3
 ```
 
 

@@ -702,7 +702,10 @@ def start_cache_worker(plate_id: int) -> None:
             pbr[0].update(delta)
         _prev_done = done
 
-    worker = create_worker(cache_plate_full, plate_id, conn, max_workers=3)
+    max_workers = int(os.getenv("OMERO_SCREEN_IMAGE_CACHE_WORKERS", "3"))
+    worker = create_worker(
+        cache_plate_full, plate_id, conn, max_workers=max_workers
+    )
     worker.yielded.connect(on_progress)
     worker.finished.connect(on_finished)
     worker.errored.connect(on_error)
