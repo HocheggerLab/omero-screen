@@ -548,27 +548,38 @@ def cache_plate(
     # OMERO screen project
     project_id = int(os.getenv("PROJECT_ID", "0"))
 
-    # Step 1: Fetch and cache plate metadata
+    # Step 1: Fetch plate metadata
     logger.info("Caching plate %d: fetching metadata", plate_id)
     meta = _fetch_plate_metadata(conn, plate_id, project_id)
-    _cache[f"plate:{plate_id}:meta"] = meta
-
-    # Record in persistent history
-    _update_plate_history(plate_id, meta["plate_name"], "cached")
 
     # Step 2: Fetch well map (all wells with images and stage positions)
     logger.info("Caching plate %d: fetching well data", plate_id)
     wells = _fetch_well_map(conn, plate_id)
-    _cache[f"plate:{plate_id}:wells"] = wells
 
     # Step 3: Fetch label map
     logger.info("Caching plate %d: fetching label map", plate_id)
     label_map = _fetch_label_map(conn, plate_id, project_id)
-    _cache[f"plate:{plate_id}:labels"] = label_map
 
-    # Proactively evict old plates to make room for this one.
     # Done after fetching the label map so the estimate includes labels.
     estimated_bytes = _estimate_plate_bytes(wells, label_map)
+    if estimated_bytes > _cache.size_limit:
+        logger.warning(
+            "Plate %d: estimated size %.1f GB exceeds cache size %.1f GB, skipping caching",
+            plate_id,
+            estimated_bytes / 2**30,
+            _cache.size_limit / 2**30,
+        )
+        yield (0, 0)
+        return
+
+    # Start caching
+    _cache[f"plate:{plate_id}:meta"] = meta
+    _cache[f"plate:{plate_id}:wells"] = wells
+    _cache[f"plate:{plate_id}:labels"] = label_map
+
+    # Record in persistent history
+    _update_plate_history(plate_id, meta["plate_name"], "cached")
+
     logger.info(
         "Plate %d: estimated size %.1f GB (cache volume %.1f / %.1f GB)",
         plate_id,
@@ -576,6 +587,8 @@ def cache_plate(
         _cache.volume() / 2**30,
         _cache.size_limit / 2**30,
     )
+
+    # Proactively evict old plates to make room for this one.
     evicted = _ensure_cache_space(estimated_bytes, plate_id)
     if evicted:
         logger.info(
