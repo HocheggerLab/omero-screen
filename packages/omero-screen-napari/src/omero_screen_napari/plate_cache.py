@@ -614,6 +614,7 @@ def cache_plate(
             well_groups.append(group)
 
     # Distribute whole well groups to workers round-robin
+    max_workers = max(1, max_workers)
     batches: list[list[str]] = [[] for _ in range(max_workers)]
     for i, group in enumerate(well_groups):
         batches[i % max_workers].extend(group)
@@ -621,6 +622,8 @@ def cache_plate(
 
     total = sum(len(b) for b in batches)
     done = 0
+    # Adjust max workers if there are not enough images
+    max_workers = len(batches)
 
     if total == 0:
         logger.info("Plate %d: all images already cached", plate_id)
@@ -1286,10 +1289,12 @@ def _download_batch(
 
     profiling = logger.isEnabledFor(logging.DEBUG)
 
+    store = None
     try:
         last_image_id: int | None = None
-        last_store: Any = None
-        last_dims: tuple[int, int, int, int, np.dtype[Any]] | None = None
+        dims: tuple[int, int, int, int, np.dtype[Any]] | None = None
+
+        store = conn.c.sf.createRawPixelsStore()
 
         # Accumulators for per-phase timing (only when DEBUG logging)
         t_setup = 0.0
@@ -1311,9 +1316,6 @@ def _download_batch(
             # same image — setPixelsId is itself an RPC we only pay once.
             if image_id != last_image_id:
                 t0 = time.perf_counter() if profiling else 0.0
-                if last_store is not None:
-                    last_store.close()
-                    last_store = None
                 wrapper = _get_omero_image_wrapper(conn, image_id)
                 pixels = wrapper.getPrimaryPixels()
                 pixel_type = pixels.getPixelsType().getValue()
@@ -1322,10 +1324,8 @@ def _download_batch(
                     raise ValueError(
                         f"Unsupported OMERO pixel type: {pixel_type}"
                     )
-                store = conn.c.sf.createRawPixelsStore()
                 store.setPixelsId(pixels.getId(), False)
-                last_store = store
-                last_dims = (
+                dims = (
                     wrapper.getSizeZ(),
                     wrapper.getSizeC(),
                     wrapper.getSizeY(),
@@ -1336,17 +1336,17 @@ def _download_batch(
                 if profiling:
                     t_setup += time.perf_counter() - t0
 
-            assert last_store is not None
-            assert last_dims is not None
+            assert store is not None
+            assert dims is not None
 
             # Single RPC for all Z×C planes instead of one per plane.
             t0 = time.perf_counter() if profiling else 0.0
-            raw_bytes = last_store.getTimepoint(timepoint)
+            raw_bytes = store.getTimepoint(timepoint)
             if profiling:
                 t_download += time.perf_counter() - t0
 
             t0 = time.perf_counter() if profiling else 0.0
-            arr = _parse_raw_timepoint(raw_bytes, *last_dims)
+            arr = _parse_raw_timepoint(raw_bytes, *dims)
 
             # Labels are integer masks — compact from float64/uint32
             # to the smallest uint type that fits all values.
@@ -1386,9 +1386,9 @@ def _download_batch(
                 t_cache_write / n_items * 1000,
             )
     finally:
-        if last_store is not None:
+        if store is not None:
             with contextlib.suppress(Exception):
-                last_store.close()
+                store.close()
         conn.close(hard=True)
 
 
