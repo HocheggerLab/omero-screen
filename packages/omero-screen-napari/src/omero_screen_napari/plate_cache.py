@@ -35,7 +35,6 @@ from omero_screen.config import get_logger, getenv_as_int
 from omero_screen_napari.omero_image import (
     _OMERO_PIXEL_DTYPES,
     _cache,
-    _download_lock,
     _get_omero_image_wrapper,
     _parse_raw_timepoint,
     get_image,
@@ -305,10 +304,9 @@ def delete_plate_from_cache(plate_id: int) -> int:
     ]
     keys_to_delete.extend(meta_keys)
 
-    with _download_lock:
-        for key in keys_to_delete:
-            if _cache.pop(key, None) is not None:  # type: ignore[arg-type]
-                deleted += 1
+    for key in keys_to_delete:
+        if _cache.pop(key, None) is not None:  # type: ignore[arg-type]
+            deleted += 1
 
     # Preserve the plate in history as "removed"
     _update_plate_history(plate_id, plate_name, "removed")
