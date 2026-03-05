@@ -285,39 +285,6 @@ def _get_omero_image_timepoint(
     return np.moveaxis(a, [0, 1, 2, 3], [0, 3, 1, 2])
 
 
-def _get_omero_image_timepoints(
-    image: ImageWrapper, start: int, end: int
-) -> npt.NDArray[Any]:
-    """Get image timepoints from OMERO.
-
-    Args:
-        image: OMERO image object
-        start: Start timepoint
-        end: End timepoint
-
-    Returns:
-        Image (TZYXC)
-    """
-    sizeT = image.getSizeT()
-    if start < 0 or end > sizeT or start >= end:
-        raise RuntimeError(f"Invalid range: [{start}, {end}) for size {sizeT}")
-
-    sizeZ = image.getSizeZ()
-    sizeC = image.getSizeC()
-    sizeT = end - start
-    zctList = []
-    for z in range(sizeZ):
-        for c in range(sizeC):
-            for t in range(start, end + 1):
-                zctList.append((z, c, t))
-    planes = image.getPrimaryPixels().getPlanes(zctList)
-    # create ZCTYX
-    a = np.array(list(planes))
-    a = a.reshape((sizeZ, sizeC, sizeT, a.shape[-2], a.shape[-1]))
-    # return TZYXC
-    return np.moveaxis(a, [0, 1, 2, 3, 4], [1, 4, 0, 2, 3])
-
-
 def _get_omero_image_wrapper(
     conn: BlitzGateway, image_id: int
 ) -> ImageWrapper:
