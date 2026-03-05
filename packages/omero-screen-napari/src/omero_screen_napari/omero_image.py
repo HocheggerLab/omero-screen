@@ -220,7 +220,7 @@ def get_image(
     # TODO: This checks the cache for each timepoint and retrieves each in turn.
     # It would be more efficient to collate missing ranges and download together.
     for t in range(start, end):
-        k = _get_key(image_id, t)
+        k = get_key(image_id, t)
         a = _cache.get(k)
         if a is None:
             logger.info("Downloading image %s", k)
@@ -243,7 +243,7 @@ def get_image_timepoint(
     Returns:
         Image (ZYXC)
     """
-    k = _get_key(image_id, t)
+    k = get_key(image_id, t)
     a = _cache.get(k)
     if a is None:
         logger.info("Downloading image %s", k)
@@ -302,8 +302,8 @@ def _get_omero_image_wrapper(
     return image
 
 
-def _get_key(image_id: int, t: int) -> str:
-    """Get the image key.
+def get_key(image_id: int, t: int) -> str:
+    """Get the image key for the cache.
 
     Args:
         image_id: Image ID

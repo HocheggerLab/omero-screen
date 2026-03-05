@@ -477,6 +477,9 @@ def welldata_widget(
                 logger.info(
                     "Loading plate %d from cache (fast path)", plate_num
                 )
+                # TODO: This will error if the plate is partially cached.
+                # This needs a fallback to using the connection to get the
+                # requested data.
                 load_from_cache(
                     omero_data, plate_num, well_pos_list, images, time=time
                 )
