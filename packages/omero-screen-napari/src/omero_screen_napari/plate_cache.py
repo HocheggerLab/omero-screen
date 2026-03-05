@@ -1,14 +1,14 @@
 """Cache orchestration for complete plate data.
 
-Caches all data needed for display (metadata, flatfield-corrected images,
-labels, stage positions) so that well navigation is fully offline once a
+Caches all data needed for display (metadata, images,
+labels, stage positions) so that well image navigation is offline once a
 plate is cached. Supports concurrent downloads with progress reporting.
 
 Cache key structure (stored in the shared diskcache from omero_image.py):
     plate:{plate_id}:meta   -> dict with channel_data, pixel_size, intensities, plate_name
     plate:{plate_id}:wells  -> dict mapping well_pos -> {well_id, metadata, images: [...]}
     plate:{plate_id}:labels -> dict mapping well_pos -> [{"label_id", "size_t"}, ...]
-    {image_id}:{timepoint}  -> flatfield-corrected uint16 ZYXC numpy array
+    {image_id}:{timepoint}  -> ZYXC numpy array
 """
 
 from __future__ import annotations
@@ -38,13 +38,18 @@ from omero_screen_napari.omero_image import (
     _get_omero_image_wrapper,
     _parse_raw_timepoint,
     get_image,
+    get_key,
 )
 
 logger = get_logger(__name__)
 
-# Bump this when the on-disk format changes (e.g. dtype, compression).
+# Bump this when the on-disk format changes (e.g. dtype, compression, metadata).
 # cache_plate() will delete and re-download plates cached with an older version.
-_CACHE_VERSION = 3  # v1: float32, v2: uint16, v3: blosc-compressed
+# v1: float32
+# v2: uint16
+# v3: blosc-compressed
+# v4: dynamic flatfield correction
+_CACHE_VERSION = 4
 
 
 # --------------- Public API ---------------
@@ -184,31 +189,48 @@ def get_well_cache_status(plate_id: int) -> dict[str, bool]:
         Dict mapping well_pos -> True if fully cached, False otherwise.
         Empty dict if plate is not in cache.
     """
-    wells = _cache.get(f"plate:{plate_id}:wells")
+    wells = get_cached_well_data(plate_id)
     if not isinstance(wells, dict) or not wells:
+        return {}
+    label_map = get_cached_label_map(plate_id)
+    if not isinstance(label_map, dict) or not label_map:
         return {}
 
     status: dict[str, bool] = {}
     for well_pos, well_info in wells.items():
         all_cached = True
+        # check images
         for img_info in well_info.get("images", []):
             image_id = img_info["image_id"]
             size_t = img_info.get("size_t", 1)
             for t in range(size_t):
-                if f"{image_id}:{t}" not in _cache:
+                if get_key(image_id, t) not in _cache:
                     all_cached = False
                     break
             if not all_cached:
                 break
+        # check labels
+        if all_cached:
+            for label_entry in label_map[well_pos]:
+                entry = _normalize_label_entry(label_entry)
+                label_id = int(entry["label_id"] or 0)
+                for t in range(entry.get("size_t") or 1):
+                    if get_key(label_id, t) not in _cache:
+                        all_cached = False
+                        break
+                if not all_cached:
+                    break
+
         status[well_pos] = all_cached
+
     return status
 
 
 def is_plate_cached(plate_id: int) -> bool:
     """Check if plate metadata and well data exist in cache."""
     return (
-        _cache.get(f"plate:{plate_id}:meta") is not None
-        and _cache.get(f"plate:{plate_id}:wells") is not None
+        get_cached_plate_metadata(plate_id) is not None
+        and get_cached_well_data(plate_id) is not None
     )
 
 
@@ -224,7 +246,12 @@ def is_plate_fully_cached(plate_id: int) -> bool:
     Returns:
         True only when every well's images are fully cached.
     """
-    if not is_plate_cached(plate_id):
+    meta = get_cached_plate_metadata(plate_id)
+    if meta is None or get_cached_well_data(plate_id) is None:
+        return False
+    # Require flat-field mask
+    ff_mask_id = meta.get("ff_mask_id", 0)
+    if get_key(ff_mask_id, 0) not in _cache:
         return False
     status = get_well_cache_status(plate_id)
     return bool(status) and all(status.values())
@@ -277,24 +304,24 @@ def delete_plate_from_cache(plate_id: int) -> int:
     )
 
     # Enumerate image keys from wells
-    wells = _cache.get(f"plate:{plate_id}:wells")
+    wells = get_cached_well_data(plate_id)
     if isinstance(wells, dict):
         for well_info in wells.values():
             for img_info in well_info.get("images", []):
                 image_id = img_info["image_id"]
                 size_t = img_info.get("size_t", 1)
                 for t in range(size_t):
-                    keys_to_delete.append(f"{image_id}:{t}")
+                    keys_to_delete.append(get_key(image_id, t))
 
     # Enumerate label keys from label map (handles old int and new dict format)
-    label_map = _cache.get(f"plate:{plate_id}:labels")
+    label_map = get_cached_label_map(plate_id)
     if isinstance(label_map, dict):
         for label_entries in label_map.values():
             for label_entry in label_entries:
                 entry = _normalize_label_entry(label_entry)
-                label_id = entry["label_id"]
+                label_id = int(entry["label_id"] or 0)
                 for t in range(entry.get("size_t") or 1):
-                    keys_to_delete.append(f"{label_id}:{t}")
+                    keys_to_delete.append(get_key(label_id, t))
 
     # Metadata keys
     meta_keys = [
@@ -333,19 +360,33 @@ def _estimate_plate_bytes(
         Estimated bytes.
     """
     fallback_per_image = getenv_as_int(
-        "OMERO_SCREEN_IMAGE_SIZE_ESTIMATE", 10 * 2**20
+        # 4 channel 1080*1080 uint16 image: 9,331,200
+        "OMERO_SCREEN_IMAGE_SIZE_ESTIMATE",
+        4 * 1080**2 * 2,
     )
     total_bytes = 0
 
+    # Assume all images and labels are the same
     for well_info in wells.values():
         for img_info in well_info.get("images", []):
-            total_bytes += _estimate_entry_bytes(img_info, fallback_per_image)
+            estimate = _estimate_entry_bytes(img_info, fallback_per_image)
+            total_bytes += estimate * len(wells) * len(img_info)
+            # flat-field mask is 4 byte float64 so double uint16 estimate
+            total_bytes += estimate * 2
+            break
+        break
 
     if label_map:
         for label_entries in label_map.values():
             for label_entry in label_entries:
                 entry = _normalize_label_entry(label_entry)
-                total_bytes += _estimate_entry_bytes(entry, fallback_per_image)
+                total_bytes += (
+                    _estimate_entry_bytes(entry, fallback_per_image)
+                    * len(label_map)
+                    * len(label_entries)
+                )
+                break
+            break
 
     return total_bytes
 
@@ -361,30 +402,21 @@ def _estimate_entry_bytes(entry: dict[str, Any], fallback: int) -> int:
         Estimated bytes.
     """
     size_t: int = entry.get("size_t", 1)
-    size_z: int | None = entry.get("size_z")
-    size_y: int | None = entry.get("size_y")
-    size_x: int | None = entry.get("size_x")
-    size_c: int | None = entry.get("size_c")
-    if (
-        size_z is not None
-        and size_y is not None
-        and size_x is not None
-        and size_c is not None
-    ):
-        # 2 bytes per pixel (uint16 storage)
-        per_timepoint: int = size_z * size_y * size_x * size_c * 2
-        return size_t * per_timepoint
-    return size_t * fallback
+    size_z: int = entry.get("size_z", 0)
+    size_y: int = entry.get("size_y", 0)
+    size_x: int = entry.get("size_x", 0)
+    size_c: int = entry.get("size_c", 0)
+    # 2 bytes per pixel (uint16 storage)
+    estimate = size_t * size_z * size_y * size_x * size_c * 2
+    return estimate if estimate != 0 else fallback
 
 
-def ensure_cache_space(
-    needed_bytes: int, exclude_plate_ids: set[int] | None = None
-) -> list[int]:
+def _ensure_cache_space(needed_bytes: int, exclude_plate_id: int) -> list[int]:
     """Evict whole plates (oldest first) until enough space is available.
 
     Args:
         needed_bytes: Bytes to free up.
-        exclude_plate_ids: Plate IDs to skip (e.g. the plate being cached).
+        exclude_plate_id: Plate ID to skip (e.g. the plate being cached).
 
     Returns:
         List of plate IDs that were evicted.
@@ -392,7 +424,6 @@ def ensure_cache_space(
     if _cache.size_limit <= 0:
         return []
 
-    exclude = exclude_plate_ids or set()
     evicted: list[int] = []
 
     if _cache.volume() + needed_bytes <= _cache.size_limit:
@@ -403,7 +434,7 @@ def ensure_cache_space(
     candidates.reverse()  # was desc, now asc
 
     for plate_id, _name in candidates:
-        if plate_id in exclude:
+        if plate_id == exclude_plate_id:
             continue
         delete_plate_from_cache(plate_id)
         evicted.append(plate_id)
@@ -426,13 +457,15 @@ def ensure_cache_space(
 def _plate_image_completeness(plate_id: int) -> float:
     """Compute fraction of expected images actually present in cache.
 
+    This ignores counting labels.
+
     Args:
         plate_id: OMERO plate ID.
 
     Returns:
         Float between 0.0 and 1.0, or 0.0 if wells data is missing.
     """
-    wells = _cache.get(f"plate:{plate_id}:wells")
+    wells = get_cached_well_data(plate_id)
     if not isinstance(wells, dict) or not wells:
         return 0.0
 
@@ -442,9 +475,9 @@ def _plate_image_completeness(plate_id: int) -> float:
         for img_info in well_info.get("images", []):
             image_id = img_info["image_id"]
             size_t = img_info.get("size_t", 1)
+            total += size_t
             for t in range(size_t):
-                total += 1
-                if f"{image_id}:{t}" in _cache:
+                if get_key(image_id, t) in _cache:
                     present += 1
 
     return present / total if total > 0 else 0.0
@@ -486,7 +519,7 @@ def clean_orphaned_plates(
 def cache_plate(
     plate_id: int, conn: BlitzGateway, max_workers: int = 3
 ) -> Generator[tuple[int, int], None, None]:
-    """Cache entire plate: metadata + flatfield-corrected images + labels.
+    """Cache entire plate: metadata + images + labels.
 
     Opens one OMERO connection for metadata, then spawns workers for images.
     Yields (images_done, images_total) for progress reporting.
@@ -512,10 +545,12 @@ def cache_plate(
             )
             delete_plate_from_cache(plate_id)
 
+    # OMERO screen project
+    project_id = int(os.getenv("PROJECT_ID", "0"))
+
     # Step 1: Fetch and cache plate metadata
     logger.info("Caching plate %d: fetching metadata", plate_id)
-    meta = _fetch_plate_metadata(conn, plate_id)
-    meta["cache_version"] = _CACHE_VERSION
+    meta = _fetch_plate_metadata(conn, plate_id, project_id)
     _cache[f"plate:{plate_id}:meta"] = meta
 
     # Record in persistent history
@@ -526,12 +561,7 @@ def cache_plate(
     wells = _fetch_well_map(conn, plate_id)
     _cache[f"plate:{plate_id}:wells"] = wells
 
-    # Step 3: Fetch flatfield mask into memory (NOT cached)
-    logger.info("Caching plate %d: fetching flatfield mask", plate_id)
-    project_id = int(os.getenv("PROJECT_ID", "0"))
-    flatfield_masks = _fetch_flatfield_mask(conn, plate_id, project_id)
-
-    # Step 4: Fetch label map
+    # Step 3: Fetch label map
     logger.info("Caching plate %d: fetching label map", plate_id)
     label_map = _fetch_label_map(conn, plate_id, project_id)
     _cache[f"plate:{plate_id}:labels"] = label_map
@@ -546,58 +576,45 @@ def cache_plate(
         _cache.volume() / 2**30,
         _cache.size_limit / 2**30,
     )
-    evicted = ensure_cache_space(estimated_bytes, exclude_plate_ids={plate_id})
+    evicted = _ensure_cache_space(estimated_bytes, plate_id)
     if evicted:
         logger.info(
             "Evicted plates %s to make room for plate %d", evicted, plate_id
         )
 
-    # Squeeze flatfield mask from TZYXC to ZYXC so that division with
-    # per-timepoint ZYXC images keeps the array 4-D (not 5-D).
-    if flatfield_masks.ndim == 5:
-        flatfield_masks = flatfield_masks[0]  # drop T dimension
-        logger.debug(
-            "Flatfield mask squeezed to shape %s", flatfield_masks.shape
-        )
+    # Step 4: Fetch flatfield mask image (image is cached)
+    logger.info("Caching plate %d: fetching flatfield mask", plate_id)
+    _ = get_image(conn, meta["ff_mask_id"])
 
     # Step 5: Build downloads grouped by well, sorted by well position.
     # Well-grouped partitioning ensures wells complete sequentially so
     # users can start loading cached wells before the entire plate is done.
     sorted_well_keys = sorted(wells.keys(), key=_well_sort_key)
-    well_groups: list[list[dict[str, Any]]] = []
+    well_groups: list[list[str]] = []
 
     for well_pos in sorted_well_keys:
-        group: list[dict[str, Any]] = []
-        # Well images (need flatfield correction, skip if already cached)
+        group: list[str] = []
+        # Well images (skip if already cached)
         for img_info in wells[well_pos]["images"]:
+            image_id = img_info["image_id"]
             for t in range(img_info["size_t"]):
-                if f"{img_info['image_id']}:{t}" not in _cache:
-                    group.append(
-                        {
-                            "image_id": img_info["image_id"],
-                            "timepoint": t,
-                            "apply_flatfield": True,
-                        }
-                    )
-        # Well labels (no flatfield, skip if already cached)
+                key = get_key(image_id, t)
+                if key not in _cache:
+                    group.append(key)
+        # Well labels (skip if already cached)
         if well_pos in label_map:
             for label_entry in label_map[well_pos]:
                 entry = _normalize_label_entry(label_entry)
-                label_id = entry["label_id"]
+                label_id = int(entry["label_id"] or 0)
                 for t in range(entry.get("size_t") or 1):
-                    if f"{label_id}:{t}" not in _cache:
-                        group.append(
-                            {
-                                "image_id": label_id,
-                                "timepoint": t,
-                                "apply_flatfield": False,
-                            }
-                        )
+                    key = get_key(label_id, t)
+                    if key not in _cache:
+                        group.append(key)
         if group:
             well_groups.append(group)
 
     # Distribute whole well groups to workers round-robin
-    batches: list[list[dict[str, Any]]] = [[] for _ in range(max_workers)]
+    batches: list[list[str]] = [[] for _ in range(max_workers)]
     for i, group in enumerate(well_groups):
         batches[i % max_workers].extend(group)
     batches = [b for b in batches if b]
@@ -648,7 +665,6 @@ def cache_plate(
                 executor.submit(
                     _download_batch,
                     batch,
-                    flatfield_masks,
                     progress_q,
                     pause_event,
                     conn=worker_conn,
@@ -682,9 +698,9 @@ def cache_plate(
 
                     remaining_frac = (total - done) / total
                     needed = int(estimated_bytes * remaining_frac)
-                    re_evicted = ensure_cache_space(
+                    re_evicted = _ensure_cache_space(
                         max(needed, eviction_headroom),
-                        exclude_plate_ids={plate_id},
+                        plate_id,
                     )
                     if re_evicted:
                         logger.info(
@@ -729,15 +745,19 @@ def cache_plate(
 # --------------- Metadata Fetching ---------------
 
 
-def _fetch_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
-    """Fetch channel_data, pixel_size, intensities, plate_name from OMERO.
+def _fetch_plate_metadata(
+    conn: BlitzGateway, plate_id: int, project_id: int
+) -> dict[str, Any]:
+    """Fetch channel_data, pixel_size, intensities, plate_name, flat-field
+    correction mask ID from OMERO.
 
     Args:
         conn: Active OMERO connection.
         plate_id: OMERO plate ID.
+        project_id: OMERO project ID containing the screen dataset.
 
     Returns:
-        Dict with keys: channel_data, pixel_size, plate_name.
+        Dict with keys: channel_data, pixel_size, intensities, plate_name, ff_mask_id.
         Intensities are added later if CellView data is available.
     """
     plate = conn.getObject("Plate", plate_id)
@@ -755,11 +775,16 @@ def _fetch_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
     # Intensities from CellView if available, otherwise default
     intensities = _parse_intensities_from_cellview(plate_id, channel_data)
 
+    # Flat-field correction image
+    ff_mask_id = _fetch_flatfield_mask_id(conn, plate_id, project_id)
+
     return {
         "channel_data": channel_data,
         "pixel_size": pixel_size,
         "intensities": intensities,
         "plate_name": plate_name,
+        "ff_mask_id": ff_mask_id,
+        "cache_version": _CACHE_VERSION,
     }
 
 
@@ -906,6 +931,44 @@ def _default_intensities(
     return {int(v): (0, 65535) for v in channel_data.values()}
 
 
+def _fetch_flatfield_mask_id(
+    conn: BlitzGateway,
+    plate_id: int,
+    project_id: int,
+) -> int:
+    """Find flatfield mask ID from OMERO dataset.
+
+    Args:
+        conn: Active OMERO connection.
+        plate_id: OMERO plate ID (used to find dataset and mask name).
+        project_id: OMERO project ID containing the screen dataset.
+
+    Returns:
+        Flatfield mask image ID.
+    """
+    # Find the screen dataset
+    project = conn.getObject("Project", project_id)
+    if project is None:
+        raise ValueError(f"Project {project_id} not found")
+
+    dataset = conn.getObject(
+        "Dataset",
+        attributes={"name": str(plate_id)},
+        opts={"project": project.getId()},
+    )
+    if dataset is None:
+        raise ValueError(f"Dataset for plate {plate_id} not found")
+
+    flatfield_mask_name = f"{plate_id}_flatfield_masks"
+    for image in dataset.listChildren():
+        if image.getName() == flatfield_mask_name:
+            return int(image.getId())
+
+    raise ValueError(
+        f"No flatfield mask found in dataset for plate {plate_id}"
+    )
+
+
 def _unwrap_length(value: Any) -> float | None:
     """Convert an OMERO Length value to a plain float.
 
@@ -1014,44 +1077,6 @@ def _fetch_well_map(
 def _row_col_to_well_pos(row: int, col: int) -> str:
     """Convert 0-based row/column to well position string (e.g. 'A1')."""
     return f"{chr(65 + row)}{col + 1}"
-
-
-def _fetch_flatfield_mask(
-    conn: BlitzGateway,
-    plate_id: int,
-    project_id: int,
-) -> npt.NDArray[Any]:
-    """Download flatfield mask from OMERO dataset.
-
-    Args:
-        conn: Active OMERO connection.
-        plate_id: OMERO plate ID (used to find dataset and mask name).
-        project_id: OMERO project ID containing the screen dataset.
-
-    Returns:
-        Flatfield mask array.
-    """
-    # Find the screen dataset
-    project = conn.getObject("Project", project_id)
-    if project is None:
-        raise ValueError(f"Project {project_id} not found")
-
-    dataset = conn.getObject(
-        "Dataset",
-        attributes={"name": str(plate_id)},
-        opts={"project": project.getId()},
-    )
-    if dataset is None:
-        raise ValueError(f"Dataset for plate {plate_id} not found")
-
-    flatfield_mask_name = f"{plate_id}_flatfield_masks"
-    for image in dataset.listChildren():
-        if image.getName() == flatfield_mask_name:
-            return get_image(conn, image.getId())
-
-    raise ValueError(
-        f"No flatfield mask found in dataset for plate {plate_id}"
-    )
 
 
 def _normalize_label_entry(
@@ -1219,24 +1244,13 @@ def _create_worker_connections(n: int) -> list[BlitzGateway]:
     return conns
 
 
-def _partition_round_robin(
-    items: list[dict[str, Any]], n: int
-) -> list[list[dict[str, Any]]]:
-    """Partition items into n batches using round-robin."""
-    batches: list[list[dict[str, Any]]] = [[] for _ in range(n)]
-    for i, item in enumerate(items):
-        batches[i % n].append(item)
-    return [b for b in batches if b]  # Remove empty batches
-
-
 def _download_batch(
-    batch: list[dict[str, Any]],
-    flatfield_masks: npt.NDArray[Any] | None,
+    batch: list[str],
     progress_q: queue.Queue[int] | None = None,
     pause_event: threading.Event | None = None,
     conn: BlitzGateway | None = None,
 ) -> None:
-    """Download and optionally flatfield-correct a batch of images.
+    """Download a batch of images.
 
     Uses the provided OMERO connection (pre-created by the caller) or
     falls back to creating one.  The connection is always closed when
@@ -1250,8 +1264,7 @@ def _download_batch(
     cache eviction, then set it again to resume.
 
     Args:
-        batch: List of dicts with image_id, timepoint, and apply_flatfield.
-        flatfield_masks: Flatfield correction array (ZYXC), or None.
+        batch: List of cache keys (image_id:t).
         progress_q: Optional queue for per-image progress signalling.
         pause_event: Event that workers wait on before each image.
             Workers block when cleared, resume when set.
@@ -1282,18 +1295,17 @@ def _download_batch(
         t_setup = 0.0
         t_download = 0.0
         t_numpy = 0.0
-        t_flatfield = 0.0
         t_cache_write = 0.0
         n_items = 0
 
-        for item in batch:
+        for key in batch:
             if pause_event is not None:
                 pause_event.wait()
 
-            image_id = item["image_id"]
-            timepoint = item["timepoint"]
-            apply_flatfield = item.get("apply_flatfield", True)
-            key = f"{image_id}:{timepoint}"
+            # Key is image_id:t
+            index = key.index(":")
+            image_id = int(key[:index])
+            timepoint = int(key[index + 1 :])
 
             # Keep the RawPixelsStore open across timepoints of the
             # same image — setPixelsId is itself an RPC we only pay once.
@@ -1336,29 +1348,18 @@ def _download_batch(
             t0 = time.perf_counter() if profiling else 0.0
             arr = _parse_raw_timepoint(raw_bytes, *last_dims)
 
-            if apply_flatfield and flatfield_masks is not None:
-                if profiling:
-                    t_numpy += time.perf_counter() - t0
-                    t0 = time.perf_counter()
-                corrected = arr.astype(np.float32) / flatfield_masks.astype(
-                    np.float32
-                )
-                arr = np.clip(corrected, 0, 65535).astype(np.uint16)
-                if profiling:
-                    t_flatfield += time.perf_counter() - t0
-            else:
-                # Labels are integer masks — compact from float64/uint32
-                # to the smallest uint type that fits all values.
-                if arr.dtype.kind == "f" or arr.dtype.itemsize > 2:
-                    max_val = int(arr.max())
-                    if max_val < 2**8:
-                        arr = arr.astype(np.uint8)
-                    elif max_val < 2**16:
-                        arr = arr.astype(np.uint16)
-                    else:
-                        arr = arr.astype(np.uint32)
-                if profiling:
-                    t_numpy += time.perf_counter() - t0
+            # Labels are integer masks — compact from float64/uint32
+            # to the smallest uint type that fits all values.
+            if arr.dtype.kind == "f" or arr.dtype.itemsize > 2:
+                max_val = int(arr.max())
+                if max_val < 2**8:
+                    arr = arr.astype(np.uint8)
+                elif max_val < 2**16:
+                    arr = arr.astype(np.uint16)
+                else:
+                    arr = arr.astype(np.uint32)
+            if profiling:
+                t_numpy += time.perf_counter() - t0
 
             t0 = time.perf_counter() if profiling else 0.0
             _cache[key] = arr
@@ -1374,17 +1375,14 @@ def _download_batch(
             logger.debug(
                 "Batch timing (%d items): "
                 "setup=%.2fs download=%.2fs numpy=%.2fs "
-                "flatfield=%.2fs cache_write=%.2fs | "
-                "per-image: dl=%.0fms np=%.0fms ff=%.0fms wr=%.0fms",
+                "per-image: dl=%.0fms np=%.0fms wr=%.0fms",
                 n_items,
                 t_setup,
                 t_download,
                 t_numpy,
-                t_flatfield,
                 t_cache_write,
                 t_download / n_items * 1000,
                 t_numpy / n_items * 1000,
-                t_flatfield / n_items * 1000,
                 t_cache_write / n_items * 1000,
             )
     finally:
@@ -1419,6 +1417,12 @@ def load_from_cache(
 
     if meta is None or wells is None:
         raise ValueError(f"Plate {plate_id} not fully cached")
+
+    # flatfield correction image: ZYXC
+    flatfield_masks = _cache[get_key(meta.get("ff_mask_id", ""), 0)]
+    if flatfield_masks is None:
+        raise ValueError(f"Plate {plate_id} flat-field mask not cached")
+    flatfield_masks = flatfield_masks.astype(np.float32)
 
     omero_data.plate_id = plate_id
     omero_data.channel_data = meta["channel_data"]
@@ -1482,15 +1486,13 @@ def load_from_cache(
 
             timepoint_arrays = []
             for t in range(t_start, t_end):
-                arr = _cache.get(f"{image_id}:{t}")
+                arr = _cache.get(get_key(image_id, t))
                 if arr is None:
                     raise ValueError(
                         f"Image {image_id}:{t} not found in cache"
                     )
-                # Convert to float32 for downstream consumers.
-                # Handles both old float32 caches and new uint16 caches.
-                if arr.dtype != np.float32:
-                    arr = arr.astype(np.float32)
+                # Flatfield correction
+                arr = arr.astype(np.float32) / flatfield_masks
                 timepoint_arrays.append(arr)
 
             if len(timepoint_arrays) == 1:
@@ -1504,9 +1506,11 @@ def load_from_cache(
             for idx in image_index:
                 if idx < len(well_label_entries):
                     entry = _normalize_label_entry(well_label_entries[idx])
-                    label_id = entry["label_id"]
-                    label_arr = _cache.get(f"{label_id}:0")
+                    label_id = int(entry["label_id"] or 0)
+                    # TODO: get all timepoints
+                    label_arr = _cache.get(get_key(label_id, 0))
                     if label_arr is not None:
+                        # TODO: do not squeeze here. Delay and use same method as image squeeze.
                         label_arrays.append(label_arr.squeeze())
 
     if image_arrays:

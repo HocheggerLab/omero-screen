@@ -95,7 +95,7 @@ def build_table_data(
 
 def _build_rows(
     wells: dict[str, dict[str, Any]],
-    label_map: dict[str, list[int]] | None,
+    label_map: dict[str, list[dict[str, int | None] | int]] | None,
     label_unknown: bool = False,
 ) -> list[dict[str, Any]]:
     """Build row dicts from well data.
@@ -156,7 +156,7 @@ def _build_from_cache(
     wells = get_cached_well_data(plate_id)
     label_map = get_cached_label_map(plate_id)
 
-    if meta is None or wells is None:
+    if meta is None or wells is None or label_map is None:
         raise ValueError(f"Plate {plate_id} cache incomplete")
 
     header_info = _build_header_info(meta, wells)
@@ -187,7 +187,8 @@ def _build_from_omero(
         raise RuntimeError(f"Failed to connect to OMERO server at {host}")
 
     try:
-        meta = _fetch_plate_metadata(conn, plate_id)
+        project_id = int(os.getenv("PROJECT_ID", "0"))
+        meta = _fetch_plate_metadata(conn, plate_id, project_id)
         wells = _fetch_well_map(conn, plate_id)
     finally:
         conn.close(hard=True)
