@@ -2,7 +2,6 @@ import io
 import os
 import sqlite3
 import struct
-import threading
 from typing import Any
 
 import numpy as np
@@ -172,10 +171,6 @@ class NumpyDisk(Disk):  # type: ignore[misc]
         return super().fetch(mode, filename, value, read)
 
 
-# Lock to prevent duplicate downloads when multiple generators
-# run concurrently (e.g. background caching + foreground image load).
-_download_lock = threading.Lock()
-
 # Configure cache path and size using environment
 __path = os.getenv("OMERO_SCREEN_IMAGE_CACHE_PATH")
 if __path is None:
@@ -227,12 +222,11 @@ def get_image(
     # It would be more efficient to collate missing ranges and download together.
     for t in range(start, end):
         k = _get_key(image_id, t)
-        with _download_lock:
-            a = _cache.get(k)
-            if a is None:
-                logger.info("Downloading image %s", k)
-                a = _get_omero_image_timepoint(image, t)
-                _cache[k] = a
+        a = _cache.get(k)
+        if a is None:
+            logger.info("Downloading image %s", k)
+            a = _get_omero_image_timepoint(image, t)
+            _cache[k] = a
         stack.append(a)
     return np.stack(stack)
 
@@ -251,13 +245,12 @@ def get_image_timepoint(
         Image (ZYXC)
     """
     k = _get_key(image_id, t)
-    with _download_lock:
-        a = _cache.get(k)
-        if a is None:
-            logger.info("Downloading image %s", k)
-            image = _get_omero_image_wrapper(conn, image_id)
-            a = _get_omero_image_timepoint(image, t)
-            _cache[k] = a
+    a = _cache.get(k)
+    if a is None:
+        logger.info("Downloading image %s", k)
+        image = _get_omero_image_wrapper(conn, image_id)
+        a = _get_omero_image_timepoint(image, t)
+        _cache[k] = a
     return a  # type: ignore[no-any-return]
 
 
