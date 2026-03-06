@@ -1260,7 +1260,6 @@ def _download_batch(
         conn.c.enableKeepAlive(60)
 
         last_image_id: int | None = None
-        dims: tuple[int, int, int, int, np.dtype[Any]] | None = None
 
         # Accumulators for per-phase timing (only when DEBUG logging)
         profiling = logger.isEnabledFor(logging.DEBUG)
@@ -1291,7 +1290,6 @@ def _download_batch(
                     t_setup += time.perf_counter() - t0
 
             assert store is not None
-            assert dims is not None
 
             t0 = time.perf_counter() if profiling else 0.0
             arr = _get_omero_image_timepoint(store, timepoint, shape, dt_be)
