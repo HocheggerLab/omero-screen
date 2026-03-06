@@ -28,30 +28,59 @@ import numpy as np
 import numpy.typing as npt
 import omero
 import polars as pl
+from diskcache import Cache
 from omero.gateway import BlitzGateway, MapAnnotationWrapper
 from omero.rtypes import unwrap
 from omero_screen.config import get_logger, getenv_as_int
 
+# TODO: remove direct use of image cache
+# Refactor to a method to free space to the image cache code
+# using a sorted tag list.
 from omero_screen_napari.omero_image import (
-    _cache,
-    _get_omero_image_timepoint,
-    _get_omero_image_wrapper,
-    _initialise_download,
+    _cache as image_cache,
+)
+from omero_screen_napari.omero_image import (
+    add_cached_image,
+    get_cache_path,
+    get_cached_image,
     get_image,
     get_key,
+    get_omero_image_timepoint,
+    get_omero_image_wrapper,
+    initialise_download,
+    is_cached,
+)
+from omero_screen_napari.omero_image import (
+    evict as evict_images,
 )
 
 logger = get_logger(__name__)
 
-# TODO: Add a cache for the plate metadata
 
-# Bump this when the on-disk format changes (e.g. dtype, compression, metadata).
-# cache_plate() will delete and re-download plates cached with an older version.
-# v1: float32
-# v2: uint16
-# v3: blosc-compressed
-# v4: dynamic flatfield correction
-_CACHE_VERSION = 4
+# Bump this when the on-disk metadata format changes.
+# Caching will delete and re-download plates cached with an older version.
+_CACHE_VERSION = 1
+
+
+# TODO: Refactor plate cache metadata format:
+# plate_id:meta (tag=plate_id)
+# plate_id:wells (tag=plate_id)
+# plate_id:labels (tag=plate_id)
+# history
+
+# Configure cache path using environment.
+# Uses the default size limit. The cache is not expected to grow very large
+# as it stores plate metadata only. It is used for persistent access to read
+# only data contained in OMERO.
+_cache = Cache(
+    get_cache_path("plates"),
+    tag_index=True,
+)
+logger.info(
+    "Plate cache: %s (size limit: %d)",
+    _cache.directory,
+    _cache.size_limit,
+)
 
 
 # --------------- Public API ---------------
@@ -68,7 +97,7 @@ def get_all_cached_plates() -> list[tuple[int, str]]:
     """
     plates: list[tuple[int, str]] = []
     try:
-        for key in _cache.iterkeys():
+        for key in _cache:
             if not isinstance(key, str):
                 continue
             if not key.startswith("plate:") or not key.endswith(":meta"):
@@ -105,7 +134,7 @@ def get_plate_history() -> dict[int, dict[str, str]]:
     # Migration: populate history from existing plate:*:meta keys
     migrated = False
     try:
-        for key in _cache.iterkeys():
+        for key in _cache:
             if not isinstance(key, str):
                 continue
             if not key.startswith("plate:") or not key.endswith(":meta"):
@@ -206,7 +235,7 @@ def get_well_cache_status(plate_id: int) -> dict[str, bool]:
             image_id = img_info["image_id"]
             size_t = img_info.get("size_t", 1)
             for t in range(size_t):
-                if get_key(image_id, t) not in _cache:
+                if is_cached(get_key(image_id, t)):
                     all_cached = False
                     break
             if not all_cached:
@@ -217,7 +246,7 @@ def get_well_cache_status(plate_id: int) -> dict[str, bool]:
                 entry = _normalize_label_entry(label_entry)
                 label_id = entry["label_id"] or 0
                 for t in range(entry.get("size_t") or 1):
-                    if get_key(label_id, t) not in _cache:
+                    if is_cached(get_key(label_id, t)):
                         all_cached = False
                         break
                 if not all_cached:
@@ -253,7 +282,7 @@ def is_plate_fully_cached(plate_id: int) -> bool:
         return False
     # Require flat-field mask
     ff_mask_id = meta.get("ff_mask_id", 0)
-    if get_key(ff_mask_id, 0) not in _cache:
+    if is_cached(get_key(ff_mask_id, 0)):
         return False
     status = get_well_cache_status(plate_id)
     return bool(status) and all(status.values())
@@ -302,43 +331,8 @@ def delete_plate_from_cache(plate_id: int) -> int:
         else str(plate_id)
     )
 
-    # deleted = 0
-    # keys_to_delete: list[str] = []
-    #
-    # # Enumerate image keys from wells
-    # wells = get_cached_well_data(plate_id)
-    # if isinstance(wells, dict):
-    #     for well_info in wells.values():
-    #         for img_info in well_info.get("images", []):
-    #             image_id = img_info["image_id"]
-    #             size_t = img_info.get("size_t", 1)
-    #             for t in range(size_t):
-    #                 keys_to_delete.append(get_key(image_id, t))
-
-    # # Enumerate label keys from label map (handles old int and new dict format)
-    # label_map = get_cached_label_map(plate_id)
-    # if isinstance(label_map, dict):
-    #     for label_entries in label_map.values():
-    #         for label_entry in label_entries:
-    #             entry = _normalize_label_entry(label_entry)
-    #             label_id = entry["label_id"] or 0
-    #             for t in range(entry.get("size_t") or 1):
-    #                 keys_to_delete.append(get_key(label_id, t))
-
-    # # Metadata keys
-    # meta_keys = [
-    #     f"plate:{plate_id}:meta",
-    #     f"plate:{plate_id}:wells",
-    #     f"plate:{plate_id}:labels",
-    # ]
-    # keys_to_delete.extend(meta_keys)
-
-    # for key in keys_to_delete:
-    #     if _cache.pop(key, None) is not None:  # type: ignore[arg-type]
-    #         deleted += 1
-
     # All cache entries should be tagged with the plate ID
-    deleted: int = _cache.evict(plate_id)
+    deleted: int = _cache.evict(plate_id) + evict_images(plate_id)
 
     # Preserve the plate in history as "removed"
     _update_plate_history(plate_id, plate_name, "removed")
@@ -426,12 +420,12 @@ def _ensure_cache_space(needed_bytes: int, exclude_plate_id: int) -> list[int]:
     Returns:
         List of plate IDs that were evicted.
     """
-    if _cache.size_limit <= 0:
+    if image_cache.size_limit <= 0:
         return []
 
     evicted: list[int] = []
 
-    if _cache.volume() + needed_bytes <= _cache.size_limit:
+    if image_cache.volume() + needed_bytes <= image_cache.size_limit:
         return []
 
     # Get plates sorted ascending by plate_id (oldest/smallest first)
@@ -443,17 +437,17 @@ def _ensure_cache_space(needed_bytes: int, exclude_plate_id: int) -> list[int]:
             continue
         delete_plate_from_cache(plate_id)
         evicted.append(plate_id)
-        if _cache.volume() + needed_bytes <= _cache.size_limit:
+        if image_cache.volume() + needed_bytes <= image_cache.size_limit:
             break
 
-    if _cache.volume() + needed_bytes > _cache.size_limit:
+    if image_cache.volume() + needed_bytes > image_cache.size_limit:
         logger.warning(
             "Cache still needs %d bytes after evicting %d plate(s). "
             "volume=%d, limit=%d",
             needed_bytes,
             len(evicted),
-            _cache.volume(),
-            _cache.size_limit,
+            image_cache.volume(),
+            image_cache.size_limit,
         )
 
     return evicted
@@ -482,7 +476,7 @@ def _plate_image_completeness(plate_id: int) -> float:
             size_t = img_info.get("size_t", 1)
             total += size_t
             for t in range(size_t):
-                if get_key(image_id, t) in _cache:
+                if is_cached(get_key(image_id, t)):
                     present += 1
 
     return present / total if total > 0 else 0.0
@@ -567,12 +561,12 @@ def cache_plate(
 
     # Done after fetching the label map so the estimate includes labels.
     estimated_bytes = _estimate_plate_bytes(wells, label_map)
-    if estimated_bytes > _cache.size_limit:
+    if estimated_bytes >= image_cache.size_limit:
         logger.warning(
             "Plate %d: estimated size %.1f GB exceeds cache size %.1f GB, skipping caching",
             plate_id,
             estimated_bytes / 2**30,
-            _cache.size_limit / 2**30,
+            image_cache.size_limit / 2**30,
         )
         yield (0, 0)
         return
@@ -589,9 +583,17 @@ def cache_plate(
         "Plate %d: estimated size %.1f GB (cache volume %.1f / %.1f GB)",
         plate_id,
         estimated_bytes / 2**30,
-        _cache.volume() / 2**30,
-        _cache.size_limit / 2**30,
+        image_cache.volume() / 2**30,
+        image_cache.size_limit / 2**30,
     )
+
+    # Size estimate should be exact.
+    # There should be no requirement to check the volume again.
+    # But cache uses compression.
+    # Change to estimate size based on average compression ratio.
+    # If too large then skip.
+    # If not enough room then try clearing space.
+    # Then download until cache volume is reached (i.e. image cached entire refilled).
 
     # Proactively evict old plates to make room for this one.
     evicted = _ensure_cache_space(estimated_bytes, plate_id)
@@ -618,7 +620,7 @@ def cache_plate(
             image_id = img_info["image_id"]
             for t in range(img_info["size_t"]):
                 key = get_key(image_id, t)
-                if key not in _cache:
+                if not is_cached(key):
                     keys.append(key)
         # Well labels (skip if already cached)
         if well_pos in label_map:
@@ -627,7 +629,7 @@ def cache_plate(
                 label_id = entry["label_id"] or 0
                 for t in range(entry.get("size_t") or 1):
                     key = get_key(label_id, t)
-                    if key not in _cache:
+                    if not is_cached(key):
                         keys.append(key)
         if last_len < len(keys):
             n_wells += 1
@@ -699,8 +701,9 @@ def cache_plate(
 
                 # Reactive eviction: when cache approaches its limit,
                 # pause workers → evict old plates → resume workers.
-                if _cache.size_limit > 0 and (
-                    _cache.volume() + eviction_headroom >= _cache.size_limit
+                if (
+                    image_cache.volume() + eviction_headroom
+                    >= image_cache.size_limit
                 ):
                     pause_event.clear()
                     # Brief sleep so in-flight writes complete before we
@@ -719,7 +722,7 @@ def cache_plate(
                             "freed plates %s (volume now %.1f GB)",
                             plate_id,
                             re_evicted,
-                            _cache.volume() / 2**30,
+                            image_cache.volume() / 2**30,
                         )
                     else:
                         logger.warning(
@@ -727,8 +730,8 @@ def cache_plate(
                             "to evict (volume %.1f / %.1f GB). "
                             "Continuing anyway.",
                             plate_id,
-                            _cache.volume() / 2**30,
-                            _cache.size_limit / 2**30,
+                            image_cache.volume() / 2**30,
+                            image_cache.size_limit / 2**30,
                         )
                     pause_event.set()
 
@@ -1283,8 +1286,8 @@ def _download_batch(
                 if store is not None:
                     with contextlib.suppress(Exception):
                         store.close()
-                wrapper = _get_omero_image_wrapper(conn, image_id)
-                store, shape, dt_be = _initialise_download(conn, wrapper)
+                wrapper = get_omero_image_wrapper(conn, image_id)
+                store, shape, dt_be = initialise_download(conn, wrapper)
                 last_image_id = image_id
                 if profiling:
                     t_setup += time.perf_counter() - t0
@@ -1292,10 +1295,10 @@ def _download_batch(
             assert store is not None
 
             t0 = time.perf_counter() if profiling else 0.0
-            arr = _get_omero_image_timepoint(store, timepoint, shape, dt_be)
+            arr = get_omero_image_timepoint(store, timepoint, shape, dt_be)
             t1 = time.perf_counter() if profiling else 0.0
             t_download += t1 - t0
-            _cache.set(key, arr, tag=plate_id)
+            add_cached_image(key, arr, tag=plate_id)
             t0 = time.perf_counter() if profiling else 0.0
             t_cache_write += t0 - t1
 
@@ -1350,7 +1353,7 @@ def load_from_cache(
         raise ValueError(f"Plate {plate_id} not fully cached")
 
     # flatfield correction image: ZYXC
-    flatfield_masks = _cache.get(get_key(meta.get("ff_mask_id", ""), 0))
+    flatfield_masks = get_cached_image(get_key(meta.get("ff_mask_id") or 0, 0))
     if flatfield_masks is None:
         raise ValueError(f"Plate {plate_id} flat-field mask not cached")
     flatfield_masks = flatfield_masks.astype(np.float32)
@@ -1415,16 +1418,17 @@ def load_from_cache(
             t_start = tstart if tstart is not None else 0
             t_end = tend if tend is not None else size_t
 
-            timepoint_arrays = []
+            timepoint_arrays: list[npt.NDArray[Any]] = []
             for t in range(t_start, t_end):
-                arr = _cache.get(get_key(image_id, t))
+                arr = get_cached_image(get_key(image_id, t))
                 if arr is None:
                     raise ValueError(
                         f"Image {image_id}:{t} not found in cache"
                     )
                 # Flatfield correction
-                arr = arr.astype(np.float32) / flatfield_masks
-                timepoint_arrays.append(arr)
+                timepoint_arrays.append(
+                    arr.astype(np.float32) / flatfield_masks
+                )
 
             if len(timepoint_arrays) == 1:
                 image_arrays.append(timepoint_arrays[0])
@@ -1444,19 +1448,21 @@ def load_from_cache(
                     t_start = tstart if tstart is not None else 0
                     t_end = tend if tend is not None else size_t
 
-                    timepoint_arrays = []
+                    timepoint_label_arrays: list[npt.NDArray[Any]] = []
                     for t in range(t_start, t_end):
-                        arr = _cache.get(get_key(label_id, t))
+                        arr = get_cached_image(get_key(label_id, t))
                         if arr is None:
                             raise ValueError(
                                 f"Label {label_id}:{t} not found in cache"
                             )
-                        timepoint_arrays.append(arr)
+                        timepoint_label_arrays.append(arr)
 
-                    if len(timepoint_arrays) == 1:
-                        label_arrays.append(timepoint_arrays[0])
+                    if len(timepoint_label_arrays) == 1:
+                        label_arrays.append(timepoint_label_arrays[0])
                     else:
-                        label_arrays.append(np.stack(timepoint_arrays, axis=0))
+                        label_arrays.append(
+                            np.stack(timepoint_label_arrays, axis=0)
+                        )
 
     omero_data.image_ids = image_ids
     omero_data.image_positions = positions
