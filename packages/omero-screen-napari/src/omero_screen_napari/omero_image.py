@@ -136,25 +136,41 @@ class NumpyDisk(Disk):  # type: ignore[misc]
         return super().fetch(mode, filename, value, read)
 
 
-# Configure cache path and size using environment
-__path = os.getenv("OMERO_SCREEN_IMAGE_CACHE_PATH")
-if __path is None:
-    import pathlib
+def get_cache_path(subdir: str) -> str:
+    """Get the path to the cache directory.
 
-    __path = str(pathlib.Path.home() / ".cache" / "omero_screen" / "images")
+    Uses the environment variable OMERO_SCREEN_CACHE_PATH, or defaults
+    to HOME/.cache/omero_screen.
 
+    Args:
+        subdir: Sub-directory to append to the path. Use empty string to ignore.
+
+    Returns:
+        path
+    """
+    path = os.getenv("OMERO_SCREEN_CACHE_PATH")
+    if path is None:
+        import pathlib
+
+        path = str(pathlib.Path.home() / ".cache" / "omero_screen")
+    return os.path.join(path, subdir)
+
+
+# Configure cache path and size using environment.
 # Note: Cache size of zero will create a cache but never write any images to disk.
 # This takes less then 100Kb space for the sqlite db files. The alternative is to
 # not create a cache at all and abstract out method calls to the object.
 _cache = Cache(
-    __path,
+    get_cache_path("images"),
     disk=NumpyDisk,
     tag_index=True,
     size_limit=getenv_as_int(
         "OMERO_SCREEN_IMAGE_CACHE_SIZE_LIMIT", 20 * 2**30
     ),
 )
-logger.info("Image cache: %s (size limit: %d)", __path, _cache.size_limit)
+logger.info(
+    "Image cache: %s (size limit: %d)", _cache.directory, _cache.size_limit
+)
 
 
 def get_image(
@@ -179,7 +195,7 @@ def get_image(
     Returns:
         Image (TZYXC)
     """
-    image = _get_omero_image_wrapper(conn, image_id)
+    image = get_omero_image_wrapper(conn, image_id)
     sizeT = image.getSizeT()
     if start is None or end is None:
         start = 0
@@ -196,8 +212,8 @@ def get_image(
         if a is None:
             logger.info("Downloading image %s", k)
             if store is None:
-                store, shape, dt_be = _initialise_download(conn, image)
-            a = _get_omero_image_timepoint(store, t, shape, dt_be)
+                store, shape, dt_be = initialise_download(conn, image)
+            a = get_omero_image_timepoint(store, t, shape, dt_be)
             _cache.set(k, a, tag=tag)
         stack.append(a)
     if store is not None:
@@ -229,18 +245,18 @@ def get_image_timepoint(
     a = _cache.get(k)
     if a is None:
         logger.info("Downloading image %s", k)
-        image = _get_omero_image_wrapper(conn, image_id)
+        image = get_omero_image_wrapper(conn, image_id)
         sizeT = image.getSizeT()
         if t < 0 or t > sizeT:
             raise RuntimeError(f"Invalid timepoint {t} for size {sizeT}")
-        store, shape, dt_be = _initialise_download(conn, image)
-        a = _get_omero_image_timepoint(store, t, shape, dt_be)
+        store, shape, dt_be = initialise_download(conn, image)
+        a = get_omero_image_timepoint(store, t, shape, dt_be)
         _cache.set(k, a, tag=tag)
         store.close()
     return a  # type: ignore[no-any-return]
 
 
-def _initialise_download(
+def initialise_download(
     conn: BlitzGateway, image: ImageWrapper
 ) -> tuple[RawPixelsStore, tuple[int, ...], np.dtype[Any]]:
     """Initialise a RawPixelsStore for download of the image.
@@ -269,7 +285,7 @@ def _initialise_download(
     return store, shape, dt_be
 
 
-def _get_omero_image_timepoint(
+def get_omero_image_timepoint(
     store: RawPixelsStore,
     t: int,
     shape: tuple[int, ...],
@@ -304,9 +320,7 @@ def _get_omero_image_timepoint(
     )
 
 
-def _get_omero_image_wrapper(
-    conn: BlitzGateway, image_id: int
-) -> ImageWrapper:
+def get_omero_image_wrapper(conn: BlitzGateway, image_id: int) -> ImageWrapper:
     """Get an OMERO image wrapper object.
 
     Args:
@@ -333,3 +347,65 @@ def get_key(image_id: int, t: int) -> str:
         Key
     """
     return f"{image_id}:{t}"
+
+
+def add_cached_image(
+    key: str,
+    array: npt.NDArray[Any],
+    tag: int | float | str | None = None,
+) -> bool:
+    """Add an image to the cache.
+
+    This method should be used with caution as an arbitrary key can be used to
+    store any image.
+
+    If using the key from ``get_key`` then the image should be a single timepoint
+    in CZYX format.
+
+    Args:
+        key: Image key
+        array: Image
+        tag: Tag to associate with cached data
+
+    Returns:
+        True if item was added
+    """
+    return _cache.set(key, array, tag=tag)  # type: ignore[no-any-return]
+
+
+def get_cached_image(
+    key: str,
+) -> npt.NDArray[Any] | None:
+    """Get an image from the cache.
+
+    Args:
+        key: Image key
+
+    Returns:
+        Image (or None)
+    """
+    return _cache.get(key)  # type: ignore[no-any-return]
+
+
+def is_cached(key: str) -> bool:
+    """Check if the key is the cache.
+
+    Args:
+        key: Cache key
+
+    Returns:
+        True if the key exists in the cache
+    """
+    return key in _cache
+
+
+def evict(tag: int | float | str | None = None) -> int:
+    """Evict all tagged items from the cache.
+
+    Args:
+        tag: Tag
+
+    Returns:
+        Count of evicted items
+    """
+    return _cache.evict(tag)  # type: ignore[no-any-return]
