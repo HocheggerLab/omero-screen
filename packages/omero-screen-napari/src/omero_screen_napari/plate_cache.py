@@ -294,9 +294,6 @@ def delete_plate_from_cache(plate_id: int) -> int:
     Returns:
         Number of keys deleted.
     """
-    deleted = 0
-    keys_to_delete: list[str] = []
-
     # Read plate name before deleting metadata
     meta = get_cached_plate_metadata(plate_id)
     plate_name = (
@@ -305,37 +302,43 @@ def delete_plate_from_cache(plate_id: int) -> int:
         else str(plate_id)
     )
 
-    # Enumerate image keys from wells
-    wells = get_cached_well_data(plate_id)
-    if isinstance(wells, dict):
-        for well_info in wells.values():
-            for img_info in well_info.get("images", []):
-                image_id = img_info["image_id"]
-                size_t = img_info.get("size_t", 1)
-                for t in range(size_t):
-                    keys_to_delete.append(get_key(image_id, t))
+    # deleted = 0
+    # keys_to_delete: list[str] = []
+    #
+    # # Enumerate image keys from wells
+    # wells = get_cached_well_data(plate_id)
+    # if isinstance(wells, dict):
+    #     for well_info in wells.values():
+    #         for img_info in well_info.get("images", []):
+    #             image_id = img_info["image_id"]
+    #             size_t = img_info.get("size_t", 1)
+    #             for t in range(size_t):
+    #                 keys_to_delete.append(get_key(image_id, t))
 
-    # Enumerate label keys from label map (handles old int and new dict format)
-    label_map = get_cached_label_map(plate_id)
-    if isinstance(label_map, dict):
-        for label_entries in label_map.values():
-            for label_entry in label_entries:
-                entry = _normalize_label_entry(label_entry)
-                label_id = entry["label_id"] or 0
-                for t in range(entry.get("size_t") or 1):
-                    keys_to_delete.append(get_key(label_id, t))
+    # # Enumerate label keys from label map (handles old int and new dict format)
+    # label_map = get_cached_label_map(plate_id)
+    # if isinstance(label_map, dict):
+    #     for label_entries in label_map.values():
+    #         for label_entry in label_entries:
+    #             entry = _normalize_label_entry(label_entry)
+    #             label_id = entry["label_id"] or 0
+    #             for t in range(entry.get("size_t") or 1):
+    #                 keys_to_delete.append(get_key(label_id, t))
 
-    # Metadata keys
-    meta_keys = [
-        f"plate:{plate_id}:meta",
-        f"plate:{plate_id}:wells",
-        f"plate:{plate_id}:labels",
-    ]
-    keys_to_delete.extend(meta_keys)
+    # # Metadata keys
+    # meta_keys = [
+    #     f"plate:{plate_id}:meta",
+    #     f"plate:{plate_id}:wells",
+    #     f"plate:{plate_id}:labels",
+    # ]
+    # keys_to_delete.extend(meta_keys)
 
-    for key in keys_to_delete:
-        if _cache.pop(key, None) is not None:  # type: ignore[arg-type]
-            deleted += 1
+    # for key in keys_to_delete:
+    #     if _cache.pop(key, None) is not None:  # type: ignore[arg-type]
+    #         deleted += 1
+
+    # All cache entries should be tagged with the plate ID
+    deleted: int = _cache.evict(plate_id)
 
     # Preserve the plate in history as "removed"
     _update_plate_history(plate_id, plate_name, "removed")
@@ -575,9 +578,9 @@ def cache_plate(
         return
 
     # Start caching
-    _cache.set(f"plate:{plate_id}:meta", meta)
-    _cache.set(f"plate:{plate_id}:wells", wells)
-    _cache.set(f"plate:{plate_id}:labels", label_map)
+    _cache.set(f"plate:{plate_id}:meta", meta, tag=plate_id)
+    _cache.set(f"plate:{plate_id}:wells", wells, tag=plate_id)
+    _cache.set(f"plate:{plate_id}:labels", label_map, tag=plate_id)
 
     # Record in persistent history
     _update_plate_history(plate_id, meta["plate_name"], "cached")
@@ -599,7 +602,7 @@ def cache_plate(
 
     # Step 4: Fetch flatfield mask image (image is cached)
     logger.info("Caching plate %d: fetching flatfield mask", plate_id)
-    _ = get_image(conn, meta["ff_mask_id"])
+    _ = get_image(conn, meta["ff_mask_id"], tag=plate_id)
 
     # Step 5: Build downloads grouped by well, sorted by well position.
     # Well-sorted partitioning ensures wells complete sequentially so
@@ -674,6 +677,7 @@ def cache_plate(
                 executor.submit(
                     _download_batch,
                     batch,
+                    plate_id,
                     progress_q,
                     pause_event,
                 )
@@ -1211,6 +1215,7 @@ def _well_sort_key(well_pos: str) -> tuple[str, int]:
 
 def _download_batch(
     batch: list[str],
+    plate_id: int,
     progress_q: queue.Queue[int] | None = None,
     pause_event: threading.Event | None = None,
     conn: BlitzGateway | None = None,
@@ -1230,6 +1235,7 @@ def _download_batch(
 
     Args:
         batch: List of cache keys (image_id:t).
+        plate_id: Plate ID.
         progress_q: Optional queue for per-image progress signalling.
         pause_event: Event that workers wait on before each image.
             Workers block when cleared, resume when set.
@@ -1291,7 +1297,7 @@ def _download_batch(
             arr = _get_omero_image_timepoint(store, timepoint, shape, dt_be)
             t1 = time.perf_counter() if profiling else 0.0
             t_download += t1 - t0
-            _cache.set(key, arr)
+            _cache.set(key, arr, tag=plate_id)
             t0 = time.perf_counter() if profiling else 0.0
             t_cache_write += t0 - t1
 
