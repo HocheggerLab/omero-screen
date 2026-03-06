@@ -1259,7 +1259,6 @@ def _download_batch(
         t_setup = 0.0
         t_download = 0.0
         t_cache_write = 0.0
-        n_items = 0
 
         for key in batch:
             if pause_event is not None:
@@ -1294,12 +1293,11 @@ def _download_batch(
             t0 = time.perf_counter() if profiling else 0.0
             t_cache_write += t0 - t1
 
-            n_items += 1
-
             if progress_q is not None:
                 progress_q.put(1)
 
-        if profiling and n_items > 0:
+        if profiling and batch:
+            n_items = len(batch)
             logger.debug(
                 "Batch timing (%d items): "
                 "setup=%.2fs download=%.2fs write=%.2fs "
