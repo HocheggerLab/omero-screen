@@ -667,16 +667,6 @@ def cache_plate(
         "OMERO_SCREEN_CACHE_EVICTION_HEADROOM", 500 * 2**20
     )
 
-    # Pre-create OMERO connections so connection overhead is paid upfront
-    # rather than delaying the first download in each worker.
-    n_conns = len(batches)
-    worker_conns = _create_worker_connections(n_conns)
-    logger.info(
-        "Created %d worker connections for plate %d",
-        len(worker_conns),
-        plate_id,
-    )
-
     try:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
@@ -685,11 +675,8 @@ def cache_plate(
                     batch,
                     progress_q,
                     pause_event,
-                    conn=worker_conn,
                 )
-                for batch, worker_conn in zip(
-                    batches, worker_conns, strict=False
-                )
+                for batch in batches
             ]
 
             # Drain the queue, yielding after every image
@@ -749,13 +736,6 @@ def cache_plate(
                     raise exc
     finally:
         pause_event.set()  # unblock any waiting workers on error
-        # Clean up any connections not consumed by workers (e.g. on error)
-        for wc in worker_conns:
-            try:
-                if wc.isConnected():
-                    wc.close(hard=True)
-            except Exception:
-                pass
 
     logger.info("Plate %d: caching complete (%d items)", plate_id, total)
 
@@ -1227,41 +1207,6 @@ def _well_sort_key(well_pos: str) -> tuple[str, int]:
 # --------------- Download Workers ---------------
 
 
-def _create_worker_connections(n: int) -> list[BlitzGateway]:
-    """Create *n* OMERO connections for download workers.
-
-    Connections are created concurrently so the TCP + Ice + auth
-    handshake overlaps instead of running sequentially.
-
-    Args:
-        n: Number of connections to create.
-
-    Returns:
-        List of connected ``BlitzGateway`` instances.
-    """
-    username = os.getenv("USERNAME")
-    password = os.getenv("PASSWORD")
-    host = os.getenv("HOST")
-
-    def _connect() -> BlitzGateway:
-        c = BlitzGateway(username, password, host=host)
-        c.connect()
-        if not c.isConnected():
-            raise RuntimeError(f"Worker connection failed to OMERO at {host}")
-        c.c.enableKeepAlive(60)
-        return c
-
-    if n <= 1:
-        return [_connect()]
-
-    conns: list[BlitzGateway] = []
-    with ThreadPoolExecutor(max_workers=n) as pool:
-        futures = [pool.submit(_connect) for _ in range(n)]
-        for fut in futures:
-            conns.append(fut.result())
-    return conns
-
-
 def _download_batch(
     batch: list[str],
     progress_q: queue.Queue[int] | None = None,
@@ -1300,16 +1245,17 @@ def _download_batch(
             raise RuntimeError(
                 f"Download worker failed to connect to OMERO at {host}"
             )
-        conn.c.enableKeepAlive(60)
 
-    profiling = logger.isEnabledFor(logging.DEBUG)
-
+    # The finally block closes the connection and RawPixelsStore
     store = None
     try:
+        conn.c.enableKeepAlive(60)
+
         last_image_id: int | None = None
         dims: tuple[int, int, int, int, np.dtype[Any]] | None = None
 
         # Accumulators for per-phase timing (only when DEBUG logging)
+        profiling = logger.isEnabledFor(logging.DEBUG)
         t_setup = 0.0
         t_download = 0.0
         t_cache_write = 0.0
