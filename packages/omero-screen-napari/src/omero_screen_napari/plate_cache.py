@@ -298,7 +298,7 @@ def delete_plate_from_cache(plate_id: int) -> int:
     keys_to_delete: list[str] = []
 
     # Read plate name before deleting metadata
-    meta = _cache.get(f"plate:{plate_id}:meta")
+    meta = get_cached_plate_metadata(plate_id)
     plate_name = (
         meta.get("plate_name", str(plate_id))
         if isinstance(meta, dict)
@@ -535,7 +535,7 @@ def cache_plate(
         Tuple of (images_done, images_total).
     """
     # Step 0: Check if an old-format cache exists and invalidate it.
-    existing_meta = _cache.get(f"plate:{plate_id}:meta")
+    existing_meta = get_cached_plate_metadata(plate_id)
     if isinstance(existing_meta, dict):
         old_version = existing_meta.get("cache_version", 1)
         if old_version < _CACHE_VERSION:
@@ -602,20 +602,21 @@ def cache_plate(
     _ = get_image(conn, meta["ff_mask_id"])
 
     # Step 5: Build downloads grouped by well, sorted by well position.
-    # Well-grouped partitioning ensures wells complete sequentially so
+    # Well-sorted partitioning ensures wells complete sequentially so
     # users can start loading cached wells before the entire plate is done.
     sorted_well_keys = sorted(wells.keys(), key=_well_sort_key)
-    well_groups: list[list[str]] = []
+    keys: list[str] = []
 
+    n_wells = 0
     for well_pos in sorted_well_keys:
-        group: list[str] = []
+        last_len = len(keys)
         # Well images (skip if already cached)
         for img_info in wells[well_pos]["images"]:
             image_id = img_info["image_id"]
             for t in range(img_info["size_t"]):
                 key = get_key(image_id, t)
                 if key not in _cache:
-                    group.append(key)
+                    keys.append(key)
         # Well labels (skip if already cached)
         if well_pos in label_map:
             for label_entry in label_map[well_pos]:
@@ -624,32 +625,32 @@ def cache_plate(
                 for t in range(entry.get("size_t") or 1):
                     key = get_key(label_id, t)
                     if key not in _cache:
-                        group.append(key)
-        if group:
-            well_groups.append(group)
+                        keys.append(key)
+        if last_len < len(keys):
+            n_wells += 1
 
-    # Distribute whole well groups to workers round-robin
-    max_workers = max(1, max_workers)
-    batches: list[list[str]] = [[] for _ in range(max_workers)]
-    for i, group in enumerate(well_groups):
-        batches[i % max_workers].extend(group)
-    batches = [b for b in batches if b]
-
-    total = sum(len(b) for b in batches)
-    done = 0
-    # Adjust max workers if there are not enough images
-    max_workers = len(batches)
-
+    total = len(keys)
     if total == 0:
         logger.info("Plate %d: all images already cached", plate_id)
         yield (0, 0)
         return
 
+    # Distribute whole well groups to workers round-robin
+    max_workers = max(1, max_workers)
+    batches: list[list[str]] = [[] for _ in range(max_workers)]
+    for i, key in enumerate(keys):
+        batches[i % max_workers].append(key)
+    batches = [b for b in batches if b]
+
+    # Adjust max workers if there are not enough images
+    max_workers = len(batches)
+
     logger.info(
-        "Caching plate %d: downloading %d items (%d wells) with %d workers",
+        "Caching plate %d (%d wells): downloading %d items (%d wells) with %d workers",
         plate_id,
+        len(sorted_well_keys),
         total,
-        len(well_groups),
+        n_wells,
         max_workers,
     )
 
@@ -680,6 +681,7 @@ def cache_plate(
             ]
 
             # Drain the queue, yielding after every image
+            done = 0
             while done < total:
                 try:
                     progress_q.get(timeout=1.0)
