@@ -1674,7 +1674,9 @@ class FlatfieldMaskParser:
                     "Image", flatfield_mask_id
                 )
                 self._flatfield_array = get_image(
-                    self._conn, flatfield_mask_id
+                    self._conn,
+                    flatfield_mask_id,
+                    tag=self._omero_data.plate_id,
                 )
                 break  # Exit the loop once the flatfield mask is found
         if not flatfield_mask_found:
@@ -2206,6 +2208,7 @@ class ImageParser:
                         int(mip_id),
                         start=tstart,
                         end=tend,
+                        tag=self._omero_data.plate_id,
                     )
                 else:
                     image_array = get_image(
@@ -2213,6 +2216,7 @@ class ImageParser:
                         image.getId(),
                         start=tstart,
                         end=tend,
+                        tag=self._omero_data.plate_id,
                     )
                 flatfield_corrected_image = self._flatfield_correct_image(
                     image_array
@@ -2337,6 +2341,7 @@ class ImageParser:
                     label_data.getId(),
                     start=tstart,
                     end=tend,
+                    tag=self._omero_data.plate_id,
                 )
                 if label_array.shape[-1] == 2:
                     corrected_label_array = correct_channel_order(label_array)

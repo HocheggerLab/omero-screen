@@ -162,14 +162,19 @@ def get_image(
     image_id: int,
     start: int | None = None,
     end: int | None = None,
+    tag: int | float | str | None = None,
 ) -> npt.NDArray[Any]:
     """Get an image from OMERO.
+
+    Loads the image from the cache, or downloads from OMERO.
+    The downloaded image will be added to the cache.
 
     Args:
         conn: Connection to OMERO
         image_id: Image ID
         start: Start timepoint
         end: End timepoint
+        tag: Tag to associate with cached data
 
     Returns:
         Image (TZYXC)
@@ -193,7 +198,7 @@ def get_image(
             if store is None:
                 store, shape, dt_be = _initialise_download(conn, image)
             a = _get_omero_image_timepoint(store, t, shape, dt_be)
-            _cache.set(k, a)
+            _cache.set(k, a, tag=tag)
         stack.append(a)
     if store is not None:
         store.close()
@@ -201,14 +206,21 @@ def get_image(
 
 
 def get_image_timepoint(
-    conn: BlitzGateway, image_id: int, t: int
+    conn: BlitzGateway,
+    image_id: int,
+    t: int,
+    tag: int | float | str | None = None,
 ) -> npt.NDArray[Any]:
     """Get an image timepoint from OMERO.
+
+    Loads the image from the cache, or downloads from OMERO.
+    The downloaded image will be added to the cache.
 
     Args:
         conn: Connection to OMERO
         image_id: Image ID
         t: Timepoint
+        tag: Tag to associate with cached data
 
     Returns:
         Image (ZYXC)
@@ -223,7 +235,7 @@ def get_image_timepoint(
             raise RuntimeError(f"Invalid timepoint {t} for size {sizeT}")
         store, shape, dt_be = _initialise_download(conn, image)
         a = _get_omero_image_timepoint(store, t, shape, dt_be)
-        _cache.set(k, a)
+        _cache.set(k, a, tag=tag)
         store.close()
     return a  # type: ignore[no-any-return]
 

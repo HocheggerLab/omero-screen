@@ -180,7 +180,9 @@ def load_crops_from_omero(
             all_image_ids.append(image_id)
 
             # Load pixels (via diskcache)
-            cached = get_image_timepoint(conn, image_id, timepoint)  # ZYXC
+            cached = get_image_timepoint(
+                conn, image_id, timepoint, tag=plate_id
+            )  # ZYXC
             image_array = cached.squeeze(axis=0).astype(np.float32)  # YXC
 
             # Apply flatfield correction
@@ -401,7 +403,7 @@ def _load_segmentation_masks(
 
         # Load segmentation pixels (via diskcache)
         cached = get_image_timepoint(
-            conn, seg_image.getId(), timepoint
+            conn, seg_image.getId(), timepoint, tag=plate_id
         )  # ZYXC
         masks = cached.squeeze(axis=0).astype(np.int32)  # YXC
 
@@ -450,7 +452,9 @@ def _load_flatfield_correction(
             return False, None
 
         # Load flatfield pixels (via diskcache)
-        cached = get_image_timepoint(conn, ff_image.getId(), 0)  # ZYXC
+        cached = get_image_timepoint(
+            conn, ff_image.getId(), 0, tag=plate_id
+        )  # ZYXC
         flatfield = cached.squeeze(axis=0).astype(np.float32)  # YXC
 
         logger.info(
