@@ -33,15 +33,17 @@ from omero.rtypes import unwrap
 from omero_screen.config import get_logger, getenv_as_int
 
 from omero_screen_napari.omero_image import (
-    _OMERO_PIXEL_DTYPES,
     _cache,
+    _get_omero_image_timepoint,
     _get_omero_image_wrapper,
-    _parse_raw_timepoint,
+    _initialise_download,
     get_image,
     get_key,
 )
 
 logger = get_logger(__name__)
+
+# TODO: Add a cache for the plate metadata
 
 # Bump this when the on-disk format changes (e.g. dtype, compression, metadata).
 # cache_plate() will delete and re-download plates cached with an older version.
@@ -1307,12 +1309,9 @@ def _download_batch(
         last_image_id: int | None = None
         dims: tuple[int, int, int, int, np.dtype[Any]] | None = None
 
-        store = conn.c.sf.createRawPixelsStore()
-
         # Accumulators for per-phase timing (only when DEBUG logging)
         t_setup = 0.0
         t_download = 0.0
-        t_numpy = 0.0
         t_cache_write = 0.0
         n_items = 0
 
@@ -1329,22 +1328,11 @@ def _download_batch(
             # same image — setPixelsId is itself an RPC we only pay once.
             if image_id != last_image_id:
                 t0 = time.perf_counter() if profiling else 0.0
+                if store is not None:
+                    with contextlib.suppress(Exception):
+                        store.close()
                 wrapper = _get_omero_image_wrapper(conn, image_id)
-                pixels = wrapper.getPrimaryPixels()
-                pixel_type = pixels.getPixelsType().getValue()
-                dt_be = _OMERO_PIXEL_DTYPES.get(pixel_type)
-                if dt_be is None:
-                    raise ValueError(
-                        f"Unsupported OMERO pixel type: {pixel_type}"
-                    )
-                store.setPixelsId(pixels.getId(), False)
-                dims = (
-                    wrapper.getSizeZ(),
-                    wrapper.getSizeC(),
-                    wrapper.getSizeY(),
-                    wrapper.getSizeX(),
-                    dt_be,
-                )
+                store, shape, dt_be = _initialise_download(conn, wrapper)
                 last_image_id = image_id
                 if profiling:
                     t_setup += time.perf_counter() - t0
@@ -1352,32 +1340,13 @@ def _download_batch(
             assert store is not None
             assert dims is not None
 
-            # Single RPC for all Z×C planes instead of one per plane.
             t0 = time.perf_counter() if profiling else 0.0
-            raw_bytes = store.getTimepoint(timepoint)
-            if profiling:
-                t_download += time.perf_counter() - t0
-
-            t0 = time.perf_counter() if profiling else 0.0
-            arr = _parse_raw_timepoint(raw_bytes, *dims)
-
-            # Labels are integer masks — compact from float64/uint32
-            # to the smallest uint type that fits all values.
-            if arr.dtype.kind == "f" or arr.dtype.itemsize > 2:
-                max_val = int(arr.max())
-                if max_val < 2**8:
-                    arr = arr.astype(np.uint8)
-                elif max_val < 2**16:
-                    arr = arr.astype(np.uint16)
-                else:
-                    arr = arr.astype(np.uint32)
-            if profiling:
-                t_numpy += time.perf_counter() - t0
-
-            t0 = time.perf_counter() if profiling else 0.0
+            arr = _get_omero_image_timepoint(store, timepoint, shape, dt_be)
+            t1 = time.perf_counter() if profiling else 0.0
+            t_download += t1 - t0
             _cache[key] = arr
-            if profiling:
-                t_cache_write += time.perf_counter() - t0
+            t0 = time.perf_counter() if profiling else 0.0
+            t_cache_write += t0 - t1
 
             n_items += 1
 
@@ -1387,15 +1356,14 @@ def _download_batch(
         if profiling and n_items > 0:
             logger.debug(
                 "Batch timing (%d items): "
-                "setup=%.2fs download=%.2fs numpy=%.2fs "
-                "per-image: dl=%.0fms np=%.0fms wr=%.0fms",
+                "setup=%.2fs download=%.2fs write=%.2fs "
+                "per-image: su=%.0fms dl=%.0fms wr=%.0fms",
                 n_items,
                 t_setup,
                 t_download,
-                t_numpy,
                 t_cache_write,
+                t_setup / n_items * 1000,
                 t_download / n_items * 1000,
-                t_numpy / n_items * 1000,
                 t_cache_write / n_items * 1000,
             )
     finally:

@@ -9,6 +9,7 @@ import numpy.typing as npt
 from diskcache import Cache, Disk
 from diskcache.core import UNKNOWN
 from numcodecs import Blosc as _BloscCodec
+from omero.api import RawPixelsStore
 from omero.gateway import BlitzGateway, ImageWrapper
 from omero_screen.config import get_logger, getenv_as_int
 
@@ -32,41 +33,6 @@ _OMERO_PIXEL_DTYPES: dict[str, np.dtype[Any]] = {
     "float": np.dtype(">f4"),
     "double": np.dtype(">f8"),
 }
-
-
-def _parse_raw_timepoint(
-    raw_bytes: bytes,
-    size_z: int,
-    size_c: int,
-    size_y: int,
-    size_x: int,
-    dt_be: np.dtype[Any],
-) -> npt.NDArray[Any]:
-    """Parse raw bytes from RawPixelsStore.getTimepoint() into a ZYXC array.
-
-    OMERO dimension order is XYZCT (X fastest). For a fixed timepoint the
-    remaining dimensions are XYZC, which in row-major (C-order) memory
-    layout corresponds to shape ``(C, Z, Y, X)``.
-
-    Args:
-        raw_bytes: Raw pixel bytes from ``store.getTimepoint(t)``.
-        size_z: Number of Z slices.
-        size_c: Number of channels.
-        size_y: Image height in pixels.
-        size_x: Image width in pixels.
-        dt_be: Big-endian numpy dtype matching the OMERO pixel type.
-
-    Returns:
-        Contiguous array with shape ``(Z, Y, X, C)`` in native byte order.
-    """
-    arr = np.frombuffer(raw_bytes, dtype=dt_be).reshape(
-        size_c, size_z, size_y, size_x
-    )
-    # Transpose CZYX → ZYXC and produce a native-endian copy.
-    # Preserve the transposed view to allow channel slicing to a contiguous array.
-    return np.array(
-        arr.transpose(1, 2, 3, 0), dtype=dt_be.newbyteorder("="), order="K"
-    )
 
 
 class NumpyDisk(Disk):  # type: ignore[misc]
@@ -217,16 +183,20 @@ def get_image(
         raise RuntimeError(f"Invalid range: [{start}, {end}) for size {sizeT}")
 
     stack = []
-    # TODO: This checks the cache for each timepoint and retrieves each in turn.
-    # It would be more efficient to collate missing ranges and download together.
+    store = None
+    # This checks the cache for each timepoint and retrieves each in turn.
     for t in range(start, end):
         k = get_key(image_id, t)
         a = _cache.get(k)
         if a is None:
             logger.info("Downloading image %s", k)
-            a = _get_omero_image_timepoint(image, t)
+            if store is None:
+                store, shape, dt_be = _initialise_download(conn, image)
+            a = _get_omero_image_timepoint(store, t, shape, dt_be)
             _cache[k] = a
         stack.append(a)
+    if store is not None:
+        store.close()
     return np.stack(stack)
 
 
@@ -248,40 +218,78 @@ def get_image_timepoint(
     if a is None:
         logger.info("Downloading image %s", k)
         image = _get_omero_image_wrapper(conn, image_id)
-        a = _get_omero_image_timepoint(image, t)
+        sizeT = image.getSizeT()
+        if t < 0 or t > sizeT:
+            raise RuntimeError(f"Invalid timepoint {t} for size {sizeT}")
+        store, shape, dt_be = _initialise_download(conn, image)
+        a = _get_omero_image_timepoint(store, t, shape, dt_be)
         _cache[k] = a
+        store.close()
     return a  # type: ignore[no-any-return]
 
 
-def _get_omero_image_timepoint(
-    image: ImageWrapper, t: int
-) -> npt.NDArray[Any]:
-    """Get image timepoints from OMERO.
+def _initialise_download(
+    conn: BlitzGateway, image: ImageWrapper
+) -> tuple[RawPixelsStore, tuple[int, ...], np.dtype[Any]]:
+    """Initialise a RawPixelsStore for download of the image.
 
     Args:
-        image: OMERO image object
-        start: Start timepoint
-        end: End timepoint
+        Args:
+            conn: Connection to OMERO
+            image: Image
+
+        Returns:
+            store, image shape, pixels type
+    """
+    store = conn.c.sf.createRawPixelsStore()
+    pixels = image.getPrimaryPixels()
+    pixel_type = pixels.getPixelsType().getValue()
+    dt_be = _OMERO_PIXEL_DTYPES.get(pixel_type)
+    if dt_be is None:
+        raise ValueError(f"Unsupported OMERO pixel type: {pixel_type}")
+    store.setPixelsId(pixels.getId(), False)
+    shape = (
+        int(image.getSizeC()),
+        int(image.getSizeZ()),
+        int(image.getSizeY()),
+        int(image.getSizeX()),
+    )
+    return store, shape, dt_be
+
+
+def _get_omero_image_timepoint(
+    store: RawPixelsStore,
+    t: int,
+    shape: tuple[int, ...],
+    dt_be: np.dtype[Any],
+) -> npt.NDArray[Any]:
+    """Get image timepoint from OMERO.
+
+    Args:
+        store: RawPixelsStore initialised with the pixels ID for the image.
+        t: Timepoint
+        shape: Image shape (C, Z, Y, X)
+        dt_be: Big-endian numpy dtype matching the OMERO pixel type.
 
     Returns:
         Image (ZYXC)
     """
-    sizeT = image.getSizeT()
-    if t < 0 or t > sizeT:
-        raise RuntimeError(f"Invalid timepoint {t} for size {sizeT}")
+    # Single RPC for all Z×C planes instead of a generator of planes
+    # using image.getPrimaryPixels().getPlanes(zctList)
+    raw_bytes = store.getTimepoint(t)
 
-    sizeZ = image.getSizeZ()
-    sizeC = image.getSizeC()
-    zctList = []
-    for z in range(sizeZ):
-        for c in range(sizeC):
-            zctList.append((z, c, t))
-    planes = image.getPrimaryPixels().getPlanes(zctList)
-    # create ZCYX
-    a = np.array(list(planes))
-    a = a.reshape((sizeZ, sizeC, a.shape[-2], a.shape[-1]))
-    # return ZYXC
-    return np.moveaxis(a, [0, 1, 2, 3], [0, 3, 1, 2])
+    # OMERO dimension order is XYZCT (X fastest). For a fixed timepoint the
+    # remaining dimensions are XYZC, which in row-major (C-order) memory
+    # layout corresponds to shape (C, Z, Y, X).
+    arr = np.frombuffer(raw_bytes, dtype=dt_be).reshape(shape)
+
+    # Transpose CZYX → ZYXC and produce a native-endian copy.
+    # Preserve the transposed view to allow channel slicing to a contiguous array.
+    return np.array(
+        arr.transpose(1, 2, 3, 0),
+        dtype=dt_be.newbyteorder("="),
+        order="K",
+    )
 
 
 def _get_omero_image_wrapper(
