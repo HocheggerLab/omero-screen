@@ -193,7 +193,7 @@ def get_image(
             if store is None:
                 store, shape, dt_be = _initialise_download(conn, image)
             a = _get_omero_image_timepoint(store, t, shape, dt_be)
-            _cache[k] = a
+            _cache.set(k, a)
         stack.append(a)
     if store is not None:
         store.close()
@@ -223,7 +223,7 @@ def get_image_timepoint(
             raise RuntimeError(f"Invalid timepoint {t} for size {sizeT}")
         store, shape, dt_be = _initialise_download(conn, image)
         a = _get_omero_image_timepoint(store, t, shape, dt_be)
-        _cache[k] = a
+        _cache.set(k, a)
         store.close()
     return a  # type: ignore[no-any-return]
 
