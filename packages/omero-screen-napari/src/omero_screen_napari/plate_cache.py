@@ -129,7 +129,7 @@ def get_plate_history() -> dict[int, dict[str, str]]:
         logger.debug("Error during plate history migration", exc_info=True)
 
     if migrated:
-        _cache["plate_history"] = history
+        _cache.set("plate_history", history)
 
     return history
 
@@ -157,7 +157,7 @@ def _update_plate_history(plate_id: int, plate_name: str, status: str) -> None:
         entry["last_cached"] = existing.get("last_cached", str(date.today()))
 
     history[plate_id] = entry
-    _cache["plate_history"] = history
+    _cache.set("plate_history", history)
 
 
 def remove_plate_from_history(plate_id: int) -> None:
@@ -173,7 +173,7 @@ def remove_plate_from_history(plate_id: int) -> None:
     history: dict[int, dict[str, str]] = _cache.get("plate_history") or {}
     if plate_id in history:
         del history[plate_id]
-        _cache["plate_history"] = history
+        _cache.set("plate_history", history)
         logger.info("Removed plate %d from history", plate_id)
 
 
@@ -575,9 +575,9 @@ def cache_plate(
         return
 
     # Start caching
-    _cache[f"plate:{plate_id}:meta"] = meta
-    _cache[f"plate:{plate_id}:wells"] = wells
-    _cache[f"plate:{plate_id}:labels"] = label_map
+    _cache.set(f"plate:{plate_id}:meta", meta)
+    _cache.set(f"plate:{plate_id}:wells", wells)
+    _cache.set(f"plate:{plate_id}:labels", label_map)
 
     # Record in persistent history
     _update_plate_history(plate_id, meta["plate_name"], "cached")
@@ -1291,7 +1291,7 @@ def _download_batch(
             arr = _get_omero_image_timepoint(store, timepoint, shape, dt_be)
             t1 = time.perf_counter() if profiling else 0.0
             t_download += t1 - t0
-            _cache[key] = arr
+            _cache.set(key, arr)
             t0 = time.perf_counter() if profiling else 0.0
             t_cache_write += t0 - t1
 
@@ -1346,7 +1346,7 @@ def load_from_cache(
         raise ValueError(f"Plate {plate_id} not fully cached")
 
     # flatfield correction image: ZYXC
-    flatfield_masks = _cache[get_key(meta.get("ff_mask_id", ""), 0)]
+    flatfield_masks = _cache.get(get_key(meta.get("ff_mask_id", ""), 0))
     if flatfield_masks is None:
         raise ValueError(f"Plate {plate_id} flat-field mask not cached")
     flatfield_masks = flatfield_masks.astype(np.float32)
