@@ -50,7 +50,6 @@ from omero_screen_napari.position_stitching import (
     stitch_labels_from_positions,
 )
 from omero_screen_napari.welldata_api import (
-    parse_omero_data,
     stitch_images,
     stitch_labels,
 )
@@ -464,53 +463,61 @@ def welldata_widget(
     if cache:
         start_cache_worker(plate_num)
 
+    conn = None
     try:
-        # Fast path: load from cache without OMERO connection
-        if is_plate_cached(plate_num):
-            if _is_already_loaded(
-                omero_data, plate_num, well_pos_list, images
-            ):
-                logger.info(
-                    "Plate %d already in memory, skipping reload", plate_num
-                )
-            else:
-                logger.info(
-                    "Loading plate %d from cache (fast path)", plate_num
-                )
-                # TODO: This will error if the plate is partially cached.
-                # This needs a fallback to using the connection to get the
-                # requested data.
-                load_from_cache(
-                    omero_data, plate_num, well_pos_list, images, time=time
+        if _is_already_loaded(omero_data, plate_num, well_pos_list, images):
+            logger.info(
+                "Plate %d already in memory, skipping reload", plate_num
+            )
+        else:
+            conn = _create_connection()
+            load_from_cache(
+                conn, omero_data, plate_num, well_pos_list, images, time=time
+            )
+
+        n_wells = len(omero_data.well_id_list)
+        n_per_well = len(omero_data.image_index)
+        iw_override = None
+
+        # Check first well's positions to decide if stitching is possible
+        first_well_pos = omero_data.image_positions[:n_per_well]
+        if n_per_well > 0 and has_valid_positions(first_well_pos):
+            logger.info(
+                "Auto-stitching %d well(s) from stage positions", n_wells
+            )
+            sp = _get_stitch_params()
+            stitched_imgs: list[np.ndarray[Any, np.dtype[Any]]] = []
+            stitched_lbls: list[np.ndarray[Any, np.dtype[Any]]] = []
+
+            for w in range(n_wells):
+                start = w * n_per_well
+                end = start + n_per_well
+                well_images = omero_data.images[start:end]
+                well_positions = omero_data.image_positions[start:end]
+
+                stitched_imgs.append(
+                    stitch_from_positions(
+                        well_images,
+                        well_positions,  # type: ignore[arg-type]
+                        omero_data.pixel_size,  # type: ignore[arg-type]
+                        rotation=sp["rotation"],
+                        edge=sp["edge"],
+                        mode=sp["mode"],
+                        fallback_overlap=(
+                            sp["overlap_x"],
+                            sp["overlap_y"],
+                        ),
+                    )
                 )
 
-            n_wells = len(omero_data.well_id_list)
-            n_per_well = len(omero_data.image_index)
-
-            # Check first well's positions to decide if stitching is possible
-            first_well_pos = omero_data.image_positions[:n_per_well]
-            if n_per_well > 0 and has_valid_positions(first_well_pos):
-                logger.info(
-                    "Auto-stitching %d well(s) from stage positions", n_wells
-                )
-                sp = _get_stitch_params()
-                stitched_imgs: list[np.ndarray[Any, np.dtype[Any]]] = []
-                stitched_lbls: list[np.ndarray[Any, np.dtype[Any]]] = []
-
-                for w in range(n_wells):
-                    start = w * n_per_well
-                    end = start + n_per_well
-                    well_images = omero_data.images[start:end]
-                    well_positions = omero_data.image_positions[start:end]
-
-                    stitched_imgs.append(
-                        stitch_from_positions(
-                            well_images,
+                if omero_data.labels.size > 0:
+                    well_labels = omero_data.labels[start:end]
+                    stitched_lbls.append(
+                        stitch_labels_from_positions(
+                            well_labels,
                             well_positions,  # type: ignore[arg-type]
                             omero_data.pixel_size,  # type: ignore[arg-type]
                             rotation=sp["rotation"],
-                            edge=sp["edge"],
-                            mode=sp["mode"],
                             fallback_overlap=(
                                 sp["overlap_x"],
                                 sp["overlap_y"],
@@ -518,81 +525,33 @@ def welldata_widget(
                         )
                     )
 
-                    if omero_data.labels.size > 0:
-                        well_labels = omero_data.labels[start:end]
-                        stitched_lbls.append(
-                            stitch_labels_from_positions(
-                                well_labels,
-                                well_positions,  # type: ignore[arg-type]
-                                omero_data.pixel_size,  # type: ignore[arg-type]
-                                rotation=sp["rotation"],
-                                fallback_overlap=(
-                                    sp["overlap_x"],
-                                    sp["overlap_y"],
-                                ),
-                            )
-                        )
-
-                if n_wells == 1:
-                    result_img = stitched_imgs[0]
-                    result_lbl = stitched_lbls[0] if stitched_lbls else None
-                else:
-                    result_img = np.stack(stitched_imgs)
-                    result_lbl = (
-                        np.stack(stitched_lbls) if stitched_lbls else None
-                    )
-
-                clear_viewer_layers(viewer)
-                _display_stitched(viewer, result_img, result_lbl)
-
-                # For multi-well, each slider position = one well
-                iw_override = 1 if n_wells > 1 else None
-
-                def slider_position_change(event: Any) -> None:
-                    pos = event.source.current_step[0]
-                    handle_metadata_widget(
-                        viewer, pos, images_per_well_override=iw_override
-                    )
-
-                viewer.dims.events.current_step.connect(slider_position_change)
-                mock_event = MockEvent(viewer.dims)
-                slider_position_change(mock_event)
+            if n_wells == 1:
+                result_img = stitched_imgs[0]
+                result_lbl = stitched_lbls[0] if stitched_lbls else None
             else:
-                clear_viewer_layers(viewer)
-                add_image_to_viewer(viewer)
-                set_color_maps(viewer)
-                add_label_layers(viewer)
+                result_img = np.stack(stitched_imgs)
+                result_lbl = np.stack(stitched_lbls) if stitched_lbls else None
 
-                def slider_position_change(event: Any) -> None:
-                    pos = event.source.current_step[0]
-                    handle_metadata_widget(viewer, pos)
-
-                viewer.dims.events.current_step.connect(slider_position_change)
-                mock_event = MockEvent(viewer.dims)
-                slider_position_change(mock_event)
+            clear_viewer_layers(viewer)
+            _display_stitched(viewer, result_img, result_lbl)
+            # For multi-well, each slider position = one well
+            iw_override = 1 if n_wells > 1 else None
         else:
-            if _is_already_loaded(
-                omero_data, plate_num, well_pos_list, images
-            ):
-                logger.info(
-                    "Plate %d already in memory, skipping reload", plate_num
-                )
-            else:
-                parse_omero_data(
-                    omero_data, plate_id, well_pos_list, images, time=time
-                )
             clear_viewer_layers(viewer)
             add_image_to_viewer(viewer)
             set_color_maps(viewer)
             add_label_layers(viewer)
 
-            def slider_position_change(event: Any) -> None:
-                current_position = event.source.current_step[0]
-                handle_metadata_widget(viewer, current_position)
+        def slider_position_change(event: Any) -> None:
+            pos = event.source.current_step[0]
+            handle_metadata_widget(
+                viewer, pos, images_per_well_override=iw_override
+            )
 
-            viewer.dims.events.current_step.connect(slider_position_change)
-            mock_event = MockEvent(viewer.dims)
-            slider_position_change(mock_event)
+        viewer.dims.events.current_step.connect(slider_position_change)
+        mock_event = MockEvent(viewer.dims)
+        slider_position_change(mock_event)
+
     except Exception as e:
         logger.error(f"Error in welldata_widget: {e}")
         # MessageBox is already shown in parse_omero_data if it failed there
@@ -605,10 +564,28 @@ def welldata_widget(
             msg.setText(f"An unexpected error occurred: {e}")
             msg.setWindowTitle("Widget Error")
             msg.exec_()
+    finally:
+        if conn is not None:
+            conn.close(hard=True)
 
 
 _active_cache_worker: Any = None
 _active_cache_plate_id: int | None = None
+
+
+def _create_connection() -> BlitzGateway:
+    """Create a connection to the OMERO server."""
+    # Create a connection manually (worker is async, can't use decorator)
+    username = os.getenv("USERNAME")
+    password = os.getenv("PASSWORD")
+    host = os.getenv("HOST")
+    conn = BlitzGateway(username, password, host=host)
+    conn.connect()
+    if not conn.isConnected():
+        raise RuntimeError(
+            f"Failed to establish connection to OMERO server at {host} as {username}"
+        )
+    return conn
 
 
 def start_cache_worker(plate_id: int) -> None:
@@ -652,15 +629,7 @@ def start_cache_worker(plate_id: int) -> None:
         _active_cache_worker.quit()
 
     # Create a connection manually (worker is async, can't use decorator)
-    username = os.getenv("USERNAME")
-    password = os.getenv("PASSWORD")
-    host = os.getenv("HOST")
-    conn = BlitzGateway(username, password, host=host)
-    conn.connect()
-    if not conn.isConnected():
-        raise RuntimeError(
-            f"Failed to establish connection to OMERO server at {host} as {username}"
-        )
+    conn = _create_connection()
 
     # Napari progress bar — created lazily on the first progress signal
     # when we know the total count.
