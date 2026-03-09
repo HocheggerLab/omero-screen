@@ -244,7 +244,7 @@ def get_image_timepoint(
     k = get_key(image_id, t)
     a = _cache.get(k)
     if a is None:
-        logger.info("Downloading image %s", k)
+        logger.info("Downloading image %s:%d", k, t)
         image = get_omero_image_wrapper(conn, image_id)
         sizeT = image.getSizeT()
         if t < 0 or t > sizeT:
