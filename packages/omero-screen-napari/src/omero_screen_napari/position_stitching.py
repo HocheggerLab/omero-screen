@@ -65,21 +65,21 @@ def _adaptive_tolerance(values: list[float]) -> float:
       larger inter-column/row jumps) we use the geometric mean of the
       smallest and largest gap, which sits between the two populations.
     """
-    sorted_v = sorted(values)
-    if len(sorted_v) < 2:
+    if len(values) < 2:
         return 0.0
+    sorted_v = np.sort(values)
 
-    gaps = [sorted_v[i + 1] - sorted_v[i] for i in range(len(sorted_v) - 1)]
-    gaps = [g for g in gaps if g > 0]  # drop zero-gaps (duplicates)
+    gaps = sorted_v[1:] - sorted_v[:-1]
+    gaps = gaps[gaps > 0]  # drop zero-gaps (duplicates)
     if not gaps:
         return 0.0
 
-    min_gap = min(gaps)
-    max_gap = max(gaps)
+    min_gap = gaps.min()
+    max_gap = gaps.max()
 
     if max_gap / min_gap < 10:
         # Gaps are similar — clean grid, no noise
-        return min_gap * 0.25
+        return float(min_gap * 0.25)
     # Clear bimodal distribution: geometric mean separates the two modes
     return float(np.sqrt(min_gap * max_gap))
 
