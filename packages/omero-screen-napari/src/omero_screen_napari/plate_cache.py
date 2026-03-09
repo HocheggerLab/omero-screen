@@ -33,14 +33,10 @@ from omero.gateway import BlitzGateway, MapAnnotationWrapper
 from omero.rtypes import unwrap
 from omero_screen.config import get_logger, getenv_as_int
 
-# TODO: remove direct use of image cache
-# Refactor to a method to free space to the image cache code
-# using a sorted tag list.
-from omero_screen_napari.omero_image import (
-    _cache as image_cache,
-)
 from omero_screen_napari.omero_image import (
     add_cached_image,
+    cache_size_limit,
+    cache_volume,
     get_cache_path,
     get_cached_image,
     get_image,
@@ -50,6 +46,9 @@ from omero_screen_napari.omero_image import (
     initialise_download,
     is_cached,
 )
+
+# Refactor to a method to free space to the image cache code
+# using a sorted tag list.
 from omero_screen_napari.omero_image import (
     evict as evict_images,
 )
@@ -196,8 +195,7 @@ def remove_plate_from_history(plate_id: int) -> None:
         plate_id: OMERO plate ID.
     """
     # Delete cached data if present
-    if is_plate_cached(plate_id):
-        delete_plate_from_cache(plate_id)
+    _deleted: int = _cache.evict(plate_id) + evict_images(plate_id)
 
     history: dict[int, dict[str, str]] = _cache.get("plate_history") or {}
     if plate_id in history:
@@ -227,6 +225,14 @@ def get_well_cache_status(plate_id: int) -> dict[str, bool]:
     if not isinstance(label_map, dict) or not label_map:
         return {}
 
+    # Require flat-field mask
+    meta = get_cached_plate_metadata(plate_id)
+    if meta is None:
+        return {}
+    ff_mask_id = meta.get("ff_mask_id", 0)
+    if not is_cached(get_key(ff_mask_id, 0)):
+        return {}
+
     status: dict[str, bool] = {}
     for well_pos, well_info in wells.items():
         all_cached = True
@@ -235,7 +241,7 @@ def get_well_cache_status(plate_id: int) -> dict[str, bool]:
             image_id = img_info["image_id"]
             size_t = img_info.get("size_t", 1)
             for t in range(size_t):
-                if is_cached(get_key(image_id, t)):
+                if not is_cached(get_key(image_id, t)):
                     all_cached = False
                     break
             if not all_cached:
@@ -246,7 +252,7 @@ def get_well_cache_status(plate_id: int) -> dict[str, bool]:
                 entry = _normalize_label_entry(label_entry)
                 label_id = entry["label_id"] or 0
                 for t in range(entry.get("size_t") or 1):
-                    if is_cached(get_key(label_id, t)):
+                    if not is_cached(get_key(label_id, t)):
                         all_cached = False
                         break
                 if not all_cached:
@@ -282,9 +288,11 @@ def is_plate_fully_cached(plate_id: int) -> bool:
         return False
     # Require flat-field mask
     ff_mask_id = meta.get("ff_mask_id", 0)
-    if is_cached(get_key(ff_mask_id, 0)):
+    if not is_cached(get_key(ff_mask_id, 0)):
         return False
     status = get_well_cache_status(plate_id)
+    if not (bool(status) and all(status.values())):
+        print("status", status)
     return bool(status) and all(status.values())
 
 
@@ -310,7 +318,57 @@ def get_cached_label_map(
     return _cache.get(f"plate:{plate_id}:labels")  # type: ignore[no-any-return]
 
 
-def delete_plate_from_cache(plate_id: int) -> int:
+def _get_project_id() -> int:
+    """Get OMERO screen project."""
+    return int(os.getenv("PROJECT_ID", "0"))
+
+
+def get_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
+    """Return plate metadata from the cache, or from OMERO if not cached."""
+    v = get_cached_plate_metadata(plate_id)
+    if isinstance(v, dict):
+        old_version = v.get("cache_version", 1)
+        if old_version < _CACHE_VERSION:
+            logger.info(
+                "Plate %d: cache version %d < %d, deleting stale data",
+                plate_id,
+                old_version,
+                _CACHE_VERSION,
+            )
+            # Evict stale metadata, keep images
+            delete_plate_from_cache(plate_id, remove_images=False)
+            v = None
+    if v is None:
+        logger.info("Caching plate %d: fetching metadata", plate_id)
+        v = _fetch_plate_metadata(conn, plate_id, _get_project_id())
+        _cache.set(f"plate:{plate_id}:meta", v, tag=plate_id)
+    return v  # type: ignore[no-any-return]
+
+
+def get_well_data(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
+    """Return wells dict from the cache, or from OMERO if not cached."""
+    v = get_cached_well_data(plate_id)
+    if v is None:
+        logger.info("Caching plate %d: fetching well data", plate_id)
+        v = _fetch_well_map(conn, plate_id)
+        _cache.set(f"plate:{plate_id}:wells", v, tag=plate_id)
+    return v  # type: ignore[no-any-return]
+
+
+def get_label_map(
+    conn: BlitzGateway,
+    plate_id: int,
+) -> dict[str, list[dict[str, int | None]]]:
+    """Return label map from the cache, or from OMERO if not cached."""
+    v = _cache.get(f"plate:{plate_id}:labels")
+    if v is None:
+        logger.info("Caching plate %d: fetching label map", plate_id)
+        v = _fetch_label_map(conn, plate_id, _get_project_id())
+        _cache.set(f"plate:{plate_id}:labels", v, tag=plate_id)
+    return v  # type: ignore[no-any-return]
+
+
+def delete_plate_from_cache(plate_id: int, remove_images: bool = True) -> int:
     """Delete all cached data for a plate (metadata, images, labels).
 
     Removes the three metadata keys plus every image and label key
@@ -319,6 +377,7 @@ def delete_plate_from_cache(plate_id: int) -> int:
 
     Args:
         plate_id: OMERO plate ID.
+        remove_images: Whether to delete image data as well as metadata.
 
     Returns:
         Number of keys deleted.
@@ -332,7 +391,9 @@ def delete_plate_from_cache(plate_id: int) -> int:
     )
 
     # All cache entries should be tagged with the plate ID
-    deleted: int = _cache.evict(plate_id) + evict_images(plate_id)
+    deleted: int = _cache.evict(plate_id)
+    if remove_images:
+        deleted += evict_images(plate_id)
 
     # Preserve the plate in history as "removed"
     _update_plate_history(plate_id, plate_name, "removed")
@@ -367,9 +428,10 @@ def _estimate_plate_bytes(
 
     # Assume all images and labels are the same
     for well_info in wells.values():
-        for img_info in well_info.get("images", []):
+        image_entries = well_info.get("images", [])
+        for img_info in image_entries:
             estimate = _estimate_entry_bytes(img_info, fallback_per_image)
-            total_bytes += estimate * len(wells) * len(img_info)
+            total_bytes += estimate * len(wells) * len(image_entries)
             # flat-field mask is 4 byte float64 so double uint16 estimate
             total_bytes += estimate * 2
             break
@@ -410,7 +472,7 @@ def _estimate_entry_bytes(entry: dict[str, Any], fallback: int) -> int:
     return estimate if estimate != 0 else fallback
 
 
-def _ensure_cache_space(needed_bytes: int, exclude_plate_id: int) -> list[int]:
+def ensure_cache_space(needed_bytes: int, exclude_plate_id: int) -> list[int]:
     """Evict whole plates (oldest first) until enough space is available.
 
     Args:
@@ -420,13 +482,17 @@ def _ensure_cache_space(needed_bytes: int, exclude_plate_id: int) -> list[int]:
     Returns:
         List of plate IDs that were evicted.
     """
-    if image_cache.size_limit <= 0:
+    size_limit = cache_size_limit()
+    if size_limit <= 0:
         return []
 
     evicted: list[int] = []
 
-    if image_cache.volume() + needed_bytes <= image_cache.size_limit:
+    print("check evicting")
+    if cache_volume() + needed_bytes <= size_limit:
         return []
+
+    print("evicting")
 
     # Get plates sorted ascending by plate_id (oldest/smallest first)
     candidates = get_all_cached_plates()
@@ -437,17 +503,17 @@ def _ensure_cache_space(needed_bytes: int, exclude_plate_id: int) -> list[int]:
             continue
         delete_plate_from_cache(plate_id)
         evicted.append(plate_id)
-        if image_cache.volume() + needed_bytes <= image_cache.size_limit:
+        if cache_volume() + needed_bytes <= size_limit:
             break
 
-    if image_cache.volume() + needed_bytes > image_cache.size_limit:
+    if cache_volume() + needed_bytes > size_limit:
         logger.warning(
             "Cache still needs %d bytes after evicting %d plate(s). "
             "volume=%d, limit=%d",
             needed_bytes,
             len(evicted),
-            image_cache.volume(),
-            image_cache.size_limit,
+            cache_volume(),
+            size_limit,
         )
 
     return evicted
@@ -531,50 +597,22 @@ def cache_plate(
     Yields:
         Tuple of (images_done, images_total).
     """
-    # Step 0: Check if an old-format cache exists and invalidate it.
-    existing_meta = get_cached_plate_metadata(plate_id)
-    if isinstance(existing_meta, dict):
-        old_version = existing_meta.get("cache_version", 1)
-        if old_version < _CACHE_VERSION:
-            logger.info(
-                "Plate %d: cache version %d < %d, deleting stale data",
-                plate_id,
-                old_version,
-                _CACHE_VERSION,
-            )
-            delete_plate_from_cache(plate_id)
-
-    # OMERO screen project
-    project_id = int(os.getenv("PROJECT_ID", "0"))
-
-    # Step 1: Fetch plate metadata
-    logger.info("Caching plate %d: fetching metadata", plate_id)
-    meta = _fetch_plate_metadata(conn, plate_id, project_id)
-
-    # Step 2: Fetch well map (all wells with images and stage positions)
-    logger.info("Caching plate %d: fetching well data", plate_id)
-    wells = _fetch_well_map(conn, plate_id)
-
-    # Step 3: Fetch label map
-    logger.info("Caching plate %d: fetching label map", plate_id)
-    label_map = _fetch_label_map(conn, plate_id, project_id)
+    meta = get_plate_metadata(conn, plate_id)
+    wells = get_well_data(conn, plate_id)
+    label_map = get_label_map(conn, plate_id)
 
     # Done after fetching the label map so the estimate includes labels.
     estimated_bytes = _estimate_plate_bytes(wells, label_map)
-    if estimated_bytes >= image_cache.size_limit:
+    size_limit = cache_size_limit()
+    if estimated_bytes >= size_limit:
         logger.warning(
             "Plate %d: estimated size %.1f GB exceeds cache size %.1f GB, skipping caching",
             plate_id,
             estimated_bytes / 2**30,
-            image_cache.size_limit / 2**30,
+            size_limit / 2**30,
         )
         yield (0, 0)
         return
-
-    # Start caching
-    _cache.set(f"plate:{plate_id}:meta", meta, tag=plate_id)
-    _cache.set(f"plate:{plate_id}:wells", wells, tag=plate_id)
-    _cache.set(f"plate:{plate_id}:labels", label_map, tag=plate_id)
 
     # Record in persistent history
     _update_plate_history(plate_id, meta["plate_name"], "cached")
@@ -583,8 +621,8 @@ def cache_plate(
         "Plate %d: estimated size %.1f GB (cache volume %.1f / %.1f GB)",
         plate_id,
         estimated_bytes / 2**30,
-        image_cache.volume() / 2**30,
-        image_cache.size_limit / 2**30,
+        cache_volume() / 2**30,
+        size_limit / 2**30,
     )
 
     # Size estimate should be exact.
@@ -596,17 +634,17 @@ def cache_plate(
     # Then download until cache volume is reached (i.e. image cached entire refilled).
 
     # Proactively evict old plates to make room for this one.
-    evicted = _ensure_cache_space(estimated_bytes, plate_id)
+    evicted = ensure_cache_space(estimated_bytes, plate_id)
     if evicted:
         logger.info(
             "Evicted plates %s to make room for plate %d", evicted, plate_id
         )
 
-    # Step 4: Fetch flatfield mask image (image is cached)
+    # Fetch flatfield mask image (image is cached)
     logger.info("Caching plate %d: fetching flatfield mask", plate_id)
     _ = get_image(conn, meta["ff_mask_id"], tag=plate_id)
 
-    # Step 5: Build downloads grouped by well, sorted by well position.
+    # Build downloads grouped by well, sorted by well position.
     # Well-sorted partitioning ensures wells complete sequentially so
     # users can start loading cached wells before the entire plate is done.
     sorted_well_keys = sorted(wells.keys(), key=_well_sort_key)
@@ -659,7 +697,7 @@ def cache_plate(
         max_workers,
     )
 
-    # Step 6 & 7: Download images + labels with per-image progress.
+    # Download images + labels with per-image progress.
     # Workers signal each completed image via a shared queue so the
     # generator can yield smooth progress to the napari progress bar.
     progress_q: queue.Queue[int] = queue.Queue()
@@ -701,10 +739,7 @@ def cache_plate(
 
                 # Reactive eviction: when cache approaches its limit,
                 # pause workers → evict old plates → resume workers.
-                if (
-                    image_cache.volume() + eviction_headroom
-                    >= image_cache.size_limit
-                ):
+                if cache_volume() + eviction_headroom >= size_limit:
                     pause_event.clear()
                     # Brief sleep so in-flight writes complete before we
                     # measure volume for eviction.
@@ -712,7 +747,7 @@ def cache_plate(
 
                     remaining_frac = (total - done) / total
                     needed = int(estimated_bytes * remaining_frac)
-                    re_evicted = _ensure_cache_space(
+                    re_evicted = ensure_cache_space(
                         max(needed, eviction_headroom),
                         plate_id,
                     )
@@ -722,7 +757,7 @@ def cache_plate(
                             "freed plates %s (volume now %.1f GB)",
                             plate_id,
                             re_evicted,
-                            image_cache.volume() / 2**30,
+                            cache_volume() / 2**30,
                         )
                     else:
                         logger.warning(
@@ -730,8 +765,8 @@ def cache_plate(
                             "to evict (volume %.1f / %.1f GB). "
                             "Continuing anyway.",
                             plate_id,
-                            image_cache.volume() / 2**30,
-                            image_cache.size_limit / 2**30,
+                            cache_volume() / 2**30,
+                            size_limit / 2**30,
                         )
                     pause_event.set()
 
@@ -1086,6 +1121,7 @@ def _row_col_to_well_pos(row: int, col: int) -> str:
     return f"{chr(65 + row)}{col + 1}"
 
 
+# TODO: remove this as the cache format is now consistent
 def _normalize_label_entry(
     entry: dict[str, int | None] | int,
 ) -> dict[str, int | None]:
@@ -1330,67 +1366,69 @@ def _download_batch(
 
 
 def load_from_cache(
+    conn: BlitzGateway,
     omero_data: Any,
     plate_id: int,
     well_pos_input: str,
     image_input: str,
     time: str = "All",
 ) -> None:
-    """Populate OmeroData entirely from diskcache. No OMERO connection needed.
+    """Populate OmeroData using the cache, otherwise from OMERO.
+
+    The connection will not be used if the data is fully cached.
 
     Args:
+        conn: OMERO connection.
         omero_data: OmeroData instance to populate.
         plate_id: Plate ID.
         well_pos_input: Comma-separated well positions (e.g. "A1, A2").
         image_input: Image index input (e.g. "All", "0-3", "1, 3").
         time: Time input (e.g. "All", "1-3").
     """
-    meta = get_cached_plate_metadata(plate_id)
-    wells = get_cached_well_data(plate_id)
-    label_map = get_cached_label_map(plate_id)
-
-    if meta is None or wells is None:
-        raise ValueError(f"Plate {plate_id} not fully cached")
+    meta = get_plate_metadata(conn, plate_id)
+    wells = get_well_data(conn, plate_id)
+    label_map = get_label_map(conn, plate_id)
 
     # flatfield correction image: ZYXC
-    flatfield_masks = get_cached_image(get_key(meta.get("ff_mask_id") or 0, 0))
+    ff_mask_id = meta.get("ff_mask_id") or 0
+    flatfield_masks = get_cached_image(get_key(ff_mask_id, 0))
     if flatfield_masks is None:
-        raise ValueError(f"Plate {plate_id} flat-field mask not cached")
+        flatfield_masks = get_image(conn, ff_mask_id)
+        if flatfield_masks is None:
+            raise ValueError(f"Plate {plate_id} flat-field mask missing")
     flatfield_masks = flatfield_masks.astype(np.float32)
 
-    omero_data.plate_id = plate_id
-    omero_data.channel_data = meta["channel_data"]
-    omero_data.pixel_size = meta["pixel_size"]
-    omero_data.intensities = meta["intensities"]
-    omero_data.plate_name = meta["plate_name"]
-
     # Parse user well selection
-    selected_wells = [w.strip() for w in well_pos_input.split(",")]
-    omero_data.well_pos_list = selected_wells
+    well_pos_list = [w.strip() for w in well_pos_input.split(",")]
 
     # Parse image index selection
-    image_index = _parse_image_index(image_input, wells, selected_wells)
-    omero_data.image_index = image_index
-    omero_data.image_input = image_input
+    image_index = _parse_image_index(image_input, wells, well_pos_list)
 
     # Parse time crop
     tstart, tend = _parse_time_range(time)
 
     # Reset well/image data
-    omero_data.reset_well_and_image_data()
+    well_id_list = []
+    well_metadata_list = []
 
     image_arrays: list[npt.NDArray[Any]] = []
     label_arrays: list[npt.NDArray[Any]] = []
     image_ids: list[int] = []
-    positions: list[tuple[float, float] | None] = []
+    image_positions: list[tuple[float, float] | None] = []
 
-    for well_pos in selected_wells:
+    for i, well_pos in enumerate(well_pos_list):
         if well_pos not in wells:
-            raise ValueError(f"Well {well_pos} not found in cached data")
+            raise ValueError(f"Well {well_pos} not found in plate data")
+        logger.info(
+            "Loading well images %s (%d/%d)",
+            well_pos,
+            i + 1,
+            len(well_pos_list),
+        )
 
         well_info = wells[well_pos]
-        omero_data.well_id_list.append(well_info["well_id"])
-        omero_data.well_metadata_list.append(well_info["metadata"])
+        well_id_list.append(well_info["well_id"])
+        well_metadata_list.append(well_info["metadata"])
 
         # Get images for selected indices
         well_images = well_info["images"]
@@ -1410,25 +1448,29 @@ def load_from_cache(
             px = _unwrap_length(img_info.get("pos_x"))
             py = _unwrap_length(img_info.get("pos_y"))
             if px is not None and py is not None:
-                positions.append((px, py))
+                image_positions.append((px, py))
             else:
-                positions.append(None)
+                image_positions.append(None)
 
             # Determine timepoint range
             t_start = tstart if tstart is not None else 0
             t_end = tend if tend is not None else size_t
 
             timepoint_arrays: list[npt.NDArray[Any]] = []
+            store = None
             for t in range(t_start, t_end):
                 arr = get_cached_image(get_key(image_id, t))
                 if arr is None:
-                    raise ValueError(
-                        f"Image {image_id}:{t} not found in cache"
+                    store, shape, dt_be = initialise_download(
+                        conn, get_omero_image_wrapper(conn, image_id)
                     )
+                    arr = get_omero_image_timepoint(store, t, shape, dt_be)
                 # Flatfield correction
                 timepoint_arrays.append(
                     arr.astype(np.float32) / flatfield_masks
                 )
+            if store is not None:
+                store.close()
 
             if len(timepoint_arrays) == 1:
                 image_arrays.append(timepoint_arrays[0])
@@ -1436,7 +1478,13 @@ def load_from_cache(
                 image_arrays.append(np.stack(timepoint_arrays, axis=0))
 
         # Get labels for this well (handles old int and new dict format)
-        if label_map and well_pos in label_map:
+        if well_pos in label_map:
+            logger.info(
+                "Loading well labels %s (%d/%d)",
+                well_pos,
+                i + 1,
+                len(well_pos_list),
+            )
             well_label_entries = label_map[well_pos]
             for idx in image_index:
                 if idx < len(well_label_entries):
@@ -1449,13 +1497,19 @@ def load_from_cache(
                     t_end = tend if tend is not None else size_t
 
                     timepoint_label_arrays: list[npt.NDArray[Any]] = []
+                    store = None
                     for t in range(t_start, t_end):
                         arr = get_cached_image(get_key(label_id, t))
                         if arr is None:
-                            raise ValueError(
-                                f"Label {label_id}:{t} not found in cache"
+                            store, shape, dt_be = initialise_download(
+                                conn, get_omero_image_wrapper(conn, label_id)
+                            )
+                            arr = get_omero_image_timepoint(
+                                store, t, shape, dt_be
                             )
                         timepoint_label_arrays.append(arr)
+                    if store is not None:
+                        store.close()
 
                     if len(timepoint_label_arrays) == 1:
                         label_arrays.append(timepoint_label_arrays[0])
@@ -1464,13 +1518,29 @@ def load_from_cache(
                             np.stack(timepoint_label_arrays, axis=0)
                         )
 
+    # Re-populate OmeroData fields
+    omero_data.reset_well_and_image_data()
+    omero_data.well_id_list = well_id_list
+    omero_data.well_metadata_list = well_metadata_list
+
+    omero_data.plate_id = plate_id
+    omero_data.channel_data = meta["channel_data"]
+    omero_data.pixel_size = meta["pixel_size"]
+    omero_data.intensities = meta["intensities"]
+    omero_data.plate_name = meta["plate_name"]
+
+    omero_data.well_pos_list = well_pos_list
+
+    omero_data.image_index = image_index
+    omero_data.image_input = image_input
+
     omero_data.image_ids = image_ids
-    omero_data.image_positions = positions
+    omero_data.image_positions = image_positions
     omero_data.images = _squeeze_stack(image_arrays, "images")
     omero_data.labels = _squeeze_stack(label_arrays, "labels")
 
     logger.info(
-        "Loaded plate %d from cache: %d images, %d labels",
+        "Loaded plate %d: %d images, %d labels",
         plate_id,
         len(image_arrays),
         len(label_arrays),

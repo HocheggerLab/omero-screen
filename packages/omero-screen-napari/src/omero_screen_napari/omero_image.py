@@ -409,3 +409,21 @@ def evict(tag: int | float | str | None = None) -> int:
         Count of evicted items
     """
     return _cache.evict(tag)  # type: ignore[no-any-return]
+
+
+def cache_volume() -> int:
+    """Return the estimated total size in bytes of the image cache on disk.
+
+    Returns:
+        Total size in bytes
+    """
+    return int(_cache.volume())
+
+
+def cache_size_limit() -> int:
+    """Return the size limit in bytes of the image cache on disk.
+
+    Returns:
+        Size limit in bytes
+    """
+    return int(_cache.size_limit)
