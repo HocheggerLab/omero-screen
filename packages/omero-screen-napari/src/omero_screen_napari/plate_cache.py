@@ -328,7 +328,7 @@ def get_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
     """Return plate metadata from the cache, or from OMERO if not cached."""
     v = get_cached_plate_metadata(plate_id)
     if isinstance(v, dict):
-        old_version = v.get("cache_version", 1)
+        old_version = v.get("cache_version", 0)
         if old_version < _CACHE_VERSION:
             logger.info(
                 "Plate %d: cache version %d < %d, deleting stale data",
