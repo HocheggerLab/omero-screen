@@ -95,7 +95,7 @@ def build_table_data(
 
 def _build_rows(
     wells: dict[str, dict[str, Any]],
-    label_map: dict[str, list[dict[str, int]]] | None,
+    label_map: dict[str, list[dict[str, int] | None]] | None,
     label_unknown: bool = False,
 ) -> list[dict[str, Any]]:
     """Build row dicts from well data.
@@ -114,9 +114,19 @@ def _build_rows(
 
         if label_unknown:
             labels = "?"
-        else:
-            has_labels = bool(label_map and label_map.get(well_pos))
-            labels = "Yes" if has_labels else "No"
+        elif label_map is not None:
+            well_label_entries = label_map.get(well_pos)
+            if well_label_entries:
+                # Label entries are None if there is no label for corresponding image
+                count = sum(x is not None for x in well_label_entries)
+                if count == len(well_label_entries):
+                    labels = "Yes"
+                elif count == 0:
+                    labels = "No"
+                else:
+                    labels = "Partial"
+            else:
+                labels = "No"
 
         rows.append(
             {

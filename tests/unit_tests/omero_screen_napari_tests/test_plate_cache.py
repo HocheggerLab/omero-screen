@@ -288,6 +288,29 @@ class TestIsPlateFullyCached:
 
             assert is_plate_fully_cached(42) is True
 
+    def test_true_when_no_labels(
+        self, mock_cache, sample_meta, sample_wells
+    ):
+        fake_cache, store, fake_image_cache, im_store = mock_cache
+        fake_cache["plate:42:meta"] = sample_meta
+        fake_cache["plate:42:wells"] = sample_wells
+        # Images with missing labels have a corresponding None entry
+        fake_cache["plate:42:labels"] = {
+            "A1": [None, None],
+            "A2": [None],
+        }
+        img = np.zeros((1, 10, 10, 2), dtype=np.float32)
+        fake_image_cache["100:0"] = img
+        fake_image_cache["101:0"] = img
+        fake_image_cache["200:0"] = img
+        fake_image_cache["999:0"] = img
+        with (
+            patch("omero_screen_napari.plate_cache._cache", fake_cache),
+            patch("omero_screen_napari.omero_image._cache", fake_image_cache),
+        ):
+            from omero_screen_napari.plate_cache import is_plate_fully_cached
+
+            assert is_plate_fully_cached(42) is True
 
 # --------------- get_cached_plate_metadata ---------------
 

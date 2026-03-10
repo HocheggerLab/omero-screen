@@ -249,6 +249,9 @@ def get_well_cache_status(plate_id: int) -> dict[str, bool]:
         # check labels
         if all_cached:
             for label_entry in label_map[well_pos]:
+                if label_entry is None:
+                    # No label for corresponding image
+                    continue
                 label_id = label_entry["label_id"]
                 size_t = label_entry.get("size_t", 1)
                 for t in range(size_t):
@@ -291,6 +294,7 @@ def is_plate_fully_cached(plate_id: int) -> bool:
     if not is_cached(get_key(ff_mask_id, 0)):
         return False
     status = get_well_cache_status(plate_id)
+    print(status)
     return bool(status) and all(status.values())
 
 
@@ -306,10 +310,11 @@ def get_cached_well_data(plate_id: int) -> dict[str, Any] | None:
 
 def get_cached_label_map(
     plate_id: int,
-) -> dict[str, list[dict[str, int]]] | None:
+) -> dict[str, list[dict[str, int] | None]] | None:
     """Return cached label map or None.
 
-    Returns entries ``{"label_id": int, "size_t": int}``.
+    Returns entries ``{"label_id": int, "size_t": int}``. If labels are missing
+    for a corresponding well image then the list entry is None.
     """
     return _cache.get(f"plate:{plate_id}:labels")  # type: ignore[no-any-return]
 
@@ -354,9 +359,9 @@ def get_well_data(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
 def get_label_map(
     conn: BlitzGateway,
     plate_id: int,
-) -> dict[str, list[dict[str, int]]]:
+) -> dict[str, list[dict[str, int] | None]]:
     """Return label map from the cache, or from OMERO if not cached."""
-    v = _cache.get(f"plate:{plate_id}:labels")
+    v = get_cached_label_map(plate_id)
     if v is None:
         logger.info("Caching plate %d: fetching label map", plate_id)
         v = _fetch_label_map(conn, plate_id, _get_project_id())
@@ -400,7 +405,7 @@ def delete_plate_from_cache(plate_id: int, remove_images: bool = True) -> int:
 
 def _estimate_plate_bytes(
     wells: dict[str, dict[str, Any]],
-    label_map: dict[str, list[dict[str, int]]] | None = None,
+    label_map: dict[str, list[dict[str, int] | None]] | None = None,
 ) -> int:
     """Estimate total bytes needed to cache a plate's images and labels.
 
@@ -447,7 +452,7 @@ def _estimate_plate_bytes(
     return total_bytes
 
 
-def _estimate_entry_bytes(entry: dict[str, Any], fallback: int) -> int:
+def _estimate_entry_bytes(entry: dict[str, Any] | None, fallback: int) -> int:
     """Estimate bytes for a single image/label entry.
 
     Args:
@@ -457,6 +462,8 @@ def _estimate_entry_bytes(entry: dict[str, Any], fallback: int) -> int:
     Returns:
         Estimated bytes.
     """
+    if entry is None:
+        return fallback
     size_t: int = entry.get("size_t", 1)
     size_z: int = entry.get("size_z", 0)
     size_y: int = entry.get("size_y", 0)
@@ -655,6 +662,9 @@ def cache_plate(
         # Well labels (skip if already cached)
         if well_pos in label_map:
             for label_entry in label_map[well_pos]:
+                if label_entry is None:
+                    # No label for corresponding image
+                    continue
                 label_id = label_entry["label_id"]
                 for t in range(label_entry["size_t"]):
                     key = get_key(label_id, t)
@@ -1116,7 +1126,7 @@ def _fetch_label_map(
     conn: BlitzGateway,
     plate_id: int,
     project_id: int,
-) -> dict[str, list[dict[str, int]]]:
+) -> dict[str, list[dict[str, int] | None]]:
     """Map well image_ids to their segmentation label image_ids with dimensions.
 
     Args:
@@ -1179,9 +1189,9 @@ def _fetch_label_map(
         # Well data should already be cached by cache_plate()
         return {}
 
-    label_map: dict[str, list[dict[str, int]]] = {}
+    label_map: dict[str, list[dict[str, int] | None]] = {}
     for well_pos, well_info in wells.items():
-        label_entries: list[dict[str, int]] = []
+        label_entries: list[dict[str, int] | None] = []
         for img_info in well_info["images"]:
             image_id = img_info["image_id"]
             label_id = label_lookup.get(image_id) or 0
@@ -1199,7 +1209,7 @@ def _fetch_label_map(
                 )
             else:
                 # Place holder for unlabeled images
-                label_entries.append({})
+                label_entries.append(None)
         label_map[well_pos] = label_entries
 
     return label_map
@@ -1450,7 +1460,7 @@ def load_from_cache(
             else:
                 image_arrays.append(np.stack(timepoint_arrays, axis=0))
 
-        # Get labels for this well (handles old int and new dict format)
+        # Get labels for this well
         if well_pos in label_map:
             logger.info(
                 "Loading well labels %s (%d/%d)",
@@ -1462,6 +1472,10 @@ def load_from_cache(
             for idx in image_index:
                 if idx < len(well_label_entries):
                     label_entry = well_label_entries[idx]
+                    if label_entry is None:
+                        # No label for corresponding image
+                        continue
+
                     label_id = label_entry["label_id"]
                     size_t = label_entry["size_t"]
 
