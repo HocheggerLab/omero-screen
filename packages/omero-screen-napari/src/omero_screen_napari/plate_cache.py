@@ -309,9 +309,7 @@ def get_cached_label_map(
 ) -> dict[str, list[dict[str, int]]] | None:
     """Return cached label map or None.
 
-    Returns new-format entries ``{"label_id": int, "size_t": int}`` or
-    old-format plain ``int`` values for caches written before the
-    multi-timepoint label change.
+    Returns entries ``{"label_id": int, "size_t": int}``.
     """
     return _cache.get(f"plate:{plate_id}:labels")  # type: ignore[no-any-return]
 

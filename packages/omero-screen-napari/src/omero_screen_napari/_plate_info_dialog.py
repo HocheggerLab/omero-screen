@@ -95,7 +95,7 @@ def build_table_data(
 
 def _build_rows(
     wells: dict[str, dict[str, Any]],
-    label_map: dict[str, list[dict[str, int | None] | int]] | None,
+    label_map: dict[str, list[dict[str, int]]] | None,
     label_unknown: bool = False,
 ) -> list[dict[str, Any]]:
     """Build row dicts from well data.

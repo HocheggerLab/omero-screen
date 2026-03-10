@@ -71,7 +71,7 @@ def _adaptive_tolerance(values: list[float]) -> float:
 
     gaps = sorted_v[1:] - sorted_v[:-1]
     gaps = gaps[gaps > 0]  # drop zero-gaps (duplicates)
-    if not gaps:
+    if len(gaps) == 0:
         return 0.0
 
     min_gap = gaps.min()

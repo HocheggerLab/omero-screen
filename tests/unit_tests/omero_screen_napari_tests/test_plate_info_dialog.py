@@ -27,6 +27,7 @@ def sample_meta() -> dict:
         "pixel_size": (0.3, 0.3),
         "intensities": {0: (100, 5000), 1: (50, 3000), 2: (0, 65535)},
         "plate_name": "TestPlate",
+        "ff_mask_id": 999,
     }
 
 
@@ -74,6 +75,8 @@ def _patch_cache_fns(meta, wells, label_map=None, well_cache_status=None):
     """Return a context manager that patches the cache accessor functions."""
     import contextlib
 
+    if label_map is None:
+        label_map = {}
     if well_cache_status is None:
         well_cache_status = {}
 
