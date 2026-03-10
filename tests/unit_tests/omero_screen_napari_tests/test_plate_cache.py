@@ -419,7 +419,7 @@ class TestLoadFromCache:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(BlitzGateway("user", "passwd", host="localhost"), od, 42, "A1", "All")
+            load_from_cache(MagicMock(), od, 42, "A1", "All")
 
             assert od.plate_id == 42
             assert od.channel_data == {"DAPI": "0", "Tub": "1"}
@@ -430,7 +430,7 @@ class TestLoadFromCache:
             assert len(od.well_metadata_list) == 1
             assert od.well_metadata_list[0]["cell_line"] == "RPE"
 
-    def test_load_raises_when_not_cached(self, mock_cache):
+    def test_load_uses_connection_when_not_cached(self, mock_cache):
         fake_cache, store, fake_image_cache, im_store = mock_cache
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -438,10 +438,15 @@ class TestLoadFromCache:
         ):
             from omero_screen_napari.plate_cache import load_from_cache
 
+            # Connection will be used if not fully cached.
+            # Throw an exception when the connection is used to get the plate.
+            mock_conn = MagicMock()
+            msg = "Boom!"
+            mock_conn.getObject.side_effect = Exception(msg)
+
             od = OmeroData()
-            # Connection will be used if not fully cached
-            with pytest.raises(Ice.ConnectionLostException, match="Ice.ConnectionLostException"):
-                load_from_cache(BlitzGateway("user", "passwd", host="localhost"), od, 999, "A1", "All")
+            with pytest.raises(Exception, match=msg):
+                load_from_cache(mock_conn, od, 999, "A1", "All")
 
     def test_load_from_cache_stores_positions(
         self, mock_cache, sample_meta, sample_wells, sample_label_map
@@ -467,7 +472,7 @@ class TestLoadFromCache:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(BlitzGateway("user", "passwd", host="localhost"), od, 42, "A1", "All")
+            load_from_cache(MagicMock(), od, 42, "A1", "All")
 
             assert len(od.image_positions) == 2
             assert od.image_positions[0] == (0.0, 0.0)
@@ -512,7 +517,7 @@ class TestLoadFromCache:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(BlitzGateway("user", "passwd", host="localhost"), od, 42, "A1", "All")
+            load_from_cache(MagicMock(), od, 42, "A1", "All")
 
             assert len(od.image_positions) == 1
             assert od.image_positions[0] == (5.0, 10.0)
@@ -552,7 +557,7 @@ class TestLoadFromCache:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(BlitzGateway("user", "passwd", host="localhost"), od, 42, "A1", "All")
+            load_from_cache(MagicMock(), od, 42, "A1", "All")
 
             assert len(od.image_positions) == 2
             assert od.image_positions[0] is None
@@ -579,7 +584,7 @@ class TestLoadFromCache:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(BlitzGateway("user", "passwd", host="localhost"), od, 42, "A1", "0")  # Only first image
+            load_from_cache(MagicMock(), od, 42, "A1", "0")  # Only first image
 
             assert len(od.image_ids) == 1
             assert od.image_ids[0] == 100
@@ -1755,7 +1760,7 @@ class TestLabelMultiTimepoint:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(BlitzGateway("user", "passwd", host="localhost"), od, 42, "A1", "All")
+            load_from_cache(MagicMock(), od, 42, "A1", "All")
 
             # load_from_cache only loads t=0 for labels, so 1 label
             assert od.labels.shape[0] == 1
@@ -1834,24 +1839,24 @@ def _make_wrapper_mock(
 class TestImageWrapperReuse:
     def test_reuses_wrapper_for_same_image_id(self):
         """get_omero_image_wrapper called once per unique image_id."""
-        from omero_screen_napari.plate_cache import _download_batch
-
         plate_id = 42
         batch = ["100:0","100:1","200:0","200:1"]
         arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
         mock_conn = MagicMock()
-        # wrapper = _make_wrapper_mock()
 
         with (
+            patch("omero_screen_napari.omero_image._cache"),
             patch(
-                "omero_screen_napari.omero_image.get_omero_image_wrapper",
+                "omero_screen_napari.plate_cache.get_omero_image_wrapper",
                 return_value=_make_wrapper_mock(),
             ) as mock_get_wrapper,
             patch(
-                "omero_screen_napari.omero_image.get_omero_image_timepoint",
+                "omero_screen_napari.plate_cache.get_omero_image_timepoint",
                 return_value=arr,
             ),
         ):
+            from omero_screen_napari.plate_cache import _download_batch
+
             progress_q: queue.Queue[int] = queue.Queue()
             _download_batch(batch, plate_id, progress_q, conn=mock_conn)
 
@@ -1862,85 +1867,79 @@ class TestImageWrapperReuse:
 
     def test_fetches_each_unique_image_id(self):
         """Each unique image_id triggers one wrapper fetch."""
-        from omero_screen_napari.plate_cache import _download_batch
-
-        batch = [
-            {"image_id": 100, "timepoint": 0, "apply_flatfield": False},
-            {"image_id": 200, "timepoint": 0, "apply_flatfield": False},
-            {"image_id": 300, "timepoint": 0, "apply_flatfield": False},
-        ]
+        plate_id = 42
+        batch = ["100:0","200:0","300:0"]
         arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
         mock_conn = MagicMock()
 
         with (
-            patch("omero_screen_napari.plate_cache._cache"),
+            patch("omero_screen_napari.omero_image._cache"),
             patch(
-                "omero_screen_napari.plate_cache._get_omero_image_wrapper",
+                "omero_screen_napari.plate_cache.get_omero_image_wrapper",
                 return_value=_make_wrapper_mock(),
             ) as mock_get_wrapper,
             patch(
-                "omero_screen_napari.plate_cache._parse_raw_timepoint",
+                "omero_screen_napari.plate_cache.get_omero_image_timepoint",
                 return_value=arr,
             ),
         ):
-            _download_batch(batch, None, conn=mock_conn)
+            from omero_screen_napari.plate_cache import _download_batch
+
+            _download_batch(batch, plate_id, None, conn=mock_conn)
 
             assert mock_get_wrapper.call_count == 3
 
     def test_store_reused_across_timepoints(self):
         """RawPixelsStore is kept open for consecutive timepoints of the same image."""
-        from omero_screen_napari.plate_cache import _download_batch
-
-        batch = [
-            {"image_id": 100, "timepoint": 0, "apply_flatfield": False},
-            {"image_id": 100, "timepoint": 1, "apply_flatfield": False},
-            {"image_id": 100, "timepoint": 2, "apply_flatfield": False},
-        ]
+        plate_id = 42
+        batch = ["100:0","100:1","100:2"]
         arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
         mock_conn = MagicMock()
 
         with (
-            patch("omero_screen_napari.plate_cache._cache"),
+            patch("omero_screen_napari.omero_image._cache"),
             patch(
-                "omero_screen_napari.plate_cache._get_omero_image_wrapper",
+                "omero_screen_napari.plate_cache.get_omero_image_wrapper",
                 return_value=_make_wrapper_mock(),
-            ),
+            ) as mock_get_wrapper,
             patch(
-                "omero_screen_napari.plate_cache._parse_raw_timepoint",
+                "omero_screen_napari.plate_cache.get_omero_image_timepoint",
                 return_value=arr,
-            ),
+            ) as mock_get_timepoint,
         ):
-            _download_batch(batch, None, conn=mock_conn)
+            from omero_screen_napari.plate_cache import _download_batch
+
+            _download_batch(batch, plate_id, None, conn=mock_conn)
 
             # Only one createRawPixelsStore call for the same image
+            assert mock_get_wrapper.call_count == 1
             assert mock_conn.c.sf.createRawPixelsStore.call_count == 1
             store = mock_conn.c.sf.createRawPixelsStore.return_value
+            assert store.setPixelsId.call_count == 1
             # getTimepoint called 3 times (one per batch item)
-            assert store.getTimepoint.call_count == 3
+            assert mock_get_timepoint.call_count == 3
 
     def test_store_recreated_for_different_images(self):
         """New RawPixelsStore created when image_id changes."""
-        from omero_screen_napari.plate_cache import _download_batch
-
-        batch = [
-            {"image_id": 100, "timepoint": 0, "apply_flatfield": False},
-            {"image_id": 200, "timepoint": 0, "apply_flatfield": False},
-        ]
+        plate_id = 42
+        batch = ["100:0","200:0"]
         arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
         mock_conn = MagicMock()
 
         with (
-            patch("omero_screen_napari.plate_cache._cache"),
+            patch("omero_screen_napari.omero_image._cache"),
             patch(
-                "omero_screen_napari.plate_cache._get_omero_image_wrapper",
+                "omero_screen_napari.plate_cache.get_omero_image_wrapper",
                 return_value=_make_wrapper_mock(),
-            ),
+            ) as mock_get_wrapper,
             patch(
-                "omero_screen_napari.plate_cache._parse_raw_timepoint",
+                "omero_screen_napari.plate_cache.get_omero_image_timepoint",
                 return_value=arr,
             ),
         ):
-            _download_batch(batch, None, conn=mock_conn)
+            from omero_screen_napari.plate_cache import _download_batch
+
+            _download_batch(batch, plate_id, None, conn=mock_conn)
 
             # Two different images → two createRawPixelsStore calls
             assert mock_conn.c.sf.createRawPixelsStore.call_count == 2
@@ -1952,71 +1951,67 @@ class TestImageWrapperReuse:
 class TestDownloadBatchCompleteness:
     def test_downloads_all_items(self):
         """All items in batch are downloaded."""
-        from omero_screen_napari.plate_cache import _download_batch
-
-        batch = [
-            {"image_id": i, "timepoint": 0, "apply_flatfield": False}
-            for i in range(5)
-        ]
+        plate_id = 42
+        batch = [f"{i}:0" for i in range(5)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.uint16)
         mock_conn = MagicMock()
 
         cached_keys: list[str] = []
 
         class TrackingCache:
-            def __setitem__(self, key: str, value: object) -> None:
+            def set(self, key, value, tag=None) -> None:
                 cached_keys.append(key)
 
         with (
             patch(
-                "omero_screen_napari.plate_cache._cache", TrackingCache()
+                "omero_screen_napari.omero_image._cache", TrackingCache()
             ),
             patch(
-                "omero_screen_napari.plate_cache._get_omero_image_wrapper",
+                "omero_screen_napari.plate_cache.get_omero_image_wrapper",
                 return_value=_make_wrapper_mock(),
-            ),
+            ) as mock_get_wrapper,
             patch(
-                "omero_screen_napari.plate_cache._parse_raw_timepoint",
+                "omero_screen_napari.plate_cache.get_omero_image_timepoint",
                 return_value=arr,
             ),
         ):
-            _download_batch(batch, None, conn=mock_conn)
+            from omero_screen_napari.plate_cache import _download_batch
 
-        assert len(cached_keys) == 5
+            _download_batch(batch, plate_id, None, conn=mock_conn)
+
+        assert batch == cached_keys
 
     def test_pause_event_blocks_worker(self):
         """Workers block when pause_event is cleared, resume when set."""
-        from omero_screen_napari.plate_cache import _download_batch
-
-        batch = [
-            {"image_id": i, "timepoint": 0, "apply_flatfield": False}
-            for i in range(3)
-        ]
+        plate_id = 42
+        batch = [f"{i}:0" for i in range(3)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.uint16)
         mock_conn = MagicMock()
 
         cached_keys: list[str] = []
-
-        class TrackingCache:
-            def __setitem__(self, key: str, value: object) -> None:
-                cached_keys.append(key)
 
         pause_event = threading.Event()
         pause_event.set()  # not paused
 
+        class TrackingCache:
+            def set(self, key, value, tag=None) -> None:
+                cached_keys.append(key)
+
         with (
             patch(
-                "omero_screen_napari.plate_cache._cache", TrackingCache()
+                "omero_screen_napari.omero_image._cache", TrackingCache()
             ),
             patch(
-                "omero_screen_napari.plate_cache._get_omero_image_wrapper",
+                "omero_screen_napari.plate_cache.get_omero_image_wrapper",
                 return_value=_make_wrapper_mock(),
-            ),
+            ) as mock_get_wrapper,
             patch(
-                "omero_screen_napari.plate_cache._parse_raw_timepoint",
+                "omero_screen_napari.plate_cache.get_omero_image_timepoint",
                 return_value=arr,
             ),
         ):
+            from omero_screen_napari.plate_cache import _download_batch
+
             # Start download in a thread
             import concurrent.futures
 
@@ -2024,7 +2019,7 @@ class TestDownloadBatchCompleteness:
                 future = pool.submit(
                     _download_batch,
                     batch,
-                    None,
+                    plate_id,
                     None,
                     pause_event,
                     conn=mock_conn,
@@ -2032,47 +2027,46 @@ class TestDownloadBatchCompleteness:
                 # Let it run to completion (event is set)
                 future.result(timeout=5)
 
-        assert len(cached_keys) == 3
+        assert batch == cached_keys
 
     def test_pause_event_initially_cleared_blocks_then_resumes(self):
         """Worker blocked by cleared event resumes after set."""
-        from omero_screen_napari.plate_cache import _download_batch
-
-        batch = [
-            {"image_id": 100, "timepoint": 0, "apply_flatfield": False},
-        ]
+        plate_id = 42
+        batch = ["100:0"]
         arr = np.zeros((1, 10, 10, 2), dtype=np.uint16)
         mock_conn = MagicMock()
 
         cached_keys: list[str] = []
 
-        class TrackingCache:
-            def __setitem__(self, key: str, value: object) -> None:
-                cached_keys.append(key)
-
         pause_event = threading.Event()
         # Start cleared — worker should block
 
+        class TrackingCache:
+            def set(self, key, value, tag=None) -> None:
+                cached_keys.append(key)
+
         with (
             patch(
-                "omero_screen_napari.plate_cache._cache", TrackingCache()
+                "omero_screen_napari.omero_image._cache", TrackingCache()
             ),
             patch(
-                "omero_screen_napari.plate_cache._get_omero_image_wrapper",
+                "omero_screen_napari.plate_cache.get_omero_image_wrapper",
                 return_value=_make_wrapper_mock(),
-            ),
+            ) as mock_get_wrapper,
             patch(
-                "omero_screen_napari.plate_cache._parse_raw_timepoint",
+                "omero_screen_napari.plate_cache.get_omero_image_timepoint",
                 return_value=arr,
             ),
         ):
+            from omero_screen_napari.plate_cache import _download_batch
+
             import concurrent.futures
 
             with concurrent.futures.ThreadPoolExecutor(1) as pool:
                 future = pool.submit(
                     _download_batch,
                     batch,
-                    None,
+                    plate_id,
                     None,
                     pause_event,
                     conn=mock_conn,
@@ -2087,7 +2081,7 @@ class TestDownloadBatchCompleteness:
                 pause_event.set()
                 future.result(timeout=5)
 
-        assert len(cached_keys) == 1
+        assert batch == cached_keys
 
 
 # --------------- load_from_cache dtype conversion ---------------
@@ -2120,7 +2114,7 @@ class TestLoadFromCacheDtype:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(BlitzGateway("user", "passwd", host="localhost"), od, 42, "A1", "All")
+            load_from_cache(MagicMock(), od, 42, "A1", "All")
 
             assert od.images.dtype == np.float32
             # image is 1000 / 2 = 500
@@ -2135,51 +2129,70 @@ class TestCacheVersionInvalidation:
         """Plates with cache_version < current should be deleted on re-cache."""
         from omero_screen_napari.plate_cache import _CACHE_VERSION
 
+        plate_id = 42
         fake_cache, store, fake_image_cache, im_store = mock_cache
-        # Old-format metadata (no cache_version → defaults to 1)
-        fake_cache["plate:42:meta"] = sample_meta
-        fake_cache["plate:42:wells"] = {
+        # Old-format metadata
+        meta_with_version = {**sample_meta, "cache_version": _CACHE_VERSION - 1}
+        fake_cache.set("plate:42:meta", meta_with_version, tag=plate_id)
+        fake_cache.set("plate:42:wells", {
             "A1": {
                 "well_id": 10,
                 "metadata": {},
                 "images": [{"image_id": 100, "size_t": 1, "index": 0}],
             },
-        }
-        fake_image_cache["100:0"] = np.zeros((1, 10, 10, 2), dtype=np.float32)
+        }, tag=plate_id)
+        fake_image_cache.set("100:0", np.zeros((1, 10, 10, 2), dtype=np.float32), tag=plate_id)
+        mock_conn = MagicMock()
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
             patch(
-                "omero_screen_napari.plate_cache.delete_plate_from_cache",
-                wraps=None,
-            ) as mock_delete,
+                "omero_screen_napari.plate_cache._fetch_plate_metadata",
+                return_value={**sample_meta, "cache_version": _CACHE_VERSION},
+            )
         ):
-            # TODO:
-            # add old metadata by version
-            # call get_plate_metadata(...)
-            # patch the functions it uses to refresh the cache
-            # assert the returned metadata is the refreshed version
+            from omero_screen_napari.plate_cache import get_plate_metadata
 
-            # Simulate step 0 of cache_plate: version check
+            meta = get_plate_metadata(mock_conn, plate_id)
+
+            # Version check
             existing_meta = fake_cache.get("plate:42:meta")
-            old_version = existing_meta.get("cache_version", 1)
-            assert old_version < _CACHE_VERSION
-            # The delete would be called
-            mock_delete.assert_not_called()  # Sanity: not called yet
+            assert existing_meta.get("cache_version") == _CACHE_VERSION
+            # Well metadata would be evicted
+            assert fake_cache.get("plate:42:wells") is None
+            # Images remain
+            assert "100:0" in fake_image_cache
 
     def test_current_version_not_deleted(self, mock_cache, sample_meta):
         """Plates with current cache_version should NOT be deleted."""
         from omero_screen_napari.plate_cache import _CACHE_VERSION
 
-        # TODO: add old metadata by version, call get_plate_metadata(...),
-        # patch the functions it uses to refresh the cache,
-        # assert the returned metadata is the refreshed version
-        # and old plate metadata are deleted.
-
+        plate_id = 42
         fake_cache, store, fake_image_cache, im_store = mock_cache
+        # Old-format metadata
         meta_with_version = {**sample_meta, "cache_version": _CACHE_VERSION}
-        fake_cache["plate:42:meta"] = meta_with_version
+        fake_cache.set("plate:42:meta", meta_with_version, tag=plate_id)
+        fake_cache.set("plate:42:wells", {
+            "A1": {
+                "well_id": 10,
+                "metadata": {},
+                "images": [{"image_id": 100, "size_t": 1, "index": 0}],
+            },
+        }, tag=plate_id)
+        fake_image_cache.set("100:0", np.zeros((1, 10, 10, 2), dtype=np.float32), tag=plate_id)
+        mock_conn = MagicMock()
 
-        existing_meta = fake_cache.get("plate:42:meta")
-        old_version = existing_meta.get("cache_version", 1)
-        assert old_version >= _CACHE_VERSION
+        with (
+            patch("omero_screen_napari.plate_cache._cache", fake_cache),
+        ):
+            from omero_screen_napari.plate_cache import get_plate_metadata
+
+            meta = get_plate_metadata(mock_conn, plate_id)
+
+            # Version check
+            existing_meta = fake_cache.get("plate:42:meta")
+            assert existing_meta.get("cache_version") == _CACHE_VERSION
+            # Well metadata would be retained
+            assert "plate:42:wells" in fake_cache
+            # Images remain
+            assert "100:0" in fake_image_cache

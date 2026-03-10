@@ -291,8 +291,6 @@ def is_plate_fully_cached(plate_id: int) -> bool:
     if not is_cached(get_key(ff_mask_id, 0)):
         return False
     status = get_well_cache_status(plate_id)
-    if not (bool(status) and all(status.values())):
-        print("status", status)
     return bool(status) and all(status.values())
 
 
@@ -487,11 +485,8 @@ def ensure_cache_space(needed_bytes: int, exclude_plate_id: int) -> list[int]:
 
     evicted: list[int] = []
 
-    print("check evicting")
     if cache_volume() + needed_bytes <= size_limit:
         return []
-
-    print("evicting")
 
     # Get plates sorted ascending by plate_id (oldest/smallest first)
     candidates = get_all_cached_plates()
