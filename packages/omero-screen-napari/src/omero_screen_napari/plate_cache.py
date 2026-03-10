@@ -249,9 +249,9 @@ def get_well_cache_status(plate_id: int) -> dict[str, bool]:
         # check labels
         if all_cached:
             for label_entry in label_map[well_pos]:
-                entry = _normalize_label_entry(label_entry)
-                label_id = entry["label_id"] or 0
-                for t in range(entry.get("size_t") or 1):
+                label_id = label_entry["label_id"]
+                size_t = label_entry.get("size_t", 1)
+                for t in range(size_t):
                     if not is_cached(get_key(label_id, t)):
                         all_cached = False
                         break
@@ -308,7 +308,7 @@ def get_cached_well_data(plate_id: int) -> dict[str, Any] | None:
 
 def get_cached_label_map(
     plate_id: int,
-) -> dict[str, list[dict[str, int | None] | int]] | None:
+) -> dict[str, list[dict[str, int]]] | None:
     """Return cached label map or None.
 
     Returns new-format entries ``{"label_id": int, "size_t": int}`` or
@@ -358,7 +358,7 @@ def get_well_data(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
 def get_label_map(
     conn: BlitzGateway,
     plate_id: int,
-) -> dict[str, list[dict[str, int | None]]]:
+) -> dict[str, list[dict[str, int]]]:
     """Return label map from the cache, or from OMERO if not cached."""
     v = _cache.get(f"plate:{plate_id}:labels")
     if v is None:
@@ -404,7 +404,7 @@ def delete_plate_from_cache(plate_id: int, remove_images: bool = True) -> int:
 
 def _estimate_plate_bytes(
     wells: dict[str, dict[str, Any]],
-    label_map: dict[str, list[dict[str, int | None]]] | None = None,
+    label_map: dict[str, list[dict[str, int]]] | None = None,
 ) -> int:
     """Estimate total bytes needed to cache a plate's images and labels.
 
@@ -440,9 +440,8 @@ def _estimate_plate_bytes(
     if label_map:
         for label_entries in label_map.values():
             for label_entry in label_entries:
-                entry = _normalize_label_entry(label_entry)
                 total_bytes += (
-                    _estimate_entry_bytes(entry, fallback_per_image)
+                    _estimate_entry_bytes(label_entry, fallback_per_image)
                     * len(label_map)
                     * len(label_entries)
                 )
@@ -663,9 +662,8 @@ def cache_plate(
         # Well labels (skip if already cached)
         if well_pos in label_map:
             for label_entry in label_map[well_pos]:
-                entry = _normalize_label_entry(label_entry)
-                label_id = entry["label_id"] or 0
-                for t in range(entry.get("size_t") or 1):
+                label_id = label_entry["label_id"]
+                for t in range(label_entry["size_t"]):
                     key = get_key(label_id, t)
                     if not is_cached(key):
                         keys.append(key)
@@ -1049,7 +1047,7 @@ def _fetch_well_map(
     params.addLong("plate_id", plate_id)
     query = """
         select w.id, w.row, w.column, ws.posX, ws.posY,
-               i.id, pi.sizeT, pi.sizeZ, pi.sizeC, pi.sizeY, pi.sizeX
+               i.id, pi.sizeT, pi.sizeC, pi.sizeZ, pi.sizeY, pi.sizeX
         from Plate as p
           left join p.wells as w
           left join w.wellSamples as ws
@@ -1072,8 +1070,8 @@ def _fetch_well_map(
         pos_y = unwrap(row_data[4])
         image_id = unwrap(row_data[5])
         size_t = unwrap(row_data[6])
-        size_z = unwrap(row_data[7])
-        size_c = unwrap(row_data[8])
+        size_c = unwrap(row_data[7])
+        size_z = unwrap(row_data[8])
         size_y = unwrap(row_data[9])
         size_x = unwrap(row_data[10])
 
@@ -1090,8 +1088,8 @@ def _fetch_well_map(
             {
                 "image_id": image_id,
                 "size_t": size_t,
-                "size_z": size_z,
                 "size_c": size_c,
+                "size_z": size_z,
                 "size_y": size_y,
                 "size_x": size_x,
                 "index": len(well_map[well_pos]["images"]),
@@ -1121,32 +1119,11 @@ def _row_col_to_well_pos(row: int, col: int) -> str:
     return f"{chr(65 + row)}{col + 1}"
 
 
-# TODO: remove this as the cache format is now consistent
-def _normalize_label_entry(
-    entry: dict[str, int | None] | int,
-) -> dict[str, int | None]:
-    """Normalize a label map entry to the new dict format.
-
-    Old caches store plain ``int`` label IDs; new caches store
-    ``{"label_id": int, "size_t": int, ...}``.  This helper ensures a
-    consistent dict format.
-
-    Args:
-        entry: Either an int (old format) or dict (new format).
-
-    Returns:
-        Dict with ``label_id`` and ``size_t`` keys (plus optional dims).
-    """
-    if isinstance(entry, int):
-        return {"label_id": entry, "size_t": 1}
-    return entry
-
-
 def _fetch_label_map(
     conn: BlitzGateway,
     plate_id: int,
     project_id: int,
-) -> dict[str, list[dict[str, int | None]]]:
+) -> dict[str, list[dict[str, int]]]:
     """Map well image_ids to their segmentation label image_ids with dimensions.
 
     Args:
@@ -1184,24 +1161,24 @@ def _fetch_label_map(
         return {}
 
     # Query size_t and dimensions for all label images via HQL
-    label_dims: dict[int, dict[str, int]] = {}
+    label_dims: dict[int, tuple[int, ...]] = {}
     label_ids = list(label_lookup.values())
     query_service = conn.getQueryService()
     params = omero.sys.ParametersI()
     params.addIds(label_ids)
     query = (
-        "select i.id, pi.sizeT, pi.sizeZ, pi.sizeC, pi.sizeY, pi.sizeX "
+        "select i.id, pi.sizeT, pi.sizeC, pi.sizeZ, pi.sizeY, pi.sizeX "
         "from Image i join i.pixels pi where i.id in (:ids)"
     )
     for row in query_service.projection(query, params, conn.SERVICE_OPTS):
-        img_id = unwrap(row[0])
-        label_dims[img_id] = {
-            "size_t": unwrap(row[1]) or 1,
-            "size_z": unwrap(row[2]),
-            "size_c": unwrap(row[3]),
-            "size_y": unwrap(row[4]),
-            "size_x": unwrap(row[5]),
-        }
+        img_id = int(unwrap(row[0]))
+        label_dims[img_id] = (
+            int(unwrap(row[1])),
+            int(unwrap(row[2])),
+            int(unwrap(row[3])),
+            int(unwrap(row[4])),
+            int(unwrap(row[5])),
+        )
 
     # Now get well map to associate labels with wells
     wells = get_cached_well_data(plate_id)
@@ -1209,24 +1186,27 @@ def _fetch_label_map(
         # Well data should already be cached by cache_plate()
         return {}
 
-    label_map: dict[str, list[dict[str, int | None]]] = {}
+    label_map: dict[str, list[dict[str, int]]] = {}
     for well_pos, well_info in wells.items():
-        label_entries: list[dict[str, int | None]] = []
+        label_entries: list[dict[str, int]] = []
         for img_info in well_info["images"]:
             image_id = img_info["image_id"]
-            if image_id in label_lookup:
-                label_id = label_lookup[image_id]
-                dims = label_dims.get(label_id, {})
+            label_id = label_lookup.get(image_id) or 0
+            dims = label_dims.get(label_id)
+            if dims is not None:
                 label_entries.append(
                     {
                         "label_id": label_id,
-                        "size_t": dims.get("size_t", 1),
-                        "size_z": dims.get("size_z"),
-                        "size_c": dims.get("size_c"),
-                        "size_y": dims.get("size_y"),
-                        "size_x": dims.get("size_x"),
+                        "size_t": dims[0],
+                        "size_c": dims[1],
+                        "size_z": dims[2],
+                        "size_y": dims[3],
+                        "size_x": dims[4],
                     }
                 )
+            else:
+                # Place holder for unlabeled images
+                label_entries.append({})
         label_map[well_pos] = label_entries
 
     return label_map
@@ -1488,9 +1468,9 @@ def load_from_cache(
             well_label_entries = label_map[well_pos]
             for idx in image_index:
                 if idx < len(well_label_entries):
-                    entry = _normalize_label_entry(well_label_entries[idx])
-                    label_id = entry["label_id"] or 0
-                    size_t = entry.get("size_t") or 1
+                    label_entry = well_label_entries[idx]
+                    label_id = label_entry["label_id"]
+                    size_t = label_entry["size_t"]
 
                     # Determine timepoint range
                     t_start = tstart if tstart is not None else 0
