@@ -65,9 +65,17 @@ def sample_wells() -> dict:
 @pytest.fixture
 def sample_label_map() -> dict:
     return {
-        "A1": [500, 501, 502, 503],
+        "A1": [
+            {"label_id": 500, "size_t": 1},
+            {"label_id": 501, "size_t": 1},
+            {"label_id": 502, "size_t": 3},
+            {"label_id": 503, "size_t": 1}
+        ],
         "A2": [],
-        "B1": [600, 601],
+        "B1": [
+            {"label_id": 600, "size_t": 2},
+            {"label_id": 601, "size_t": 2},
+        ],
     }
 
 
@@ -144,6 +152,20 @@ class TestBuildTableDataFromCache:
 
     def test_no_label_map_shows_no(self, sample_meta, sample_wells):
         with _patch_cache_fns(sample_meta, sample_wells, label_map=None):
+            from omero_screen_napari._plate_info_dialog import _build_from_cache
+
+            _header, _keys, rows, _is_cached = _build_from_cache(42)
+
+            for row in rows:
+                assert row["labels"] == "No"
+
+    def test_missing_label_map_shows_no(self, sample_meta, sample_wells):
+        label_map = {
+            "A1": [None, None, None, None],
+            "A2": [None],
+            "B1": [None, None],
+        }
+        with _patch_cache_fns(sample_meta, sample_wells, label_map=label_map):
             from omero_screen_napari._plate_info_dialog import _build_from_cache
 
             _header, _keys, rows, _is_cached = _build_from_cache(42)
