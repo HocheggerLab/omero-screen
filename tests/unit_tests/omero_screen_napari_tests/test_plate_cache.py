@@ -17,22 +17,31 @@ from omero_screen_napari.omero_data import OmeroData
 # Duplicate cache key methods.
 # This avoids importing the module under test allowing mock setup
 # before a test executes.
-_HISTORY_KEY = "history"
+_HISTORY_KEY = b"history"
 
 
-def _get_meta_key(plate_id: int) -> str:
+def _get_bytes(plate_id: int) -> bytes:
+    """Get the plate id encode as bytes
+
+    Decode using int.from_bytes()."""
+    # ceil(bit_length / 8)
+    size = (plate_id.bit_length() + 7) >> 3
+    return plate_id.to_bytes(size)
+
+
+def _get_meta_key(plate_id: int) -> bytes:
     """Get the key for the plate metadata."""
-    return f"plate:{plate_id}:meta"
+    return b"m" + _get_bytes(plate_id)
 
 
-def _get_well_key(plate_id: int) -> str:
+def _get_well_key(plate_id: int) -> bytes:
     """Get the key for the plate well data."""
-    return f"plate:{plate_id}:wells"
+    return b"w" + _get_bytes(plate_id)
 
 
-def _get_label_key(plate_id: int) -> str:
+def _get_label_key(plate_id: int) -> bytes:
     """Get the key for the plate label data."""
-    return f"plate:{plate_id}:labels"
+    return b"l" + _get_bytes(plate_id)
 
 
 # --------------- Fixtures ---------------
@@ -1508,55 +1517,6 @@ class TestGetPlateHistory:
 
             result = get_plate_history()
             assert result == history
-
-    def test_migrates_existing_meta_keys(self, mock_cache, sample_meta):
-        """Plates with meta keys but no history should be auto-migrated."""
-        fake_cache, fake_image_cache = mock_cache
-        plate_id = 42
-        fake_cache[_get_meta_key(plate_id)] = sample_meta
-        fake_cache[_get_meta_key(99)] = {**sample_meta, "plate_name": "OtherPlate"}
-
-        with (
-            patch("omero_screen_napari.plate_cache._cache", fake_cache),
-            patch("omero_screen_napari.omero_image._cache", fake_image_cache),
-        ):
-            from omero_screen_napari.plate_cache import get_plate_history
-
-            result = get_plate_history()
-
-        assert plate_id in result
-        assert result[plate_id]["plate_name"] == "TestPlate"
-        assert result[plate_id]["status"] == "cached"
-        assert 99 in result
-        assert result[99]["plate_name"] == "OtherPlate"
-        # History should have been persisted
-        assert _HISTORY_KEY in fake_cache
-
-    def test_migration_does_not_overwrite_existing(
-        self, mock_cache, sample_meta
-    ):
-        """Existing history entries should not be overwritten by migration."""
-        fake_cache, fake_image_cache = mock_cache
-        plate_id = 42
-        fake_cache[_get_meta_key(plate_id)] = sample_meta
-        fake_cache[_HISTORY_KEY] = {
-            plate_id: {
-                "plate_name": "CustomName",
-                "status": "removed",
-                "last_cached": "2026-01-01",
-            }
-        }
-
-        with (
-            patch("omero_screen_napari.plate_cache._cache", fake_cache),
-            patch("omero_screen_napari.omero_image._cache", fake_image_cache),
-        ):
-            from omero_screen_napari.plate_cache import get_plate_history
-
-            result = get_plate_history()
-
-        assert result[plate_id]["plate_name"] == "CustomName"
-        assert result[plate_id]["status"] == "removed"
 
 
 # --------------- _update_plate_history ---------------
