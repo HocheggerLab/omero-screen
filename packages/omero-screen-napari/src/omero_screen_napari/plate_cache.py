@@ -1,14 +1,17 @@
 """Cache orchestration for complete plate data.
 
-Caches all data needed for display (metadata, images,
-labels, stage positions) so that well image navigation is offline once a
-plate is cached. Supports concurrent downloads with progress reporting.
+Caches all data needed for display (metadata, well layout,
+stage positions) so that well image navigation is offline once a
+plate and its images are cached. The image cache is managed in
+``omero_image``.
 
-Cache key structure (stored in the shared diskcache from omero_image.py):
-    plate:{plate_id}:meta   -> dict with channel_data, pixel_size, intensities, plate_name
-    plate:{plate_id}:wells  -> dict mapping well_pos -> {well_id, metadata, images: [...]}
-    plate:{plate_id}:labels -> dict mapping well_pos -> [{"label_id", "size_t"}, ...]
-    {image_id}:{timepoint}  -> ZYXC numpy array
+Supports concurrent downloads with progress reporting.
+
+Cache key structure:
+    m{plate_id}  -> dict with channel_data, pixel_size, intensities, plate_name
+    w{plate_id}  -> dict mapping well_pos -> {well_id, metadata, images: [...]}
+    l{plate_id}  -> dict mapping well_pos -> [{"label_id", "size_t"}, ...]
+    history      -> dict mapping plate_id -> {"plate_name", "status", "last_cached"}
 """
 
 from __future__ import annotations
@@ -56,16 +59,10 @@ from omero_screen_napari.omero_image import (
 logger = get_logger(__name__)
 
 
-_HISTORY_KEY = "history"
+_HISTORY_KEY = b"history"
 # Bump this when the on-disk metadata format changes.
 # Caching will delete and re-download plates cached with an older version.
 _CACHE_VERSION = 1
-
-# TODO: Refactor plate cache metadata format:
-# plate_id:meta (tag=plate_id)
-# plate_id:wells (tag=plate_id)
-# plate_id:labels (tag=plate_id)
-# history
 
 # Configure cache path using environment.
 # Uses the default size limit. The cache is not expected to grow very large
@@ -82,19 +79,32 @@ logger.info(
 )
 
 
-def _get_meta_key(plate_id: int) -> str:
+# Cache uses the shortest possible keys that will not clash.
+# Use bytes encoded positive integers with a prefix.
+
+
+def _get_bytes(plate_id: int) -> bytes:
+    """Get the plate id encode as bytes
+
+    Decode using int.from_bytes()."""
+    # ceil(bit_length + 7) // 8
+    size = (plate_id.bit_length() + 7) >> 3
+    return plate_id.to_bytes(size)
+
+
+def _get_meta_key(plate_id: int) -> bytes:
     """Get the key for the plate metadata."""
-    return f"plate:{plate_id}:meta"
+    return b"m" + _get_bytes(plate_id)
 
 
-def _get_well_key(plate_id: int) -> str:
+def _get_well_key(plate_id: int) -> bytes:
     """Get the key for the plate well data."""
-    return f"plate:{plate_id}:wells"
+    return b"w" + _get_bytes(plate_id)
 
 
-def _get_label_key(plate_id: int) -> str:
+def _get_label_key(plate_id: int) -> bytes:
     """Get the key for the plate label data."""
-    return f"plate:{plate_id}:labels"
+    return b"l" + _get_bytes(plate_id)
 
 
 # --------------- Public API ---------------
@@ -103,7 +113,7 @@ def _get_label_key(plate_id: int) -> str:
 def get_all_cached_plates() -> list[tuple[int, str]]:
     """Return all cached plates as (plate_id, plate_name) pairs.
 
-    Scans cache keys for ``plate:*:meta`` entries and extracts plate info.
+    Scans cache keys for metadata entries and extracts plate info.
     Results are sorted by plate_id descending (most recent first).
 
     Returns:
@@ -112,14 +122,12 @@ def get_all_cached_plates() -> list[tuple[int, str]]:
     plates: list[tuple[int, str]] = []
     try:
         for key in _cache:
-            if not isinstance(key, str):
+            if not isinstance(key, bytes):
                 continue
-            if not key.startswith("plate:") or not key.endswith(":meta"):
+            if key[0] != 109:  # ord("m"):
                 continue
-            try:
-                plate_id = int(key.split(":")[1])
-            except (ValueError, IndexError):
-                continue
+            # Decode the bytes representation
+            plate_id = int.from_bytes(key[1:])
             meta = _cache.get(key)
             if not isinstance(meta, dict):
                 continue
@@ -137,44 +145,10 @@ def get_plate_history() -> dict[int, dict[str, str]]:
     History survives cache eviction — evicted plates appear with status
     ``"removed"`` so the user can re-cache them later.
 
-    On the first call after an upgrade, existing ``plate:*:meta`` keys are
-    migrated into the history with status ``"cached"``.
-
     Returns:
         Dict mapping plate_id -> {"plate_name", "status", "last_cached"}.
     """
     history: dict[int, dict[str, str]] = _cache.get(_HISTORY_KEY) or {}
-
-    # TODO: Remove migration before first release
-    # Migration: populate history from existing plate:*:meta keys
-    migrated = False
-    try:
-        for key in _cache:
-            if not isinstance(key, str):
-                continue
-            if not key.startswith("plate:") or not key.endswith(":meta"):
-                continue
-            try:
-                plate_id = int(key.split(":")[1])
-            except (ValueError, IndexError):
-                continue
-            if plate_id in history:
-                continue
-            meta = _cache.get(key)
-            if not isinstance(meta, dict):
-                continue
-            history[plate_id] = {
-                "plate_name": meta.get("plate_name", str(plate_id)),
-                "status": "cached",
-                "last_cached": str(date.today()),
-            }
-            migrated = True
-    except Exception:
-        logger.debug("Error during plate history migration", exc_info=True)
-
-    if migrated:
-        _cache.set(_HISTORY_KEY, history)
-
     return history
 
 
