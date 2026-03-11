@@ -20,6 +20,21 @@ from omero_screen_napari.omero_data import OmeroData
 _HISTORY_KEY = "history"
 
 
+def _get_meta_key(plate_id: int) -> str:
+    """Get the key for the plate metadata."""
+    return f"plate:{plate_id}:meta"
+
+
+def _get_well_key(plate_id: int) -> str:
+    """Get the key for the plate well data."""
+    return f"plate:{plate_id}:wells"
+
+
+def _get_label_key(plate_id: int) -> str:
+    """Get the key for the plate label data."""
+    return f"plate:{plate_id}:labels"
+
+
 # --------------- Fixtures ---------------
 
 
@@ -210,8 +225,9 @@ class TestIsPlateFullyCached:
         self, mock_cache, sample_meta, sample_wells
     ):
         fake_cache, fake_image_cache = mock_cache
-        fake_cache["plate:42:meta"] = sample_meta
-        fake_cache["plate:42:wells"] = sample_wells
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
+        fake_cache[_get_well_key(plate_id)] = sample_wells
         # Only cache one of two images for A1
         fake_image_cache["100:0"] = np.zeros((1, 10, 10, 2), dtype=np.float32)
         with (
@@ -220,15 +236,16 @@ class TestIsPlateFullyCached:
         ):
             from omero_screen_napari.plate_cache import is_plate_fully_cached
 
-            assert is_plate_fully_cached(42) is False
+            assert is_plate_fully_cached(plate_id) is False
 
     def test_true_when_all_images_cached(
         self, mock_cache, sample_meta, sample_wells, sample_label_map
     ):
         fake_cache, fake_image_cache = mock_cache
-        fake_cache["plate:42:meta"] = sample_meta
-        fake_cache["plate:42:wells"] = sample_wells
-        fake_cache["plate:42:labels"] = sample_label_map
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
+        fake_cache[_get_well_key(plate_id)] = sample_wells
+        fake_cache[_get_label_key(plate_id)] = sample_label_map
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
         fake_image_cache["100:0"] = img
         fake_image_cache["101:0"] = img
@@ -243,16 +260,17 @@ class TestIsPlateFullyCached:
         ):
             from omero_screen_napari.plate_cache import is_plate_fully_cached
 
-            assert is_plate_fully_cached(42) is True
+            assert is_plate_fully_cached(plate_id) is True
 
     def test_true_when_no_labels(
         self, mock_cache, sample_meta, sample_wells
     ):
         fake_cache, fake_image_cache = mock_cache
-        fake_cache["plate:42:meta"] = sample_meta
-        fake_cache["plate:42:wells"] = sample_wells
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
+        fake_cache[_get_well_key(plate_id)] = sample_wells
         # Images with missing labels have a corresponding None entry
-        fake_cache["plate:42:labels"] = {
+        fake_cache[_get_label_key(plate_id)] = {
             "A1": [None, None],
             "A2": [None],
         }
@@ -267,7 +285,7 @@ class TestIsPlateFullyCached:
         ):
             from omero_screen_napari.plate_cache import is_plate_fully_cached
 
-            assert is_plate_fully_cached(42) is True
+            assert is_plate_fully_cached(plate_id) is True
 
 # --------------- get_cached_plate_metadata ---------------
 
@@ -287,7 +305,8 @@ class TestGetCachedMetadata:
 
     def test_returns_metadata(self, mock_cache, sample_meta):
         fake_cache, fake_image_cache = mock_cache
-        fake_cache["plate:42:meta"] = sample_meta
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
             patch("omero_screen_napari.omero_image._cache", fake_image_cache),
@@ -296,7 +315,7 @@ class TestGetCachedMetadata:
                 get_cached_plate_metadata,
             )
 
-            result = get_cached_plate_metadata(42)
+            result = get_cached_plate_metadata(plate_id)
             assert result == sample_meta
 
 
@@ -377,9 +396,10 @@ class TestLoadFromCache:
         self, mock_cache, sample_meta, sample_wells, sample_label_map
     ):
         fake_cache, fake_image_cache = mock_cache
-        fake_cache["plate:42:meta"] = sample_meta
-        fake_cache["plate:42:wells"] = sample_wells
-        fake_cache["plate:42:labels"] = sample_label_map
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
+        fake_cache[_get_well_key(plate_id)] = sample_wells
+        fake_cache[_get_label_key(plate_id)] = sample_label_map
 
         # Add image data to cache
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
@@ -399,9 +419,9 @@ class TestLoadFromCache:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(MagicMock(), od, 42, "A1", "All")
+            load_from_cache(MagicMock(), od, plate_id, "A1", "All")
 
-            assert od.plate_id == 42
+            assert od.plate_id == plate_id
             assert od.channel_data == {"DAPI": "0", "Tub": "1"}
             assert od.pixel_size == (0.3, 0.3)
             assert od.plate_name == "TestPlate"
@@ -433,9 +453,10 @@ class TestLoadFromCache:
     ):
         """Verify that image positions are populated from cached well data."""
         fake_cache, fake_image_cache = mock_cache
-        fake_cache["plate:42:meta"] = sample_meta
-        fake_cache["plate:42:wells"] = sample_wells
-        fake_cache["plate:42:labels"] = sample_label_map
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
+        fake_cache[_get_well_key(plate_id)] = sample_wells
+        fake_cache[_get_label_key(plate_id)] = sample_label_map
 
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
         fake_image_cache["100:0"] = img_array
@@ -452,7 +473,7 @@ class TestLoadFromCache:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(MagicMock(), od, 42, "A1", "All")
+            load_from_cache(MagicMock(), od, plate_id, "A1", "All")
 
             assert len(od.image_positions) == 2
             assert od.image_positions[0] == (0.0, 0.0)
@@ -479,9 +500,10 @@ class TestLoadFromCache:
                 ],
             },
         }
-        fake_cache["plate:42:meta"] = sample_meta
-        fake_cache["plate:42:wells"] = wells_dict_pos
-        fake_cache["plate:42:labels"] = sample_label_map
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
+        fake_cache[_get_well_key(plate_id)] = wells_dict_pos
+        fake_cache[_get_label_key(plate_id)] = sample_label_map
 
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
         fake_image_cache["100:0"] = img_array
@@ -497,7 +519,7 @@ class TestLoadFromCache:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(MagicMock(), od, 42, "A1", "All")
+            load_from_cache(MagicMock(), od, plate_id, "A1", "All")
 
             assert len(od.image_positions) == 1
             assert od.image_positions[0] == (5.0, 10.0)
@@ -518,9 +540,10 @@ class TestLoadFromCache:
                 ],
             },
         }
-        fake_cache["plate:42:meta"] = sample_meta
-        fake_cache["plate:42:wells"] = wells_no_pos
-        fake_cache["plate:42:labels"] = sample_label_map
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
+        fake_cache[_get_well_key(plate_id)] = wells_no_pos
+        fake_cache[_get_label_key(plate_id)] = sample_label_map
 
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
         fake_image_cache["100:0"] = img_array
@@ -537,7 +560,7 @@ class TestLoadFromCache:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(MagicMock(), od, 42, "A1", "All")
+            load_from_cache(MagicMock(), od, plate_id, "A1", "All")
 
             assert len(od.image_positions) == 2
             assert od.image_positions[0] is None
@@ -547,9 +570,10 @@ class TestLoadFromCache:
         self, mock_cache, sample_meta, sample_wells, sample_label_map
     ):
         fake_cache, fake_image_cache = mock_cache
-        fake_cache["plate:42:meta"] = sample_meta
-        fake_cache["plate:42:wells"] = sample_wells
-        fake_cache["plate:42:labels"] = sample_label_map
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
+        fake_cache[_get_well_key(plate_id)] = sample_wells
+        fake_cache[_get_label_key(plate_id)] = sample_label_map
 
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
         fake_image_cache["100:0"] = img_array
@@ -564,7 +588,7 @@ class TestLoadFromCache:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(MagicMock(), od, 42, "A1", "0")  # Only first image
+            load_from_cache(MagicMock(), od, plate_id, "A1", "0")  # Only first image
 
             assert len(od.image_ids) == 1
             assert od.image_ids[0] == 100
@@ -577,7 +601,7 @@ class TestUnwrapLength:
     def test_plain_float(self):
         from omero_screen_napari.plate_cache import _unwrap_length
 
-        assert _unwrap_length(42.5) == 42.5
+        assert _unwrap_length(123.5) == 123.5
 
     def test_int(self):
         from omero_screen_napari.plate_cache import _unwrap_length
@@ -739,9 +763,10 @@ class TestGetWellCacheStatus:
 
     def test_all_images_cached_returns_true(self, mock_cache, sample_meta, sample_wells, sample_label_map):
         fake_cache, fake_image_cache = mock_cache
-        fake_cache["plate:42:meta"] = sample_meta
-        fake_cache["plate:42:wells"] = sample_wells
-        fake_cache["plate:42:labels"] = sample_label_map
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
+        fake_cache[_get_well_key(plate_id)] = sample_wells
+        fake_cache[_get_label_key(plate_id)] = sample_label_map
         # Cache all images for A1 and A2
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
         fake_image_cache["100:0"] = img_array
@@ -758,15 +783,16 @@ class TestGetWellCacheStatus:
         ):
             from omero_screen_napari.plate_cache import get_well_cache_status
 
-            status = get_well_cache_status(42)
+            status = get_well_cache_status(plate_id)
             assert status["A1"] is True
             assert status["A2"] is True
 
     def test_missing_images_returns_false(self, mock_cache, sample_meta, sample_wells, sample_label_map):
         fake_cache, fake_image_cache = mock_cache
-        fake_cache["plate:42:meta"] = sample_meta
-        fake_cache["plate:42:wells"] = sample_wells
-        fake_cache["plate:42:labels"] = sample_label_map
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
+        fake_cache[_get_well_key(plate_id)] = sample_wells
+        fake_cache[_get_label_key(plate_id)] = sample_label_map
         # Only cache one image for A1 (missing 101:0)
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
         fake_image_cache["100:0"] = img_array
@@ -782,7 +808,7 @@ class TestGetWellCacheStatus:
         ):
             from omero_screen_napari.plate_cache import get_well_cache_status
 
-            status = get_well_cache_status(42)
+            status = get_well_cache_status(plate_id)
             assert status["A1"] is False
             assert status["A2"] is True
 
@@ -802,9 +828,10 @@ class TestGetWellCacheStatus:
                 {"label_id": 500, "size_t": 3},
             ],
         }
-        fake_cache["plate:42:meta"] = sample_meta
-        fake_cache["plate:42:wells"] = wells
-        fake_cache["plate:42:labels"] = labels
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
+        fake_cache[_get_well_key(plate_id)] = wells
+        fake_cache[_get_label_key(plate_id)] = labels
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
         # Cache only 2 of 3 timepoints
         fake_image_cache["100:0"] = img_array
@@ -820,7 +847,7 @@ class TestGetWellCacheStatus:
         ):
             from omero_screen_napari.plate_cache import get_well_cache_status
 
-            status = get_well_cache_status(42)
+            status = get_well_cache_status(plate_id)
             assert status["A1"] is False
 
         # Now add the missing timepoint
@@ -831,7 +858,7 @@ class TestGetWellCacheStatus:
         ):
             from omero_screen_napari.plate_cache import get_well_cache_status
 
-            status = get_well_cache_status(42)
+            status = get_well_cache_status(plate_id)
             assert status["A1"] is True
 
 
@@ -858,8 +885,9 @@ class TestWellGroupedPartitioning:
     ):
         """Images from the same well should be in the same batch."""
         fake_cache, fake_image_cache = mock_cache
-        fake_cache["plate:42:wells"] = sample_wells
-        fake_cache["plate:42:labels"] = {}
+        plate_id = 42
+        fake_cache[_get_well_key(plate_id)] = sample_wells
+        fake_cache[_get_label_key(plate_id)] = {}
 
         # We can't easily call cache_plate() (needs OMERO connection),
         # but we can verify the partitioning logic by simulating it.
@@ -922,18 +950,19 @@ class TestDeletePlateFromCache:
         self, mock_cache, sample_meta, sample_wells, sample_label_map
     ):
         fake_cache, fake_image_cache = mock_cache
-        fake_cache.set("plate:42:meta", sample_meta, tag=42)
-        fake_cache.set("plate:42:wells", sample_wells, tag=42)
-        fake_cache.set("plate:42:labels", sample_label_map, tag=42)
+        plate_id = 42
+        fake_cache.set(_get_meta_key(plate_id), sample_meta, tag=plate_id)
+        fake_cache.set(_get_well_key(plate_id), sample_wells, tag=plate_id)
+        fake_cache.set(_get_label_key(plate_id), sample_label_map, tag=plate_id)
 
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
-        fake_image_cache.set("100:0", img, tag=42)
-        fake_image_cache.set("101:0", img, tag=42)
-        fake_image_cache.set("200:0", img, tag=42)
-        fake_image_cache.set("500:0", img, tag=42)
-        fake_image_cache.set("501:0", img, tag=42)
-        fake_image_cache.set("600:0", img, tag=42)
-        fake_image_cache.set("999:0", img, tag=42)
+        fake_image_cache.set("100:0", img, tag=plate_id)
+        fake_image_cache.set("101:0", img, tag=plate_id)
+        fake_image_cache.set("200:0", img, tag=plate_id)
+        fake_image_cache.set("500:0", img, tag=plate_id)
+        fake_image_cache.set("501:0", img, tag=plate_id)
+        fake_image_cache.set("600:0", img, tag=plate_id)
+        fake_image_cache.set("999:0", img, tag=plate_id)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -941,13 +970,13 @@ class TestDeletePlateFromCache:
         ):
             from omero_screen_napari.plate_cache import delete_plate_from_cache
 
-            count = delete_plate_from_cache(42)
+            count = delete_plate_from_cache(plate_id)
 
         # 3 images + 3 labels + 1 flat-field mask 3 metadata = 10
         assert count == 10
-        assert "plate:42:meta" not in fake_cache
-        assert "plate:42:wells" not in fake_cache
-        assert "plate:42:labels" not in fake_cache
+        assert _get_meta_key(plate_id) not in fake_cache
+        assert _get_well_key(plate_id) not in fake_cache
+        assert _get_label_key(plate_id) not in fake_cache
         assert "100:0" not in fake_image_cache
         assert "101:0" not in fake_image_cache
         assert "200:0" not in fake_image_cache
@@ -969,7 +998,8 @@ class TestDeletePlateFromCache:
     def test_metadata_only_plate(self, mock_cache, sample_meta):
         """A plate with only metadata (no wells/labels) still gets cleaned up."""
         fake_cache, fake_image_cache = mock_cache
-        fake_cache.set("plate:42:meta", sample_meta, tag=42)
+        plate_id = 42
+        fake_cache.set(_get_meta_key(plate_id), sample_meta, tag=plate_id)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -977,19 +1007,20 @@ class TestDeletePlateFromCache:
         ):
             from omero_screen_napari.plate_cache import delete_plate_from_cache
 
-            count = delete_plate_from_cache(42)
+            count = delete_plate_from_cache(plate_id)
 
         assert count == 1  # Only the meta key existed
-        assert "plate:42:meta" not in fake_cache
+        assert _get_meta_key(plate_id) not in fake_cache
 
     def test_partial_images(self, mock_cache, sample_meta, sample_wells):
         """Deletes whatever keys exist, even if some images are missing."""
         fake_cache, fake_image_cache = mock_cache
-        fake_cache.set("plate:42:meta", sample_meta, tag=42)
-        fake_cache.set("plate:42:wells", sample_wells, tag=42)
+        plate_id = 42
+        fake_cache.set(_get_meta_key(plate_id), sample_meta, tag=plate_id)
+        fake_cache.set(_get_well_key(plate_id), sample_wells, tag=plate_id)
         # Only 1 of 3 images cached
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
-        fake_image_cache.set("100:0", img, tag=42)
+        fake_image_cache.set("100:0", img, tag=plate_id)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -997,7 +1028,7 @@ class TestDeletePlateFromCache:
         ):
             from omero_screen_napari.plate_cache import delete_plate_from_cache
 
-            count = delete_plate_from_cache(42)
+            count = delete_plate_from_cache(plate_id)
 
         # meta + wells + 1 image = 3 (labels key didn't exist)
         assert count == 3
@@ -1008,13 +1039,13 @@ class TestDeletePlateFromCache:
     ):
         """Deleting one plate should not touch another plate's keys."""
         fake_cache, fake_image_cache = mock_cache
-        # Plate 42
-        fake_cache.set("plate:42:meta", sample_meta, tag=42)
-        fake_cache.set("plate:42:wells", sample_wells, tag=42)
+        plate_id = 42
+        fake_cache.set(_get_meta_key(plate_id), sample_meta, tag=plate_id)
+        fake_cache.set(_get_well_key(plate_id), sample_wells, tag=plate_id)
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
-        fake_image_cache.set("100:0", img, tag=42)
-        fake_image_cache.set("101:0", img, tag=42)
-        fake_image_cache.set("200:0", img, tag=42)
+        fake_image_cache.set("100:0", img, tag=plate_id)
+        fake_image_cache.set("101:0", img, tag=plate_id)
+        fake_image_cache.set("200:0", img, tag=plate_id)
         # Plate 99
         other_meta = {**sample_meta, "plate_name": "Other"}
         fake_cache.set("plate:99:meta", other_meta, tag=99)
@@ -1033,7 +1064,7 @@ class TestDeletePlateFromCache:
         ):
             from omero_screen_napari.plate_cache import delete_plate_from_cache
 
-            delete_plate_from_cache(42)
+            delete_plate_from_cache(plate_id)
 
         assert "plate:99:meta" in fake_cache
         assert "plate:99:wells" in fake_cache
@@ -1046,7 +1077,8 @@ class TestDeletePlateFromCache:
 class TestEnsureCacheSpace:
     def test_no_eviction_when_space_available(self, mock_cache, sample_meta):
         fake_cache, fake_image_cache = mock_cache
-        fake_cache.set("plate:42:meta", sample_meta, tag=42)
+        plate_id = 42
+        fake_cache.set(_get_meta_key(plate_id), sample_meta, tag=plate_id)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -1173,10 +1205,11 @@ class TestCleanOrphanedPlates:
     ):
         """Plate with <50% images should be cleaned."""
         fake_cache, fake_image_cache = mock_cache
-        fake_cache.set("plate:42:meta", sample_meta, tag=42)
-        fake_cache.set("plate:42:wells", sample_wells, tag=42)
+        plate_id = 42
+        fake_cache.set(_get_meta_key(plate_id), sample_meta, tag=plate_id)
+        fake_cache.set(_get_well_key(plate_id), sample_wells, tag=plate_id)
         # Only 1 of 3 images cached = 33% completeness
-        fake_image_cache.set("100:0", np.zeros((1, 10, 10, 2), dtype=np.float32), tag=42)
+        fake_image_cache.set("100:0", np.zeros((1, 10, 10, 2), dtype=np.float32), tag=plate_id)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -1186,8 +1219,8 @@ class TestCleanOrphanedPlates:
 
             cleaned = clean_orphaned_plates()
 
-        assert 42 in cleaned
-        assert "plate:42:meta" not in fake_cache
+        assert plate_id in cleaned
+        assert _get_meta_key(plate_id) not in fake_cache
         assert "100:0" not in fake_image_cache
 
     def test_keeps_complete_plates(
@@ -1195,12 +1228,13 @@ class TestCleanOrphanedPlates:
     ):
         """Plate with >=50% images should be kept."""
         fake_cache, fake_image_cache = mock_cache
-        fake_cache.set("plate:42:meta", sample_meta, tag=42)
-        fake_cache.set("plate:42:wells", sample_wells, tag=42)
+        plate_id = 42
+        fake_cache.set(_get_meta_key(plate_id), sample_meta, tag=plate_id)
+        fake_cache.set(_get_well_key(plate_id), sample_wells, tag=plate_id)
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
         # 2 of 3 images = 67% completeness
-        fake_image_cache.set("100:0", img, tag=42)
-        fake_image_cache.set("101:0", img, tag=42)
+        fake_image_cache.set("100:0", img, tag=plate_id)
+        fake_image_cache.set("101:0", img, tag=plate_id)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -1211,7 +1245,7 @@ class TestCleanOrphanedPlates:
             cleaned = clean_orphaned_plates()
 
         assert cleaned == []
-        assert "plate:42:meta" in fake_cache
+        assert _get_meta_key(plate_id) in fake_cache
         assert "100:0" in fake_image_cache
         assert "101:0" in fake_image_cache
 
@@ -1220,8 +1254,9 @@ class TestCleanOrphanedPlates:
     ):
         """Excluded plates should not be cleaned even if incomplete."""
         fake_cache, fake_image_cache = mock_cache
-        fake_cache["plate:42:meta"] = sample_meta
-        fake_cache["plate:42:wells"] = sample_wells
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
+        fake_cache[_get_well_key(plate_id)] = sample_wells
         # 0 of 3 images = 0% completeness, but excluded
 
         with (
@@ -1230,10 +1265,10 @@ class TestCleanOrphanedPlates:
         ):
             from omero_screen_napari.plate_cache import clean_orphaned_plates
 
-            cleaned = clean_orphaned_plates(exclude_plate_ids={42})
+            cleaned = clean_orphaned_plates(exclude_plate_ids={plate_id})
 
         assert cleaned == []
-        assert "plate:42:meta" in fake_cache
+        assert _get_meta_key(plate_id) in fake_cache
 
 
 # --------------- _estimate_plate_bytes ---------------
@@ -1402,7 +1437,8 @@ class TestPlateImageCompleteness:
 
     def test_all_present(self, mock_cache, sample_wells):
         fake_cache, fake_image_cache = mock_cache
-        fake_cache["plate:42:wells"] = sample_wells
+        plate_id = 42
+        fake_cache[_get_well_key(plate_id)] = sample_wells
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
         fake_image_cache["100:0"] = img
         fake_image_cache["101:0"] = img
@@ -1416,11 +1452,12 @@ class TestPlateImageCompleteness:
                 _plate_image_completeness,
             )
 
-            assert _plate_image_completeness(42) == 1.0
+            assert _plate_image_completeness(plate_id) == 1.0
 
     def test_partial(self, mock_cache, sample_wells):
         fake_cache, fake_image_cache = mock_cache
-        fake_cache["plate:42:wells"] = sample_wells
+        plate_id = 42
+        fake_cache[_get_well_key(plate_id)] = sample_wells
         # 1 of 3 images
         fake_image_cache["100:0"] = np.zeros((1, 10, 10, 2), dtype=np.float32)
 
@@ -1432,7 +1469,7 @@ class TestPlateImageCompleteness:
                 _plate_image_completeness,
             )
 
-            result = _plate_image_completeness(42)
+            result = _plate_image_completeness(plate_id)
             assert abs(result - 1 / 3) < 0.01
 
 
@@ -1452,8 +1489,9 @@ class TestGetPlateHistory:
 
     def test_returns_stored_history(self, mock_cache):
         fake_cache, fake_image_cache = mock_cache
+        plate_id = 42
         history = {
-            42: {
+            plate_id: {
                 "plate_name": "MyPlate",
                 "status": "cached",
                 "last_cached": "2026-02-20",
@@ -1472,7 +1510,8 @@ class TestGetPlateHistory:
     def test_migrates_existing_meta_keys(self, mock_cache, sample_meta):
         """Plates with meta keys but no history should be auto-migrated."""
         fake_cache, fake_image_cache = mock_cache
-        fake_cache["plate:42:meta"] = sample_meta
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
         fake_cache["plate:99:meta"] = {**sample_meta, "plate_name": "OtherPlate"}
 
         with (
@@ -1483,9 +1522,9 @@ class TestGetPlateHistory:
 
             result = get_plate_history()
 
-        assert 42 in result
-        assert result[42]["plate_name"] == "TestPlate"
-        assert result[42]["status"] == "cached"
+        assert plate_id in result
+        assert result[plate_id]["plate_name"] == "TestPlate"
+        assert result[plate_id]["status"] == "cached"
         assert 99 in result
         assert result[99]["plate_name"] == "OtherPlate"
         # History should have been persisted
@@ -1496,9 +1535,10 @@ class TestGetPlateHistory:
     ):
         """Existing history entries should not be overwritten by migration."""
         fake_cache, fake_image_cache = mock_cache
-        fake_cache["plate:42:meta"] = sample_meta
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
         fake_cache[_HISTORY_KEY] = {
-            42: {
+            plate_id: {
                 "plate_name": "CustomName",
                 "status": "removed",
                 "last_cached": "2026-01-01",
@@ -1513,8 +1553,8 @@ class TestGetPlateHistory:
 
             result = get_plate_history()
 
-        assert result[42]["plate_name"] == "CustomName"
-        assert result[42]["status"] == "removed"
+        assert result[plate_id]["plate_name"] == "CustomName"
+        assert result[plate_id]["status"] == "removed"
 
 
 # --------------- _update_plate_history ---------------
@@ -1523,24 +1563,26 @@ class TestGetPlateHistory:
 class TestUpdatePlateHistory:
     def test_creates_new_entry(self, mock_cache):
         fake_cache, fake_image_cache = mock_cache
+        plate_id = 42
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
             patch("omero_screen_napari.omero_image._cache", fake_image_cache),
         ):
             from omero_screen_napari.plate_cache import _update_plate_history
 
-            _update_plate_history(42, "NewPlate", "cached")
+            _update_plate_history(plate_id, "NewPlate", "cached")
 
         history = fake_cache[_HISTORY_KEY]
-        assert 42 in history
-        assert history[42]["plate_name"] == "NewPlate"
-        assert history[42]["status"] == "cached"
-        assert history[42]["last_cached"] == str(date.today())
+        assert plate_id in history
+        assert history[plate_id]["plate_name"] == "NewPlate"
+        assert history[plate_id]["status"] == "cached"
+        assert history[plate_id]["last_cached"] == str(date.today())
 
     def test_updates_to_removed_preserves_last_cached(self, mock_cache):
         fake_cache, fake_image_cache = mock_cache
+        plate_id = 42
         fake_cache[_HISTORY_KEY] = {
-            42: {
+            plate_id: {
                 "plate_name": "MyPlate",
                 "status": "cached",
                 "last_cached": "2026-01-15",
@@ -1553,16 +1595,17 @@ class TestUpdatePlateHistory:
         ):
             from omero_screen_napari.plate_cache import _update_plate_history
 
-            _update_plate_history(42, "MyPlate", "removed")
+            _update_plate_history(plate_id, "MyPlate", "removed")
 
         history = fake_cache[_HISTORY_KEY]
-        assert history[42]["status"] == "removed"
-        assert history[42]["last_cached"] == "2026-01-15"
+        assert history[plate_id]["status"] == "removed"
+        assert history[plate_id]["last_cached"] == "2026-01-15"
 
     def test_updates_back_to_cached_refreshes_date(self, mock_cache):
         fake_cache, fake_image_cache = mock_cache
+        plate_id = 42
         fake_cache[_HISTORY_KEY] = {
-            42: {
+            plate_id: {
                 "plate_name": "MyPlate",
                 "status": "removed",
                 "last_cached": "2026-01-15",
@@ -1575,11 +1618,11 @@ class TestUpdatePlateHistory:
         ):
             from omero_screen_napari.plate_cache import _update_plate_history
 
-            _update_plate_history(42, "MyPlate", "cached")
+            _update_plate_history(plate_id, "MyPlate", "cached")
 
         history = fake_cache[_HISTORY_KEY]
-        assert history[42]["status"] == "cached"
-        assert history[42]["last_cached"] == str(date.today())
+        assert history[plate_id]["status"] == "cached"
+        assert history[plate_id]["last_cached"] == str(date.today())
 
 
 # --------------- remove_plate_from_history ---------------
@@ -1588,8 +1631,9 @@ class TestUpdatePlateHistory:
 class TestRemovePlateFromHistory:
     def test_removes_entry(self, mock_cache):
         fake_cache, fake_image_cache = mock_cache
+        plate_id = 42
         fake_cache[_HISTORY_KEY] = {
-            42: {
+            plate_id: {
                 "plate_name": "MyPlate",
                 "status": "removed",
                 "last_cached": "2026-01-15",
@@ -1604,23 +1648,24 @@ class TestRemovePlateFromHistory:
                 remove_plate_from_history,
             )
 
-            remove_plate_from_history(42)
+            remove_plate_from_history(plate_id)
 
-        assert 42 not in fake_cache[_HISTORY_KEY]
+        assert plate_id not in fake_cache[_HISTORY_KEY]
 
     def test_also_deletes_cached_data(
         self, mock_cache, sample_meta, sample_wells
     ):
         """If plate has cached data, it should be deleted too."""
         fake_cache, fake_image_cache = mock_cache
-        fake_cache.set("plate:42:meta", sample_meta, tag=42)
-        fake_cache.set("plate:42:wells", sample_wells, tag=42)
+        plate_id = 42
+        fake_cache.set(_get_meta_key(plate_id), sample_meta, tag=plate_id)
+        fake_cache.set(_get_well_key(plate_id), sample_wells, tag=plate_id)
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
-        fake_image_cache.set("100:0", img, tag=42)
-        fake_image_cache.set("101:0", img, tag=42)
-        fake_image_cache.set("200:0", img, tag=42)
+        fake_image_cache.set("100:0", img, tag=plate_id)
+        fake_image_cache.set("101:0", img, tag=plate_id)
+        fake_image_cache.set("200:0", img, tag=plate_id)
         fake_cache[_HISTORY_KEY] = {
-            42: {
+            plate_id: {
                 "plate_name": "MyPlate",
                 "status": "cached",
                 "last_cached": "2026-01-15",
@@ -1635,11 +1680,11 @@ class TestRemovePlateFromHistory:
                 remove_plate_from_history,
             )
 
-            remove_plate_from_history(42)
+            remove_plate_from_history(plate_id)
 
-        assert 42 not in fake_cache[_HISTORY_KEY]
-        assert "plate:42:meta" not in fake_cache
-        assert "plate:42:wells" not in fake_cache
+        assert plate_id not in fake_cache[_HISTORY_KEY]
+        assert _get_meta_key(plate_id) not in fake_cache
+        assert _get_well_key(plate_id) not in fake_cache
         assert "100:0" not in fake_image_cache
         assert "101:0" not in fake_image_cache
         assert "200:0" not in fake_image_cache
@@ -1654,12 +1699,13 @@ class TestDeletePlateUpdatesHistory:
     ):
         """After deletion, history entry should exist with status 'removed'."""
         fake_cache, fake_image_cache = mock_cache
-        fake_cache.set("plate:42:meta", sample_meta, tag=42)
-        fake_cache.set("plate:42:wells", sample_wells, tag=42)
+        plate_id = 42
+        fake_cache.set(_get_meta_key(plate_id), sample_meta, tag=plate_id)
+        fake_cache.set(_get_well_key(plate_id), sample_wells, tag=plate_id)
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
-        fake_image_cache.set("100:0", img, tag=42)
-        fake_image_cache.set("101:0", img, tag=42)
-        fake_image_cache.set("200:0", img, tag=42)
+        fake_image_cache.set("100:0", img, tag=plate_id)
+        fake_image_cache.set("101:0", img, tag=plate_id)
+        fake_image_cache.set("200:0", img, tag=plate_id)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -1667,22 +1713,23 @@ class TestDeletePlateUpdatesHistory:
         ):
             from omero_screen_napari.plate_cache import delete_plate_from_cache
 
-            delete_plate_from_cache(42)
+            delete_plate_from_cache(plate_id)
 
         history = fake_cache.get(_HISTORY_KEY, {})
-        assert 42 in history
-        assert history[42]["status"] == "removed"
-        assert history[42]["plate_name"] == "TestPlate"
+        assert plate_id in history
+        assert history[plate_id]["status"] == "removed"
+        assert history[plate_id]["plate_name"] == "TestPlate"
 
     def test_preserves_existing_history_date(
         self, mock_cache, sample_meta, sample_wells
     ):
         """Deletion should preserve the original last_cached date."""
         fake_cache, fake_image_cache = mock_cache
-        fake_cache.set("plate:42:meta", sample_meta, tag=42)
-        fake_cache.set("plate:42:wells", sample_wells, tag=42)
+        plate_id = 42
+        fake_cache.set(_get_meta_key(plate_id), sample_meta, tag=plate_id)
+        fake_cache.set(_get_well_key(plate_id), sample_wells, tag=plate_id)
         fake_cache[_HISTORY_KEY] = {
-            42: {
+            plate_id: {
                 "plate_name": "TestPlate",
                 "status": "cached",
                 "last_cached": "2026-01-10",
@@ -1695,11 +1742,11 @@ class TestDeletePlateUpdatesHistory:
         ):
             from omero_screen_napari.plate_cache import delete_plate_from_cache
 
-            delete_plate_from_cache(42)
+            delete_plate_from_cache(plate_id)
 
         history = fake_cache[_HISTORY_KEY]
-        assert history[42]["status"] == "removed"
-        assert history[42]["last_cached"] == "2026-01-10"
+        assert history[plate_id]["status"] == "removed"
+        assert history[plate_id]["last_cached"] == "2026-01-10"
 
 
 # --------------- Label multi-timepoint ---------------
@@ -1709,8 +1756,9 @@ class TestLabelMultiTimepoint:
     def test_multi_timepoint_labels(self, mock_cache, sample_meta):
         """New dict format with size_t > 1 loads labels correctly."""
         fake_cache, fake_image_cache = mock_cache
-        fake_cache["plate:42:meta"] = sample_meta
-        fake_cache["plate:42:wells"] = {
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
+        fake_cache[_get_well_key(plate_id)] = {
             "A1": {
                 "well_id": 10,
                 "metadata": {"cell_line": "RPE"},
@@ -1719,7 +1767,7 @@ class TestLabelMultiTimepoint:
                 ],
             },
         }
-        fake_cache["plate:42:labels"] = {
+        fake_cache[_get_label_key(plate_id)] = {
             "A1": [{"label_id": 500, "size_t": 3}],
         }
 
@@ -1740,7 +1788,7 @@ class TestLabelMultiTimepoint:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(MagicMock(), od, 42, "A1", "All")
+            load_from_cache(MagicMock(), od, plate_id, "A1", "All")
 
             # load_from_cache only loads t=0 for labels, so 1 label
             assert od.labels.shape[0] == 1
@@ -1750,26 +1798,27 @@ class TestLabelMultiTimepoint:
     ):
         """delete_plate_from_cache removes all label timepoints."""
         fake_cache, fake_image_cache = mock_cache
-        fake_cache.set("plate:42:meta", sample_meta, tag=42)
-        fake_cache.set("plate:42:wells", {
+        plate_id = 42
+        fake_cache.set(_get_meta_key(plate_id), sample_meta, tag=plate_id)
+        fake_cache.set(_get_well_key(plate_id), {
             "A1": {
                 "well_id": 10,
                 "metadata": {},
                 "images": [{"image_id": 100, "size_t": 3, "index": 0}],
             },
-        }, tag=42)
-        fake_cache.set("plate:42:labels", {
+        }, tag=plate_id)
+        fake_cache.set(_get_label_key(plate_id), {
             "A1": [{"label_id": 500, "size_t": 3}],
-        }, tag=42)
+        }, tag=plate_id)
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
-        fake_image_cache.set("100:0", img, tag=42)
-        fake_image_cache.set("100:1", img, tag=42)
-        fake_image_cache.set("100:2", img, tag=42)
+        fake_image_cache.set("100:0", img, tag=plate_id)
+        fake_image_cache.set("100:1", img, tag=plate_id)
+        fake_image_cache.set("100:2", img, tag=plate_id)
         label_array = np.ones((1, 100, 100, 1), dtype=np.int32)
-        fake_image_cache.set("500:0", img, tag=42)
-        fake_image_cache.set("500:1", img, tag=42)
-        fake_image_cache.set("500:2", img, tag=42)
-        fake_image_cache.set("999:0", np.ones((1, 100, 100, 2), dtype=np.int32), tag=42)
+        fake_image_cache.set("500:0", img, tag=plate_id)
+        fake_image_cache.set("500:1", img, tag=plate_id)
+        fake_image_cache.set("500:2", img, tag=plate_id)
+        fake_image_cache.set("999:0", np.ones((1, 100, 100, 2), dtype=np.int32), tag=plate_id)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -1777,7 +1826,7 @@ class TestLabelMultiTimepoint:
         ):
             from omero_screen_napari.plate_cache import delete_plate_from_cache
 
-            count = delete_plate_from_cache(42)
+            count = delete_plate_from_cache(plate_id)
 
         # meta + wells + labels + 3 image + 3 label timepoints + ff-mask = 10
         assert count == 10
@@ -2073,9 +2122,10 @@ class TestLoadFromCacheDtype:
     ):
         """Images cached as uint16 should be returned as float32."""
         fake_cache, fake_image_cache = mock_cache
-        fake_cache["plate:42:meta"] = sample_meta
-        fake_cache["plate:42:wells"] = sample_wells
-        fake_cache["plate:42:labels"] = sample_label_map
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
+        fake_cache[_get_well_key(plate_id)] = sample_wells
+        fake_cache[_get_label_key(plate_id)] = sample_label_map
 
         # Store images as uint16 (new format)
         img_array = np.ones((1, 100, 100, 2), dtype=np.uint16) * 1000
@@ -2094,7 +2144,7 @@ class TestLoadFromCacheDtype:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(MagicMock(), od, 42, "A1", "All")
+            load_from_cache(MagicMock(), od, plate_id, "A1", "All")
 
             assert od.images.dtype == np.float32
             # image is 1000 / 2 = 500
@@ -2113,8 +2163,8 @@ class TestCacheVersionInvalidation:
         fake_cache, fake_image_cache = mock_cache
         # Old-format metadata
         meta_with_version = {**sample_meta, "cache_version": _CACHE_VERSION - 1}
-        fake_cache.set("plate:42:meta", meta_with_version, tag=plate_id)
-        fake_cache.set("plate:42:wells", {
+        fake_cache.set(_get_meta_key(plate_id), meta_with_version, tag=plate_id)
+        fake_cache.set(_get_well_key(plate_id), {
             "A1": {
                 "well_id": 10,
                 "metadata": {},
@@ -2136,10 +2186,10 @@ class TestCacheVersionInvalidation:
             meta = get_plate_metadata(mock_conn, plate_id)
 
             # Version check
-            existing_meta = fake_cache.get("plate:42:meta")
+            existing_meta = fake_cache.get(_get_meta_key(plate_id))
             assert existing_meta.get("cache_version") == _CACHE_VERSION
             # Well metadata would be evicted
-            assert fake_cache.get("plate:42:wells") is None
+            assert fake_cache.get(_get_well_key(plate_id)) is None
             # Images remain
             assert "100:0" in fake_image_cache
 
@@ -2151,8 +2201,8 @@ class TestCacheVersionInvalidation:
         fake_cache, fake_image_cache = mock_cache
         # Current-format metadata
         meta_with_version = {**sample_meta, "cache_version": _CACHE_VERSION}
-        fake_cache.set("plate:42:meta", meta_with_version, tag=plate_id)
-        fake_cache.set("plate:42:wells", {
+        fake_cache.set(_get_meta_key(plate_id), meta_with_version, tag=plate_id)
+        fake_cache.set(_get_well_key(plate_id), {
             "A1": {
                 "well_id": 10,
                 "metadata": {},
@@ -2170,9 +2220,9 @@ class TestCacheVersionInvalidation:
             meta = get_plate_metadata(mock_conn, plate_id)
 
             # Version check
-            existing_meta = fake_cache.get("plate:42:meta")
+            existing_meta = fake_cache.get(_get_meta_key(plate_id))
             assert existing_meta.get("cache_version") == _CACHE_VERSION
             # Well metadata would be retained
-            assert "plate:42:wells" in fake_cache
+            assert _get_well_key(plate_id) in fake_cache
             # Images remain
             assert "100:0" in fake_image_cache
