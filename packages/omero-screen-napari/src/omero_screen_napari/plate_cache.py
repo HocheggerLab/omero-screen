@@ -56,10 +56,10 @@ from omero_screen_napari.omero_image import (
 logger = get_logger(__name__)
 
 
+_HISTORY_KEY = "history"
 # Bump this when the on-disk metadata format changes.
 # Caching will delete and re-download plates cached with an older version.
 _CACHE_VERSION = 1
-
 
 # TODO: Refactor plate cache metadata format:
 # plate_id:meta (tag=plate_id)
@@ -80,6 +80,21 @@ logger.info(
     _cache.directory,
     _cache.size_limit,
 )
+
+
+def _get_meta_key(plate_id: int) -> str:
+    """Get the key for the plate metadata."""
+    return f"plate:{plate_id}:meta"
+
+
+def _get_well_key(plate_id: int) -> str:
+    """Get the key for the plate well data."""
+    return f"plate:{plate_id}:wells"
+
+
+def _get_label_key(plate_id: int) -> str:
+    """Get the key for the plate label data."""
+    return f"plate:{plate_id}:labels"
 
 
 # --------------- Public API ---------------
@@ -128,8 +143,9 @@ def get_plate_history() -> dict[int, dict[str, str]]:
     Returns:
         Dict mapping plate_id -> {"plate_name", "status", "last_cached"}.
     """
-    history: dict[int, dict[str, str]] = _cache.get("plate_history") or {}
+    history: dict[int, dict[str, str]] = _cache.get(_HISTORY_KEY) or {}
 
+    # TODO: Remove migration before first release
     # Migration: populate history from existing plate:*:meta keys
     migrated = False
     try:
@@ -157,7 +173,7 @@ def get_plate_history() -> dict[int, dict[str, str]]:
         logger.debug("Error during plate history migration", exc_info=True)
 
     if migrated:
-        _cache.set("plate_history", history)
+        _cache.set(_HISTORY_KEY, history)
 
     return history
 
@@ -170,7 +186,7 @@ def _update_plate_history(plate_id: int, plate_name: str, status: str) -> None:
         plate_name: Human-readable plate name.
         status: ``"cached"`` or ``"removed"``.
     """
-    history: dict[int, dict[str, str]] = _cache.get("plate_history") or {}
+    history: dict[int, dict[str, str]] = _cache.get(_HISTORY_KEY) or {}
     existing = history.get(plate_id, {})
 
     entry: dict[str, str] = {
@@ -185,7 +201,7 @@ def _update_plate_history(plate_id: int, plate_name: str, status: str) -> None:
         entry["last_cached"] = existing.get("last_cached", str(date.today()))
 
     history[plate_id] = entry
-    _cache.set("plate_history", history)
+    _cache.set(_HISTORY_KEY, history)
 
 
 def remove_plate_from_history(plate_id: int) -> None:
@@ -197,10 +213,10 @@ def remove_plate_from_history(plate_id: int) -> None:
     # Delete cached data if present
     _deleted: int = _cache.evict(plate_id) + evict_images(plate_id)
 
-    history: dict[int, dict[str, str]] = _cache.get("plate_history") or {}
+    history: dict[int, dict[str, str]] = _cache.get(_HISTORY_KEY) or {}
     if plate_id in history:
         del history[plate_id]
-        _cache.set("plate_history", history)
+        _cache.set(_HISTORY_KEY, history)
         logger.info("Removed plate %d from history", plate_id)
 
 
@@ -300,12 +316,12 @@ def is_plate_fully_cached(plate_id: int) -> bool:
 
 def get_cached_plate_metadata(plate_id: int) -> dict[str, Any] | None:
     """Return cached plate metadata or None."""
-    return _cache.get(f"plate:{plate_id}:meta")  # type: ignore[no-any-return]
+    return _cache.get(_get_meta_key(plate_id))  # type: ignore[no-any-return]
 
 
 def get_cached_well_data(plate_id: int) -> dict[str, Any] | None:
     """Return cached wells dict or None."""
-    return _cache.get(f"plate:{plate_id}:wells")  # type: ignore[no-any-return]
+    return _cache.get(_get_well_key(plate_id))  # type: ignore[no-any-return]
 
 
 def get_cached_label_map(
@@ -316,7 +332,7 @@ def get_cached_label_map(
     Returns entries ``{"label_id": int, "size_t": int}``. If labels are missing
     for a corresponding well image then the list entry is None.
     """
-    return _cache.get(f"plate:{plate_id}:labels")  # type: ignore[no-any-return]
+    return _cache.get(_get_label_key(plate_id))  # type: ignore[no-any-return]
 
 
 def _get_project_id() -> int:
@@ -342,7 +358,7 @@ def get_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
     if v is None:
         logger.info("Caching plate %d: fetching metadata", plate_id)
         v = _fetch_plate_metadata(conn, plate_id, _get_project_id())
-        _cache.set(f"plate:{plate_id}:meta", v, tag=plate_id)
+        _cache.set(_get_meta_key(plate_id), v, tag=plate_id)
     return v  # type: ignore[no-any-return]
 
 
@@ -352,7 +368,7 @@ def get_well_data(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
     if v is None:
         logger.info("Caching plate %d: fetching well data", plate_id)
         v = _fetch_well_map(conn, plate_id)
-        _cache.set(f"plate:{plate_id}:wells", v, tag=plate_id)
+        _cache.set(_get_well_key(plate_id), v, tag=plate_id)
     return v  # type: ignore[no-any-return]
 
 
@@ -365,7 +381,7 @@ def get_label_map(
     if v is None:
         logger.info("Caching plate %d: fetching label map", plate_id)
         v = _fetch_label_map(conn, plate_id, _get_project_id())
-        _cache.set(f"plate:{plate_id}:labels", v, tag=plate_id)
+        _cache.set(_get_label_key(plate_id), v, tag=plate_id)
     return v  # type: ignore[no-any-return]
 
 
