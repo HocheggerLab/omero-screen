@@ -90,14 +90,12 @@ _CACHE_VERSION = 1
 #             {
 #                 "image_id": 100,
 #                 "dims": (1, 2, 1, 100, 100),
-#                 "pos_x": 0.0,
-#                 "pos_y": 0.0,
+#                 "pos": (0.0, 0.0),
 #             },
 #             {
 #                 "image_id": 101,
 #                 "dims": (1, 2, 1, 100, 100),
-#                 "pos_x": 1.0,
-#                 "pos_y": 0.0,
+#                 "pos": (1.0, 0.0),
 #             },
 #         ],
 #     },
@@ -491,7 +489,7 @@ def _estimate_entry_bytes(entry: dict[str, Any] | None, fallback: int) -> int:
     """Estimate bytes for a single image/label entry.
 
     Args:
-        entry: Dict with size_t and optionally size_z/c/y/x.
+        entry: Dict with dims
         fallback: Bytes per timepoint when dimensions are missing.
 
     Returns:
@@ -570,9 +568,9 @@ def _plate_image_completeness(plate_id: int) -> float:
     for well_info in wells.values():
         for img_info in well_info.get("images", []):
             image_id: int = img_info["image_id"]  # type: ignore[assignment]
-            size_t: int = img_info["dims"][0]  # type: ignore[assignment]
-            total += size_t
-            for t in range(size_t):
+            image_t: int = img_info["dims"][0]  # type: ignore[assignment]
+            total += image_t
+            for t in range(image_t):
                 if is_cached(get_key(image_id, t)):
                     present += 1
 
@@ -1111,7 +1109,7 @@ def _fetch_well_map(
         plate_id: OMERO plate ID.
 
     Returns:
-        Dict mapping well_pos -> {well_id, metadata, images: [{image_id, size_t, index, pos_x, pos_y}]}
+        Dict mapping well_pos -> {well_id, metadata, images: [{image_id, dims, pos}]}
     """
     query_service = conn.getQueryService()
     params = omero.sys.ParametersI()
@@ -1137,8 +1135,7 @@ def _fetch_well_map(
         well_id = unwrap(row[0])
         well_row = unwrap(row[1])
         well_col = unwrap(row[2])
-        pos_x = unwrap(row[3])
-        pos_y = unwrap(row[4])
+        pos = (int(unwrap(row[3])), int(unwrap(row[4])))
         image_id = unwrap(row[5])
         dims = (
             int(unwrap(row[6])),
@@ -1161,8 +1158,7 @@ def _fetch_well_map(
             {
                 "image_id": image_id,
                 "dims": dims,
-                "pos_x": _unwrap_length(pos_x),
-                "pos_y": _unwrap_length(pos_y),
+                "pos": pos,
             }
         )
 
@@ -1228,7 +1224,7 @@ def _fetch_label_map(
     if not label_lookup:
         return {}
 
-    # Query size_t and dimensions for all label images via HQL
+    # Query dimensions for all label images via HQL
     label_dims: dict[int, tuple[int, ...]] = {}
     label_ids = list(label_lookup.values())
     query_service = conn.getQueryService()
@@ -1487,13 +1483,7 @@ def load_from_cache(
             image_id = img_info["image_id"]  # type: ignore[assignment]
             image_t = img_info["dims"][0]  # type: ignore[assignment]
             image_ids.append(image_id)
-
-            px = img_info.get("pos_x")
-            py = img_info.get("pos_y")
-            if px is not None and py is not None:
-                image_positions.append((px, py))
-            else:
-                image_positions.append(None)
+            image_positions.append(img_info.get("pos"))
 
             # Determine timepoint range
             t_start = tstart if tstart is not None else 0
