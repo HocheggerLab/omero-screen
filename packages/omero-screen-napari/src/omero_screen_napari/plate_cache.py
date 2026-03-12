@@ -94,7 +94,6 @@ _CACHE_VERSION = 1
 #                 "size_z": 1,
 #                 "size_y": 100,
 #                 "size_x": 100,
-#                 "index": 0,
 #                 "pos_x": 0.0,
 #                 "pos_y": 0.0,
 #             },
@@ -105,7 +104,6 @@ _CACHE_VERSION = 1
 #                 "size_z": 1,
 #                 "size_y": 100,
 #                 "size_x": 100,
-#                 "index": 1,
 #                 "pos_x": 1.0,
 #                 "pos_y": 0.0,
 #             },
@@ -1173,7 +1171,6 @@ def _fetch_well_map(
                 "size_z": size_z,
                 "size_y": size_y,
                 "size_x": size_x,
-                "index": len(well_map[well_pos]["images"]),
                 "pos_x": _unwrap_length(pos_x),
                 "pos_y": _unwrap_length(pos_y),
             }

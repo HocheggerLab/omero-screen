@@ -135,7 +135,6 @@ def sample_wells() -> dict:
                     "size_c": 2,
                     "size_y": 100,
                     "size_x": 100,
-                    "index": 0,
                     "pos_x": 0.0,
                     "pos_y": 0.0,
                 },
@@ -146,7 +145,6 @@ def sample_wells() -> dict:
                     "size_c": 2,
                     "size_y": 100,
                     "size_x": 100,
-                    "index": 1,
                     "pos_x": 1.0,
                     "pos_y": 0.0,
                 },
@@ -163,7 +161,6 @@ def sample_wells() -> dict:
                     "size_c": 2,
                     "size_y": 100,
                     "size_x": 100,
-                    "index": 0,
                     "pos_x": 0.0,
                     "pos_y": 0.0,
                 },
@@ -506,8 +503,8 @@ class TestLoadFromCache:
                 "well_id": 10,
                 "metadata": {"cell_line": "RPE"},
                 "images": [
-                    {"image_id": 100, "size_t": 1, "index": 0},
-                    {"image_id": 101, "size_t": 1, "index": 1},
+                    {"image_id": 100, "size_t": 1},
+                    {"image_id": 101, "size_t": 1},
                 ],
             },
         }
@@ -790,7 +787,7 @@ class TestGetWellCacheStatus:
                 "well_id": 10,
                 "metadata": {},
                 "images": [
-                    {"image_id": 100, "size_t": 3, "index": 0},
+                    {"image_id": 100, "size_t": 3},
                 ],
             },
         }
@@ -1024,7 +1021,7 @@ class TestDeletePlateFromCache:
             "B1": {
                 "well_id": 20,
                 "metadata": {},
-                "images": [{"image_id": 900, "size_t": 1, "index": 0}],
+                "images": [{"image_id": 900, "size_t": 1}],
             }
         }, tag=99)
         fake_image_cache.set(get_key(900, 0), img, tag=99)
@@ -1073,7 +1070,7 @@ class TestEnsureCacheSpace:
             "A1": {
                 "well_id": 1,
                 "metadata": {},
-                "images": [{"image_id": 1000, "size_t": 1, "index": 0}],
+                "images": [{"image_id": 1000, "size_t": 1}],
             }
         }, tag=100)
         fake_image_cache.set(get_key(1000, 0), np.zeros((10, 10, 2), dtype=np.float32), tag=100)
@@ -1084,7 +1081,7 @@ class TestEnsureCacheSpace:
             "A1": {
                 "well_id": 2,
                 "metadata": {},
-                "images": [{"image_id": 2000, "size_t": 1, "index": 0}],
+                "images": [{"image_id": 2000, "size_t": 1}],
             }
         }, tag=200)
         fake_image_cache.set(get_key(2000, 0), np.zeros((10, 10, 2), dtype=np.float32), tag=200)
@@ -1116,7 +1113,7 @@ class TestEnsureCacheSpace:
                     "well_id": plate_id,
                     "metadata": {},
                     "images": [
-                        {"image_id": plate_id * 100, "size_t": 1, "index": 0}
+                        {"image_id": plate_id * 100, "size_t": 1}
                     ],
                 }
             }, tag=plate_id)
@@ -1146,7 +1143,7 @@ class TestEnsureCacheSpace:
                     "well_id": plate_id,
                     "metadata": {},
                     "images": [
-                        {"image_id": plate_id * 100, "size_t": 1, "index": 0}
+                        {"image_id": plate_id * 100, "size_t": 1}
                     ],
                 }
             }, tag=plate_id)
@@ -1685,7 +1682,7 @@ class TestLabelMultiTimepoint:
                 "well_id": 10,
                 "metadata": {"cell_line": "RPE"},
                 "images": [
-                    {"image_id": 100, "size_t": 3, "index": 0},
+                    {"image_id": 100, "size_t": 3},
                 ],
             },
         }
@@ -1726,7 +1723,7 @@ class TestLabelMultiTimepoint:
             "A1": {
                 "well_id": 10,
                 "metadata": {},
-                "images": [{"image_id": 100, "size_t": 3, "index": 0}],
+                "images": [{"image_id": 100, "size_t": 3}],
             },
         }, tag=plate_id)
         fake_cache.set(_get_label_key(plate_id), {
@@ -2090,7 +2087,7 @@ class TestCacheVersionInvalidation:
             "A1": {
                 "well_id": 10,
                 "metadata": {},
-                "images": [{"image_id": 100, "size_t": 1, "index": 0}],
+                "images": [{"image_id": 100, "size_t": 1}],
             },
         }, tag=plate_id)
         fake_image_cache.set(get_key(100, 0), np.zeros((1, 10, 10, 2), dtype=np.float32), tag=plate_id)
@@ -2128,7 +2125,7 @@ class TestCacheVersionInvalidation:
             "A1": {
                 "well_id": 10,
                 "metadata": {},
-                "images": [{"image_id": 100, "size_t": 1, "index": 0}],
+                "images": [{"image_id": 100, "size_t": 1}],
             },
         }, tag=plate_id)
         fake_image_cache.set(get_key(100, 0), np.zeros((1, 10, 10, 2), dtype=np.float32), tag=plate_id)
