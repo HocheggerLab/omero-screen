@@ -69,6 +69,59 @@ _CACHE_VERSION = 1
 # Uses the default size limit. The cache is not expected to grow very large
 # as it stores plate metadata only. It is used for persistent access to read
 # only data contained in OMERO.
+#
+# Example plate metadata:
+# {
+#     "channel_data": {"DAPI": "0", "Tub": "1"},
+#     "pixel_size": (0.3, 0.3),
+#     "intensities": {0: (100, 5000), 1: (50, 3000)},
+#     "plate_name": "TestPlate",
+#     "ff_mask_id": 999,
+#     "cache_version": 1,
+# }
+#
+# Example plate well metadata:
+# Note that images are sorted by the well XY position, not the well index.
+# {
+#     "A1": {
+#         "well_id": 10,
+#         "metadata": {"cell_line": "RPE", "condition": "ctrl"},
+#         "images": [
+#             {
+#                 "image_id": 100,
+#                 "size_t": 1,
+#                 "size_c": 2,
+#                 "size_z": 1,
+#                 "size_y": 100,
+#                 "size_x": 100,
+#                 "index": 0,
+#                 "pos_x": 0.0,
+#                 "pos_y": 0.0,
+#             },
+#             {
+#                 "image_id": 101,
+#                 "size_t": 1,
+#                 "size_c": 2,
+#                 "size_z": 1,
+#                 "size_y": 100,
+#                 "size_x": 100,
+#                 "index": 1,
+#                 "pos_x": 1.0,
+#                 "pos_y": 0.0,
+#             },
+#         ],
+#     },
+#
+# Example plate label metadata:
+# Each well position has an array of length equal to the "images" key of the well metadata.
+# Images with no corresponing label have an entry of None.
+# {
+#     "A1": [
+#         {"label_id": 500, "size_t": 1},
+#         {"label_id": 501, "size_t": 1},
+#     ],
+# }
+
 _cache = Cache(
     get_cache_path("plates"),
     tag_index=True,
@@ -230,7 +283,7 @@ def get_well_cache_status(plate_id: int) -> dict[str, bool]:
         # check images
         for img_info in well_info.get("images", []):
             image_id = img_info["image_id"]
-            size_t = img_info.get("size_t", 1)
+            size_t = img_info["size_t"]
             for t in range(size_t):
                 if not is_cached(get_key(image_id, t)):
                     all_cached = False
@@ -244,7 +297,7 @@ def get_well_cache_status(plate_id: int) -> dict[str, bool]:
                     # No label for corresponding image
                     continue
                 label_id = label_entry["label_id"]
-                size_t = label_entry.get("size_t", 1)
+                size_t = label_entry["size_t"]
                 for t in range(size_t):
                     if not is_cached(get_key(label_id, t)):
                         all_cached = False
@@ -529,7 +582,7 @@ def _plate_image_completeness(plate_id: int) -> float:
     for well_info in wells.values():
         for img_info in well_info.get("images", []):
             image_id = img_info["image_id"]
-            size_t = img_info.get("size_t", 1)
+            size_t = img_info["size_t"]
             total += size_t
             for t in range(size_t):
                 if is_cached(get_key(image_id, t)):
