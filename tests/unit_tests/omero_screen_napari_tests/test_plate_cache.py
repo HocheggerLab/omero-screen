@@ -989,15 +989,14 @@ class TestEnsureCacheSpace:
         ):
             from omero_screen_napari.plate_cache import ensure_cache_space
 
-            evicted = ensure_cache_space(1000, 0)
+            evicted, _vol, evicted_flag = ensure_cache_space(1000, 0, 2**30)
 
         assert evicted == []
+        assert evicted_flag == -1
 
     def test_evicts_oldest_plate_first(self, mock_cache, sample_meta):
         """With two plates, evicts the one with the smaller plate_id first."""
         fake_cache, fake_image_cache = mock_cache
-        # Set a very small size limit to force eviction
-        fake_image_cache.size_limit = 2000
 
         # Plate 100 (older/smaller ID)
         fake_cache.set(_get_meta_key(100), sample_meta, tag=100)
@@ -1027,16 +1026,15 @@ class TestEnsureCacheSpace:
         ):
             from omero_screen_napari.plate_cache import ensure_cache_space
 
-            print('test volume', fake_image_cache.volume())
-            evicted = ensure_cache_space(1000, 0)
+            evicted, _vol, evicted_flag = ensure_cache_space(1000, 0, 2000)
 
         # Plate 100 should be evicted first (smallest ID)
         assert 100 in evicted
+        assert evicted_flag == 1
         assert get_key(1000, 0) not in fake_image_cache
 
     def test_evicts_multiple_plates_if_needed(self, mock_cache, sample_meta):
         fake_cache, fake_image_cache = mock_cache
-        fake_image_cache.size_limit = 500  # Very small
 
         for plate_id in [10, 20, 30]:
             fake_cache.set(_get_meta_key(plate_id),  {
@@ -1060,13 +1058,13 @@ class TestEnsureCacheSpace:
         ):
             from omero_screen_napari.plate_cache import ensure_cache_space
 
-            evicted = ensure_cache_space(500, 0)
+            evicted, _vol, evicted_flag = ensure_cache_space(500, 0, 500)
 
         assert len(evicted) >= 1  # At least one plate evicted
+        assert evicted_flag >= 1
 
     def test_respects_exclude_plate_ids(self, mock_cache, sample_meta):
         fake_cache, fake_image_cache = mock_cache
-        fake_image_cache.size_limit = 500
 
         for plate_id in [10, 20]:
             fake_cache.set(_get_meta_key(plate_id), {
@@ -1090,7 +1088,7 @@ class TestEnsureCacheSpace:
         ):
             from omero_screen_napari.plate_cache import ensure_cache_space
 
-            evicted = ensure_cache_space(500, 10)
+            evicted = ensure_cache_space(500, 10, 500)
 
         # Plate 10 should NOT be evicted
         assert 10 not in evicted

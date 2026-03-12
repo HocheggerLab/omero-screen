@@ -507,24 +507,28 @@ def _estimate_entry_bytes(entry: dict[str, Any] | None, fallback: int) -> int:
     return dims[0] * dims[1] * dims[2] * dims[3] * dims[4] * 2
 
 
-def ensure_cache_space(needed_bytes: int, exclude_plate_id: int) -> list[int]:
+def ensure_cache_space(
+    needed_bytes: int, exclude_plate_id: int, size_limit: int
+) -> tuple[list[int], int, int]:
     """Evict whole plates (oldest first) until enough space is available.
+
+    The evicted flag contain the number of plate evictions. If no evictions
+    were required this is set to -1. A value of zero indicates that no
+    evictions were possible.
 
     Args:
         needed_bytes: Bytes to free up.
         exclude_plate_id: Plate ID to skip (e.g. the plate being cached).
+        size_limit: Cache size limit.
 
     Returns:
-        List of plate IDs that were evicted.
+        List of plate IDs that were evicted; estimated cache volume; evicted flag
     """
-    size_limit = cache_size_limit()
-    if size_limit <= 0:
-        return []
-
     evicted: list[int] = []
 
-    if cache_volume() + needed_bytes <= size_limit:
-        return []
+    vol = cache_volume()
+    if vol + needed_bytes <= size_limit:
+        return [], vol, -1
 
     # Get plates sorted ascending by plate_id (oldest/smallest first)
     candidates = get_all_cached_plates()
@@ -535,10 +539,11 @@ def ensure_cache_space(needed_bytes: int, exclude_plate_id: int) -> list[int]:
             continue
         delete_plate_from_cache(plate_id)
         evicted.append(plate_id)
-        if cache_volume() + needed_bytes <= size_limit:
+        vol = cache_volume()
+        if vol + needed_bytes <= size_limit:
             break
 
-    if cache_volume() + needed_bytes > size_limit:
+    if vol + needed_bytes > size_limit:
         logger.warning(
             "Cache still needs %d bytes after evicting %d plate(s). "
             "volume=%d, limit=%d",
@@ -548,7 +553,7 @@ def ensure_cache_space(needed_bytes: int, exclude_plate_id: int) -> list[int]:
             size_limit,
         )
 
-    return evicted
+    return evicted, vol, len(evicted)
 
 
 def _plate_image_completeness(plate_id: int) -> float:
@@ -735,7 +740,9 @@ def cache_plate(
     # Proactively evict old plates to make room for this one.
     # Note: The estimate does not account for image compression
     # so this may evict too many old plates.
-    evicted = ensure_cache_space(estimated_bytes, plate_id)
+    evicted, vol, evicted_flag = ensure_cache_space(
+        estimated_bytes, plate_id, size_limit
+    )
     if evicted:
         logger.info(
             "Evicted plates %s to make room for plate %d", evicted, plate_id
@@ -793,7 +800,10 @@ def cache_plate(
             done = 0
             while done < total:
                 try:
-                    downloaded += progress_q.get(timeout=1.0)
+                    cached = progress_q.get(timeout=1.0)
+                    downloaded += cached
+                    # Minimise cache volume calls using the downloaded size to estimate space
+                    vol += cached
                     done += 1
                     yield (done, total)
                 except queue.Empty:
@@ -804,38 +814,37 @@ def cache_plate(
 
                 # Reactive eviction: when cache approaches its limit,
                 # pause workers → evict old plates → resume workers.
-                # Only possible if previous eviction worked.
-                if evicted and (
-                    cache_volume() + eviction_headroom >= size_limit
-                ):
+                # Only check if previous eviction was possible.
+                if evicted_flag and (vol + eviction_headroom >= size_limit):
                     pause_event.clear()
                     # Brief sleep so in-flight writes complete before we
                     # measure volume for eviction.
                     time.sleep(0.2)
 
                     needed = estimated_bytes - downloaded
-                    evicted = ensure_cache_space(
+                    evicted, vol, evicted_flag = ensure_cache_space(
                         max(needed, eviction_headroom),
                         plate_id,
+                        size_limit,
                     )
+                    pause_event.set()
                     if evicted:
                         logger.info(
                             "Reactive eviction for plate %d: "
                             "freed plates %s (volume now %.1f GB)",
                             plate_id,
                             evicted,
-                            cache_volume() / 2**30,
+                            vol / 2**30,
                         )
-                    else:
+                    elif evicted_flag == 0:
                         logger.warning(
                             "Plate %d: cache near limit but no plates "
                             "to evict (volume %.1f / %.1f GB). "
                             "Continuing anyway.",
                             plate_id,
-                            cache_volume() / 2**30,
+                            vol / 2**30,
                             size_limit / 2**30,
                         )
-                    pause_event.set()
 
             # Re-raise the first worker exception, if any
             for f in futures:
