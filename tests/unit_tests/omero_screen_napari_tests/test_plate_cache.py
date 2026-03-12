@@ -1696,7 +1696,7 @@ class TestImageWrapperReuse:
     def test_reuses_wrapper_for_same_image_id(self):
         """get_omero_image_wrapper called once per unique image_id."""
         plate_id = 42
-        batch = [get_key(100, 0),get_key(100,1),get_key(200, 0),get_key(200, 1)]
+        batch = [(100, 0), (100,1), (200, 0), (200, 1)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
         mock_conn = MagicMock()
 
@@ -1724,7 +1724,7 @@ class TestImageWrapperReuse:
     def test_fetches_each_unique_image_id(self):
         """Each unique image_id triggers one wrapper fetch."""
         plate_id = 42
-        batch = [get_key(100, 0),get_key(200, 0),get_key(300, 0)]
+        batch = [(100, 0), (200, 0), (300, 0)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
         mock_conn = MagicMock()
 
@@ -1748,7 +1748,7 @@ class TestImageWrapperReuse:
     def test_store_reused_across_timepoints(self):
         """RawPixelsStore is kept open for consecutive timepoints of the same image."""
         plate_id = 42
-        batch = [get_key(100, 0),get_key(100,1),get_key(100, 2)]
+        batch = [(100, 0), (100,1), (100, 2)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
         mock_conn = MagicMock()
 
@@ -1778,7 +1778,7 @@ class TestImageWrapperReuse:
     def test_store_recreated_for_different_images(self):
         """New RawPixelsStore created when image_id changes."""
         plate_id = 42
-        batch = [get_key(100, 0),get_key(200, 0)]
+        batch = [(100, 0), (200, 0)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
         mock_conn = MagicMock()
 
@@ -1808,7 +1808,7 @@ class TestDownloadBatchCompleteness:
     def test_downloads_all_items(self):
         """All items in batch are downloaded."""
         plate_id = 42
-        batch = [f"{i}:0" for i in range(5)]
+        batch = [(i, 0) for i in range(5)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.uint16)
         mock_conn = MagicMock()
 
@@ -1835,12 +1835,13 @@ class TestDownloadBatchCompleteness:
 
             _download_batch(batch, plate_id, None, conn=mock_conn)
 
-        assert batch == cached_keys
+        expected = [get_key(*x) for x in batch]
+        assert expected == cached_keys
 
     def test_pause_event_blocks_worker(self):
         """Workers block when pause_event is cleared, resume when set."""
         plate_id = 42
-        batch = [f"{i}:0" for i in range(3)]
+        batch = [(i, 0) for i in range(3)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.uint16)
         mock_conn = MagicMock()
 
@@ -1883,12 +1884,13 @@ class TestDownloadBatchCompleteness:
                 # Let it run to completion (event is set)
                 future.result(timeout=5)
 
-        assert batch == cached_keys
+        expected = [get_key(*x) for x in batch]
+        assert expected == cached_keys
 
     def test_pause_event_initially_cleared_blocks_then_resumes(self):
         """Worker blocked by cleared event resumes after set."""
         plate_id = 42
-        batch = [get_key(100, 0)]
+        batch = [(100, 0)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.uint16)
         mock_conn = MagicMock()
 
@@ -1937,7 +1939,8 @@ class TestDownloadBatchCompleteness:
                 pause_event.set()
                 future.result(timeout=5)
 
-        assert batch == cached_keys
+        expected = [get_key(*x) for x in batch]
+        assert expected == cached_keys
 
 
 # --------------- load_from_cache dtype conversion ---------------
