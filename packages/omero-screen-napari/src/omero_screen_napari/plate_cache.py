@@ -40,6 +40,7 @@ from omero_screen_napari.omero_image import (
     add_cached_image,
     cache_size_limit,
     cache_volume,
+    get_bytes_size,
     get_cache_path,
     get_cached_image,
     get_image,
@@ -590,7 +591,9 @@ def cache_plate(
     wells = get_well_data(conn, plate_id)
     label_map = get_label_map(conn, plate_id)
 
+    # Quick check to determine if the plate will fit in the cache.
     # Done after fetching the label map so the estimate includes labels.
+    # Note: Size estimate does not account for the cache compression or pixels type.
     estimated_bytes = _estimate_plate_bytes(wells, label_map)
     size_limit = cache_size_limit()
     if estimated_bytes >= size_limit:
@@ -603,9 +606,6 @@ def cache_plate(
         yield (0, 0)
         return
 
-    # Record in persistent history
-    _update_plate_history(plate_id, meta["plate_name"], "cached")
-
     logger.info(
         "Plate %d: estimated size %.1f GB (cache volume %.1f / %.1f GB)",
         plate_id,
@@ -613,21 +613,6 @@ def cache_plate(
         cache_volume() / 2**30,
         size_limit / 2**30,
     )
-
-    # Size estimate should be exact.
-    # There should be no requirement to check the volume again.
-    # But cache uses compression.
-    # Change to estimate size based on average compression ratio.
-    # If too large then skip.
-    # If not enough room then try clearing space.
-    # Then download until cache volume is reached (i.e. image cached entire refilled).
-
-    # Proactively evict old plates to make room for this one.
-    evicted = ensure_cache_space(estimated_bytes, plate_id)
-    if evicted:
-        logger.info(
-            "Evicted plates %s to make room for plate %d", evicted, plate_id
-        )
 
     # Fetch flatfield mask image (image is cached)
     logger.info("Caching plate %d: fetching flatfield mask", plate_id)
@@ -639,7 +624,11 @@ def cache_plate(
     sorted_well_keys = sorted(wells.keys(), key=_well_sort_key)
     keys: list[str] = []
 
+    # Re-estimate size using missing images. Assume all images are the same.
     n_wells = 0
+    image_id = 0
+    label_id = 0
+    n_images = 0
     for well_pos in sorted_well_keys:
         last_len = len(keys)
         # Well images (skip if already cached)
@@ -648,6 +637,7 @@ def cache_plate(
             for t in range(img_info["size_t"]):
                 key = get_key(image_id, t)
                 if not is_cached(key):
+                    n_images += 1
                     keys.append(key)
         # Well labels (skip if already cached)
         if well_pos in label_map:
@@ -663,13 +653,51 @@ def cache_plate(
         if last_len < len(keys):
             n_wells += 1
 
-    total = len(keys)
-    if total == 0:
+    if n_wells == 0:
         logger.info("Plate %d: all images already cached", plate_id)
+        # Record in persistent history
+        _update_plate_history(plate_id, meta["plate_name"], "cached")
         yield (0, 0)
         return
 
-    # Distribute whole well groups to workers round-robin
+    # Accurate download size (assuming all images the same)
+    estimated_bytes = 0
+    if image_id:
+        estimated_bytes += get_bytes_size(conn, image_id) * n_images
+    if label_id:
+        estimated_bytes += get_bytes_size(conn, label_id) * (
+            # number of labels
+            len(keys) - n_images
+        )
+
+    # Repeat check to determine if the plate will fit in the cache.
+    # This may can fail if the pixels type from previous estimate was wrong.
+    if estimated_bytes >= size_limit:
+        logger.warning(
+            "Plate %d: estimated download size %.1f GB exceeds cache size %.1f GB, skipping caching",
+            plate_id,
+            estimated_bytes / 2**30,
+            size_limit / 2**30,
+        )
+        yield (0, 0)
+        return
+
+    logger.info(
+        "Plate %d: estimated download size %.1f GB",
+        plate_id,
+        estimated_bytes / 2**30,
+    )
+
+    # Proactively evict old plates to make room for this one.
+    # Note: The estimate does not account for image compression
+    # so this may evict too many old plates.
+    evicted = ensure_cache_space(estimated_bytes, plate_id)
+    if evicted:
+        logger.info(
+            "Evicted plates %s to make room for plate %d", evicted, plate_id
+        )
+
+    # Distribute keys to workers round-robin
     max_workers = max(1, max_workers)
     batches: list[list[str]] = [[] for _ in range(max_workers)]
     for i, key in enumerate(keys):
@@ -679,6 +707,7 @@ def cache_plate(
     # Adjust max workers if there are not enough images
     max_workers = len(batches)
 
+    total = len(keys)
     logger.info(
         "Caching plate %d (%d wells): downloading %d items (%d wells) with %d workers",
         plate_id,
@@ -703,6 +732,7 @@ def cache_plate(
     )
 
     try:
+        downloaded = 0
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
                 executor.submit(
@@ -719,7 +749,7 @@ def cache_plate(
             done = 0
             while done < total:
                 try:
-                    progress_q.get(timeout=1.0)
+                    downloaded += progress_q.get(timeout=1.0)
                     done += 1
                     yield (done, total)
                 except queue.Empty:
@@ -730,24 +760,26 @@ def cache_plate(
 
                 # Reactive eviction: when cache approaches its limit,
                 # pause workers → evict old plates → resume workers.
-                if cache_volume() + eviction_headroom >= size_limit:
+                # Only possible if previous eviction worked.
+                if evicted and (
+                    cache_volume() + eviction_headroom >= size_limit
+                ):
                     pause_event.clear()
                     # Brief sleep so in-flight writes complete before we
                     # measure volume for eviction.
                     time.sleep(0.2)
 
-                    remaining_frac = (total - done) / total
-                    needed = int(estimated_bytes * remaining_frac)
-                    re_evicted = ensure_cache_space(
+                    needed = estimated_bytes - downloaded
+                    evicted = ensure_cache_space(
                         max(needed, eviction_headroom),
                         plate_id,
                     )
-                    if re_evicted:
+                    if evicted:
                         logger.info(
                             "Reactive eviction for plate %d: "
                             "freed plates %s (volume now %.1f GB)",
                             plate_id,
-                            re_evicted,
+                            evicted,
                             cache_volume() / 2**30,
                         )
                     else:
@@ -771,6 +803,9 @@ def cache_plate(
                     raise exc
     finally:
         pause_event.set()  # unblock any waiting workers on error
+
+    # Record in persistent history
+    _update_plate_history(plate_id, meta["plate_name"], "cached")
 
     logger.info("Plate %d: caching complete (%d items)", plate_id, total)
 
@@ -1312,7 +1347,7 @@ def _download_batch(
             t_cache_write += t0 - t1
 
             if progress_q is not None:
-                progress_q.put(1)
+                progress_q.put(arr.nbytes)
 
         if profiling and batch:
             n_items = len(batch)

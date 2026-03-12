@@ -256,18 +256,42 @@ def get_image_timepoint(
     return a  # type: ignore[no-any-return]
 
 
+def get_bytes_size(conn: BlitzGateway, image_id: int) -> int:
+    """Get the size of the image in bytes.
+
+    Args:
+        conn: Connection to OMERO
+        image: Image
+
+    Returns:
+        size in bytes
+    """
+    image = get_omero_image_wrapper(conn, image_id)
+    pixel_type = image.getPrimaryPixels().getPixelsType().getValue()
+    dt_be = _OMERO_PIXEL_DTYPES.get(pixel_type)
+    if dt_be is None:
+        raise ValueError(f"Unsupported OMERO pixel type: {pixel_type}")
+    return (
+        int(dt_be.itemsize)
+        * int(image.getSizeT())
+        * int(image.getSizeC())
+        * int(image.getSizeZ())
+        * int(image.getSizeY())
+        * int(image.getSizeX())
+    )
+
+
 def initialise_download(
     conn: BlitzGateway, image: ImageWrapper
 ) -> tuple[RawPixelsStore, tuple[int, ...], np.dtype[Any]]:
     """Initialise a RawPixelsStore for download of the image.
 
     Args:
-        Args:
-            conn: Connection to OMERO
-            image: Image
+        conn: Connection to OMERO
+        image: Image
 
-        Returns:
-            store, image shape, pixels type
+    Returns:
+        store, image shape, pixels type
     """
     store = conn.c.sf.createRawPixelsStore()
     pixels = image.getPrimaryPixels()
