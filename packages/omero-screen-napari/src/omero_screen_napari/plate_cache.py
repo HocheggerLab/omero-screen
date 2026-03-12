@@ -1505,9 +1505,8 @@ def load_from_cache(
             size_t = img_info["size_t"]
             image_ids.append(image_id)
 
-            # Collect stage position (handle dict from old caches)
-            px = _unwrap_length(img_info.get("pos_x"))
-            py = _unwrap_length(img_info.get("pos_y"))
+            px = img_info.get("pos_x")
+            py = img_info.get("pos_y")
             if px is not None and py is not None:
                 image_positions.append((px, py))
             else:

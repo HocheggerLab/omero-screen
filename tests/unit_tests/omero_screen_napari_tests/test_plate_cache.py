@@ -495,51 +495,6 @@ class TestLoadFromCache:
             assert od.image_positions[0] == (0.0, 0.0)
             assert od.image_positions[1] == (1.0, 0.0)
 
-    def test_load_from_cache_dict_positions(
-        self, mock_cache, sample_meta, sample_label_map
-    ):
-        """Verify dict-format positions (old caches) are handled correctly."""
-        fake_cache, fake_image_cache = mock_cache
-
-        wells_dict_pos = {
-            "A1": {
-                "well_id": 10,
-                "metadata": {"cell_line": "RPE"},
-                "images": [
-                    {
-                        "image_id": 100,
-                        "size_t": 1,
-                        "index": 0,
-                        "pos_x": {"value": 5.0, "unit": "MICROMETER"},
-                        "pos_y": {"value": 10.0, "unit": "MICROMETER"},
-                    },
-                ],
-            },
-        }
-        plate_id = 42
-        fake_cache[_get_meta_key(plate_id)] = sample_meta
-        fake_cache[_get_well_key(plate_id)] = wells_dict_pos
-        fake_cache[_get_label_key(plate_id)] = sample_label_map
-
-        img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
-        fake_image_cache[get_key(100, 0)] = img_array
-        label_array = np.ones((1, 100, 100, 1), dtype=np.int32)
-        fake_image_cache[get_key(500, 0)] = label_array
-        fake_image_cache[get_key(501, 0)] = label_array
-        fake_image_cache[get_key(999, 0)] = label_array
-
-        with (
-            patch("omero_screen_napari.plate_cache._cache", fake_cache),
-            patch("omero_screen_napari.omero_image._cache", fake_image_cache),
-        ):
-            from omero_screen_napari.plate_cache import load_from_cache
-
-            od = OmeroData()
-            load_from_cache(MagicMock(), od, plate_id, "A1", "All")
-
-            assert len(od.image_positions) == 1
-            assert od.image_positions[0] == (5.0, 10.0)
-
     def test_load_from_cache_null_positions(
         self, mock_cache, sample_meta, sample_label_map
     ):
