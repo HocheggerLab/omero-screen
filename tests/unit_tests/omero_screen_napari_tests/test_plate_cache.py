@@ -44,6 +44,11 @@ def _get_label_key(plate_id: int) -> bytes:
     return b"l" + _get_bytes(plate_id)
 
 
+def get_key(image_id: int, t: int) -> str:
+    """Get the image key for the cache."""
+    return f"{image_id}:{t}"
+
+
 # --------------- Fixtures ---------------
 
 
@@ -240,7 +245,7 @@ class TestIsPlateFullyCached:
         fake_cache[_get_meta_key(plate_id)] = sample_meta
         fake_cache[_get_well_key(plate_id)] = sample_wells
         # Only cache one of two images for A1
-        fake_image_cache["100:0"] = np.zeros((1, 10, 10, 2), dtype=np.float32)
+        fake_image_cache[get_key(100, 0)] = np.zeros((1, 10, 10, 2), dtype=np.float32)
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
             patch("omero_screen_napari.omero_image._cache", fake_image_cache),
@@ -258,13 +263,13 @@ class TestIsPlateFullyCached:
         fake_cache[_get_well_key(plate_id)] = sample_wells
         fake_cache[_get_label_key(plate_id)] = sample_label_map
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
-        fake_image_cache["100:0"] = img
-        fake_image_cache["101:0"] = img
-        fake_image_cache["200:0"] = img
-        fake_image_cache["500:0"] = img
-        fake_image_cache["501:0"] = img
-        fake_image_cache["600:0"] = img
-        fake_image_cache["999:0"] = img
+        fake_image_cache[get_key(100, 0)] = img
+        fake_image_cache[get_key(101, 0)] = img
+        fake_image_cache[get_key(200, 0)] = img
+        fake_image_cache[get_key(500, 0)] = img
+        fake_image_cache[get_key(501, 0)] = img
+        fake_image_cache[get_key(600, 0)] = img
+        fake_image_cache[get_key(999, 0)] = img
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
             patch("omero_screen_napari.omero_image._cache", fake_image_cache),
@@ -286,10 +291,10 @@ class TestIsPlateFullyCached:
             "A2": [None],
         }
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
-        fake_image_cache["100:0"] = img
-        fake_image_cache["101:0"] = img
-        fake_image_cache["200:0"] = img
-        fake_image_cache["999:0"] = img
+        fake_image_cache[get_key(100, 0)] = img
+        fake_image_cache[get_key(101, 0)] = img
+        fake_image_cache[get_key(200, 0)] = img
+        fake_image_cache[get_key(999, 0)] = img
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
             patch("omero_screen_napari.omero_image._cache", fake_image_cache),
@@ -414,14 +419,14 @@ class TestLoadFromCache:
 
         # Add image data to cache
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
-        fake_image_cache["100:0"] = img_array
-        fake_image_cache["101:0"] = img_array
+        fake_image_cache[get_key(100, 0)] = img_array
+        fake_image_cache[get_key(101, 0)] = img_array
         # Add label data
         label_array = np.ones((1, 100, 100, 1), dtype=np.int32)
-        fake_image_cache["500:0"] = label_array
-        fake_image_cache["501:0"] = label_array
+        fake_image_cache[get_key(500, 0)] = label_array
+        fake_image_cache[get_key(501, 0)] = label_array
         # Add flat-field correction image
-        fake_image_cache["999:0"] = label_array
+        fake_image_cache[get_key(999, 0)] = label_array
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -470,12 +475,12 @@ class TestLoadFromCache:
         fake_cache[_get_label_key(plate_id)] = sample_label_map
 
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
-        fake_image_cache["100:0"] = img_array
-        fake_image_cache["101:0"] = img_array
+        fake_image_cache[get_key(100, 0)] = img_array
+        fake_image_cache[get_key(101, 0)] = img_array
         label_array = np.ones((1, 100, 100, 1), dtype=np.int32)
-        fake_image_cache["500:0"] = label_array
-        fake_image_cache["501:0"] = label_array
-        fake_image_cache["999:0"] = label_array
+        fake_image_cache[get_key(500, 0)] = label_array
+        fake_image_cache[get_key(501, 0)] = label_array
+        fake_image_cache[get_key(999, 0)] = label_array
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -517,11 +522,11 @@ class TestLoadFromCache:
         fake_cache[_get_label_key(plate_id)] = sample_label_map
 
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
-        fake_image_cache["100:0"] = img_array
+        fake_image_cache[get_key(100, 0)] = img_array
         label_array = np.ones((1, 100, 100, 1), dtype=np.int32)
-        fake_image_cache["500:0"] = label_array
-        fake_image_cache["501:0"] = label_array
-        fake_image_cache["999:0"] = label_array
+        fake_image_cache[get_key(500, 0)] = label_array
+        fake_image_cache[get_key(501, 0)] = label_array
+        fake_image_cache[get_key(999, 0)] = label_array
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -557,12 +562,12 @@ class TestLoadFromCache:
         fake_cache[_get_label_key(plate_id)] = sample_label_map
 
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
-        fake_image_cache["100:0"] = img_array
-        fake_image_cache["101:0"] = img_array
+        fake_image_cache[get_key(100, 0)] = img_array
+        fake_image_cache[get_key(101, 0)] = img_array
         label_array = np.ones((1, 100, 100, 1), dtype=np.int32)
-        fake_image_cache["500:0"] = label_array
-        fake_image_cache["501:0"] = label_array
-        fake_image_cache["999:0"] = label_array
+        fake_image_cache[get_key(500, 0)] = label_array
+        fake_image_cache[get_key(501, 0)] = label_array
+        fake_image_cache[get_key(999, 0)] = label_array
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -587,10 +592,10 @@ class TestLoadFromCache:
         fake_cache[_get_label_key(plate_id)] = sample_label_map
 
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
-        fake_image_cache["100:0"] = img_array
+        fake_image_cache[get_key(100, 0)] = img_array
         label_array = np.ones((1, 100, 100, 1), dtype=np.int32)
-        fake_image_cache["500:0"] = label_array
-        fake_image_cache["999:0"] = label_array
+        fake_image_cache[get_key(500, 0)] = label_array
+        fake_image_cache[get_key(999, 0)] = label_array
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -780,13 +785,13 @@ class TestGetWellCacheStatus:
         fake_cache[_get_label_key(plate_id)] = sample_label_map
         # Cache all images for A1 and A2
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
-        fake_image_cache["100:0"] = img_array
-        fake_image_cache["101:0"] = img_array
-        fake_image_cache["200:0"] = img_array
-        fake_image_cache["500:0"] = img_array
-        fake_image_cache["501:0"] = img_array
-        fake_image_cache["600:0"] = img_array
-        fake_image_cache["999:0"] = img_array
+        fake_image_cache[get_key(100, 0)] = img_array
+        fake_image_cache[get_key(101, 0)] = img_array
+        fake_image_cache[get_key(200, 0)] = img_array
+        fake_image_cache[get_key(500, 0)] = img_array
+        fake_image_cache[get_key(501, 0)] = img_array
+        fake_image_cache[get_key(600, 0)] = img_array
+        fake_image_cache[get_key(999, 0)] = img_array
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -806,12 +811,12 @@ class TestGetWellCacheStatus:
         fake_cache[_get_label_key(plate_id)] = sample_label_map
         # Only cache one image for A1 (missing 101:0)
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
-        fake_image_cache["100:0"] = img_array
-        fake_image_cache["200:0"] = img_array
-        fake_image_cache["500:0"] = img_array
-        fake_image_cache["501:0"] = img_array
-        fake_image_cache["600:0"] = img_array
-        fake_image_cache["999:0"] = img_array
+        fake_image_cache[get_key(100, 0)] = img_array
+        fake_image_cache[get_key(200, 0)] = img_array
+        fake_image_cache[get_key(500, 0)] = img_array
+        fake_image_cache[get_key(501, 0)] = img_array
+        fake_image_cache[get_key(600, 0)] = img_array
+        fake_image_cache[get_key(999, 0)] = img_array
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -845,12 +850,12 @@ class TestGetWellCacheStatus:
         fake_cache[_get_label_key(plate_id)] = labels
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
         # Cache only 2 of 3 timepoints
-        fake_image_cache["100:0"] = img_array
-        fake_image_cache["100:1"] = img_array
-        fake_image_cache["500:0"] = img_array
-        fake_image_cache["500:1"] = img_array
-        fake_image_cache["500:2"] = img_array
-        fake_image_cache["999:0"] = img_array
+        fake_image_cache[get_key(100, 0)] = img_array
+        fake_image_cache[get_key(100,1)] = img_array
+        fake_image_cache[get_key(500, 0)] = img_array
+        fake_image_cache[get_key(500, 1)] = img_array
+        fake_image_cache[get_key(500, 2)] = img_array
+        fake_image_cache[get_key(999, 0)] = img_array
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -862,7 +867,7 @@ class TestGetWellCacheStatus:
             assert status["A1"] is False
 
         # Now add the missing timepoint
-        fake_image_cache["100:2"] = img_array
+        fake_image_cache[get_key(100, 2)] = img_array
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
             patch("omero_screen_napari.omero_image._cache", fake_image_cache),
@@ -967,13 +972,13 @@ class TestDeletePlateFromCache:
         fake_cache.set(_get_label_key(plate_id), sample_label_map, tag=plate_id)
 
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
-        fake_image_cache.set("100:0", img, tag=plate_id)
-        fake_image_cache.set("101:0", img, tag=plate_id)
-        fake_image_cache.set("200:0", img, tag=plate_id)
-        fake_image_cache.set("500:0", img, tag=plate_id)
-        fake_image_cache.set("501:0", img, tag=plate_id)
-        fake_image_cache.set("600:0", img, tag=plate_id)
-        fake_image_cache.set("999:0", img, tag=plate_id)
+        fake_image_cache.set(get_key(100, 0), img, tag=plate_id)
+        fake_image_cache.set(get_key(101, 0), img, tag=plate_id)
+        fake_image_cache.set(get_key(200, 0), img, tag=plate_id)
+        fake_image_cache.set(get_key(500, 0), img, tag=plate_id)
+        fake_image_cache.set(get_key(501, 0), img, tag=plate_id)
+        fake_image_cache.set(get_key(600, 0), img, tag=plate_id)
+        fake_image_cache.set(get_key(999, 0), img, tag=plate_id)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -988,13 +993,13 @@ class TestDeletePlateFromCache:
         assert _get_meta_key(plate_id) not in fake_cache
         assert _get_well_key(plate_id) not in fake_cache
         assert _get_label_key(plate_id) not in fake_cache
-        assert "100:0" not in fake_image_cache
-        assert "101:0" not in fake_image_cache
-        assert "200:0" not in fake_image_cache
-        assert "500:0" not in fake_image_cache
-        assert "501:0" not in fake_image_cache
-        assert "600:0" not in fake_image_cache
-        assert "999:0" not in fake_image_cache
+        assert get_key(100, 0) not in fake_image_cache
+        assert get_key(101, 0) not in fake_image_cache
+        assert get_key(200, 0) not in fake_image_cache
+        assert get_key(500, 0) not in fake_image_cache
+        assert get_key(501, 0) not in fake_image_cache
+        assert get_key(600, 0) not in fake_image_cache
+        assert get_key(999, 0) not in fake_image_cache
 
     def test_returns_zero_for_missing_plate(self, mock_cache):
         fake_cache, fake_image_cache = mock_cache
@@ -1031,7 +1036,7 @@ class TestDeletePlateFromCache:
         fake_cache.set(_get_well_key(plate_id), sample_wells, tag=plate_id)
         # Only 1 of 3 images cached
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
-        fake_image_cache.set("100:0", img, tag=plate_id)
+        fake_image_cache.set(get_key(100, 0), img, tag=plate_id)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -1043,7 +1048,7 @@ class TestDeletePlateFromCache:
 
         # meta + wells + 1 image = 3 (labels key didn't exist)
         assert count == 3
-        assert "100:0" not in fake_image_cache
+        assert get_key(100, 0) not in fake_image_cache
 
     def test_does_not_affect_other_plates(
         self, mock_cache, sample_meta, sample_wells
@@ -1054,9 +1059,9 @@ class TestDeletePlateFromCache:
         fake_cache.set(_get_meta_key(plate_id), sample_meta, tag=plate_id)
         fake_cache.set(_get_well_key(plate_id), sample_wells, tag=plate_id)
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
-        fake_image_cache.set("100:0", img, tag=plate_id)
-        fake_image_cache.set("101:0", img, tag=plate_id)
-        fake_image_cache.set("200:0", img, tag=plate_id)
+        fake_image_cache.set(get_key(100, 0), img, tag=plate_id)
+        fake_image_cache.set(get_key(101, 0), img, tag=plate_id)
+        fake_image_cache.set(get_key(200, 0), img, tag=plate_id)
         # Plate 99
         other_meta = {**sample_meta, "plate_name": "Other"}
         fake_cache.set(_get_meta_key(99), other_meta, tag=99)
@@ -1067,7 +1072,7 @@ class TestDeletePlateFromCache:
                 "images": [{"image_id": 900, "size_t": 1, "index": 0}],
             }
         }, tag=99)
-        fake_image_cache.set("900:0", img, tag=99)
+        fake_image_cache.set(get_key(900, 0), img, tag=99)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -1079,7 +1084,7 @@ class TestDeletePlateFromCache:
 
         assert _get_meta_key(99) in fake_cache
         assert _get_well_key(99) in fake_cache
-        assert "900:0" in fake_image_cache
+        assert get_key(900, 0) in fake_image_cache
 
 
 # --------------- ensure_cache_space ---------------
@@ -1116,7 +1121,7 @@ class TestEnsureCacheSpace:
                 "images": [{"image_id": 1000, "size_t": 1, "index": 0}],
             }
         }, tag=100)
-        fake_image_cache.set("1000:0", np.zeros((10, 10, 2), dtype=np.float32), tag=100)
+        fake_image_cache.set(get_key(1000, 0), np.zeros((10, 10, 2), dtype=np.float32), tag=100)
 
         # Plate 200 (newer/larger ID)
         fake_cache.set(_get_meta_key(200), {**sample_meta, "plate_name": "Newer"}, tag=200)
@@ -1127,7 +1132,7 @@ class TestEnsureCacheSpace:
                 "images": [{"image_id": 2000, "size_t": 1, "index": 0}],
             }
         }, tag=200)
-        fake_image_cache.set("2000:0", np.zeros((10, 10, 2), dtype=np.float32), tag=200)
+        fake_image_cache.set(get_key(2000, 0), np.zeros((10, 10, 2), dtype=np.float32), tag=200)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -1140,7 +1145,7 @@ class TestEnsureCacheSpace:
 
         # Plate 100 should be evicted first (smallest ID)
         assert 100 in evicted
-        assert "1000:0" not in fake_image_cache
+        assert get_key(1000, 0) not in fake_image_cache
 
     def test_evicts_multiple_plates_if_needed(self, mock_cache, sample_meta):
         fake_cache, fake_image_cache = mock_cache
@@ -1204,7 +1209,7 @@ class TestEnsureCacheSpace:
         assert 10 not in evicted
         assert _get_meta_key(10) in fake_cache
         assert _get_well_key(10) in fake_cache
-        assert "1000:0" in fake_image_cache
+        assert get_key(1000, 0) in fake_image_cache
 
 
 # --------------- clean_orphaned_plates ---------------
@@ -1220,7 +1225,7 @@ class TestCleanOrphanedPlates:
         fake_cache.set(_get_meta_key(plate_id), sample_meta, tag=plate_id)
         fake_cache.set(_get_well_key(plate_id), sample_wells, tag=plate_id)
         # Only 1 of 3 images cached = 33% completeness
-        fake_image_cache.set("100:0", np.zeros((1, 10, 10, 2), dtype=np.float32), tag=plate_id)
+        fake_image_cache.set(get_key(100, 0), np.zeros((1, 10, 10, 2), dtype=np.float32), tag=plate_id)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -1232,7 +1237,7 @@ class TestCleanOrphanedPlates:
 
         assert plate_id in cleaned
         assert _get_meta_key(plate_id) not in fake_cache
-        assert "100:0" not in fake_image_cache
+        assert get_key(100, 0) not in fake_image_cache
 
     def test_keeps_complete_plates(
         self, mock_cache, sample_meta, sample_wells
@@ -1244,8 +1249,8 @@ class TestCleanOrphanedPlates:
         fake_cache.set(_get_well_key(plate_id), sample_wells, tag=plate_id)
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
         # 2 of 3 images = 67% completeness
-        fake_image_cache.set("100:0", img, tag=plate_id)
-        fake_image_cache.set("101:0", img, tag=plate_id)
+        fake_image_cache.set(get_key(100, 0), img, tag=plate_id)
+        fake_image_cache.set(get_key(101, 0), img, tag=plate_id)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -1257,8 +1262,8 @@ class TestCleanOrphanedPlates:
 
         assert cleaned == []
         assert _get_meta_key(plate_id) in fake_cache
-        assert "100:0" in fake_image_cache
-        assert "101:0" in fake_image_cache
+        assert get_key(100, 0) in fake_image_cache
+        assert get_key(101, 0) in fake_image_cache
 
     def test_respects_exclude_plate_ids(
         self, mock_cache, sample_meta, sample_wells
@@ -1451,9 +1456,9 @@ class TestPlateImageCompleteness:
         plate_id = 42
         fake_cache[_get_well_key(plate_id)] = sample_wells
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
-        fake_image_cache["100:0"] = img
-        fake_image_cache["101:0"] = img
-        fake_image_cache["200:0"] = img
+        fake_image_cache[get_key(100, 0)] = img
+        fake_image_cache[get_key(101, 0)] = img
+        fake_image_cache[get_key(200, 0)] = img
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -1470,7 +1475,7 @@ class TestPlateImageCompleteness:
         plate_id = 42
         fake_cache[_get_well_key(plate_id)] = sample_wells
         # 1 of 3 images
-        fake_image_cache["100:0"] = np.zeros((1, 10, 10, 2), dtype=np.float32)
+        fake_image_cache[get_key(100, 0)] = np.zeros((1, 10, 10, 2), dtype=np.float32)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -1623,9 +1628,9 @@ class TestRemovePlateFromHistory:
         fake_cache.set(_get_meta_key(plate_id), sample_meta, tag=plate_id)
         fake_cache.set(_get_well_key(plate_id), sample_wells, tag=plate_id)
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
-        fake_image_cache.set("100:0", img, tag=plate_id)
-        fake_image_cache.set("101:0", img, tag=plate_id)
-        fake_image_cache.set("200:0", img, tag=plate_id)
+        fake_image_cache.set(get_key(100, 0), img, tag=plate_id)
+        fake_image_cache.set(get_key(101, 0), img, tag=plate_id)
+        fake_image_cache.set(get_key(200, 0), img, tag=plate_id)
         fake_cache[_HISTORY_KEY] = {
             plate_id: {
                 "plate_name": "MyPlate",
@@ -1647,9 +1652,9 @@ class TestRemovePlateFromHistory:
         assert plate_id not in fake_cache[_HISTORY_KEY]
         assert _get_meta_key(plate_id) not in fake_cache
         assert _get_well_key(plate_id) not in fake_cache
-        assert "100:0" not in fake_image_cache
-        assert "101:0" not in fake_image_cache
-        assert "200:0" not in fake_image_cache
+        assert get_key(100, 0) not in fake_image_cache
+        assert get_key(101, 0) not in fake_image_cache
+        assert get_key(200, 0) not in fake_image_cache
 
 
 # --------------- delete_plate_from_cache updates history ---------------
@@ -1665,9 +1670,9 @@ class TestDeletePlateUpdatesHistory:
         fake_cache.set(_get_meta_key(plate_id), sample_meta, tag=plate_id)
         fake_cache.set(_get_well_key(plate_id), sample_wells, tag=plate_id)
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
-        fake_image_cache.set("100:0", img, tag=plate_id)
-        fake_image_cache.set("101:0", img, tag=plate_id)
-        fake_image_cache.set("200:0", img, tag=plate_id)
+        fake_image_cache.set(get_key(100, 0), img, tag=plate_id)
+        fake_image_cache.set(get_key(101, 0), img, tag=plate_id)
+        fake_image_cache.set(get_key(200, 0), img, tag=plate_id)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -1734,14 +1739,14 @@ class TestLabelMultiTimepoint:
         }
 
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
-        fake_image_cache["100:0"] = img_array
-        fake_image_cache["100:1"] = img_array
-        fake_image_cache["100:2"] = img_array
+        fake_image_cache[get_key(100, 0)] = img_array
+        fake_image_cache[get_key(100,1)] = img_array
+        fake_image_cache[get_key(100, 2)] = img_array
         label_array = np.ones((1, 100, 100, 1), dtype=np.int32)
-        fake_image_cache["500:0"] = label_array
-        fake_image_cache["500:1"] = label_array
-        fake_image_cache["500:2"] = label_array
-        fake_image_cache["999:0"] = np.ones((1, 100, 100, 2), dtype=np.int32)
+        fake_image_cache[get_key(500, 0)] = label_array
+        fake_image_cache[get_key(500, 1)] = label_array
+        fake_image_cache[get_key(500, 2)] = label_array
+        fake_image_cache[get_key(999, 0)] = np.ones((1, 100, 100, 2), dtype=np.int32)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -1773,14 +1778,14 @@ class TestLabelMultiTimepoint:
             "A1": [{"label_id": 500, "size_t": 3}],
         }, tag=plate_id)
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
-        fake_image_cache.set("100:0", img, tag=plate_id)
-        fake_image_cache.set("100:1", img, tag=plate_id)
-        fake_image_cache.set("100:2", img, tag=plate_id)
+        fake_image_cache.set(get_key(100, 0), img, tag=plate_id)
+        fake_image_cache.set(get_key(100,1), img, tag=plate_id)
+        fake_image_cache.set(get_key(100, 2), img, tag=plate_id)
         label_array = np.ones((1, 100, 100, 1), dtype=np.int32)
-        fake_image_cache.set("500:0", img, tag=plate_id)
-        fake_image_cache.set("500:1", img, tag=plate_id)
-        fake_image_cache.set("500:2", img, tag=plate_id)
-        fake_image_cache.set("999:0", np.ones((1, 100, 100, 2), dtype=np.int32), tag=plate_id)
+        fake_image_cache.set(get_key(500, 0), img, tag=plate_id)
+        fake_image_cache.set(get_key(500, 1), img, tag=plate_id)
+        fake_image_cache.set(get_key(500, 2), img, tag=plate_id)
+        fake_image_cache.set(get_key(999, 0), np.ones((1, 100, 100, 2), dtype=np.int32), tag=plate_id)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -1792,13 +1797,13 @@ class TestLabelMultiTimepoint:
 
         # meta + wells + labels + 3 image + 3 label timepoints + ff-mask = 10
         assert count == 10
-        assert "100:0" not in fake_image_cache
-        assert "100:1" not in fake_image_cache
-        assert "100:2" not in fake_image_cache
-        assert "500:0" not in fake_image_cache
-        assert "500:1" not in fake_image_cache
-        assert "500:2" not in fake_image_cache
-        assert "999:0" not in fake_image_cache
+        assert get_key(100, 0) not in fake_image_cache
+        assert get_key(100,1) not in fake_image_cache
+        assert get_key(100, 2) not in fake_image_cache
+        assert get_key(500, 0) not in fake_image_cache
+        assert get_key(500, 1) not in fake_image_cache
+        assert get_key(500, 2) not in fake_image_cache
+        assert get_key(999, 0) not in fake_image_cache
 
 
 # --------------- Helpers for RawPixelsStore tests ---------------
@@ -1831,7 +1836,7 @@ class TestImageWrapperReuse:
     def test_reuses_wrapper_for_same_image_id(self):
         """get_omero_image_wrapper called once per unique image_id."""
         plate_id = 42
-        batch = ["100:0","100:1","200:0","200:1"]
+        batch = [get_key(100, 0),get_key(100,1),get_key(200, 0),get_key(200, 1)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
         mock_conn = MagicMock()
 
@@ -1859,7 +1864,7 @@ class TestImageWrapperReuse:
     def test_fetches_each_unique_image_id(self):
         """Each unique image_id triggers one wrapper fetch."""
         plate_id = 42
-        batch = ["100:0","200:0","300:0"]
+        batch = [get_key(100, 0),get_key(200, 0),get_key(300, 0)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
         mock_conn = MagicMock()
 
@@ -1883,7 +1888,7 @@ class TestImageWrapperReuse:
     def test_store_reused_across_timepoints(self):
         """RawPixelsStore is kept open for consecutive timepoints of the same image."""
         plate_id = 42
-        batch = ["100:0","100:1","100:2"]
+        batch = [get_key(100, 0),get_key(100,1),get_key(100, 2)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
         mock_conn = MagicMock()
 
@@ -1913,7 +1918,7 @@ class TestImageWrapperReuse:
     def test_store_recreated_for_different_images(self):
         """New RawPixelsStore created when image_id changes."""
         plate_id = 42
-        batch = ["100:0","200:0"]
+        batch = [get_key(100, 0),get_key(200, 0)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
         mock_conn = MagicMock()
 
@@ -2023,7 +2028,7 @@ class TestDownloadBatchCompleteness:
     def test_pause_event_initially_cleared_blocks_then_resumes(self):
         """Worker blocked by cleared event resumes after set."""
         plate_id = 42
-        batch = ["100:0"]
+        batch = [get_key(100, 0)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.uint16)
         mock_conn = MagicMock()
 
@@ -2091,13 +2096,13 @@ class TestLoadFromCacheDtype:
 
         # Store images as uint16 (new format)
         img_array = np.ones((1, 100, 100, 2), dtype=np.uint16) * 1000
-        fake_image_cache["100:0"] = img_array
-        fake_image_cache["101:0"] = img_array
+        fake_image_cache[get_key(100, 0)] = img_array
+        fake_image_cache[get_key(101, 0)] = img_array
         label_array = np.ones((1, 100, 100, 1), dtype=np.int32)
-        fake_image_cache["500:0"] = label_array
-        fake_image_cache["501:0"] = label_array
+        fake_image_cache[get_key(500, 0)] = label_array
+        fake_image_cache[get_key(501, 0)] = label_array
         # Flat-field mask
-        fake_image_cache["999:0"] = np.ones((1, 100, 100, 2), dtype=np.float32) * 2
+        fake_image_cache[get_key(999, 0)] = np.ones((1, 100, 100, 2), dtype=np.float32) * 2
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
@@ -2133,7 +2138,7 @@ class TestCacheVersionInvalidation:
                 "images": [{"image_id": 100, "size_t": 1, "index": 0}],
             },
         }, tag=plate_id)
-        fake_image_cache.set("100:0", np.zeros((1, 10, 10, 2), dtype=np.float32), tag=plate_id)
+        fake_image_cache.set(get_key(100, 0), np.zeros((1, 10, 10, 2), dtype=np.float32), tag=plate_id)
         mock_conn = MagicMock()
 
         with (
@@ -2153,7 +2158,7 @@ class TestCacheVersionInvalidation:
             # Well metadata would be evicted
             assert fake_cache.get(_get_well_key(plate_id)) is None
             # Images remain
-            assert "100:0" in fake_image_cache
+            assert get_key(100, 0) in fake_image_cache
 
     def test_current_version_not_deleted(self, mock_cache, sample_meta):
         """Plates with current cache_version should NOT be deleted."""
@@ -2171,7 +2176,7 @@ class TestCacheVersionInvalidation:
                 "images": [{"image_id": 100, "size_t": 1, "index": 0}],
             },
         }, tag=plate_id)
-        fake_image_cache.set("100:0", np.zeros((1, 10, 10, 2), dtype=np.float32), tag=plate_id)
+        fake_image_cache.set(get_key(100, 0), np.zeros((1, 10, 10, 2), dtype=np.float32), tag=plate_id)
         mock_conn = MagicMock()
 
         with (
@@ -2187,4 +2192,4 @@ class TestCacheVersionInvalidation:
             # Well metadata would be retained
             assert _get_well_key(plate_id) in fake_cache
             # Images remain
-            assert "100:0" in fake_image_cache
+            assert get_key(100, 0) in fake_image_cache
