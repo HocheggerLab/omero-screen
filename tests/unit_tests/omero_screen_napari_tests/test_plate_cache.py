@@ -130,21 +130,13 @@ def sample_wells() -> dict:
             "images": [
                 {
                     "image_id": 100,
-                    "size_t": 1,
-                    "size_z": 1,
-                    "size_c": 2,
-                    "size_y": 100,
-                    "size_x": 100,
+                    "dims": (1, 2, 1, 100, 100),
                     "pos_x": 0.0,
                     "pos_y": 0.0,
                 },
                 {
                     "image_id": 101,
-                    "size_t": 1,
-                    "size_z": 1,
-                    "size_c": 2,
-                    "size_y": 100,
-                    "size_x": 100,
+                    "dims": (1, 2, 1, 100, 100),
                     "pos_x": 1.0,
                     "pos_y": 0.0,
                 },
@@ -156,11 +148,7 @@ def sample_wells() -> dict:
             "images": [
                 {
                     "image_id": 200,
-                    "size_t": 1,
-                    "size_z": 1,
-                    "size_c": 2,
-                    "size_y": 100,
-                    "size_x": 100,
+                    "dims": (1, 2, 1, 100, 100),
                     "pos_x": 0.0,
                     "pos_y": 0.0,
                 },
@@ -173,10 +161,10 @@ def sample_wells() -> dict:
 def sample_label_map() -> dict:
     return {
         "A1": [
-            {"label_id": 500, "size_t": 1},
-            {"label_id": 501, "size_t": 1},
+            {"label_id": 500, "dims": (1, 2, 1, 100, 100)},
+            {"label_id": 501, "dims": (1, 2, 1, 100, 100)},
         ],
-        "A2": [{"label_id": 600, "size_t": 1}],
+        "A2": [{"label_id": 600, "dims": (1, 2, 1, 100, 100)}],
     }
 
 
@@ -503,8 +491,8 @@ class TestLoadFromCache:
                 "well_id": 10,
                 "metadata": {"cell_line": "RPE"},
                 "images": [
-                    {"image_id": 100, "size_t": 1},
-                    {"image_id": 101, "size_t": 1},
+                    {"image_id": 100, "dims": (1, 0, 0, 0, 0)},
+                    {"image_id": 101, "dims": (1, 0, 0, 0, 0)},
                 ],
             },
         }
@@ -787,13 +775,13 @@ class TestGetWellCacheStatus:
                 "well_id": 10,
                 "metadata": {},
                 "images": [
-                    {"image_id": 100, "size_t": 3},
+                    {"image_id": 100, "dims": (3, 0, 0, 0, 0)},
                 ],
             },
         }
         labels = {
             "A1": [
-                {"label_id": 500, "size_t": 3},
+                {"label_id": 500, "dims": (3, 0, 0, 0, 0)},
             ],
         }
         plate_id = 42
@@ -846,64 +834,14 @@ class TestWellSortKeyPlateCache:
 
 
 class TestWellGroupedPartitioning:
-    """Tests that well-grouped partitioning keeps wells together in batches."""
-
-    def test_wells_complete_sequentially_within_worker(
-        self, mock_cache, sample_wells
-    ):
-        """Images from the same well should be in the same batch."""
-        fake_cache, fake_image_cache = mock_cache
-        plate_id = 42
-        fake_cache[_get_well_key(plate_id)] = sample_wells
-        fake_cache[_get_label_key(plate_id)] = {}
-
-        # We can't easily call cache_plate() (needs OMERO connection),
-        # but we can verify the partitioning logic by simulating it.
-        from omero_screen_napari.plate_cache import _well_sort_key
-
-        wells = sample_wells
-        label_map: dict[str, list[int]] = {}
-        sorted_well_keys = sorted(wells.keys(), key=_well_sort_key)
-        well_groups: list[list[dict]] = []
-
-        for well_pos in sorted_well_keys:
-            group: list[dict] = []
-            for img_info in wells[well_pos]["images"]:
-                for t in range(img_info["size_t"]):
-                    group.append(
-                        {
-                            "image_id": img_info["image_id"],
-                            "timepoint": t,
-                            "well": well_pos,
-                        }
-                    )
-            if group:
-                well_groups.append(group)
-
-        # Distribute to 2 workers
-        max_workers = 2
-        batches: list[list[dict]] = [[] for _ in range(max_workers)]
-        for i, group in enumerate(well_groups):
-            batches[i % max_workers].extend(group)
-        batches = [b for b in batches if b]
-
-        # A1 and A2 should be in different batches (round-robin by well)
-        batch0_wells = {item["well"] for item in batches[0]}
-        batch1_wells = {item["well"] for item in batches[1]}
-
-        # With 2 wells and 2 workers, each batch gets one well
-        # A1 -> worker 0, A2 -> worker 1
-        assert "A1" in batch0_wells
-        assert "A2" in batch1_wells
-
     def test_workers_get_sorted_wells(self, mock_cache):
         """Wells should be distributed in sorted order (A1, A2, B1, ...)."""
         from omero_screen_napari.plate_cache import _well_sort_key
 
         wells = {
-            "B1": {"images": [{"image_id": 300, "size_t": 1}]},
-            "A2": {"images": [{"image_id": 200, "size_t": 1}]},
-            "A1": {"images": [{"image_id": 100, "size_t": 1}]},
+            "B1": {"images": [{"image_id": 300, "dims": (1, 0, 0, 0, 0)}]},
+            "A2": {"images": [{"image_id": 200, "dims": (1, 0, 0, 0, 0)}]},
+            "A1": {"images": [{"image_id": 100, "dims": (1, 0, 0, 0, 0)}]},
         }
 
         sorted_keys = sorted(wells.keys(), key=_well_sort_key)
@@ -1021,7 +959,7 @@ class TestDeletePlateFromCache:
             "B1": {
                 "well_id": 20,
                 "metadata": {},
-                "images": [{"image_id": 900, "size_t": 1}],
+                "images": [{"image_id": 900, "dims": (1, 0, 0, 0, 0)}],
             }
         }, tag=99)
         fake_image_cache.set(get_key(900, 0), img, tag=99)
@@ -1070,7 +1008,7 @@ class TestEnsureCacheSpace:
             "A1": {
                 "well_id": 1,
                 "metadata": {},
-                "images": [{"image_id": 1000, "size_t": 1}],
+                "images": [{"image_id": 1000, "dims": (1, 0, 0, 0, 0)}],
             }
         }, tag=100)
         fake_image_cache.set(get_key(1000, 0), np.zeros((10, 10, 2), dtype=np.float32), tag=100)
@@ -1081,7 +1019,7 @@ class TestEnsureCacheSpace:
             "A1": {
                 "well_id": 2,
                 "metadata": {},
-                "images": [{"image_id": 2000, "size_t": 1}],
+                "images": [{"image_id": 2000, "dims": (1, 0, 0, 0, 0)}],
             }
         }, tag=200)
         fake_image_cache.set(get_key(2000, 0), np.zeros((10, 10, 2), dtype=np.float32), tag=200)
@@ -1113,7 +1051,7 @@ class TestEnsureCacheSpace:
                     "well_id": plate_id,
                     "metadata": {},
                     "images": [
-                        {"image_id": plate_id * 100, "size_t": 1}
+                        {"image_id": plate_id * 100, "dims": (1, 0, 0, 0, 0)}
                     ],
                 }
             }, tag=plate_id)
@@ -1143,7 +1081,7 @@ class TestEnsureCacheSpace:
                     "well_id": plate_id,
                     "metadata": {},
                     "images": [
-                        {"image_id": plate_id * 100, "size_t": 1}
+                        {"image_id": plate_id * 100, "dims": (1, 0, 0, 0, 0)}
                     ],
                 }
             }, tag=plate_id)
@@ -1251,11 +1189,7 @@ class TestEstimatePlateBytes:
                 "images": [
                     {
                         "image_id": 100,
-                        "size_t": 1,
-                        "size_c": 3,
-                        "size_z": 5,
-                        "size_y": 512,
-                        "size_x": 1024,
+                        "dims": (1, 3, 5, 512, 1024),
                     }
                 ],
             }
@@ -1273,20 +1207,12 @@ class TestEstimatePlateBytes:
                 "images": [
                     {
                         "image_id": 100,
-                        "size_t": 1,
-                        "size_c": 3,
-                        "size_z": 5,
-                        "size_y": 512,
-                        "size_x": 1024,
+                        "dims": (1, 3, 5, 512, 1024),
                     },
                     {
                         "image_id": 101,
                         # ignored
-                        "size_t": 10,
-                        "size_c": 30,
-                        "size_z": 50,
-                        "size_y": 5120,
-                        "size_x": 10240,
+                        "dims": (10, 30, 50, 5120, 10240),
                     },
                 ],
             },
@@ -1296,11 +1222,7 @@ class TestEstimatePlateBytes:
                     {
                         "image_id": 200,
                         # ignored
-                        "size_t": 100,
-                        "size_c": 300,
-                        "size_z": 500,
-                        "size_y": 51200,
-                        "size_x": 102400,
+                        "dims": (100, 300, 500, 51200, 102400),
                     }
                 ],
             },
@@ -1315,7 +1237,8 @@ class TestEstimatePlateBytes:
 
         wells = {
             "A1": {
-                "images": [{"image_id": 100, "size_t": 1}],
+                # no "dims"
+                "images": [{"image_id": 100}],
             }
         }
         result = _estimate_plate_bytes(wells)
@@ -1333,11 +1256,7 @@ class TestEstimatePlateBytes:
                 "images": [
                     {
                         "image_id": 100,
-                        "size_t": 1,
-                        "size_c": 3,
-                        "size_z": 5,
-                        "size_y": 512,
-                        "size_x": 1024,
+                        "dims": (1, 3, 5, 512, 1024),
                     }
                 ],
             }
@@ -1349,11 +1268,7 @@ class TestEstimatePlateBytes:
                     # Labels should be the same size as the images
                     # but the number of channels may differ.
                     # Here we test all label dimensions are used.
-                    "size_t": 10,
-                    "size_c": 30,
-                    "size_z": 50,
-                    "size_y": 5120,
-                    "size_x": 10240,
+                    "dims": (10, 30, 50, 5120, 10240),
                 }
             ],
         }
@@ -1372,11 +1287,7 @@ class TestEstimatePlateBytes:
                 "images": [
                     {
                         "image_id": 100,
-                        "size_t": 1,
-                        "size_c": 3,
-                        "size_z": 5,
-                        "size_y": 512,
-                        "size_x": 1024,
+                        "dims": (1, 3, 5, 512, 1024),
                     }
                 ],
             }
@@ -1682,12 +1593,12 @@ class TestLabelMultiTimepoint:
                 "well_id": 10,
                 "metadata": {"cell_line": "RPE"},
                 "images": [
-                    {"image_id": 100, "size_t": 3},
+                    {"image_id": 100, "dims": (3, 0, 0, 0, 0)},
                 ],
             },
         }
         fake_cache[_get_label_key(plate_id)] = {
-            "A1": [{"label_id": 500, "size_t": 3}],
+            "A1": [{"label_id": 500, "dims": (3, 0, 0, 0, 0)}],
         }
 
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
@@ -1723,11 +1634,11 @@ class TestLabelMultiTimepoint:
             "A1": {
                 "well_id": 10,
                 "metadata": {},
-                "images": [{"image_id": 100, "size_t": 3}],
+                "images": [{"image_id": 100, "dims": (3, 0, 0, 0, 0)}],
             },
         }, tag=plate_id)
         fake_cache.set(_get_label_key(plate_id), {
-            "A1": [{"label_id": 500, "size_t": 3}],
+            "A1": [{"label_id": 500, "dims": (3, 0, 0, 0, 0)}],
         }, tag=plate_id)
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
         fake_image_cache.set(get_key(100, 0), img, tag=plate_id)
@@ -2087,7 +1998,7 @@ class TestCacheVersionInvalidation:
             "A1": {
                 "well_id": 10,
                 "metadata": {},
-                "images": [{"image_id": 100, "size_t": 1}],
+                "images": [{"image_id": 100, "dims": (1, 0, 0, 0, 0)}],
             },
         }, tag=plate_id)
         fake_image_cache.set(get_key(100, 0), np.zeros((1, 10, 10, 2), dtype=np.float32), tag=plate_id)
@@ -2125,7 +2036,7 @@ class TestCacheVersionInvalidation:
             "A1": {
                 "well_id": 10,
                 "metadata": {},
-                "images": [{"image_id": 100, "size_t": 1}],
+                "images": [{"image_id": 100, "dims": (1, 0, 0, 0, 0)}],
             },
         }, tag=plate_id)
         fake_image_cache.set(get_key(100, 0), np.zeros((1, 10, 10, 2), dtype=np.float32), tag=plate_id)

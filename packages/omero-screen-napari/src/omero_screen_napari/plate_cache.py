@@ -9,8 +9,8 @@ Supports concurrent downloads with progress reporting.
 
 Cache key structure:
     m{plate_id}  -> dict with channel_data, pixel_size, intensities, plate_name
-    w{plate_id}  -> dict mapping well_pos -> {well_id, metadata, images: [...]}
-    l{plate_id}  -> dict mapping well_pos -> [{"label_id", "size_t"}, ...]
+    w{plate_id}  -> dict mapping well_pos -> {well_id, metadata, images: [{"image_id", "dims", ...}...]}
+    l{plate_id}  -> dict mapping well_pos -> [{"label_id", "dims"}, ...]
     history      -> dict mapping plate_id -> {"plate_name", "status", "last_cached"}
 """
 
@@ -89,21 +89,13 @@ _CACHE_VERSION = 1
 #         "images": [
 #             {
 #                 "image_id": 100,
-#                 "size_t": 1,
-#                 "size_c": 2,
-#                 "size_z": 1,
-#                 "size_y": 100,
-#                 "size_x": 100,
+#                 "dims": (1, 2, 1, 100, 100),
 #                 "pos_x": 0.0,
 #                 "pos_y": 0.0,
 #             },
 #             {
 #                 "image_id": 101,
-#                 "size_t": 1,
-#                 "size_c": 2,
-#                 "size_z": 1,
-#                 "size_y": 100,
-#                 "size_x": 100,
+#                 "dims": (1, 2, 1, 100, 100),
 #                 "pos_x": 1.0,
 #                 "pos_y": 0.0,
 #             },
@@ -115,8 +107,8 @@ _CACHE_VERSION = 1
 # Images with no corresponing label have an entry of None.
 # {
 #     "A1": [
-#         {"label_id": 500, "size_t": 1},
-#         {"label_id": 501, "size_t": 1},
+#         {"label_id": 500, "dims": (1, 2, 1, 100, 100)},
+#         {"label_id": 501, "dims": (1, 2, 1, 100, 100)},
 #     ],
 # }
 
@@ -280,9 +272,9 @@ def get_well_cache_status(plate_id: int) -> dict[str, bool]:
         all_cached = True
         # check images
         for img_info in well_info.get("images", []):
-            image_id = img_info["image_id"]
-            size_t = img_info["size_t"]
-            for t in range(size_t):
+            image_id: int = img_info["image_id"]  # type: ignore[assignment]
+            image_t: int = img_info["dims"][0]  # type: ignore[assignment]
+            for t in range(image_t):
                 if not is_cached(get_key(image_id, t)):
                     all_cached = False
                     break
@@ -294,9 +286,9 @@ def get_well_cache_status(plate_id: int) -> dict[str, bool]:
                 if label_entry is None:
                     # No label for corresponding image
                     continue
-                label_id = label_entry["label_id"]
-                size_t = label_entry["size_t"]
-                for t in range(size_t):
+                label_id: int = label_entry["label_id"]  # type: ignore[assignment]
+                label_t: int = label_entry["dims"][0]  # type: ignore[assignment, index]
+                for t in range(label_t):
                     if not is_cached(get_key(label_id, t)):
                         all_cached = False
                         break
@@ -352,10 +344,10 @@ def get_cached_well_data(plate_id: int) -> dict[str, Any] | None:
 
 def get_cached_label_map(
     plate_id: int,
-) -> dict[str, list[dict[str, int] | None]] | None:
+) -> dict[str, list[dict[str, int | tuple[int, ...]] | None]] | None:
     """Return cached label map or None.
 
-    Returns entries ``{"label_id": int, "size_t": int}``. If labels are missing
+    Returns entries ``{"label_id": int, "dims": tuple[int, ...]}``. If labels are missing
     for a corresponding well image then the list entry is None.
     """
     return _cache.get(_get_label_key(plate_id))  # type: ignore[no-any-return]
@@ -401,7 +393,7 @@ def get_well_data(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
 def get_label_map(
     conn: BlitzGateway,
     plate_id: int,
-) -> dict[str, list[dict[str, int] | None]]:
+) -> dict[str, list[dict[str, int | tuple[int, ...]] | None]]:
     """Return label map from the cache, or from OMERO if not cached."""
     v = get_cached_label_map(plate_id)
     if v is None:
@@ -447,7 +439,8 @@ def delete_plate_from_cache(plate_id: int, remove_images: bool = True) -> int:
 
 def _estimate_plate_bytes(
     wells: dict[str, dict[str, Any]],
-    label_map: dict[str, list[dict[str, int] | None]] | None = None,
+    label_map: dict[str, list[dict[str, int | tuple[int, ...]] | None]]
+    | None = None,
 ) -> int:
     """Estimate total bytes needed to cache a plate's images and labels.
 
@@ -506,14 +499,11 @@ def _estimate_entry_bytes(entry: dict[str, Any] | None, fallback: int) -> int:
     """
     if entry is None:
         return fallback
-    size_t: int = entry.get("size_t", 1)
-    size_z: int = entry.get("size_z", 0)
-    size_y: int = entry.get("size_y", 0)
-    size_x: int = entry.get("size_x", 0)
-    size_c: int = entry.get("size_c", 0)
-    # 2 bytes per pixel (uint16 storage)
-    estimate = size_t * size_z * size_y * size_x * size_c * 2
-    return estimate if estimate != 0 else fallback
+    dims: tuple[int, ...] | None = entry.get("dims")
+    if dims is None:
+        return fallback
+    # Estimate 2 bytes per pixel (uint16 storage)
+    return dims[0] * dims[1] * dims[2] * dims[3] * dims[4] * 2
 
 
 def ensure_cache_space(needed_bytes: int, exclude_plate_id: int) -> list[int]:
@@ -579,8 +569,8 @@ def _plate_image_completeness(plate_id: int) -> float:
     present = 0
     for well_info in wells.values():
         for img_info in well_info.get("images", []):
-            image_id = img_info["image_id"]
-            size_t = img_info["size_t"]
+            image_id: int = img_info["image_id"]  # type: ignore[assignment]
+            size_t: int = img_info["dims"][0]  # type: ignore[assignment]
             total += size_t
             for t in range(size_t):
                 if is_cached(get_key(image_id, t)):
@@ -677,15 +667,16 @@ def cache_plate(
 
     # Re-estimate size using missing images. Assume all images are the same.
     n_wells = 0
-    image_id = 0
-    label_id = 0
+    image_id: int = 0
+    label_id: int = 0
     n_images = 0
     for well_pos in sorted_well_keys:
         last_len = len(keys)
         # Well images (skip if already cached)
         for img_info in wells[well_pos]["images"]:
-            image_id = img_info["image_id"]
-            for t in range(img_info["size_t"]):
+            image_id: int = img_info["image_id"]  # type: ignore[assignment, no-redef]
+            image_t: int = img_info["dims"][0]  # type: ignore[assignment, index]
+            for t in range(image_t):
                 key = get_key(image_id, t)
                 if not is_cached(key):
                     n_images += 1
@@ -696,8 +687,9 @@ def cache_plate(
                 if label_entry is None:
                     # No label for corresponding image
                     continue
-                label_id = label_entry["label_id"]
-                for t in range(label_entry["size_t"]):
+                label_id: int = label_entry["image_id"]  # type: ignore[assignment, no-redef]
+                label_t: int = label_entry["dims"][0]  # type: ignore[assignment, index]
+                for t in range(label_t):
                     key = get_key(label_id, t)
                     if not is_cached(key):
                         keys.append(key)
@@ -1141,18 +1133,20 @@ def _fetch_well_map(
 
     # Group by well
     well_map: dict[str, dict[str, Any]] = {}
-    for row_data in results:
-        well_id = unwrap(row_data[0])
-        well_row = unwrap(row_data[1])
-        well_col = unwrap(row_data[2])
-        pos_x = unwrap(row_data[3])
-        pos_y = unwrap(row_data[4])
-        image_id = unwrap(row_data[5])
-        size_t = unwrap(row_data[6])
-        size_c = unwrap(row_data[7])
-        size_z = unwrap(row_data[8])
-        size_y = unwrap(row_data[9])
-        size_x = unwrap(row_data[10])
+    for row in results:
+        well_id = unwrap(row[0])
+        well_row = unwrap(row[1])
+        well_col = unwrap(row[2])
+        pos_x = unwrap(row[3])
+        pos_y = unwrap(row[4])
+        image_id = unwrap(row[5])
+        dims = (
+            int(unwrap(row[6])),
+            int(unwrap(row[7])),
+            int(unwrap(row[8])),
+            int(unwrap(row[9])),
+            int(unwrap(row[10])),
+        )
 
         well_pos = _row_col_to_well_pos(well_row, well_col)
 
@@ -1166,11 +1160,7 @@ def _fetch_well_map(
         well_map[well_pos]["images"].append(
             {
                 "image_id": image_id,
-                "size_t": size_t,
-                "size_c": size_c,
-                "size_z": size_z,
-                "size_y": size_y,
-                "size_x": size_x,
+                "dims": dims,
                 "pos_x": _unwrap_length(pos_x),
                 "pos_y": _unwrap_length(pos_y),
             }
@@ -1201,7 +1191,7 @@ def _fetch_label_map(
     conn: BlitzGateway,
     plate_id: int,
     project_id: int,
-) -> dict[str, list[dict[str, int] | None]]:
+) -> dict[str, list[dict[str, int | tuple[int, ...]] | None]]:
     """Map well image_ids to their segmentation label image_ids with dimensions.
 
     Args:
@@ -1210,7 +1200,7 @@ def _fetch_label_map(
         project_id: OMERO project ID.
 
     Returns:
-        Dict mapping well_pos -> [{"label_id", "size_t", "size_z", ...}, ...].
+        Dict mapping well_pos -> [{"label_id", "dims"}, ...].
     """
     project = conn.getObject("Project", project_id)
     if project is None:
@@ -1264,9 +1254,9 @@ def _fetch_label_map(
         # Well data should already be cached by cache_plate()
         return {}
 
-    label_map: dict[str, list[dict[str, int] | None]] = {}
+    label_map: dict[str, list[dict[str, int | tuple[int, ...]] | None]] = {}
     for well_pos, well_info in wells.items():
-        label_entries: list[dict[str, int] | None] = []
+        label_entries: list[dict[str, int | tuple[int, ...]] | None] = []
         for img_info in well_info["images"]:
             image_id = img_info["image_id"]
             label_id = label_lookup.get(image_id) or 0
@@ -1275,11 +1265,7 @@ def _fetch_label_map(
                 label_entries.append(
                     {
                         "label_id": label_id,
-                        "size_t": dims[0],
-                        "size_c": dims[1],
-                        "size_z": dims[2],
-                        "size_y": dims[3],
-                        "size_x": dims[4],
+                        "dims": dims,
                     }
                 )
             else:
@@ -1498,8 +1484,8 @@ def load_from_cache(
                 continue
 
             img_info = well_images[idx]
-            image_id = img_info["image_id"]
-            size_t = img_info["size_t"]
+            image_id = img_info["image_id"]  # type: ignore[assignment]
+            image_t = img_info["dims"][0]  # type: ignore[assignment]
             image_ids.append(image_id)
 
             px = img_info.get("pos_x")
@@ -1511,7 +1497,7 @@ def load_from_cache(
 
             # Determine timepoint range
             t_start = tstart if tstart is not None else 0
-            t_end = tend if tend is not None else size_t
+            t_end = tend if tend is not None else image_t
 
             timepoint_arrays: list[npt.NDArray[Any]] = []
             store = None
@@ -1550,12 +1536,12 @@ def load_from_cache(
                         # No label for corresponding image
                         continue
 
-                    label_id = label_entry["label_id"]
-                    size_t = label_entry["size_t"]
+                    label_id: int = label_entry["label_id"]  # type: ignore[assignment]
+                    label_t: int = label_entry["dims"][0]  # type: ignore[assignment, index]
 
                     # Determine timepoint range
                     t_start = tstart if tstart is not None else 0
-                    t_end = tend if tend is not None else size_t
+                    t_end = tend if tend is not None else label_t
 
                     timepoint_label_arrays: list[npt.NDArray[Any]] = []
                     store = None
