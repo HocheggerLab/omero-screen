@@ -9,9 +9,12 @@ Supports concurrent downloads with progress reporting.
 
 Cache key structure:
     m{plate_id}  -> dict with channel_data, pixel_size, intensities, plate_name
-    w{plate_id}  -> dict mapping well_pos -> {well_id, metadata, images: [{"image_id", "dims", ...}...]}
+    w{plate_id}  -> dict mapping well_pos -> {well_id, metadata, images: [{"image_id", "dims", "pos"}...]}
     l{plate_id}  -> dict mapping well_pos -> [{"label_id", "dims"}, ...]
     history      -> dict mapping plate_id -> {"plate_name", "status", "last_cached"}
+
+Cache "dims" entries are a tuple of TCZYX dimensions.
+Cache "pos" entries are a tuple of XY image stage positions.
 """
 
 from __future__ import annotations
@@ -102,7 +105,7 @@ _CACHE_VERSION = 1
 #
 # Example plate label metadata:
 # Each well position has an array of length equal to the "images" key of the well metadata.
-# Images with no corresponing label have an entry of None.
+# Images with no corresponding label have an entry of None.
 # {
 #     "A1": [
 #         {"label_id": 500, "dims": (1, 2, 1, 100, 100)},
@@ -661,7 +664,7 @@ def cache_plate(
     # Well-sorted partitioning ensures wells complete sequentially so
     # users can start loading cached wells before the entire plate is done.
     sorted_well_keys = sorted(wells.keys(), key=_well_sort_key)
-    keys: list[str] = []
+    keys: list[tuple[int, int]] = []
 
     # Re-estimate size using missing images. Assume all images are the same.
     n_wells = 0
@@ -678,7 +681,7 @@ def cache_plate(
                 key = get_key(image_id, t)
                 if not is_cached(key):
                     n_images += 1
-                    keys.append(key)
+                    keys.append((image_id, t))
         # Well labels (skip if already cached)
         if well_pos in label_map:
             for label_entry in label_map[well_pos]:
@@ -690,7 +693,7 @@ def cache_plate(
                 for t in range(label_t):
                     key = get_key(label_id, t)
                     if not is_cached(key):
-                        keys.append(key)
+                        keys.append((label_t, t))
         if last_len < len(keys):
             n_wells += 1
 
@@ -740,9 +743,9 @@ def cache_plate(
 
     # Distribute keys to workers round-robin
     max_workers = max(1, max_workers)
-    batches: list[list[str]] = [[] for _ in range(max_workers)]
-    for i, key in enumerate(keys):
-        batches[i % max_workers].append(key)
+    batches: list[list[tuple[int, int]]] = [[] for _ in range(max_workers)]
+    for i, x in enumerate(keys):
+        batches[i % max_workers].append(x)
     batches = [b for b in batches if b]
 
     # Adjust max workers if there are not enough images
@@ -1293,7 +1296,7 @@ def _well_sort_key(well_pos: str) -> tuple[str, int]:
 
 
 def _download_batch(
-    batch: list[str],
+    batch: list[tuple[int, int]],
     plate_id: int,
     progress_q: queue.Queue[int] | None = None,
     pause_event: threading.Event | None = None,
@@ -1346,14 +1349,9 @@ def _download_batch(
         t_download = 0.0
         t_cache_write = 0.0
 
-        for key in batch:
+        for image_id, timepoint in batch:
             if pause_event is not None:
                 pause_event.wait()
-
-            # Key is image_id:t
-            index = key.index(":")
-            image_id = int(key[:index])
-            timepoint = int(key[index + 1 :])
 
             # Keep the RawPixelsStore open across timepoints of the
             # same image — setPixelsId is itself an RPC we only pay once.
@@ -1374,7 +1372,7 @@ def _download_batch(
             arr = get_omero_image_timepoint(store, timepoint, shape, dt_be)
             t1 = time.perf_counter() if profiling else 0.0
             t_download += t1 - t0
-            add_cached_image(key, arr, tag=plate_id)
+            add_cached_image(get_key(image_id, timepoint), arr, tag=plate_id)
             t0 = time.perf_counter() if profiling else 0.0
             t_cache_write += t0 - t1
 
