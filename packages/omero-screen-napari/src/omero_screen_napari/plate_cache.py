@@ -619,16 +619,23 @@ def clean_orphaned_plates(
 
 
 def cache_plate(
-    plate_id: int, conn: BlitzGateway, max_workers: int = 3
+    plate_id: int,
+    conn: BlitzGateway,
+    stop_flag: threading.Event,
+    max_workers: int = 3,
 ) -> Generator[tuple[int, int], None, None]:
     """Cache entire plate: metadata + images + labels.
 
     Opens one OMERO connection for metadata, then spawns workers for images.
     Yields (images_done, images_total) for progress reporting.
 
+    If the ``stop_flag`` is set then downloading will stop and the method
+    returns.
+
     Args:
         plate_id: OMERO plate ID.
         conn: Active OMERO connection (caller manages lifecycle).
+        stop_flag: Flag to used to stop the download.
         max_workers: Number of concurrent download threads.
 
     Yields:
@@ -737,6 +744,11 @@ def cache_plate(
         estimated_bytes / 2**30,
     )
 
+    if stop_flag.is_set():
+        logger.warning("Plate %d: download cancelled", plate_id)
+        yield (0, 0)
+        return
+
     # Proactively evict old plates to make room for this one.
     # Note: The estimate does not account for image compression
     # so this may evict too many old plates.
@@ -773,6 +785,10 @@ def cache_plate(
     # generator can yield smooth progress to the napari progress bar.
     progress_q: queue.Queue[int] = queue.Queue()
 
+    # TODO: Test if removing reactive eviction is faster (no constant thread blocking).
+    # The size estimate based on non-compressed data + evcition headroom will cause
+    # eviction when it may not be necessary.
+
     # Pause event for reactive eviction: workers block on this before
     # each image.  The main loop clears it to pause workers, evicts old
     # plates, then sets it again to resume.
@@ -782,6 +798,7 @@ def cache_plate(
         "OMERO_SCREEN_CACHE_EVICTION_HEADROOM", 500 * 2**20
     )
 
+    done = 0
     try:
         downloaded = 0
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -790,6 +807,7 @@ def cache_plate(
                     _download_batch,
                     batch,
                     plate_id,
+                    stop_flag,
                     progress_q,
                     pause_event,
                 )
@@ -797,10 +815,10 @@ def cache_plate(
             ]
 
             # Drain the queue, yielding after every image
-            done = 0
             while done < total:
                 try:
-                    cached = progress_q.get(timeout=1.0)
+                    cached = progress_q.get(timeout=5.0)
+                    progress_q.task_done()
                     downloaded += cached
                     # Minimise cache volume calls using the downloaded size to estimate space
                     vol += cached
@@ -811,6 +829,11 @@ def cache_plate(
                     if all(f.done() for f in futures):
                         break
                     continue
+
+                # Check stop flag after any potential blocking wait
+                if stop_flag.is_set():
+                    logger.warning("Plate %d: download cancelled", plate_id)
+                    break
 
                 # Reactive eviction: when cache approaches its limit,
                 # pause workers → evict old plates → resume workers.
@@ -855,12 +878,20 @@ def cache_plate(
                     )
                     raise exc
     finally:
-        pause_event.set()  # unblock any waiting workers on error
+        # In the event of exceptions cancel the download and unblock any waiting workers
+        stop_flag.set()
+        pause_event.set()
 
     # Record in persistent history
     _update_plate_history(plate_id, meta["plate_name"], "cached")
 
-    logger.info("Plate %d: caching complete (%d items)", plate_id, total)
+    logger.info(
+        "Plate %d: caching %s (%d/%d items)",
+        plate_id,
+        "cancelled" if stop_flag.is_set() else "complete",
+        done,
+        total,
+    )
 
 
 # --------------- Metadata Fetching ---------------
@@ -1307,6 +1338,7 @@ def _well_sort_key(well_pos: str) -> tuple[str, int]:
 def _download_batch(
     batch: list[tuple[int, int]],
     plate_id: int,
+    stop_flag: threading.Event,
     progress_q: queue.Queue[int] | None = None,
     pause_event: threading.Event | None = None,
     conn: BlitzGateway | None = None,
@@ -1327,6 +1359,7 @@ def _download_batch(
     Args:
         batch: List of cache keys (image_id:t).
         plate_id: Plate ID.
+        stop_flag: Flag to used to stop the download.
         progress_q: Optional queue for per-image progress signalling.
         pause_event: Event that workers wait on before each image.
             Workers block when cleared, resume when set.
@@ -1361,6 +1394,9 @@ def _download_batch(
         for image_id, timepoint in batch:
             if pause_event is not None:
                 pause_event.wait()
+            # Check stop flag after any potential blocking wait
+            if stop_flag.is_set():
+                break
 
             # Keep the RawPixelsStore open across timepoints of the
             # same image — setPixelsId is itself an RPC we only pay once.

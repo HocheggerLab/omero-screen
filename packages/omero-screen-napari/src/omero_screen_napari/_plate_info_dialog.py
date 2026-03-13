@@ -95,7 +95,7 @@ def build_table_data(
 
 def _build_rows(
     wells: dict[str, dict[str, Any]],
-    label_map: dict[str, list[dict[str, int] | None]] | None,
+    label_map: dict[str, list[dict[str, int | tuple[int, ...]] | None]] | None,
     label_unknown: bool = False,
 ) -> list[dict[str, Any]]:
     """Build row dicts from well data.
@@ -110,7 +110,7 @@ def _build_rows(
         well_info = wells[well_pos]
         metadata = well_info.get("metadata", {})
         images = well_info.get("images", [])
-        max_t = max((img.get("size_t", 1) for img in images), default=1)
+        max_t = max((img.get("dims", (1,))[0] for img in images), default=1)
 
         if label_unknown:
             labels = "?"
@@ -467,25 +467,16 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
 
     def _start_cache_monitoring(self) -> None:
         """Start a QTimer to poll cache status if a worker is active."""
-        from omero_screen_napari._welldata_widget import (
-            _active_cache_plate_id,
-            _active_cache_worker,
-        )
+        from omero_screen_napari._welldata_widget import get_active_download
 
-        if (
-            _active_cache_worker is not None
-            and _active_cache_worker.is_running
-            and _active_cache_plate_id == self.plate_id
-        ):
+        if get_active_download() == self.plate_id:
             self._cache_timer = QTimer(self)
             self._cache_timer.timeout.connect(self._poll_cache_status)
             self._cache_timer.start(1000)
 
     def _poll_cache_status(self) -> None:
         """Check for newly cached wells and update the table."""
-        from omero_screen_napari._welldata_widget import (
-            _active_cache_worker,
-        )
+        from omero_screen_napari._welldata_widget import get_active_download
 
         status = get_well_cache_status(self.plate_id)
         cached_col = self._cached_col_idx
@@ -505,10 +496,9 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
 
         # Stop timer when all wells cached or worker stopped
         all_done = len(self._cached_wells) == self.table.rowCount()
-        worker_stopped = (
-            _active_cache_worker is None or not _active_cache_worker.is_running
-        )
-        if (all_done or worker_stopped) and self._cache_timer is not None:
+        if (
+            all_done or get_active_download() != self.plate_id
+        ) and self._cache_timer is not None:
             self._cache_timer.stop()
             self._cache_timer = None
 
