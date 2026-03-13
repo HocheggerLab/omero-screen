@@ -202,10 +202,11 @@ def _compute_overlap(
         return overlap
 
     logger.info(
-        "%s spacing %.6g gives %.0f px step (tile=%d px) — "
+        "%s spacing %.6g / %.6g gives %.0f px step (tile=%d px) — "
         "positions likely not in µm, using fallback overlap %d",
         axis_label,
         spacing,
+        pixel_size,
         step_px,
         tile_size_px,
         fallback,

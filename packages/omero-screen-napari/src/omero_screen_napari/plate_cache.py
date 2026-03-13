@@ -205,7 +205,7 @@ def _update_plate_history(plate_id: int, plate_name: str, status: str) -> None:
         plate_name: Human-readable plate name.
         status: ``"cached"`` or ``"removed"``.
     """
-    history: dict[int, dict[str, str]] = _cache.get(_HISTORY_KEY) or {}
+    history: dict[int, dict[str, str]] = get_plate_history()
     existing = history.get(plate_id, {})
 
     entry: dict[str, str] = {
@@ -232,7 +232,7 @@ def remove_plate_from_history(plate_id: int) -> None:
     # Delete cached data if present
     _deleted: int = _cache.evict(plate_id) + evict_images(plate_id)
 
-    history: dict[int, dict[str, str]] = _cache.get(_HISTORY_KEY) or {}
+    history: dict[int, dict[str, str]] = get_plate_history()
     if plate_id in history:
         del history[plate_id]
         _cache.set(_HISTORY_KEY, history)
@@ -329,7 +329,6 @@ def is_plate_fully_cached(plate_id: int) -> bool:
     if not is_cached(get_key(ff_mask_id, 0)):
         return False
     status = get_well_cache_status(plate_id)
-    print(status)
     return bool(status) and all(status.values())
 
 
@@ -1121,25 +1120,6 @@ def _fetch_flatfield_mask_id(
     )
 
 
-def _unwrap_length(value: Any) -> float | None:
-    """Convert an OMERO Length value to a plain float.
-
-    ``unwrap()`` on OMERO ``Length`` types returns a dict like
-    ``{'value': 1234.5, 'unit': 'MICROMETER', 'symbol': 'µm'}``.
-    This helper normalises that (or a plain numeric) to ``float``,
-    returning ``None`` when the value cannot be converted.
-    """
-    if value is None:
-        return None
-    if isinstance(value, dict):
-        v = value.get("value")
-        return float(v) if v is not None else None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _fetch_well_map(
     conn: BlitzGateway, plate_id: int
 ) -> dict[str, dict[str, Any]]:
@@ -1154,6 +1134,7 @@ def _fetch_well_map(
     Returns:
         Dict mapping well_pos -> {well_id, metadata, images: [{image_id, dims, pos}]}
     """
+
     query_service = conn.getQueryService()
     params = omero.sys.ParametersI()
     params.addLong("plate_id", plate_id)
@@ -1178,7 +1159,7 @@ def _fetch_well_map(
         well_id = unwrap(row[0])
         well_row = unwrap(row[1])
         well_col = unwrap(row[2])
-        pos = (int(unwrap(row[3])), int(unwrap(row[4])))
+        pos = (_unwrap_length(unwrap(row[3])), _unwrap_length(unwrap(row[4])))
         image_id = unwrap(row[5])
         dims = (
             int(unwrap(row[6])),
@@ -1224,6 +1205,34 @@ def _fetch_well_map(
 def _row_col_to_well_pos(row: int, col: int) -> str:
     """Convert 0-based row/column to well position string (e.g. 'A1')."""
     return f"{chr(65 + row)}{col + 1}"
+
+
+def _unwrap_length(value: Any) -> float | None:
+    """Convert an OMERO Length value to a plain float.
+
+    ``unwrap()`` on OMERO ``Length`` types returns a dict like
+    ``{'value': 1234.5, 'unit': 'MICROMETER', 'symbol': 'µm'}``.
+    This helper normalises that (or a plain numeric) to ``float``,
+    returning ``None`` when the value cannot be converted.
+    """
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        v = value.get("value")
+        if v is not None:
+            f = float(v)
+            # TODO: Correct convertion of units to um
+            unit = value.get("unit")
+            if unit == "METER":
+                f *= 1000000.0
+            return f
+    else:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            pass
+    # default
+    return None
 
 
 def _fetch_label_map(

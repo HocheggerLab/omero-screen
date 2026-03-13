@@ -31,7 +31,7 @@ from qtpy.QtWidgets import (
 from vispy.color import Colormap
 
 from omero_screen_napari.omero_data_singleton import omero_data
-from omero_screen_napari.omero_image import _cache
+from omero_screen_napari.omero_image import cache_size_limit, cache_volume
 from omero_screen_napari.plate_cache import (
     cache_plate,
     clean_orphaned_plates,
@@ -158,15 +158,16 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
         """Clean orphaned plates, rebuild the combo from plate history."""
         # Clean up plates with <50% completeness (skip active download)
         exclude: set[int] = set()
-        if _active_cache_plate_id is not None:
-            exclude.add(_active_cache_plate_id)
+        active_plate_id = get_active_download()
+        if active_plate_id != 0:
+            exclude.add(active_plate_id)
         cleaned = clean_orphaned_plates(exclude_plate_ids=exclude)
         if cleaned:
             logger.info("Cleaned orphaned plates during refresh: %s", cleaned)
 
         # Update cache size label
-        volume_gb = _cache.volume() / 2**30
-        limit_gb = _cache.size_limit / 2**30
+        volume_gb = cache_volume() / 2**30
+        limit_gb = cache_size_limit() / 2**30
         self._cache_size_label.setText(
             f"Cache: {volume_gb:.1f} / {limit_gb:.1f} GB"
         )
