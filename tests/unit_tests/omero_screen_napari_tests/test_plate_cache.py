@@ -158,10 +158,10 @@ def sample_wells() -> dict:
 def sample_label_map() -> dict:
     return {
         "A1": [
-            {"label_id": 500, "dims": (1, 2, 1, 100, 100)},
-            {"label_id": 501, "dims": (1, 2, 1, 100, 100)},
+            {"image_id": 500, "dims": (1, 2, 1, 100, 100)},
+            {"image_id": 501, "dims": (1, 2, 1, 100, 100)},
         ],
-        "A2": [{"label_id": 600, "dims": (1, 2, 1, 100, 100)}],
+        "A2": [{"image_id": 600, "dims": (1, 2, 1, 100, 100)}],
     }
 
 
@@ -778,7 +778,7 @@ class TestGetWellCacheStatus:
         }
         labels = {
             "A1": [
-                {"label_id": 500, "dims": (3, 0, 0, 0, 0)},
+                {"image_id": 500, "dims": (3, 0, 0, 0, 0)},
             ],
         }
         plate_id = 42
@@ -1259,7 +1259,7 @@ class TestEstimatePlateBytes:
         label_map = {
             "A1": [
                 {
-                    "label_id": 500,
+                    "image_id": 500,
                     # Labels should be the same size as the images
                     # but the number of channels may differ.
                     # Here we test all label dimensions are used.
@@ -1593,7 +1593,7 @@ class TestLabelMultiTimepoint:
             },
         }
         fake_cache[_get_label_key(plate_id)] = {
-            "A1": [{"label_id": 500, "dims": (3, 0, 0, 0, 0)}],
+            "A1": [{"image_id": 500, "dims": (3, 0, 0, 0, 0)}],
         }
 
         img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
@@ -1633,7 +1633,7 @@ class TestLabelMultiTimepoint:
             },
         }, tag=plate_id)
         fake_cache.set(_get_label_key(plate_id), {
-            "A1": [{"label_id": 500, "dims": (3, 0, 0, 0, 0)}],
+            "A1": [{"image_id": 500, "dims": (3, 0, 0, 0, 0)}],
         }, tag=plate_id)
         img = np.zeros((1, 10, 10, 2), dtype=np.float32)
         fake_image_cache.set(get_key(100, 0), img, tag=plate_id)
