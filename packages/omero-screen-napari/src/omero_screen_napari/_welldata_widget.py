@@ -6,6 +6,7 @@ The plugin can be run from napari as Welldata Widget under Plugins.
 
 import contextlib
 import os
+import threading
 from collections.abc import Callable
 from typing import Any, Optional
 
@@ -32,9 +33,7 @@ from vispy.color import Colormap
 from omero_screen_napari.omero_data_singleton import omero_data
 from omero_screen_napari.omero_image import _cache
 from omero_screen_napari.plate_cache import (
-    cache_plate as cache_plate_full,
-)
-from omero_screen_napari.plate_cache import (
+    cache_plate,
     clean_orphaned_plates,
     delete_plate_from_cache,
     get_plate_history,
@@ -569,8 +568,121 @@ def welldata_widget(
             conn.close(hard=True)
 
 
-_active_cache_worker: Any = None
-_active_cache_plate_id: int | None = None
+_active_lock = threading.Lock()
+_active_cache_plate_id = 0
+_active_cache_stop_flag = threading.Event()
+
+
+def start_cache_worker(plate_id: int) -> None:
+    """Start background caching for a plate using plate_cache.
+
+    Downloads all metadata, flatfield-corrected images, and labels
+    so that subsequent well navigation is fully offline.  Shows a
+    progress bar in the napari activity dock.
+
+    Skips if a worker is already running for the same plate or
+    if the plate is already fully cached.
+    """
+    # Global reference to the active download objects.
+    # Only allowed to update when holding the lock.
+    global _active_lock, _active_cache_plate_id, _active_cache_stop_flag
+
+    # Already fully cached (metadata + all images) — skip
+    if is_plate_fully_cached(plate_id):
+        logger.info(
+            "Plate %d fully cached — skipping background download",
+            plate_id,
+        )
+        return
+
+    # The active download lock prevents duplicate calls to start a cache worker.
+    # Only one worker should be active and this method can check the existing worker
+    # and stop it if required.
+    with _active_lock:
+        # Check active download
+        if not _active_cache_stop_flag.is_set():
+            # A download is running, or never started when plate_id == 0.
+            # Same plate ID -> already downloading this plate.
+            if _active_cache_plate_id == plate_id:
+                logger.info(
+                    "Cache worker already running for plate %d — skipping",
+                    plate_id,
+                )
+                return
+            # Non-zero plate ID -> already downloading another plate.
+            if _active_cache_plate_id != 0:
+                logger.info(
+                    "Cancelling cache worker for plate %d",
+                    _active_cache_plate_id,
+                )
+                _active_cache_stop_flag.set()
+
+        # From here we are committed to starting a new download.
+        # Create a connection manually (worker is async, can't use decorator)
+        conn = _create_connection()
+        # This flag can be used to stop a running download. It is set when
+        # the download ends to signal the download is no longer active.
+        stop_flag = threading.Event()
+
+        # Napari progress bar — created lazily on the first progress signal
+        # when we know the total count.
+        pbr: list[Any] = []  # mutable container so closures can share it
+        _prev_done = 0
+
+        max_workers = int(os.getenv("OMERO_SCREEN_IMAGE_CACHE_WORKERS", "3"))
+        worker = create_worker(
+            cache_plate, plate_id, conn, stop_flag, max_workers=max_workers
+        )
+
+        def on_finished() -> Any:
+            # Signal the download has ended. No lock required.
+            stop_flag.set()
+            conn.close(hard=True)
+            if pbr:
+                pbr[0].set_description(f"Plate {plate_id} cached")
+                pbr[0].close()
+            if _cached_plates_selector_ref is not None:
+                _cached_plates_selector_ref.refresh()
+            logger.info("Cache worker finished for plate %d", plate_id)
+            return None
+
+        def on_error(exc: BaseException) -> None:
+            # Stop the download. No lock required.
+            stop_flag.set()
+            conn.close(hard=True)
+            if pbr:
+                pbr[0].set_description(f"Cache error: {exc}")
+                pbr[0].close()
+            logger.error("Cache worker error for plate %d: %s", plate_id, exc)
+
+        def on_progress(prog: tuple[int, int]) -> None:
+            nonlocal _prev_done
+            done, total = prog
+            if total <= 0:
+                return
+            # Create the bar on first real signal so total is correct from the start
+            if not pbr:
+                pbr.append(
+                    napari_progress(
+                        total=total, desc=f"Caching plate {plate_id}"
+                    )
+                )
+            delta = done - _prev_done
+            if delta > 0:
+                pbr[0].update(delta)
+            _prev_done = done
+
+        worker.yielded.connect(on_progress)
+        worker.finished.connect(on_finished)
+        worker.errored.connect(on_error)
+        worker.start()
+
+        # The download has started. Store objects to allow it to be cancelled.
+        _active_cache_plate_id = plate_id
+        _active_cache_stop_flag = stop_flag
+        # End-of with _active_lock
+
+    logger.info("Started cache worker for plate %d", plate_id)
 
 
 def _create_connection() -> BlitzGateway:
@@ -588,101 +700,12 @@ def _create_connection() -> BlitzGateway:
     return conn
 
 
-def start_cache_worker(plate_id: int) -> None:
-    """Start background caching for a plate using plate_cache.
-
-    Downloads all metadata, flatfield-corrected images, and labels
-    so that subsequent well navigation is fully offline.  Shows a
-    progress bar in the napari activity dock.
-
-    Skips if a worker is already running for the same plate or
-    if the plate is already fully cached.
-    """
-    global _active_cache_worker, _active_cache_plate_id
-
-    # Already fully cached (metadata + all images) — skip
-    if is_plate_fully_cached(plate_id):
-        logger.info(
-            "Plate %d fully cached — skipping background download",
-            plate_id,
+def get_active_download() -> int:
+    """Get the plate ID of the active download, or zero if no download is active."""
+    with _active_lock:
+        return (
+            0 if _active_cache_stop_flag.is_set() else _active_cache_plate_id
         )
-        return
-
-    # Already caching this plate — skip
-    if (
-        _active_cache_worker is not None
-        and _active_cache_worker.is_running
-        and _active_cache_plate_id == plate_id
-    ):
-        logger.info(
-            "Cache worker already running for plate %d — skipping",
-            plate_id,
-        )
-        return
-
-    # Different plate or finished — cancel old worker if still running
-    if _active_cache_worker is not None and _active_cache_worker.is_running:
-        logger.info(
-            "Cancelling cache worker for plate %d",
-            _active_cache_plate_id,
-        )
-        _active_cache_worker.quit()
-
-    # Create a connection manually (worker is async, can't use decorator)
-    conn = _create_connection()
-
-    # Napari progress bar — created lazily on the first progress signal
-    # when we know the total count.
-    pbr: list[Any] = []  # mutable container so closures can share it
-    _prev_done = 0
-
-    def on_finished() -> None:
-        global _active_cache_worker
-        conn.close(hard=True)
-        _active_cache_worker = None
-        if pbr:
-            pbr[0].set_description(f"Plate {plate_id} cached")
-            pbr[0].close()
-        if _cached_plates_selector_ref is not None:
-            _cached_plates_selector_ref.refresh()
-        logger.info("Cache worker finished for plate %d", plate_id)
-
-    def on_error(exc: BaseException) -> None:
-        global _active_cache_worker
-        conn.close(hard=True)
-        _active_cache_worker = None
-        if pbr:
-            pbr[0].set_description(f"Cache error: {exc}")
-            pbr[0].close()
-        logger.error("Cache worker error for plate %d: %s", plate_id, exc)
-
-    def on_progress(prog: tuple[int, int]) -> None:
-        nonlocal _prev_done
-        done, total = prog
-        if total <= 0:
-            return
-        # Create the bar on first real signal so total is correct from the start
-        if not pbr:
-            pbr.append(
-                napari_progress(total=total, desc=f"Caching plate {plate_id}")
-            )
-        delta = done - _prev_done
-        if delta > 0:
-            pbr[0].update(delta)
-        _prev_done = done
-
-    max_workers = int(os.getenv("OMERO_SCREEN_IMAGE_CACHE_WORKERS", "3"))
-    worker = create_worker(
-        cache_plate_full, plate_id, conn, max_workers=max_workers
-    )
-    worker.yielded.connect(on_progress)
-    worker.finished.connect(on_finished)
-    worker.errored.connect(on_error)
-    worker.start()
-
-    _active_cache_worker = worker
-    _active_cache_plate_id = plate_id
-    logger.info("Started cache worker for plate %d", plate_id)
 
 
 def clear_viewer_layers(viewer: Viewer) -> None:

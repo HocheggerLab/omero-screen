@@ -1697,6 +1697,7 @@ class TestImageWrapperReuse:
         batch = [(100, 0), (100,1), (200, 0), (200, 1)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
         mock_conn = MagicMock()
+        stop_flag = threading.Event()
 
         with (
             patch("omero_screen_napari.omero_image._cache"),
@@ -1712,7 +1713,7 @@ class TestImageWrapperReuse:
             from omero_screen_napari.plate_cache import _download_batch
 
             progress_q: queue.Queue[int] = queue.Queue()
-            _download_batch(batch, plate_id, progress_q, conn=mock_conn)
+            _download_batch(batch, plate_id, stop_flag, progress_q, conn=mock_conn)
 
             # Should be called exactly 2 times: once for 100, once for 200
             assert mock_get_wrapper.call_count == 2
@@ -1725,6 +1726,7 @@ class TestImageWrapperReuse:
         batch = [(100, 0), (200, 0), (300, 0)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
         mock_conn = MagicMock()
+        stop_flag = threading.Event()
 
         with (
             patch("omero_screen_napari.omero_image._cache"),
@@ -1739,7 +1741,7 @@ class TestImageWrapperReuse:
         ):
             from omero_screen_napari.plate_cache import _download_batch
 
-            _download_batch(batch, plate_id, None, conn=mock_conn)
+            _download_batch(batch, plate_id, stop_flag, None, conn=mock_conn)
 
             assert mock_get_wrapper.call_count == 3
 
@@ -1749,6 +1751,7 @@ class TestImageWrapperReuse:
         batch = [(100, 0), (100,1), (100, 2)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
         mock_conn = MagicMock()
+        stop_flag = threading.Event()
 
         with (
             patch("omero_screen_napari.omero_image._cache"),
@@ -1763,7 +1766,7 @@ class TestImageWrapperReuse:
         ):
             from omero_screen_napari.plate_cache import _download_batch
 
-            _download_batch(batch, plate_id, None, conn=mock_conn)
+            _download_batch(batch, plate_id, stop_flag, None, conn=mock_conn)
 
             # Only one createRawPixelsStore call for the same image
             assert mock_get_wrapper.call_count == 1
@@ -1779,6 +1782,7 @@ class TestImageWrapperReuse:
         batch = [(100, 0), (200, 0)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.float32)
         mock_conn = MagicMock()
+        stop_flag = threading.Event()
 
         with (
             patch("omero_screen_napari.omero_image._cache"),
@@ -1793,7 +1797,7 @@ class TestImageWrapperReuse:
         ):
             from omero_screen_napari.plate_cache import _download_batch
 
-            _download_batch(batch, plate_id, None, conn=mock_conn)
+            _download_batch(batch, plate_id, stop_flag, None, conn=mock_conn)
 
             # Two different images → two createRawPixelsStore calls
             assert mock_conn.c.sf.createRawPixelsStore.call_count == 2
@@ -1809,6 +1813,7 @@ class TestDownloadBatchCompleteness:
         batch = [(i, 0) for i in range(5)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.uint16)
         mock_conn = MagicMock()
+        stop_flag = threading.Event()
 
         cached_keys: list[str] = []
 
@@ -1831,7 +1836,7 @@ class TestDownloadBatchCompleteness:
         ):
             from omero_screen_napari.plate_cache import _download_batch
 
-            _download_batch(batch, plate_id, None, conn=mock_conn)
+            _download_batch(batch, plate_id, stop_flag, None, conn=mock_conn)
 
         expected = [get_key(*x) for x in batch]
         assert expected == cached_keys
@@ -1842,6 +1847,7 @@ class TestDownloadBatchCompleteness:
         batch = [(i, 0) for i in range(3)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.uint16)
         mock_conn = MagicMock()
+        stop_flag = threading.Event()
 
         cached_keys: list[str] = []
 
@@ -1875,6 +1881,7 @@ class TestDownloadBatchCompleteness:
                     _download_batch,
                     batch,
                     plate_id,
+                    stop_flag,
                     None,
                     pause_event,
                     conn=mock_conn,
@@ -1891,6 +1898,7 @@ class TestDownloadBatchCompleteness:
         batch = [(100, 0)]
         arr = np.zeros((1, 10, 10, 2), dtype=np.uint16)
         mock_conn = MagicMock()
+        stop_flag = threading.Event()
 
         cached_keys: list[str] = []
 
@@ -1923,6 +1931,7 @@ class TestDownloadBatchCompleteness:
                     _download_batch,
                     batch,
                     plate_id,
+                    stop_flag,
                     None,
                     pause_event,
                     conn=mock_conn,
@@ -1938,6 +1947,41 @@ class TestDownloadBatchCompleteness:
                 future.result(timeout=5)
 
         expected = [get_key(*x) for x in batch]
+        assert expected == cached_keys
+
+    def test_stop_flag_set_prevents_download(self):
+        """Stop flag prevents download."""
+        plate_id = 42
+        batch = [(i, 0) for i in range(5)]
+        arr = np.zeros((1, 10, 10, 2), dtype=np.uint16)
+        mock_conn = MagicMock()
+        stop_flag = threading.Event()
+        stop_flag.set()
+
+        cached_keys: list[str] = []
+
+        class TrackingCache:
+            def set(self, key, value, tag=None) -> None:
+                cached_keys.append(key)
+
+        with (
+            patch(
+                "omero_screen_napari.omero_image._cache", TrackingCache()
+            ),
+            patch(
+                "omero_screen_napari.plate_cache.get_omero_image_wrapper",
+                return_value=_make_wrapper_mock(),
+            ) as mock_get_wrapper,
+            patch(
+                "omero_screen_napari.plate_cache.get_omero_image_timepoint",
+                return_value=arr,
+            ),
+        ):
+            from omero_screen_napari.plate_cache import _download_batch
+
+            _download_batch(batch, plate_id, stop_flag, None, conn=mock_conn)
+
+        expected = []
         assert expected == cached_keys
 
 
