@@ -38,25 +38,25 @@ def sample_wells() -> dict:
             "well_id": 10,
             "metadata": {"cell_line": "RPE", "condition": "ctrl"},
             "images": [
-                {"image_id": 100, "size_t": 1, "index": 0, "pos_x": 0.0, "pos_y": 0.0},
-                {"image_id": 101, "size_t": 1, "index": 1, "pos_x": 1.0, "pos_y": 0.0},
-                {"image_id": 102, "size_t": 3, "index": 2, "pos_x": 2.0, "pos_y": 0.0},
-                {"image_id": 103, "size_t": 1, "index": 3, "pos_x": 3.0, "pos_y": 0.0},
+                {"image_id": 100, "dims": (1,2,3,4,5), "index": 0, "pos_x": 0.0, "pos_y": 0.0},
+                {"image_id": 101, "dims": (1,2,3,4,5), "index": 1, "pos_x": 1.0, "pos_y": 0.0},
+                {"image_id": 102, "dims": (3,2,3,4,5), "index": 2, "pos_x": 2.0, "pos_y": 0.0},
+                {"image_id": 103, "dims": (1,2,3,4,5), "index": 3, "pos_x": 3.0, "pos_y": 0.0},
             ],
         },
         "A2": {
             "well_id": 11,
             "metadata": {"cell_line": "RPE", "condition": "drug"},
             "images": [
-                {"image_id": 200, "size_t": 1, "index": 0, "pos_x": 0.0, "pos_y": 0.0},
+                {"image_id": 200, "dims": (1,2,3,4,5), "index": 0, "pos_x": 0.0, "pos_y": 0.0},
             ],
         },
         "B1": {
             "well_id": 12,
             "metadata": {"cell_line": "HeLa", "condition": "ctrl"},
             "images": [
-                {"image_id": 300, "size_t": 2, "index": 0, "pos_x": 0.0, "pos_y": 0.0},
-                {"image_id": 301, "size_t": 2, "index": 1, "pos_x": 1.0, "pos_y": 0.0},
+                {"image_id": 300, "dims": (2,2,3,4,5), "index": 0, "pos_x": 0.0, "pos_y": 0.0},
+                {"image_id": 301, "dims": (2,2,3,4,5), "index": 1, "pos_x": 1.0, "pos_y": 0.0},
             ],
         },
     }
@@ -66,15 +66,15 @@ def sample_wells() -> dict:
 def sample_label_map() -> dict:
     return {
         "A1": [
-            {"label_id": 500, "size_t": 1},
-            {"label_id": 501, "size_t": 1},
-            {"label_id": 502, "size_t": 3},
-            {"label_id": 503, "size_t": 1}
+            {"image_id": 500, "dims": (1,2,3,4,5)},
+            {"image_id": 501, "dims": (1,2,3,4,5)},
+            {"image_id": 502, "dims": (3,2,3,4,5)},
+            {"image_id": 503, "dims": (1,2,3,4,5)}
         ],
         "A2": [],
         "B1": [
-            {"label_id": 600, "size_t": 2},
-            {"label_id": 601, "size_t": 2},
+            {"image_id": 600, "dims": (2,2,3,4,5)},
+            {"image_id": 601, "dims": (2,2,3,4,5)},
         ],
     }
 
@@ -290,7 +290,7 @@ class TestMissingMetadata:
                 "well_id": 10,
                 "metadata": {},
                 "images": [
-                    {"image_id": 100, "size_t": 1, "index": 0, "pos_x": 0.0, "pos_y": 0.0},
+                    {"image_id": 100, "dims": (1,2,3,4,5), "index": 0, "pos_x": 0.0, "pos_y": 0.0},
                 ],
             },
         }
@@ -309,12 +309,12 @@ class TestMissingMetadata:
             "A1": {
                 "well_id": 10,
                 "metadata": {"cell_line": "RPE", "siRNA": "siCtrl"},
-                "images": [{"image_id": 100, "size_t": 1, "index": 0, "pos_x": 0.0, "pos_y": 0.0}],
+                "images": [{"image_id": 100, "dims": (1,2,3,4,5), "index": 0, "pos_x": 0.0, "pos_y": 0.0}],
             },
             "A2": {
                 "well_id": 11,
                 "metadata": {"cell_line": "HeLa"},
-                "images": [{"image_id": 200, "size_t": 1, "index": 0, "pos_x": 0.0, "pos_y": 0.0}],
+                "images": [{"image_id": 200, "dims": (1,2,3,4,5), "index": 0, "pos_x": 0.0, "pos_y": 0.0}],
             },
         }
 

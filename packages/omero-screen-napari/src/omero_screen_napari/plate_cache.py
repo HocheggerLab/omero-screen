@@ -10,7 +10,7 @@ Supports concurrent downloads with progress reporting.
 Cache key structure:
     m{plate_id}  -> dict with channel_data, pixel_size, intensities, plate_name
     w{plate_id}  -> dict mapping well_pos -> {well_id, metadata, images: [{"image_id", "dims", "pos"}...]}
-    l{plate_id}  -> dict mapping well_pos -> [{"label_id", "dims"}, ...]
+    l{plate_id}  -> dict mapping well_pos -> [{"image_id", "dims"}, ...]
     history      -> dict mapping plate_id -> {"plate_name", "status", "last_cached"}
 
 Cache "dims" entries are a tuple of TCZYX dimensions.
@@ -108,8 +108,8 @@ _CACHE_VERSION = 1
 # Images with no corresponding label have an entry of None.
 # {
 #     "A1": [
-#         {"label_id": 500, "dims": (1, 2, 1, 100, 100)},
-#         {"label_id": 501, "dims": (1, 2, 1, 100, 100)},
+#         {"image_id": 500, "dims": (1, 2, 1, 100, 100)},
+#         {"image_id": 501, "dims": (1, 2, 1, 100, 100)},
 #     ],
 # }
 
@@ -287,7 +287,7 @@ def get_well_cache_status(plate_id: int) -> dict[str, bool]:
                 if label_entry is None:
                     # No label for corresponding image
                     continue
-                label_id: int = label_entry["label_id"]  # type: ignore[assignment]
+                label_id: int = label_entry["image_id"]  # type: ignore[assignment]
                 label_t: int = label_entry["dims"][0]  # type: ignore[assignment, index]
                 for t in range(label_t):
                     if not is_cached(get_key(label_id, t)):
@@ -347,7 +347,7 @@ def get_cached_label_map(
 ) -> dict[str, list[dict[str, int | tuple[int, ...]] | None]] | None:
     """Return cached label map or None.
 
-    Returns entries ``{"label_id": int, "dims": tuple[int, ...]}``. If labels are missing
+    Returns entries ``{"image_id": int, "dims": tuple[int, ...]}``. If labels are missing
     for a corresponding well image then the list entry is None.
     """
     return _cache.get(_get_label_key(plate_id))  # type: ignore[no-any-return]
@@ -1248,7 +1248,7 @@ def _fetch_label_map(
         project_id: OMERO project ID.
 
     Returns:
-        Dict mapping well_pos -> [{"label_id", "dims"}, ...].
+        Dict mapping well_pos -> [{"image_id", "dims"}, ...].
     """
     project = conn.getObject("Project", project_id)
     if project is None:
@@ -1312,7 +1312,7 @@ def _fetch_label_map(
             if dims is not None:
                 label_entries.append(
                     {
-                        "label_id": label_id,
+                        "image_id": label_id,
                         "dims": dims,
                     }
                 )
@@ -1578,7 +1578,7 @@ def load_from_cache(
                         # No label for corresponding image
                         continue
 
-                    label_id: int = label_entry["label_id"]  # type: ignore[assignment]
+                    label_id: int = label_entry["image_id"]  # type: ignore[assignment]
                     label_t: int = label_entry["dims"][0]  # type: ignore[assignment, index]
 
                     # Determine timepoint range
