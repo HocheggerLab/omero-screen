@@ -13,12 +13,12 @@ from typing import Any, Optional
 import numpy as np
 from magicgui import magic_factory
 from napari.layers import Image
-from napari.qt.threading import create_worker
+from napari.qt.threading import GeneratorWorker, create_worker
 from napari.utils import progress as napari_progress
 from napari.viewer import Viewer
 from omero.gateway import BlitzGateway
 from omero_screen.config import get_logger
-from qtpy.QtCore import Qt
+from qtpy.QtCore import Qt, QThreadPool
 from qtpy.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -317,6 +317,31 @@ class MockEvent:
         self.source = source
 
 
+class BackgroundGeneratorWorker(GeneratorWorker):  # type: ignore[misc]
+    """Worker that runs a generator in the background."""
+
+    def start(self) -> None:
+        print("Starting background worker")
+        # Code below is copied from napari.qt.threading.GeneratorWorker.start: v0.6.6
+        if self in self._worker_set:
+            raise RuntimeError("This worker is already started!")
+
+        # This will raise a RunTimeError if the worker is already deleted
+        repr(self)
+
+        self._worker_set.add(self)
+        self._finished.connect(self._set_discard)
+
+        # This is changed from the original code to remove the eventloop check
+        # if QThread.currentThread().loopLevel():
+        #     # if we're in a thread with an eventloop, queue the worker to start
+        #     start_ = partial(QThreadPool.globalInstance().start, self)
+        #     QTimer.singleShot(1, start_)
+        # else:
+        # otherwise start it immediately
+        QThreadPool.globalInstance().start(self)
+
+
 # Global variable to keep track of the existing metadata widget
 metadata_widget: Optional[MetadataWidget] = None
 
@@ -450,7 +475,7 @@ def welldata_widget(
     well_pos_list: str = "Well Position",
     images: str = "All",
     time: str = "All",
-    cache: bool = False,
+    cache: bool = True,
 ) -> None:
     """
     This function is a widget for handling well data in a napari viewer.
@@ -638,7 +663,12 @@ def start_cache_worker(plate_id: int) -> None:
 
         max_workers = int(os.getenv("OMERO_SCREEN_IMAGE_CACHE_WORKERS", "3"))
         worker = create_worker(
-            cache_plate, plate_id, conn, stop_flag, max_workers=max_workers
+            cache_plate,
+            plate_id,
+            conn,
+            stop_flag,
+            max_workers=max_workers,
+            # _worker_class=BackgroundGeneratorWorker
         )
 
         def on_finished() -> Any:
