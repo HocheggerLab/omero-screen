@@ -1454,6 +1454,7 @@ def load_from_cache(
     well_pos_input: str,
     image_input: str,
     time: str = "All",
+    cache_images: bool = True,
 ) -> None:
     """Populate OmeroData using the cache, otherwise from OMERO.
 
@@ -1466,6 +1467,7 @@ def load_from_cache(
         well_pos_input: Comma-separated well positions (e.g. "A1, A2").
         image_input: Image index input (e.g. "All", "0-3", "1, 3").
         time: Time input (e.g. "All", "1-3").
+        cache_images: If True any images downloaded from OMERO will be cached.
     """
     meta = get_plate_metadata(conn, plate_id)
     wells = get_well_data(conn, plate_id)
@@ -1541,7 +1543,10 @@ def load_from_cache(
                             conn, get_omero_image_wrapper(conn, image_id)
                         )
                     arr = get_omero_image_timepoint(store, t, shape, dt_be)
-                    add_cached_image(get_key(image_id, t), arr, tag=plate_id)
+                    if cache_images:
+                        add_cached_image(
+                            get_key(image_id, t), arr, tag=plate_id
+                        )
                 # Flatfield correction
                 timepoint_arrays.append(
                     arr.astype(np.float32) / flatfield_masks
@@ -1590,9 +1595,10 @@ def load_from_cache(
                             arr = get_omero_image_timepoint(
                                 store, t, shape, dt_be
                             )
-                            add_cached_image(
-                                get_key(label_id, t), arr, tag=plate_id
-                            )
+                            if cache_images:
+                                add_cached_image(
+                                    get_key(label_id, t), arr, tag=plate_id
+                                )
                         timepoint_label_arrays.append(arr)
                     if store is not None:
                         store.close()
