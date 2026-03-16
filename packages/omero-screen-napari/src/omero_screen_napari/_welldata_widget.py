@@ -157,10 +157,7 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
     def refresh(self) -> None:
         """Clean orphaned plates, rebuild the combo from plate history."""
         # Clean up plates with <50% completeness (skip active download)
-        exclude: set[int] = set()
-        active_plate_id = get_active_download()
-        if active_plate_id != 0:
-            exclude.add(active_plate_id)
+        exclude = {get_active_download()}
         cleaned = clean_orphaned_plates(exclude_plate_ids=exclude)
         if cleaned:
             logger.info("Cleaned orphaned plates during refresh: %s", cleaned)
@@ -475,82 +472,7 @@ def welldata_widget(
                 conn, omero_data, plate_num, well_pos_list, images, time=time
             )
 
-        n_wells = len(omero_data.well_id_list)
-        n_per_well = len(omero_data.image_index)
-        iw_override = None
-
-        # Check first well's positions to decide if stitching is possible
-        first_well_pos = omero_data.image_positions[:n_per_well]
-        if n_per_well > 0 and has_valid_positions(first_well_pos):
-            logger.info(
-                "Auto-stitching %d well(s) from stage positions", n_wells
-            )
-            sp = _get_stitch_params()
-            stitched_imgs: list[np.ndarray[Any, np.dtype[Any]]] = []
-            stitched_lbls: list[np.ndarray[Any, np.dtype[Any]]] = []
-
-            for w in range(n_wells):
-                start = w * n_per_well
-                end = start + n_per_well
-                well_images = omero_data.images[start:end]
-                well_positions = omero_data.image_positions[start:end]
-
-                stitched_imgs.append(
-                    stitch_from_positions(
-                        well_images,
-                        well_positions,  # type: ignore[arg-type]
-                        omero_data.pixel_size,  # type: ignore[arg-type]
-                        rotation=sp["rotation"],
-                        edge=sp["edge"],
-                        mode=sp["mode"],
-                        fallback_overlap=(
-                            sp["overlap_x"],
-                            sp["overlap_y"],
-                        ),
-                    )
-                )
-
-                if omero_data.labels.size > 0:
-                    well_labels = omero_data.labels[start:end]
-                    stitched_lbls.append(
-                        stitch_labels_from_positions(
-                            well_labels,
-                            well_positions,  # type: ignore[arg-type]
-                            omero_data.pixel_size,  # type: ignore[arg-type]
-                            rotation=sp["rotation"],
-                            fallback_overlap=(
-                                sp["overlap_x"],
-                                sp["overlap_y"],
-                            ),
-                        )
-                    )
-
-            if n_wells == 1:
-                result_img = stitched_imgs[0]
-                result_lbl = stitched_lbls[0] if stitched_lbls else None
-            else:
-                result_img = np.stack(stitched_imgs)
-                result_lbl = np.stack(stitched_lbls) if stitched_lbls else None
-
-            clear_viewer_layers(viewer)
-            _display_stitched(viewer, result_img, result_lbl)
-            # For multi-well, each slider position = one well
-            iw_override = 1 if n_wells > 1 else None
-        else:
-            clear_viewer_layers(viewer)
-            add_image_to_viewer(viewer)
-            set_color_maps(viewer)
-            add_label_layers(viewer)
-
-        def slider_position_change(event: Any) -> None:
-            pos = event.source.current_step[0]
-            handle_metadata_widget(
-                viewer, pos, images_per_well_override=iw_override
-            )
-
-        viewer.dims.events.current_step.connect(slider_position_change)
-        mock_event = MockEvent(viewer.dims)
-        slider_position_change(mock_event)
+        _display_plate(viewer)
 
     except Exception as e:
         logger.error(f"Error in welldata_widget: {e}")
@@ -567,6 +489,87 @@ def welldata_widget(
     finally:
         if conn is not None:
             conn.close(hard=True)
+
+
+def _display_plate(viewer: Viewer) -> None:
+    n_wells = len(omero_data.well_id_list)
+    n_per_well = len(omero_data.image_index)
+    iw_override = None
+
+    # TODO:
+    # Get the grid layout from the first well positions
+    # Stitch images based on the grid layout
+
+    # Check first well's positions to decide if stitching is possible
+    first_well_pos = omero_data.image_positions[:n_per_well]
+    if n_per_well > 0 and has_valid_positions(first_well_pos):
+        logger.info("Auto-stitching %d well(s) from stage positions", n_wells)
+        sp = _get_stitch_params()
+        stitched_imgs: list[np.ndarray[Any, np.dtype[Any]]] = []
+        stitched_lbls: list[np.ndarray[Any, np.dtype[Any]]] = []
+
+        for w in range(n_wells):
+            start = w * n_per_well
+            end = start + n_per_well
+            well_images = omero_data.images[start:end]
+            well_positions = omero_data.image_positions[start:end]
+
+            stitched_imgs.append(
+                stitch_from_positions(
+                    well_images,
+                    well_positions,  # type: ignore[arg-type]
+                    omero_data.pixel_size,  # type: ignore[arg-type]
+                    rotation=sp["rotation"],
+                    edge=sp["edge"],
+                    mode=sp["mode"],
+                    fallback_overlap=(
+                        sp["overlap_x"],
+                        sp["overlap_y"],
+                    ),
+                )
+            )
+
+            if omero_data.labels.size > 0:
+                well_labels = omero_data.labels[start:end]
+                stitched_lbls.append(
+                    stitch_labels_from_positions(
+                        well_labels,
+                        well_positions,  # type: ignore[arg-type]
+                        omero_data.pixel_size,  # type: ignore[arg-type]
+                        rotation=sp["rotation"],
+                        fallback_overlap=(
+                            sp["overlap_x"],
+                            sp["overlap_y"],
+                        ),
+                    )
+                )
+
+        if n_wells == 1:
+            result_img = stitched_imgs[0]
+            result_lbl = stitched_lbls[0] if stitched_lbls else None
+        else:
+            result_img = np.stack(stitched_imgs)
+            result_lbl = np.stack(stitched_lbls) if stitched_lbls else None
+
+        clear_viewer_layers(viewer)
+        _display_stitched(viewer, result_img, result_lbl)
+        # For multi-well, each slider position = one well
+        iw_override = 1 if n_wells > 1 else None
+    else:
+        clear_viewer_layers(viewer)
+        add_image_to_viewer(viewer)
+        set_color_maps(viewer)
+        add_label_layers(viewer)
+
+    def slider_position_change(event: Any) -> None:
+        pos = event.source.current_step[0]
+        handle_metadata_widget(
+            viewer, pos, images_per_well_override=iw_override
+        )
+
+    viewer.dims.events.current_step.connect(slider_position_change)
+    mock_event = MockEvent(viewer.dims)
+    slider_position_change(mock_event)
 
 
 _active_lock = threading.Lock()
@@ -698,6 +701,7 @@ def _create_connection() -> BlitzGateway:
         raise RuntimeError(
             f"Failed to establish connection to OMERO server at {host} as {username}"
         )
+    conn.c.enableKeepAlive(60)
     return conn
 
 
@@ -921,6 +925,19 @@ def stitched_data_widget(
     edge: int = 7,
     mode: str = "reflect",
 ) -> None:
+    n_wells = len(omero_data.well_id_list)
+    n_per_well = len(omero_data.image_index)
+
+    # Check first well's positions to decide if stitching is possible
+    first_well_pos = omero_data.image_positions[:n_per_well]
+    if n_per_well > 0 and has_valid_positions(first_well_pos):
+        _display_plate(viewer)
+        return
+
+    # Manual stitching.
+    # TODO: Add a grid layout widget
+    logger.info("Sstitching %d well(s) from fixed grid layout", n_wells)
+
     effective_rotation = rotation if precise_rotation else 0.0
     clear_viewer_layers(viewer)
     stitched_images = stitch_images(
