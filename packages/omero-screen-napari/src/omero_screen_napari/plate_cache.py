@@ -36,6 +36,8 @@ import omero
 import polars as pl
 from diskcache import Cache
 from omero.gateway import BlitzGateway, MapAnnotationWrapper
+from omero.model import LengthI
+from omero.model.enums import UnitsLength
 from omero.rtypes import unwrap
 from omero_screen.config import get_logger, getenv_as_int
 
@@ -987,13 +989,13 @@ def _parse_pixel_size(plate: Any) -> tuple[float, float]:
     if image is None:
         raise ValueError("No image found in first well")
 
-    x_size = image.getPixelSizeX()
-    y_size = image.getPixelSizeY()
+    x_size = image.getPixelSizeX(units="MICROMETER")
+    y_size = image.getPixelSizeY(units="MICROMETER")
 
     if x_size is None or y_size is None:
         raise ValueError("No pixel size data found for the image")
 
-    return (round(x_size, 1), round(y_size, 1))
+    return (float(x_size.getValue()), float(y_size.getValue()))
 
 
 def _parse_intensities_from_cellview(
@@ -1139,7 +1141,9 @@ def _fetch_well_map(
     params = omero.sys.ParametersI()
     params.addLong("plate_id", plate_id)
     query = """
-        select w.id, w.row, w.column, ws.posX, ws.posY,
+        select w.id, w.row, w.column,
+               ws.posX.value, ws.posX.unit,
+               ws.posY.value, ws.posX.unit,
                i.id, pi.sizeT, pi.sizeC, pi.sizeZ, pi.sizeY, pi.sizeX
         from Plate as p
           left join p.wells as w
@@ -1159,14 +1163,17 @@ def _fetch_well_map(
         well_id = unwrap(row[0])
         well_row = unwrap(row[1])
         well_col = unwrap(row[2])
-        pos = (_unwrap_length(unwrap(row[3])), _unwrap_length(unwrap(row[4])))
-        image_id = unwrap(row[5])
+        pos = (
+            _unwrap_length(unwrap(row[3]), unwrap(row[4])),
+            _unwrap_length(unwrap(row[5]), unwrap(row[6])),
+        )
+        image_id = unwrap(row[7])
         dims = (
-            int(unwrap(row[6])),
-            int(unwrap(row[7])),
             int(unwrap(row[8])),
             int(unwrap(row[9])),
             int(unwrap(row[10])),
+            int(unwrap(row[11])),
+            int(unwrap(row[12])),
         )
 
         well_pos = _row_col_to_well_pos(well_row, well_col)
@@ -1207,32 +1214,14 @@ def _row_col_to_well_pos(row: int, col: int) -> str:
     return f"{chr(65 + row)}{col + 1}"
 
 
-def _unwrap_length(value: Any) -> float | None:
-    """Convert an OMERO Length value to a plain float.
-
-    ``unwrap()`` on OMERO ``Length`` types returns a dict like
-    ``{'value': 1234.5, 'unit': 'MICROMETER', 'symbol': 'µm'}``.
-    This helper normalises that (or a plain numeric) to ``float``,
-    returning ``None`` when the value cannot be converted.
-    """
+def _unwrap_length(value: float | None, unit: str | None) -> float | None:
+    """Convert an OMERO length value and unit to a plain float in micrometers."""
     if value is None:
         return None
-    if isinstance(value, dict):
-        v = value.get("value")
-        if v is not None:
-            f = float(v)
-            # TODO: Correct convertion of units to um
-            unit = value.get("unit")
-            if unit == "METER":
-                f *= 1000000.0
-            return f
-    else:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            pass
-    # default
-    return None
+    if unit is not None:
+        length = LengthI(value, getattr(UnitsLength, unit))
+        return float(LengthI(length, UnitsLength.MICROMETER).getValue())
+    return value
 
 
 def _fetch_label_map(
