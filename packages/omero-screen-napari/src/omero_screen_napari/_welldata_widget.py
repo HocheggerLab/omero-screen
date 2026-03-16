@@ -664,6 +664,14 @@ def start_cache_worker(plate_id: int) -> None:
 
         def on_progress(prog: tuple[int, int]) -> None:
             nonlocal _prev_done
+            # Added to handle abort requests during progress updates.
+            # Note: When napari exits and aborts threads
+            # in the global pool, this method is called by background threads
+            # and can stop the download.
+            if worker.abort_requested:
+                # Stop the download. No lock required.
+                stop_flag.set()
+                return
             done, total = prog
             if total <= 0:
                 return
@@ -679,9 +687,18 @@ def start_cache_worker(plate_id: int) -> None:
                 pbr[0].update(delta)
             _prev_done = done
 
+        def on_aborted() -> None:
+            logger.error("Cache worker aborted for plate %d", plate_id)
+            # Stop the download. No lock required.
+            stop_flag.set()
+            conn.close(hard=True)
+
         worker.yielded.connect(on_progress)
         worker.finished.connect(on_finished)
         worker.errored.connect(on_error)
+        # Note: This does not seem to be called when napari exits and aborts threads
+        # in the global pool. So we also check abort_requested in on_progress.
+        worker.aborted.connect(on_aborted)
         worker.start()
 
         # The download has started. Store objects to allow it to be cancelled.
