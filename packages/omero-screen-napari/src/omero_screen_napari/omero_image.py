@@ -360,7 +360,7 @@ def get_omero_image_wrapper(conn: BlitzGateway, image_id: int) -> ImageWrapper:
     return image
 
 
-def get_key(image_id: int, t: int) -> str:
+def get_key(image_id: int, t: int) -> str | int | bytes:
     """Get the image key for the cache.
 
     Args:
@@ -370,11 +370,16 @@ def get_key(image_id: int, t: int) -> str:
     Returns:
         Key
     """
-    return f"{image_id}:{t}"
+    # Support up to t=65535 in a single int key.
+    # Using a composed int key is faster for cache lookups
+    # than a string or bytes key.
+    # Note: Future support may change the key type based on the
+    # input timepoint.
+    return image_id << 16 | t
 
 
 def add_cached_image(
-    key: str,
+    key: str | int | bytes,
     array: npt.NDArray[Any],
     tag: int | float | str | None = None,
 ) -> bool:
@@ -398,7 +403,7 @@ def add_cached_image(
 
 
 def get_cached_image(
-    key: str,
+    key: str | int | bytes,
 ) -> npt.NDArray[Any] | None:
     """Get an image from the cache.
 
@@ -411,7 +416,7 @@ def get_cached_image(
     return _cache.get(key)  # type: ignore[no-any-return]
 
 
-def is_cached(key: str) -> bool:
+def is_cached(key: str | int | bytes) -> bool:
     """Check if the key is the cache.
 
     Args:

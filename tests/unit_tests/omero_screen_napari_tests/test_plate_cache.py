@@ -44,9 +44,9 @@ def _get_label_key(plate_id: int) -> bytes:
     return b"l" + _get_bytes(plate_id)
 
 
-def get_key(image_id: int, t: int) -> str:
+def get_key(image_id: int, t: int) -> str | int | bytes:
     """Get the image key for the cache."""
-    return f"{image_id}:{t}"
+    return image_id << 16 | t
 
 
 # --------------- Fixtures ---------------
@@ -1066,7 +1066,7 @@ class TestEnsureCacheSpace:
                     ],
                 }
             }, tag=plate_id)
-            fake_image_cache.set(f"{plate_id * 100}:0", np.zeros((10, 10, 2), dtype=np.float32), tag=plate_id)
+            fake_image_cache.set(get_key(plate_id * 100, 0), np.zeros((10, 10, 2), dtype=np.float32), tag=plate_id)
 
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
