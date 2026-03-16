@@ -554,37 +554,23 @@ class TestUnwrapLength:
     def test_plain_float(self):
         from omero_screen_napari.plate_cache import _unwrap_length
 
-        assert _unwrap_length(123.5) == 123.5
+        assert _unwrap_length(123.5, None) == 123.5
 
     def test_int(self):
         from omero_screen_napari.plate_cache import _unwrap_length
 
-        assert _unwrap_length(10) == 10.0
-
-    def test_dict_with_value(self):
-        from omero_screen_napari.plate_cache import _unwrap_length
-
-        assert (
-            _unwrap_length(
-                {"value": 123.4, "unit": "MICROMETER", "symbol": "µm"}
-            )
-            == 123.4
-        )
-
-    def test_dict_without_value(self):
-        from omero_screen_napari.plate_cache import _unwrap_length
-
-        assert _unwrap_length({"unit": "MICROMETER"}) is None
+        assert _unwrap_length(10, None) == 10.0
 
     def test_none(self):
         from omero_screen_napari.plate_cache import _unwrap_length
 
-        assert _unwrap_length(None) is None
+        assert _unwrap_length(None, None) is None
 
-    def test_unconvertible(self):
+    def test_value_with_unit(self):
         from omero_screen_napari.plate_cache import _unwrap_length
 
-        assert _unwrap_length("not_a_number") is None
+        assert _unwrap_length(123.4, "MICROMETER") == 123.4
+        assert _unwrap_length(123.4, "METER") == 123.4 * 1e6
 
 
 # --------------- _parse_channel_data ---------------
