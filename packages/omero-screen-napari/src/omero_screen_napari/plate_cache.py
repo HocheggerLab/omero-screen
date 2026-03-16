@@ -1536,10 +1536,12 @@ def load_from_cache(
             for t in range(t_start, t_end):
                 arr = get_cached_image(get_key(image_id, t))
                 if arr is None:
-                    store, shape, dt_be = initialise_download(
-                        conn, get_omero_image_wrapper(conn, image_id)
-                    )
+                    if store is None:
+                        store, shape, dt_be = initialise_download(
+                            conn, get_omero_image_wrapper(conn, image_id)
+                        )
                     arr = get_omero_image_timepoint(store, t, shape, dt_be)
+                    add_cached_image(get_key(image_id, t), arr, tag=plate_id)
                 # Flatfield correction
                 timepoint_arrays.append(
                     arr.astype(np.float32) / flatfield_masks
@@ -1580,11 +1582,16 @@ def load_from_cache(
                     for t in range(t_start, t_end):
                         arr = get_cached_image(get_key(label_id, t))
                         if arr is None:
-                            store, shape, dt_be = initialise_download(
-                                conn, get_omero_image_wrapper(conn, label_id)
-                            )
+                            if store is None:
+                                store, shape, dt_be = initialise_download(
+                                    conn,
+                                    get_omero_image_wrapper(conn, label_id),
+                                )
                             arr = get_omero_image_timepoint(
                                 store, t, shape, dt_be
+                            )
+                            add_cached_image(
+                                get_key(label_id, t), arr, tag=plate_id
                             )
                         timepoint_label_arrays.append(arr)
                     if store is not None:
