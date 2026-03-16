@@ -642,6 +642,7 @@ def start_cache_worker(plate_id: int) -> None:
         )
 
         def on_finished() -> Any:
+            logger.info("Cache worker finished for plate %d", plate_id)
             # Signal the download has ended. No lock required.
             stop_flag.set()
             conn.close(hard=True)
@@ -650,17 +651,16 @@ def start_cache_worker(plate_id: int) -> None:
                 pbr[0].close()
             if _cached_plates_selector_ref is not None:
                 _cached_plates_selector_ref.refresh()
-            logger.info("Cache worker finished for plate %d", plate_id)
             return None
 
         def on_error(exc: BaseException) -> None:
+            logger.error("Cache worker error for plate %d: %s", plate_id, exc)
             # Stop the download. No lock required.
             stop_flag.set()
             conn.close(hard=True)
             if pbr:
                 pbr[0].set_description(f"Cache error: {exc}")
                 pbr[0].close()
-            logger.error("Cache worker error for plate %d: %s", plate_id, exc)
 
         def on_progress(prog: tuple[int, int]) -> None:
             nonlocal _prev_done
