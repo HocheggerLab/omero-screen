@@ -707,7 +707,7 @@ def cache_plate(
                 for t in range(label_t):
                     key = get_key(label_id, t)
                     if not is_cached(key):
-                        keys.append((label_t, t))
+                        keys.append((label_id, t))
         if last_len < len(keys):
             n_wells += 1
 
