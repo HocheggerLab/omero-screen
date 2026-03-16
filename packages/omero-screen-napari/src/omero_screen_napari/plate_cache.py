@@ -642,6 +642,7 @@ def cache_plate(
     Yields:
         Tuple of (images_done, images_total).
     """
+    logger.info("Caching plate %d", plate_id)
     meta = get_plate_metadata(conn, plate_id)
     wells = get_well_data(conn, plate_id)
     label_map = get_label_map(conn, plate_id)
