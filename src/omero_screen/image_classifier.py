@@ -234,9 +234,22 @@ class ImageClassifier:
         """
         if self.active_channels:
             self.image_data = image_data
-            self.selected_channels = [
-                image_data[channel] for channel in self.active_channels
-            ]
+            # Nuclei channel names are normalised to "DAPI" in MetadataParser;
+            # resolve classifier channel names through the same mapping.
+            nuclei_aliases = {"dapi", "hoechst", "dna", "rfp"}
+            self.selected_channels = []
+            for channel in self.active_channels:
+                if channel in image_data:
+                    self.selected_channels.append(image_data[channel])
+                elif (
+                    channel.lower() in nuclei_aliases and "DAPI" in image_data
+                ):
+                    self.selected_channels.append(image_data["DAPI"])
+                else:
+                    logger.warning(
+                        "Channel '%s' not found in image data", channel
+                    )
+                    return False
             logger.info(
                 "Selected channels for classification: %s",
                 str(self.active_channels),
