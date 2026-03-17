@@ -510,6 +510,8 @@ def welldata_widget(
             )
         else:
             conn = _create_connection()
+            # TODO: Improve GUI responsiveness by loading in a background
+            # worker. Display the results via call backs.
             load_from_cache(
                 conn, omero_data, plate_num, well_pos_list, images, time=time
             )
@@ -690,7 +692,6 @@ def start_cache_worker(plate_id: int) -> None:
             logger.info("Cache worker finished for plate %d", plate_id)
             # Signal the download has ended. No lock required.
             stop_flag.set()
-            conn.close(hard=True)
             if pbr:
                 pbr[0].set_description(f"Plate {plate_id} cached")
                 pbr[0].close()
@@ -702,7 +703,6 @@ def start_cache_worker(plate_id: int) -> None:
             logger.error("Cache worker error for plate %d: %s", plate_id, exc)
             # Stop the download. No lock required.
             stop_flag.set()
-            conn.close(hard=True)
             if pbr:
                 pbr[0].set_description(f"Cache error: {exc}")
                 pbr[0].close()
@@ -728,7 +728,6 @@ def start_cache_worker(plate_id: int) -> None:
             logger.warning("Cache worker aborted for plate %d", plate_id)
             # Stop the download. No lock required.
             stop_flag.set()
-            conn.close(hard=True)
 
         worker.yielded.connect(on_progress)
         worker.finished.connect(on_finished)

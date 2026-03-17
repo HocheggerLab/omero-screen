@@ -633,123 +633,126 @@ def cache_plate(
     If the ``stop_flag`` is set then downloading will stop and the method
     returns.
 
+    The connection will be closed when the cache download preparation finishes.
+
     Args:
         plate_id: OMERO plate ID.
-        conn: Active OMERO connection (caller manages lifecycle).
+        conn: Active OMERO connection (closed by this method).
         stop_flag: Flag to used to stop the download.
         max_workers: Number of concurrent download threads.
 
     Yields:
         Tuple of (images_done, images_total).
     """
-    logger.info("Caching plate %d", plate_id)
-    meta = get_plate_metadata(conn, plate_id)
-    wells = get_well_data(conn, plate_id)
-    label_map = get_label_map(conn, plate_id)
+    # Use try-block to close the connection when no longer required
+    try:
+        logger.info("Caching plate %d", plate_id)
+        meta = get_plate_metadata(conn, plate_id)
+        wells = get_well_data(conn, plate_id)
+        label_map = get_label_map(conn, plate_id)
 
-    # Quick check to determine if the plate will fit in the cache.
-    # Done after fetching the label map so the estimate includes labels.
-    # Note: Size estimate does not account for the cache compression or pixels type.
-    estimated_bytes = _estimate_plate_bytes(wells, label_map)
-    size_limit = cache_size_limit()
-    if estimated_bytes >= size_limit:
-        logger.warning(
-            "Plate %d: estimated size %.1f GB exceeds cache size %.1f GB, skipping caching",
+        # Quick check to determine if the plate will fit in the cache.
+        # Done after fetching the label map so the estimate includes labels.
+        # Note: Size estimate does not account for the cache compression or pixels type.
+        estimated_bytes = _estimate_plate_bytes(wells, label_map)
+        size_limit = cache_size_limit()
+        if estimated_bytes >= size_limit:
+            logger.warning(
+                "Plate %d: estimated size %.1f GB exceeds cache size %.1f GB, skipping caching",
+                plate_id,
+                estimated_bytes / 2**30,
+                size_limit / 2**30,
+            )
+            return
+
+        logger.info(
+            "Plate %d: estimated size %.1f GB (cache volume %.1f / %.1f GB)",
             plate_id,
             estimated_bytes / 2**30,
+            cache_volume() / 2**30,
             size_limit / 2**30,
         )
-        yield (0, 0)
-        return
 
-    logger.info(
-        "Plate %d: estimated size %.1f GB (cache volume %.1f / %.1f GB)",
-        plate_id,
-        estimated_bytes / 2**30,
-        cache_volume() / 2**30,
-        size_limit / 2**30,
-    )
+        # Fetch flatfield mask image (image is cached)
+        logger.info("Caching plate %d: fetching flatfield mask", plate_id)
+        _ = get_image(conn, meta["ff_mask_id"], tag=plate_id)
 
-    # Fetch flatfield mask image (image is cached)
-    logger.info("Caching plate %d: fetching flatfield mask", plate_id)
-    _ = get_image(conn, meta["ff_mask_id"], tag=plate_id)
+        # Build downloads grouped by well, sorted by well position.
+        # Well-sorted partitioning ensures wells complete sequentially so
+        # users can start loading cached wells before the entire plate is done.
+        sorted_well_keys = sorted(wells.keys(), key=_well_sort_key)
+        keys: list[tuple[int, int]] = []
 
-    # Build downloads grouped by well, sorted by well position.
-    # Well-sorted partitioning ensures wells complete sequentially so
-    # users can start loading cached wells before the entire plate is done.
-    sorted_well_keys = sorted(wells.keys(), key=_well_sort_key)
-    keys: list[tuple[int, int]] = []
-
-    # Re-estimate size using missing images. Assume all images are the same.
-    n_wells = 0
-    image_id: int = 0
-    label_id: int = 0
-    n_images = 0
-    for well_pos in sorted_well_keys:
-        last_len = len(keys)
-        # Well images (skip if already cached)
-        for img_info in wells[well_pos]["images"]:
-            image_id: int = img_info["image_id"]  # type: ignore[assignment, no-redef]
-            image_t: int = img_info["dims"][0]  # type: ignore[assignment, index]
-            for t in range(image_t):
-                key = get_key(image_id, t)
-                if not is_cached(key):
-                    n_images += 1
-                    keys.append((image_id, t))
-        # Well labels (skip if already cached)
-        if well_pos in label_map:
-            for label_entry in label_map[well_pos]:
-                if label_entry is None:
-                    # No label for corresponding image
-                    continue
-                label_id: int = label_entry["image_id"]  # type: ignore[assignment, no-redef]
-                label_t: int = label_entry["dims"][0]  # type: ignore[assignment, index]
-                for t in range(label_t):
-                    key = get_key(label_id, t)
+        # Re-estimate size using missing images. Assume all images are the same.
+        n_wells = 0
+        image_id: int = 0
+        label_id: int = 0
+        n_images = 0
+        for well_pos in sorted_well_keys:
+            last_len = len(keys)
+            # Well images (skip if already cached)
+            for img_info in wells[well_pos]["images"]:
+                image_id: int = img_info["image_id"]  # type: ignore[assignment, no-redef]
+                image_t: int = img_info["dims"][0]  # type: ignore[assignment, index]
+                for t in range(image_t):
+                    key = get_key(image_id, t)
                     if not is_cached(key):
-                        keys.append((label_id, t))
-        if last_len < len(keys):
-            n_wells += 1
+                        n_images += 1
+                        keys.append((image_id, t))
+            # Well labels (skip if already cached)
+            if well_pos in label_map:
+                for label_entry in label_map[well_pos]:
+                    if label_entry is None:
+                        # No label for corresponding image
+                        continue
+                    label_id: int = label_entry["image_id"]  # type: ignore[assignment, no-redef]
+                    label_t: int = label_entry["dims"][0]  # type: ignore[assignment, index]
+                    for t in range(label_t):
+                        key = get_key(label_id, t)
+                        if not is_cached(key):
+                            keys.append((label_id, t))
+            if last_len < len(keys):
+                n_wells += 1
 
-    if n_wells == 0:
-        logger.info("Plate %d: all images already cached", plate_id)
-        # Record in persistent history
-        _update_plate_history(plate_id, meta["plate_name"], "cached")
-        yield (0, 0)
-        return
+        if n_wells == 0:
+            logger.info("Plate %d: all images already cached", plate_id)
+            # Record in persistent history
+            _update_plate_history(plate_id, meta["plate_name"], "cached")
+            return
 
-    # Accurate download size (assuming all images the same)
-    estimated_bytes = 0
-    if image_id:
-        estimated_bytes += get_bytes_size(conn, image_id) * n_images
-    if label_id:
-        estimated_bytes += get_bytes_size(conn, label_id) * (
-            # number of labels
-            len(keys) - n_images
-        )
+        # Accurate download size (assuming all images the same)
+        estimated_bytes = 0
+        if image_id:
+            estimated_bytes += get_bytes_size(conn, image_id) * n_images
+        if label_id:
+            estimated_bytes += get_bytes_size(conn, label_id) * (
+                # number of labels
+                len(keys) - n_images
+            )
 
-    # Repeat check to determine if the plate will fit in the cache.
-    # This may can fail if the pixels type from previous estimate was wrong.
-    if estimated_bytes >= size_limit:
-        logger.warning(
-            "Plate %d: estimated download size %.1f GB exceeds cache size %.1f GB, skipping caching",
+        # Repeat check to determine if the plate will fit in the cache.
+        # This may can fail if the pixels type from previous estimate was wrong.
+        if estimated_bytes >= size_limit:
+            logger.warning(
+                "Plate %d: estimated download size %.1f GB exceeds cache size %.1f GB, skipping caching",
+                plate_id,
+                estimated_bytes / 2**30,
+                size_limit / 2**30,
+            )
+            return
+
+        logger.info(
+            "Plate %d: estimated download size %.1f GB",
             plate_id,
             estimated_bytes / 2**30,
-            size_limit / 2**30,
         )
-        yield (0, 0)
-        return
 
-    logger.info(
-        "Plate %d: estimated download size %.1f GB",
-        plate_id,
-        estimated_bytes / 2**30,
-    )
-
-    if stop_flag.is_set():
-        logger.warning("Plate %d: download cancelled", plate_id)
-        yield (0, 0)
-        return
+        if stop_flag.is_set():
+            logger.warning("Plate %d: download cancelled", plate_id)
+            return
+    finally:
+        # No longer required
+        conn.close(hard=True)
 
     # Proactively evict old plates to make room for this one.
     # Note: The estimate does not account for image compression
