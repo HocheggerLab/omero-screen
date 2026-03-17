@@ -166,27 +166,20 @@ class TestComputeOverlap:
 
 class TestPositionsToGrid:
     def test_2x2_grid_um(self):
-        # 2x2 grid with 100µm spacing, 0.5µm/px, tile 256px
-        # spacing_px = 100/0.5 = 200, overlap = 256 - 200 = 56
+        # 2x2 grid with 100µm spacing
         positions = [
             (0.0, 0.0),
             (100.0, 0.0),
             (0.0, 100.0),
             (100.0, 100.0),
         ]
-        grid_map, ov_x, ov_y = positions_to_grid(
-            positions,
-            tile_shape_yx=(256, 256),
-            pixel_size=(0.5, 0.5),
-        )
+        grid_map = positions_to_grid(positions)
         assert len(grid_map) == 2  # 2 columns
         assert len(grid_map[0]) == 2  # 2 rows per column
         assert grid_map[0][0] == 0
         assert grid_map[1][0] == 1
         assert grid_map[0][1] == 2
         assert grid_map[1][1] == 3
-        assert ov_x == 56
-        assert ov_y == 56
 
     def test_3x3_grid_um(self):
         positions = [
@@ -200,63 +193,29 @@ class TestPositionsToGrid:
             (100.0, 200.0),
             (200.0, 200.0),
         ]
-        grid_map, ov_x, ov_y = positions_to_grid(
-            positions,
-            tile_shape_yx=(256, 256),
-            pixel_size=(0.5, 0.5),
-        )
+        grid_map = positions_to_grid(positions)
         assert len(grid_map) == 3  # 3 columns
         for col in grid_map.values():
             assert len(col) == 3
 
     def test_single_row(self):
         positions = [(0.0, 0.0), (100.0, 0.0), (200.0, 0.0)]
-        grid_map, ov_x, ov_y = positions_to_grid(
-            positions,
-            tile_shape_yx=(256, 256),
-            pixel_size=(0.5, 0.5),
-        )
+        grid_map = positions_to_grid(positions)
         assert len(grid_map) == 3
         for col in grid_map.values():
             assert list(col.keys()) == [0]
-        assert ov_y == 0  # No Y overlap for single row
 
-    def test_reference_frame_positions_default_fallback(self):
-        """Positions in reference-frame units: correct grid, 0 overlap."""
+    def test_reference_frame_positions(self):
         positions = [
             (-23.602595, 44.10129),
             (-23.602591, 44.09999),
             (-23.601304, 44.10129),
             (-23.601300, 44.09999),
         ]
-        grid_map, ov_x, ov_y = positions_to_grid(
-            positions,
-            tile_shape_yx=(1080, 1080),
-            pixel_size=(0.65, 0.65),
-        )
+        grid_map = positions_to_grid(positions)
         assert len(grid_map) == 2  # 2 columns
         for col in grid_map.values():
             assert len(col) == 2  # 2 rows
-        assert ov_x == 0
-        assert ov_y == 0
-
-    def test_reference_frame_positions_with_fallback(self):
-        """Positions in reference-frame units use the supplied fallback overlap."""
-        positions = [
-            (-23.602595, 44.10129),
-            (-23.602591, 44.09999),
-            (-23.601304, 44.10129),
-            (-23.601300, 44.09999),
-        ]
-        grid_map, ov_x, ov_y = positions_to_grid(
-            positions,
-            tile_shape_yx=(1080, 1080),
-            pixel_size=(0.65, 0.65),
-            fallback_overlap=(7, 7),
-        )
-        assert len(grid_map) == 2
-        assert ov_x == 7
-        assert ov_y == 7
 
 
 # --------------- stitch_from_positions ---------------
@@ -275,7 +234,7 @@ class TestStitchFromPositions:
             (50.0, 50.0),
         ]
         result = stitch_from_positions(
-            images, positions, pixel_size=(1.0, 1.0)
+            images, positions,
         )
         # Output should be (64, 64, 2) since no overlap
         assert result.ndim == 3
@@ -294,7 +253,7 @@ class TestStitchFromPositions:
             (50.0, 50.0),
         ]
         result = stitch_from_positions(
-            images, positions, pixel_size=(1.0, 1.0)
+            images, positions,
         )
         # (T, Y, X, C) = (3, 32, 32, 1)
         assert result.ndim == 4
@@ -312,7 +271,7 @@ class TestStitchFromPositions:
             (80.0, 80.0),
         ]
         result = stitch_from_positions(
-            images, positions, pixel_size=(1.0, 1.0)
+            images, positions, overlap_x=20, overlap_y=20
         )
         # Output: 2 tiles at 100px with 20px overlap → 180px per axis
         assert result.shape[0] == 180
@@ -329,7 +288,7 @@ class TestStitchFromPositions:
             (-23.6013, 44.1000),
         ]
         result = stitch_from_positions(
-            images, positions, pixel_size=(0.65, 0.65)
+            images, positions,
         )
         # 2x2 grid, no overlap → 64x64
         assert result.shape == (64, 64, 1)
@@ -349,7 +308,7 @@ class TestStitchLabelsFromPositions:
             (50.0, 50.0),
         ]
         result = stitch_labels_from_positions(
-            labels, positions, pixel_size=(1.0, 1.0)
+            labels, positions,
         )
         assert result.ndim == 3
         assert result.shape[2] == 1
