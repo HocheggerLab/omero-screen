@@ -183,8 +183,9 @@ def _build_from_omero(
     from omero.gateway import BlitzGateway
 
     from omero_screen_napari.plate_cache import (
-        _fetch_plate_metadata,
-        _fetch_well_map,
+        get_label_map,
+        get_plate_metadata,
+        get_well_data,
     )
 
     username = os.getenv("USERNAME")
@@ -197,15 +198,15 @@ def _build_from_omero(
         raise RuntimeError(f"Failed to connect to OMERO server at {host}")
 
     try:
-        project_id = int(os.getenv("PROJECT_ID", "0"))
-        meta = _fetch_plate_metadata(conn, plate_id, project_id)
-        wells = _fetch_well_map(conn, plate_id)
+        meta = get_plate_metadata(conn, plate_id)
+        wells = get_well_data(conn, plate_id)
+        labels = get_label_map(conn, plate_id)
     finally:
         conn.close(hard=True)
 
     header_info = _build_header_info(meta, wells)
     metadata_keys = _collect_metadata_keys(wells)
-    rows = _build_rows(wells, label_map=None, label_unknown=True)
+    rows = _build_rows(wells, label_map=labels)
 
     return header_info, metadata_keys, rows, False
 

@@ -11,7 +11,6 @@ Cache key structure:
     m{plate_id}  -> dict with channel_data, pixel_size, intensities, plate_name
     w{plate_id}  -> dict mapping well_pos -> {well_id, metadata, images: [{"image_id", "dims", "pos"}...]}
     l{plate_id}  -> dict mapping well_pos -> [{"image_id", "dims"}, ...]
-    history      -> dict mapping plate_id -> {"plate_name", "status", "last_cached"}
 
 Cache "dims" entries are a tuple of TCZYX dimensions.
 Cache "pos" entries are a tuple of XY image stage positions.
@@ -65,7 +64,6 @@ from omero_screen_napari.omero_image import (
 logger = get_logger(__name__)
 
 
-_HISTORY_KEY = b"history"
 # Bump this when the on-disk metadata format changes.
 # Caching will delete and re-download plates cached with an older version.
 _CACHE_VERSION = 1
@@ -83,6 +81,7 @@ _CACHE_VERSION = 1
 #     "plate_name": "TestPlate",
 #     "ff_mask_id": 999,
 #     "cache_version": 1,
+#     "cache_date": 2026-03-01,
 # }
 #
 # Example plate well metadata:
@@ -157,16 +156,16 @@ def _get_label_key(plate_id: int) -> bytes:
 # --------------- Public API ---------------
 
 
-def get_all_cached_plates() -> list[tuple[int, str]]:
+def get_all_cached_plates() -> list[tuple[int, str, str]]:
     """Return all cached plates as (plate_id, plate_name) pairs.
 
     Scans cache keys for metadata entries and extracts plate info.
     Results are sorted by plate_id descending (most recent first).
 
     Returns:
-        List of (plate_id, plate_name) tuples.
+        List of (plate_id, plate_name, cache_date) tuples.
     """
-    plates: list[tuple[int, str]] = []
+    plates: list[tuple[int, str, str]] = []
     try:
         for key in _cache:
             if not isinstance(key, bytes):
@@ -178,70 +177,23 @@ def get_all_cached_plates() -> list[tuple[int, str]]:
             meta = _cache.get(key)
             if not isinstance(meta, dict):
                 continue
-            plate_name = meta.get("plate_name", str(plate_id))
-            plates.append((plate_id, plate_name))
+            plates.append(
+                (
+                    plate_id,
+                    meta.get("plate_name", str(plate_id)),
+                    meta.get("cache_date", "1999-12-31"),
+                )
+            )
     except Exception:
         logger.debug("Error scanning cache keys", exc_info=True)
-    plates.sort(key=lambda x: x[0], reverse=True)
+    # Assumed date YYYY-MM-DD is sortable
+    plates.sort(key=lambda x: x[2], reverse=True)
     return plates
 
 
-def get_plate_history() -> dict[int, dict[str, str]]:
-    """Return persistent plate history from the cache.
-
-    History survives cache eviction — evicted plates appear with status
-    ``"removed"`` so the user can re-cache them later.
-
-    Returns:
-        Dict mapping plate_id -> {"plate_name", "status", "last_cached"}.
-    """
-    history: dict[int, dict[str, str]] = _cache.get(_HISTORY_KEY) or {}
-    return history
-
-
-def _update_plate_history(plate_id: int, plate_name: str, status: str) -> None:
-    """Create or update a plate's history entry.
-
-    Args:
-        plate_id: OMERO plate ID.
-        plate_name: Human-readable plate name.
-        status: ``"cached"`` or ``"removed"``.
-    """
-    history: dict[int, dict[str, str]] = get_plate_history()
-    existing = history.get(plate_id, {})
-
-    entry: dict[str, str] = {
-        "plate_name": plate_name,
-        "status": status,
-    }
-
-    if status == "cached":
-        entry["last_cached"] = str(date.today())
-    else:
-        # Preserve the previous last_cached date
-        entry["last_cached"] = existing.get("last_cached", str(date.today()))
-
-    history[plate_id] = entry
-    _cache.set(_HISTORY_KEY, history)
-
-
-def remove_plate_from_history(plate_id: int) -> None:
-    """Forget a plate entirely — remove from history and delete cached data.
-
-    Args:
-        plate_id: OMERO plate ID.
-    """
-    # Delete cached data if present
-    _deleted: int = _cache.evict(plate_id) + evict_images(plate_id)
-
-    history: dict[int, dict[str, str]] = get_plate_history()
-    if plate_id in history:
-        del history[plate_id]
-        _cache.set(_HISTORY_KEY, history)
-        logger.info("Removed plate %d from history", plate_id)
-
-
-def get_well_cache_status(plate_id: int) -> dict[str, bool]:
+def get_well_cache_status(
+    plate_id: int, early_exit: bool = False
+) -> dict[str, bool]:
     """Check per-well cache completeness for a plate.
 
     For each well, checks whether **all** its images x timepoints exist
@@ -250,6 +202,7 @@ def get_well_cache_status(plate_id: int) -> dict[str, bool]:
 
     Args:
         plate_id: OMERO plate ID.
+        early_exit: If True return immediately a well is not fully cached
 
     Returns:
         Dict mapping well_pos -> True if fully cached, False otherwise.
@@ -299,6 +252,8 @@ def get_well_cache_status(plate_id: int) -> dict[str, bool]:
                     break
 
         status[well_pos] = all_cached
+        if not all_cached and early_exit:
+            break
 
     return status
 
@@ -323,14 +278,7 @@ def is_plate_fully_cached(plate_id: int) -> bool:
     Returns:
         True only when every well's images are fully cached.
     """
-    meta = get_cached_plate_metadata(plate_id)
-    if meta is None or get_cached_well_data(plate_id) is None:
-        return False
-    # Require flat-field mask
-    ff_mask_id = meta.get("ff_mask_id", 0)
-    if not is_cached(get_key(ff_mask_id, 0)):
-        return False
-    status = get_well_cache_status(plate_id)
+    status = get_well_cache_status(plate_id, early_exit=True)
     return bool(status) and all(status.values())
 
 
@@ -409,8 +357,7 @@ def delete_plate_from_cache(plate_id: int, remove_images: bool = True) -> int:
     """Delete all cached data for a plate (metadata, images, labels).
 
     Removes the three metadata keys plus every image and label key
-    referenced by the plate's well map and label map.  The plate is
-    preserved in the persistent history with status ``"removed"``.
+    referenced by the plate's well map and label map.
 
     Args:
         plate_id: OMERO plate ID.
@@ -419,21 +366,10 @@ def delete_plate_from_cache(plate_id: int, remove_images: bool = True) -> int:
     Returns:
         Number of keys deleted.
     """
-    # Read plate name before deleting metadata
-    meta = get_cached_plate_metadata(plate_id)
-    plate_name = (
-        meta.get("plate_name", str(plate_id))
-        if isinstance(meta, dict)
-        else str(plate_id)
-    )
-
     # All cache entries should be tagged with the plate ID
     deleted: int = _cache.evict(plate_id)
     if remove_images:
         deleted += evict_images(plate_id)
-
-    # Preserve the plate in history as "removed"
-    _update_plate_history(plate_id, plate_name, "removed")
 
     logger.info("Deleted %d keys for plate %d", deleted, plate_id)
     return deleted
@@ -531,11 +467,11 @@ def ensure_cache_space(
     if vol + needed_bytes <= size_limit:
         return [], vol, -1
 
-    # Get plates sorted ascending by plate_id (oldest/smallest first)
+    # Get plates and sort oldest first
     candidates = get_all_cached_plates()
     candidates.reverse()  # was desc, now asc
 
-    for plate_id, _name in candidates:
+    for plate_id, *_ in candidates:
         if plate_id == exclude_plate_id:
             continue
         delete_plate_from_cache(plate_id)
@@ -603,7 +539,7 @@ def clean_orphaned_plates(
     exclude = exclude_plate_ids or set()
     cleaned: list[int] = []
 
-    for plate_id, _name in get_all_cached_plates():
+    for plate_id, *_ in get_all_cached_plates():
         if plate_id in exclude:
             continue
         completeness = _plate_image_completeness(plate_id)
@@ -716,8 +652,6 @@ def cache_plate(
 
         if n_wells == 0:
             logger.info("Plate %d: all images already cached", plate_id)
-            # Record in persistent history
-            _update_plate_history(plate_id, meta["plate_name"], "cached")
             return
 
         # Accurate download size (assuming all images the same)
@@ -886,9 +820,6 @@ def cache_plate(
         stop_flag.set()
         pause_event.set()
 
-    # Record in persistent history
-    _update_plate_history(plate_id, meta["plate_name"], "cached")
-
     logger.info(
         "Plate %d: caching %s (%d/%d items)",
         plate_id,
@@ -941,6 +872,7 @@ def _fetch_plate_metadata(
         "plate_name": plate_name,
         "ff_mask_id": ff_mask_id,
         "cache_version": _CACHE_VERSION,
+        "cache_date": str(date.today()),
     }
 
 
