@@ -320,6 +320,8 @@ class MockEvent:
 class BackgroundGeneratorWorker(GeneratorWorker):  # type: ignore[misc]
     """Worker that runs a generator in the background."""
 
+    stop_flag: threading.Event | None = None
+
     def start(self) -> None:
         # Code below is copied from superqt.utils._qthreading.Worker.start
         if self in self._worker_set:
@@ -340,6 +342,18 @@ class BackgroundGeneratorWorker(GeneratorWorker):  # type: ignore[misc]
         # else:
         # otherwise start it immediately
         QThreadPool.globalInstance().start(self)
+
+    def quit(self) -> None:
+        super().quit()
+        # Override the quit method to set the stop flag.
+        # Using print statements in the base GeneratorWorker it can be seen
+        # that when napari is closed the quit method is called and the
+        # _abort_requested flag is detected in the work() loop method.
+        # However when the signal aborted.emit() method is called
+        # the connected method is not invoked. Using a custom worker
+        # to perform actions on quit does work.
+        if self.stop_flag is not None:
+            self.stop_flag.set()
 
 
 # Global variable to keep track of the existing metadata widget
@@ -670,6 +684,7 @@ def start_cache_worker(plate_id: int) -> None:
             max_workers=max_workers,
             _worker_class=BackgroundGeneratorWorker,
         )
+        worker.stop_flag = stop_flag
 
         def on_finished() -> Any:
             logger.info("Cache worker finished for plate %d", plate_id)
@@ -694,14 +709,6 @@ def start_cache_worker(plate_id: int) -> None:
 
         def on_progress(prog: tuple[int, int]) -> None:
             nonlocal _prev_done
-            # Added to handle abort requests during progress updates.
-            # Note: When napari exits and aborts threads
-            # in the global pool, this method is called by background threads
-            # and can stop the download.
-            if worker.abort_requested:
-                # Stop the download. No lock required.
-                stop_flag.set()
-                return
             done, total = prog
             if total <= 0:
                 return
@@ -718,7 +725,7 @@ def start_cache_worker(plate_id: int) -> None:
             _prev_done = done
 
         def on_aborted() -> None:
-            logger.error("Cache worker aborted for plate %d", plate_id)
+            logger.warning("Cache worker aborted for plate %d", plate_id)
             # Stop the download. No lock required.
             stop_flag.set()
             conn.close(hard=True)

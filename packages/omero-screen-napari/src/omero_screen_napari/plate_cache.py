@@ -825,16 +825,16 @@ def cache_plate(
                     # Minimise cache volume calls using the downloaded size to estimate space
                     vol += cached
                     done += 1
+                    # Check stop flag after any potential blocking wait but before
+                    # yield to allow clean-up to complete
+                    if stop_flag.is_set():
+                        break
                     yield (done, total)
                 except queue.Empty:
                     # Check if all workers have finished (error or success)
                     if all(f.done() for f in futures):
                         break
-
-                # Check stop flag after any potential blocking wait
-                if stop_flag.is_set():
-                    logger.warning("Plate %d: download cancelled", plate_id)
-                    break
+                    continue
 
                 # Reactive eviction: when cache approaches its limit,
                 # pause workers → evict old plates → resume workers.
