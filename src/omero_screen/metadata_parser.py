@@ -74,6 +74,7 @@ class MetadataParser:
         self.channel_data: dict[str, str] = {}
         self.well_data: dict[str, Any] = {}
         self.pixel_size: float = 0
+        self._empty_well_positions: list[str] = []
 
     def _check_plate(self) -> None:
         """Validate the OMERO plate object for the given plate ID.
@@ -215,10 +216,14 @@ class MetadataParser:
             for i in range(len(meta_data["Sheet1"]["Channels"]))
         }
 
-        well_data = {
-            str(k): v
-            for k, v in meta_data["Sheet2"].to_dict(orient="list").items()
-        }
+        df = meta_data["Sheet2"]
+
+        # Separate Empty wells so they are excluded from validation and processing
+        empty_mask = df["cell_line"].astype(str).str.strip() == "Empty"
+        self._empty_well_positions = df.loc[empty_mask, "Well"].tolist()
+        df = df[~empty_mask]
+
+        well_data = {str(k): v for k, v in df.to_dict(orient="list").items()}
 
         return channel_data, well_data
 
@@ -292,7 +297,6 @@ class MetadataParser:
 
         for well in self._get_plate().listChildren():
             well_pos = well.getWellPos()
-            well_data["Well"].append(well_pos)
 
             well_annotation = parse_annotations(well)
             if not well_annotation:
@@ -300,8 +304,17 @@ class MetadataParser:
                     f"No well annotations found for well {well_pos}", logger
                 )
 
-            # For each key in the well's annotations, ensure it exists in well_data
-            # and append the value to its list
+            # Skip Empty wells entirely — they have no experimental data
+            if (
+                well_annotation.get(
+                    "cell_line", well_annotation.get("Cell_Line")
+                )
+                == "Empty"
+            ):
+                self._empty_well_positions.append(well_pos)
+                continue
+
+            well_data["Well"].append(well_pos)
             for key, value in well_annotation.items():
                 if key not in well_data:
                     well_data[key] = []
@@ -510,9 +523,11 @@ class MetadataParser:
             list[str]: A list of error messages. The list is empty if no errors are found.
         """
         errors = []
-        # Get actual well positions from the plate
+        # Get actual well positions from the plate, excluding Empty wells
         actual_wells = [
-            well.getWellPos() for well in self._get_plate().listChildren()
+            well.getWellPos()
+            for well in self._get_plate().listChildren()
+            if well.getWellPos() not in self._empty_well_positions
         ]
 
         # Get well positions from metadata

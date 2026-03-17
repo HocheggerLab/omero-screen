@@ -186,6 +186,7 @@ class MockParser(MetadataParser):
         # This avoids the need for OMERO connection objects
         self.channel_data = channel_data if channel_data is not None else {}
         self.well_data = well_data if well_data is not None else {}
+        self._empty_well_positions: list[str] = []
 
         # Create mock well class
         class MockWell:

@@ -415,11 +415,22 @@ class ImageProperties:
         self.image_df = self._combine_channels(featurelist)
         self.quality_df = self._concat_quality_df()
 
-        if image_classifier is not None and image_obj.c_mask is not None:
+        if image_classifier is not None:
+            # Use cell mask if available, otherwise fall back to nucleus mask
+            if image_obj.c_mask is not None:
+                classifier_mask = image_obj.c_mask
+            else:
+                classifier_mask = image_obj.n_mask
+                # Synthesize columns the classifier expects from cell/nucleus merge
+                if "Cyto_ID" not in self.image_df.columns:
+                    self.image_df["Cyto_ID"] = self.image_df["label"]
+                if "centroid-0_x" not in self.image_df.columns:
+                    self.image_df["centroid-0_x"] = self.image_df["centroid-0"]
+                    self.image_df["centroid-1_x"] = self.image_df["centroid-1"]
             for cls in image_classifier:
                 if cls.select_channels(image_obj.img_dict):
                     self.image_df = cls.process_images(
-                        self.image_df, image_obj.c_mask
+                        self.image_df, classifier_mask
                     )
 
     def _overlay_mask(self) -> pd.DataFrame:
