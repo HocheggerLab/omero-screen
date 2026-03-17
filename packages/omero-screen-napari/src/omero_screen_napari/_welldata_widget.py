@@ -47,10 +47,6 @@ from omero_screen_napari.position_stitching import (
     stitch_from_positions,
     stitch_labels_from_positions,
 )
-from omero_screen_napari.welldata_api import (
-    stitch_images,
-    stitch_labels,
-)
 
 # Logging
 logger = get_logger(__name__)
@@ -500,10 +496,6 @@ def _display_plate(viewer: Viewer) -> None:
     n_per_well = len(omero_data.image_index)
     iw_override = None
 
-    # TODO:
-    # Get the grid layout from the first well positions
-    # Stitch images based on the grid layout
-
     # Check first well's positions to decide if stitching is possible
     first_well_pos = omero_data.image_positions[:n_per_well]
     if n_per_well > 0 and has_valid_positions(first_well_pos):
@@ -522,14 +514,10 @@ def _display_plate(viewer: Viewer) -> None:
                 stitch_from_positions(
                     well_images,
                     well_positions,  # type: ignore[arg-type]
-                    omero_data.pixel_size,  # type: ignore[arg-type]
-                    rotation=sp["rotation"],
                     edge=sp["edge"],
                     mode=sp["mode"],
-                    fallback_overlap=(
-                        sp["overlap_x"],
-                        sp["overlap_y"],
-                    ),
+                    overlap_x=sp["overlap_x"],
+                    overlap_y=sp["overlap_y"],
                 )
             )
 
@@ -539,12 +527,9 @@ def _display_plate(viewer: Viewer) -> None:
                     stitch_labels_from_positions(
                         well_labels,
                         well_positions,  # type: ignore[arg-type]
-                        omero_data.pixel_size,  # type: ignore[arg-type]
                         rotation=sp["rotation"],
-                        fallback_overlap=(
-                            sp["overlap_x"],
-                            sp["overlap_y"],
-                        ),
+                        overlap_x=sp["overlap_x"],
+                        overlap_y=sp["overlap_y"],
                     )
                 )
 
@@ -560,6 +545,7 @@ def _display_plate(viewer: Viewer) -> None:
         # For multi-well, each slider position = one well
         iw_override = 1 if n_wells > 1 else None
     else:
+        logger.info("Displaying %d well(s) (unknown grid layout)", n_wells)
         clear_viewer_layers(viewer)
         add_image_to_viewer(viewer)
         set_color_maps(viewer)
@@ -941,64 +927,4 @@ def stitched_data_widget(
     edge: int = 7,
     mode: str = "reflect",
 ) -> None:
-    n_wells = len(omero_data.well_id_list)
-    n_per_well = len(omero_data.image_index)
-
-    # Check first well's positions to decide if stitching is possible
-    first_well_pos = omero_data.image_positions[:n_per_well]
-    if n_per_well > 0 and has_valid_positions(first_well_pos):
-        _display_plate(viewer)
-        return
-
-    # Manual stitching.
-    # TODO: Add a grid layout widget
-    logger.info("Sstitching %d well(s) from fixed grid layout", n_wells)
-
-    effective_rotation = rotation if precise_rotation else 0.0
-    clear_viewer_layers(viewer)
-    stitched_images = stitch_images(
-        omero_data,
-        rotation=effective_rotation,
-        overlap_x=overlap_x,
-        overlap_y=overlap_y,
-        edge=edge,
-        mode=mode,
-    )
-    logger.debug(
-        f"Stitched shape {stitched_images.shape} ({stitched_images.dtype})"
-    )
-    num_channels = stitched_images.shape[-1]
-    names = ["Stitched Image"] * num_channels
-    for k, v in omero_data.channel_data.items():
-        idx = int(v)
-        if idx < num_channels:
-            names[idx] = k
-
-    per_channel_limits = [
-        list(omero_data.intensities.get(i, (0, 65535)))
-        for i in range(num_channels)
-    ]
-
-    viewer.add_image(
-        stitched_images,
-        contrast_limits=per_channel_limits,
-        gamma=1,
-        channel_axis=-1,
-        scale=omero_data.pixel_size,
-        name=names,
-    )
-    for layer in viewer.layers:
-        if isinstance(layer, Image):
-            layer.contrast_limits_range = (0, 65535)
-    set_color_maps(viewer)
-    if len(omero_data.labels):
-        stitched_labels = stitch_labels(
-            omero_data,
-            rotation=effective_rotation,
-            overlap_x=overlap_x,
-            overlap_y=overlap_y,
-        )
-        add_label_layers(viewer, labels=stitched_labels)
-    viewer.scale_bar.visible = True
-    viewer.scale_bar.unit = "µm"
-    viewer.scale_bar.color = "white"
+    _display_plate(viewer)

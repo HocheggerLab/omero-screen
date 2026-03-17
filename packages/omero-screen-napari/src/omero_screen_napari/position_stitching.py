@@ -39,12 +39,21 @@ def has_valid_positions(
     tol_y = _adaptive_tolerance(ys)
     x_clusters = _cluster_values(xs, tol_x)
     y_clusters = _cluster_values(ys, tol_y)
-    n_cells = len(x_clusters) * len(y_clusters)
-    if n_cells < len(valid):
+
+    def _nearest_cluster(value: float, clusters: list[float]) -> int:
+        return int(np.argmin([abs(value - c) for c in clusters]))
+
+    location = set()
+    for px, py in valid:
+        col = _nearest_cluster(px, x_clusters)
+        row = _nearest_cluster(py, y_clusters)
+        location.add((col, row))
+
+    if len(location) < len(valid):
         logger.warning(
             "Stage positions form %d grid cells for %d images — "
             "cannot stitch without losing data. Positions (first 5): %s",
-            n_cells,
+            len(location),
             len(valid),
             valid[:5],
         )
@@ -109,27 +118,16 @@ def _cluster_values(values: list[float], tolerance: float) -> list[float]:
 
 def positions_to_grid(
     positions: list[tuple[float, float]],
-    tile_shape_yx: tuple[int, int],
-    pixel_size: tuple[float, float],
-    fallback_overlap: tuple[int, int] = (0, 0),
-) -> tuple[dict[int, dict[int, int]], int, int]:
-    """Convert stage positions to a tile grid with overlap values.
+) -> dict[int, dict[int, int]]:
+    """Convert stage positions to a tile grid.
 
     The clustering tolerance is determined automatically from the data.
-    Overlap is computed by interpreting position spacing as µm; when
-    the result is implausible (spacing not close to tile size) the
-    *fallback_overlap* is used instead.
 
     Args:
         positions: List of (pos_x, pos_y) for each image.
-        tile_shape_yx: (height, width) of a single tile in pixels.
-        pixel_size: (pixel_size_x, pixel_size_y) in µm/pixel.
-        fallback_overlap: (overlap_x, overlap_y) in pixels, used when
-            positions are not in µm and overlap cannot be computed.
 
     Returns:
-        Tuple of (grid_map, overlap_x, overlap_y) where grid_map is
-        ``dict[col][row] = image_index`` and overlaps are in pixels.
+        dict[col][row] = image_index
     """
     xs = [p[0] for p in positions]
     ys = [p[1] for p in positions]
@@ -151,28 +149,15 @@ def positions_to_grid(
             grid_map[col] = {}
         grid_map[col][row] = idx
 
-    # Compute overlap from spacing
-    tile_h, tile_w = tile_shape_yx
-    px_size_x, px_size_y = pixel_size
-
-    fb_x, fb_y = fallback_overlap
-    overlap_x = _compute_overlap(x_clusters, tile_w, px_size_x, "X", fb_x)
-    overlap_y = _compute_overlap(y_clusters, tile_h, px_size_y, "Y", fb_y)
-
     n_cells = sum(len(rows) for rows in grid_map.values())
     logger.info(
-        "Position grid: %d cols x %d rows (%d cells for %d images), "
-        "overlap=(%d, %d) px, tol=(%.6g, %.6g)",
+        "Position grid: %d cols x %d rows (%d cells for %d images)",
         len(x_clusters),
         len(y_clusters),
         n_cells,
         len(positions),
-        overlap_x,
-        overlap_y,
-        tol_x,
-        tol_y,
     )
-    return grid_map, overlap_x, overlap_y
+    return grid_map
 
 
 def _compute_overlap(
@@ -217,11 +202,11 @@ def _compute_overlap(
 def stitch_from_positions(
     images: NDArray[Any],
     positions: list[tuple[float, float]],
-    pixel_size: tuple[float, float],
     rotation: float = 0.0,
     edge: int = 0,
     mode: str = "reflect",
-    fallback_overlap: tuple[int, int] = (0, 0),
+    overlap_x: int = 0,
+    overlap_y: int = 0,
 ) -> NDArray[Any]:
     """Stitch images using their absolute stage positions.
 
@@ -232,8 +217,8 @@ def stitch_from_positions(
         rotation: Rotation angle in degrees.
         edge: Edge blending width in pixels.
         mode: Fill mode for rotation.
-        fallback_overlap: (overlap_x, overlap_y) in pixels, used when
-            positions are not in µm.
+        overlap_x: Overlap in x-dimension.
+        overlap_y: Overlap in y-dimension.
 
     Returns:
         Stitched array of shape (Y, X, C) or (T, Y, X, C).
@@ -241,14 +226,7 @@ def stitch_from_positions(
     ndim = images.ndim
     assert ndim in (4, 5), f"Expected 4D or 5D images, got {ndim}D"
 
-    if ndim == 5:
-        tile_shape_yx = (images.shape[2], images.shape[3])
-    else:
-        tile_shape_yx = (images.shape[1], images.shape[2])
-
-    grid_map, overlap_x, overlap_y = positions_to_grid(
-        positions, tile_shape_yx, pixel_size, fallback_overlap=fallback_overlap
-    )
+    grid_map = positions_to_grid(positions)
 
     def _build_tiles(
         source: NDArray[Any],
@@ -292,9 +270,9 @@ def stitch_from_positions(
 def stitch_labels_from_positions(
     labels: NDArray[Any],
     positions: list[tuple[float, float]],
-    pixel_size: tuple[float, float],
     rotation: float = 0.0,
-    fallback_overlap: tuple[int, int] = (0, 0),
+    overlap_x: int = 0,
+    overlap_y: int = 0,
 ) -> NDArray[Any]:
     """Stitch label masks using their absolute stage positions.
 
@@ -303,17 +281,13 @@ def stitch_labels_from_positions(
         positions: Stage positions per image, length N.
         pixel_size: (pixel_size_x, pixel_size_y) in µm/pixel.
         rotation: Rotation angle in degrees.
-        fallback_overlap: (overlap_x, overlap_y) in pixels, used when
-            positions are not in µm.
+        overlap_x: Overlap in x-dimension.
+        overlap_y: Overlap in y-dimension.
 
     Returns:
         Stitched labels of shape (Y, X, C).
     """
-    tile_shape_yx = (labels.shape[1], labels.shape[2])
-
-    grid_map, overlap_x, overlap_y = positions_to_grid(
-        positions, tile_shape_yx, pixel_size, fallback_overlap=fallback_overlap
-    )
+    grid_map = positions_to_grid(positions)
 
     tiles: dict[int, dict[int, NDArray[Any]]] = {}
     for col, row_map in grid_map.items():
