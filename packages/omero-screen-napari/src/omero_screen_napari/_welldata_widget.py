@@ -321,8 +321,7 @@ class BackgroundGeneratorWorker(GeneratorWorker):  # type: ignore[misc]
     """Worker that runs a generator in the background."""
 
     def start(self) -> None:
-        print("Starting background worker")
-        # Code below is copied from napari.qt.threading.GeneratorWorker.start: v0.6.6
+        # Code below is copied from superqt.utils._qthreading.Worker.start
         if self in self._worker_set:
             raise RuntimeError("This worker is already started!")
 
@@ -333,6 +332,7 @@ class BackgroundGeneratorWorker(GeneratorWorker):  # type: ignore[misc]
         self._finished.connect(self._set_discard)
 
         # This is changed from the original code to remove the eventloop check
+
         # if QThread.currentThread().loopLevel():
         #     # if we're in a thread with an eventloop, queue the worker to start
         #     start_ = partial(QThreadPool.globalInstance().start, self)
@@ -668,7 +668,7 @@ def start_cache_worker(plate_id: int) -> None:
             conn,
             stop_flag,
             max_workers=max_workers,
-            # _worker_class=BackgroundGeneratorWorker
+            _worker_class=BackgroundGeneratorWorker,
         )
 
         def on_finished() -> Any:

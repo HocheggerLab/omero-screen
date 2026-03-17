@@ -819,7 +819,7 @@ def cache_plate(
             # Drain the queue, yielding after every image
             while done < total:
                 try:
-                    cached = progress_q.get(timeout=5.0)
+                    cached = progress_q.get(timeout=2.0)
                     progress_q.task_done()
                     downloaded += cached
                     # Minimise cache volume calls using the downloaded size to estimate space
@@ -830,7 +830,6 @@ def cache_plate(
                     # Check if all workers have finished (error or success)
                     if all(f.done() for f in futures):
                         break
-                    continue
 
                 # Check stop flag after any potential blocking wait
                 if stop_flag.is_set():
@@ -1390,11 +1389,12 @@ def _download_batch(
         t_download = 0.0
         t_cache_write = 0.0
 
-        for image_id, timepoint in batch:
+        for i, (image_id, timepoint) in enumerate(batch):
             if pause_event is not None:
                 pause_event.wait()
             # Check stop flag after any potential blocking wait
             if stop_flag.is_set():
+                logger.info("Stopping download @ %d/%d", i, len(batch))
                 break
 
             # Keep the RawPixelsStore open across timepoints of the
