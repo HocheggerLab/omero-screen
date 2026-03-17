@@ -35,12 +35,12 @@ from omero_screen_napari.omero_image import cache_size_limit, cache_volume
 from omero_screen_napari.plate_cache import (
     cache_plate,
     delete_plate_from_cache,
-    get_plate_history,
+    get_all_cached_plates,
+    get_cached_plate_metadata,
     get_well_cache_status,
     is_plate_cached,
     is_plate_fully_cached,
     load_from_cache,
-    remove_plate_from_history,
 )
 from omero_screen_napari.position_stitching import (
     has_valid_positions,
@@ -88,11 +88,11 @@ class MetadataWidget(QWidget):  # type: ignore
 
 
 class CachedPlatesSelector(QWidget):  # type: ignore[misc]
-    """Compact dropdown showing plates from persistent history.
+    """Compact dropdown showing plates from the cache.
 
     Includes cached plates (with images in the local cache) and removed
-    plates (previously cached, now evicted or deleted).  Users can select
-    a plate to load, re-cache a removed plate, or forget it entirely.
+    plates (previously cached, now evicted).  Users can select
+    a plate to load, cache a plate, or forget it entirely.
 
     Args:
         on_plate_selected: Callback receiving the plate_id as string.
@@ -154,7 +154,7 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
         self.refresh()
 
     def refresh(self) -> None:
-        """Clean orphaned plates, rebuild the combo from plate history."""
+        """Rebuild the combo from plate cache."""
         # TODO: Add a method to clean orphaned plates.
         # Doing this automatically during refresh can remove partially downloaded plates
         # that were too large for the cache but have images in the cache.
@@ -172,39 +172,12 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
             f"Cache: {volume_gb:.1f} / {limit_gb:.1f} GB"
         )
 
-        # Get history and determine actual status per plate
-        history = get_plate_history()
-        items: list[tuple[int, str, str]] = []  # (plate_id, name, status)
-
-        for plate_id, info in history.items():
-            name = info.get("plate_name", str(plate_id))
-            if is_plate_cached(plate_id):
-                status = (
-                    "Cached" if is_plate_fully_cached(plate_id) else "Partial"
-                )
-            else:
-                status = "Removed"
-            items.append((plate_id, name, status))
-
-        # Sort: cached/partial first (by plate_id desc), then removed (by plate_id desc)
-        cached_items = sorted(
-            [i for i in items if i[2] != "Removed"],
-            key=lambda x: x[0],
-            reverse=True,
-        )
-        removed_items = sorted(
-            [i for i in items if i[2] == "Removed"],
-            key=lambda x: x[0],
-            reverse=True,
-        )
-        sorted_items = cached_items + removed_items
-
         # Block signals to avoid spurious callbacks during repopulation
         self._combo.blockSignals(True)
         prev_plate_id = self._selected_plate_id()
         self._combo.clear()
-        for plate_id, name, status in sorted_items:
-            display_text = f"{plate_id} - {name} [{status}]"
+        for plate_id, name, cache_date in get_all_cached_plates():
+            display_text = f"{plate_id} - {name} [{cache_date}]"
             self._combo.addItem(display_text, userData=plate_id)
 
         # Restore previous selection if still present
@@ -249,27 +222,26 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
         self._delete_btn.setEnabled(True)
 
         if is_plate_cached(plate_id):
-            fully = is_plate_fully_cached(plate_id)
-            status_text = "Cached" if fully else "Partial"
-            self._cache_btn.setEnabled(not fully)
-
+            fully = False
             # Well completeness summary
             well_status = get_well_cache_status(plate_id)
             if well_status:
                 complete = sum(1 for v in well_status.values() if v)
                 total = len(well_status)
+                fully = complete == total
                 well_info = f" | {complete}/{total} wells complete"
             else:
                 well_info = ""
+            status_text = "Cached" if fully else "Partial"
+            self._cache_btn.setEnabled(not fully)
         else:
             status_text = "Removed"
             well_info = ""
             self._cache_btn.setEnabled(True)
 
-        # Get last_cached from history
-        history = get_plate_history()
-        info = history.get(plate_id, {})
-        last_cached = info.get("last_cached", "unknown")
+        # Get cache date from metadata
+        meta = get_cached_plate_metadata(plate_id) or {}
+        last_cached = meta.get("cache_date", "unknown")
 
         self._detail_label.setText(
             f"Status: {status_text} | Last cached: {last_cached}{well_info}"
@@ -282,33 +254,21 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
             self._on_resume_cache(plate_id)
 
     def _on_delete_clicked(self) -> None:
-        """Delete cached data or forget a removed plate."""
+        """Delete cached data."""
         plate_id = self._selected_plate_id()
         if plate_id is None:
             return
 
-        if is_plate_cached(plate_id):
-            reply = QMessageBox.question(
-                self,
-                "Delete Cached Plate",
-                f"Delete all cached data for plate {plate_id}?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            if reply == QMessageBox.Yes:
-                delete_plate_from_cache(plate_id)
-                self.refresh()
-        else:
-            reply = QMessageBox.question(
-                self,
-                "Forget Plate",
-                f"Remove plate {plate_id} from history?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            if reply == QMessageBox.Yes:
-                remove_plate_from_history(plate_id)
-                self.refresh()
+        reply = QMessageBox.question(
+            self,
+            "Delete Cached Plate",
+            f"Delete all cached data for plate {plate_id}?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            delete_plate_from_cache(plate_id)
+            self.refresh()
 
 
 # Mock event object with the current_step attribute
