@@ -594,7 +594,7 @@ def cache_plate(
         size_limit = cache_size_limit()
         if estimated_bytes >= size_limit:
             logger.warning(
-                "Plate %d: estimated size %.1f GB exceeds cache size %.1f GB, skipping caching",
+                "Plate %d: estimated size %.2f GB exceeds cache size %.2f GB, skipping caching",
                 plate_id,
                 estimated_bytes / 2**30,
                 size_limit / 2**30,
@@ -602,7 +602,7 @@ def cache_plate(
             return
 
         logger.info(
-            "Plate %d: estimated size %.1f GB (cache volume %.1f / %.1f GB)",
+            "Plate %d: estimated size %.2f GB (cache volume %.1f / %.2f GB)",
             plate_id,
             estimated_bytes / 2**30,
             cache_volume() / 2**30,
@@ -668,7 +668,7 @@ def cache_plate(
         # This may can fail if the pixels type from previous estimate was wrong.
         if estimated_bytes >= size_limit:
             logger.warning(
-                "Plate %d: estimated download size %.1f GB exceeds cache size %.1f GB, skipping caching",
+                "Plate %d: estimated download size %.2f GB exceeds cache size %.2f GB, skipping caching",
                 plate_id,
                 estimated_bytes / 2**30,
                 size_limit / 2**30,
@@ -676,7 +676,7 @@ def cache_plate(
             return
 
         logger.info(
-            "Plate %d: estimated download size %.1f GB",
+            "Plate %d: estimated download size %.2f GB",
             plate_id,
             estimated_bytes / 2**30,
         )
@@ -792,7 +792,7 @@ def cache_plate(
                     if evicted:
                         logger.info(
                             "Reactive eviction for plate %d: "
-                            "freed plates %s (volume now %.1f GB)",
+                            "freed plates %s (volume now %.2f GB)",
                             plate_id,
                             evicted,
                             vol / 2**30,
@@ -800,7 +800,7 @@ def cache_plate(
                     elif evicted_flag == 0:
                         logger.warning(
                             "Plate %d: cache near limit but no plates "
-                            "to evict (volume %.1f / %.1f GB). "
+                            "to evict (volume %.1f / %.2f GB). "
                             "Continuing anyway.",
                             plate_id,
                             vol / 2**30,
