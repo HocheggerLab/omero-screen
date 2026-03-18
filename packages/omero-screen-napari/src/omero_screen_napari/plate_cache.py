@@ -688,17 +688,6 @@ def cache_plate(
         # No longer required
         conn.close(hard=True)
 
-    # Proactively evict old plates to make room for this one.
-    # Note: The estimate does not account for image compression
-    # so this may evict too many old plates.
-    evicted, vol, evicted_flag = ensure_cache_space(
-        estimated_bytes, plate_id, size_limit
-    )
-    if evicted:
-        logger.info(
-            "Evicted plates %s to make room for plate %d", evicted, plate_id
-        )
-
     # Distribute keys to workers round-robin
     max_workers = max(1, max_workers)
     batches: list[list[tuple[int, int]]] = [[] for _ in range(max_workers)]
@@ -724,19 +713,6 @@ def cache_plate(
     # generator can yield smooth progress to the napari progress bar.
     progress_q: queue.Queue[int] = queue.Queue()
 
-    # TODO: Test if removing reactive eviction is faster (no constant thread blocking).
-    # The size estimate based on non-compressed data + evcition headroom will cause
-    # eviction when it may not be necessary.
-
-    # Pause event for reactive eviction: workers block on this before
-    # each image.  The main loop clears it to pause workers, evicts old
-    # plates, then sets it again to resume.
-    pause_event = threading.Event()
-    pause_event.set()  # not paused initially
-    eviction_headroom = getenv_as_int(
-        "OMERO_SCREEN_CACHE_EVICTION_HEADROOM", 500 * 2**20
-    )
-
     done = 0
     try:
         downloaded = 0
@@ -748,7 +724,6 @@ def cache_plate(
                     plate_id,
                     stop_flag,
                     progress_q,
-                    pause_event,
                 )
                 for batch in batches
             ]
@@ -756,12 +731,17 @@ def cache_plate(
             # Drain the queue, yielding after every image
             while done < total:
                 try:
-                    cached = progress_q.get(timeout=2.0)
+                    downloaded += progress_q.get(timeout=2.0)
                     progress_q.task_done()
-                    downloaded += cached
-                    # Minimise cache volume calls using the downloaded size to estimate space
-                    vol += cached
                     done += 1
+                    if downloaded >= size_limit:
+                        logger.warning(
+                            "Plate %d: download size %.2f GB exceeds cache size %.2f GB, stopping caching",
+                            plate_id,
+                            downloaded / 2**30,
+                            size_limit / 2**30,
+                        )
+                        stop_flag.set()
                     # Check stop flag after any potential blocking wait but before
                     # yield to allow clean-up to complete
                     if stop_flag.is_set():
@@ -771,41 +751,6 @@ def cache_plate(
                     # Check if all workers have finished (error or success)
                     if all(f.done() for f in futures):
                         break
-                    continue
-
-                # Reactive eviction: when cache approaches its limit,
-                # pause workers → evict old plates → resume workers.
-                # Only check if previous eviction was possible.
-                if evicted_flag and (vol + eviction_headroom >= size_limit):
-                    pause_event.clear()
-                    # Brief sleep so in-flight writes complete before we
-                    # measure volume for eviction.
-                    time.sleep(0.2)
-
-                    needed = estimated_bytes - downloaded
-                    evicted, vol, evicted_flag = ensure_cache_space(
-                        max(needed, eviction_headroom),
-                        plate_id,
-                        size_limit,
-                    )
-                    pause_event.set()
-                    if evicted:
-                        logger.info(
-                            "Reactive eviction for plate %d: "
-                            "freed plates %s (volume now %.2f GB)",
-                            plate_id,
-                            evicted,
-                            vol / 2**30,
-                        )
-                    elif evicted_flag == 0:
-                        logger.warning(
-                            "Plate %d: cache near limit but no plates "
-                            "to evict (volume %.1f / %.2f GB). "
-                            "Continuing anyway.",
-                            plate_id,
-                            vol / 2**30,
-                            size_limit / 2**30,
-                        )
 
             # Re-raise the first worker exception, if any
             for f in futures:
@@ -818,7 +763,6 @@ def cache_plate(
     finally:
         # In the event of exceptions cancel the download and unblock any waiting workers
         stop_flag.set()
-        pause_event.set()
 
     logger.info(
         "Plate %d: caching %s (%d/%d items)",
@@ -1273,7 +1217,6 @@ def _download_batch(
     plate_id: int,
     stop_flag: threading.Event,
     progress_q: queue.Queue[int] | None = None,
-    pause_event: threading.Event | None = None,
     conn: BlitzGateway | None = None,
 ) -> None:
     """Download a batch of images.
@@ -1282,20 +1225,14 @@ def _download_batch(
     falls back to creating one.  The connection is always closed when
     the batch finishes.
 
-    After every image is stored in the cache, a ``1`` is put on
-    *progress_q* so the caller can track per-image progress.
-
-    If *pause_event* is provided, workers block on it before each image.
-    The caller can clear the event to pause workers while running
-    cache eviction, then set it again to resume.
+    After every image is stored in the cache, the image byte size is put on
+    *progress_q* so the caller can track download progress.
 
     Args:
         batch: List of cache keys (image_id:t).
         plate_id: Plate ID.
         stop_flag: Flag to used to stop the download.
         progress_q: Optional queue for per-image progress signalling.
-        pause_event: Event that workers wait on before each image.
-            Workers block when cleared, resume when set.
         conn: Pre-created OMERO connection. If ``None``, a new one is
             created (slower — connection overhead is paid inside the worker).
     """
@@ -1325,8 +1262,6 @@ def _download_batch(
         t_cache_write = 0.0
 
         for i, (image_id, timepoint) in enumerate(batch):
-            if pause_event is not None:
-                pause_event.wait()
             # Check stop flag after any potential blocking wait
             if stop_flag.is_set():
                 logger.info("Stopping download @ %d/%d", i, len(batch))
