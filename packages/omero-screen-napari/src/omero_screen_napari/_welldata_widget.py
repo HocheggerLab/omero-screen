@@ -146,6 +146,8 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
         layout.addWidget(self._detail_label)
 
         self.refresh()
+        # Trigger selection of the current plate ID
+        self._on_activated(0)
 
     def refresh(self) -> None:
         """Rebuild the combo from plate cache."""
@@ -371,14 +373,15 @@ def _open_plate_info(
         return
 
     def build_callback(plate_id: int) -> None:
-        # If the plate is not currently selected then
-        # refresh the plate list (for unknown plates) and select it
-        if (
-            _cached_plates_selector_ref is not None
-            and plate_id != _cached_plates_selector_ref._selected_plate_id()
-        ):
-            _cached_plates_selector_ref.refresh()
-            _cached_plates_selector_ref._select_plate(plate_id)
+        if _cached_plates_selector_ref is not None:
+            # If the plate is not currently selected then
+            # refresh the plate list (for unknown plates) and select it
+            if plate_id != _cached_plates_selector_ref._selected_plate_id():
+                _cached_plates_selector_ref.refresh()
+                _cached_plates_selector_ref._select_plate(plate_id)
+            else:
+                # Ensure the detail is correct
+                _cached_plates_selector_ref._update_detail()
 
     def load_callback(well_pos: str) -> None:
         welldata_instance.well_pos_list.value = well_pos
@@ -467,21 +470,18 @@ def welldata_widget(
     """
     plate_num = int(plate_id)
 
-    conn = None
     try:
         if _is_already_loaded(omero_data, plate_num, well_pos_list, images):
             logger.info(
                 "Plate %d already in memory, skipping reload", plate_num
             )
+            _display_plate(viewer)
         else:
-            conn = _create_connection()
-            # TODO: Improve GUI responsiveness by loading in a background
+            # Improve GUI responsiveness by loading in a background
             # worker. Display the results via call backs.
-            load_from_cache(
-                conn, omero_data, plate_num, well_pos_list, images, time=time
+            start_data_worker(
+                viewer, omero_data, plate_num, well_pos_list, images, time=time
             )
-
-        _display_plate(viewer)
 
     except Exception as e:
         logger.error(f"Error in welldata_widget: {e}")
@@ -495,9 +495,6 @@ def welldata_widget(
             msg.setText(f"An unexpected error occurred: {e}")
             msg.setWindowTitle("Widget Error")
             msg.exec_()
-    finally:
-        if conn is not None:
-            conn.close(hard=True)
 
 
 def _display_plate(viewer: Viewer) -> None:
@@ -736,6 +733,138 @@ def _stop_active_download() -> None:
                 _active_cache_plate_id,
             )
             _active_cache_stop_flag.set()
+
+
+_data_lock = threading.Lock()
+_data_description = ""
+_data_stop_flag = threading.Event()
+
+
+def start_data_worker(
+    viewer: Viewer,
+    omero_data: Any,
+    plate_id: int,
+    well_pos_input: str,
+    image_input: str,
+    time: str = "All",
+    cache_images: bool = True,
+) -> None:
+    """Start background loading of plate data.
+
+    Downloads plate data. Shows a progress bar in the napari activity dock.
+
+    Skips if a worker is already running.
+    """
+    # Global reference to the active data objects.
+    # Only allowed to update when holding the lock.
+    global _data_lock, _data_description, _data_stop_flag
+
+    description = f"{plate_id}:{well_pos_input}:{image_input}:{time}"
+
+    # The data lock prevents duplicate calls to start a data worker.
+    # Only one worker should be active and this method can check the existing worker
+    # and stop it if required.
+    with _data_lock:
+        # Check active download
+        if not _data_stop_flag.is_set():
+            # A download is running, or never started when description is empty.
+            if _data_description == description:
+                logger.info(
+                    "Data worker already running for plate %d — skipping",
+                    plate_id,
+                )
+                return
+            if _data_description != "":
+                old_plate = _data_description[: _data_description.index(":")]
+                logger.info(
+                    "Cancelling data worker for plate %s",
+                    old_plate,
+                )
+                _data_stop_flag.set()
+
+        # From here we are committed to starting a new download.
+        # Create a connection manually (worker is async, can't use decorator)
+        conn = _create_connection()
+        # This flag can be used to stop a running download. It is set when
+        # the download ends to signal the download is no longer active.
+        stop_flag = threading.Event()
+
+        # Napari progress bar — created lazily on the first progress signal
+        # when we know the total count.
+        pbr: list[Any] = []  # mutable container so closures can share it
+        _prev_done = 0
+        _total = 0
+
+        worker = create_worker(
+            load_from_cache,
+            conn,
+            omero_data,
+            plate_id,
+            well_pos_input,
+            image_input,
+            stop_flag,
+            time=time,
+            cache_images=cache_images,
+            _worker_class=BackgroundGeneratorWorker,
+        )
+        worker.stop_flag = stop_flag
+
+        def on_finished() -> Any:
+            logger.info("Data worker finished for plate %d", plate_id)
+            if pbr:
+                pbr[0].set_description(f"Plate {plate_id} loaded")
+                pbr[0].close()
+                # Wells may have been downloaded so update the detail label
+                if _cached_plates_selector_ref is not None:
+                    _cached_plates_selector_ref._update_detail()
+                # Display if done, otherwise assume load was cancelled
+                if _prev_done == _total:
+                    _display_plate(viewer)
+
+        def on_error(exc: BaseException) -> None:
+            logger.error("Data worker error for plate %d: %s", plate_id, exc)
+            if pbr:
+                pbr[0].set_description(f"Data error: {exc}")
+                pbr[0].close()
+
+        def on_progress(prog: tuple[int, int]) -> None:
+            nonlocal _prev_done, _total
+            done, total = prog
+            if total <= 0:
+                return
+            # Create the bar on first real signal so total is correct from the start
+            if not pbr:
+                _total = total
+                pbr.append(
+                    napari_progress(
+                        total=total, desc=f"Loading plate {plate_id}"
+                    )
+                )
+            delta = done - _prev_done
+            if delta > 0:
+                pbr[0].update(delta)
+            _prev_done = done
+
+        def on_aborted() -> None:
+            logger.warning("Data worker aborted for plate %d", plate_id)
+            if pbr:
+                pbr[0].set_description(f"Plate {plate_id} cancelled")
+                pbr[0].close()
+
+        worker.yielded.connect(on_progress)
+        worker.finished.connect(on_finished)
+        worker.errored.connect(on_error)
+        # Note: This does not seem to be called when napari exits and aborts threads
+        # in the global pool. So we also check abort_requested in on_progress.
+        worker.aborted.connect(on_aborted)
+        worker.start()
+
+        # The download has started. Store objects to allow it to be cancelled.
+        _data_description = description
+        _data_stop_flag = stop_flag
+        # End-of with _active_lock
+
+    logger.info("Started data worker for plate %d", plate_id)
 
 
 def clear_viewer_layers(viewer: Viewer) -> None:

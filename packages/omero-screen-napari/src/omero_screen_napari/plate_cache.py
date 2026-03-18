@@ -1323,120 +1323,245 @@ def load_from_cache(
     plate_id: int,
     well_pos_input: str,
     image_input: str,
+    stop_flag: threading.Event,
     time: str = "All",
     cache_images: bool = True,
-) -> None:
+) -> Generator[tuple[int, int], None, None]:
     """Populate OmeroData using the cache, otherwise from OMERO.
 
     The connection will not be used if the data is fully cached.
 
     Args:
-        conn: OMERO connection.
+        conn: Active OMERO connection (closed by this method).
         omero_data: OmeroData instance to populate.
         plate_id: Plate ID.
         well_pos_input: Comma-separated well positions (e.g. "A1, A2").
         image_input: Image index input (e.g. "All", "0-3", "1, 3").
+        stop_flag: Flag to used to stop the download.
         time: Time input (e.g. "All", "1-3").
         cache_images: If True any images downloaded from OMERO will be cached.
+
+    Yields:
+        Tuple of (images_done, images_total).
     """
-    meta = get_plate_metadata(conn, plate_id)
-    wells = get_well_data(conn, plate_id)
-    label_map = get_label_map(conn, plate_id)
+    # Use try-block to close the connection when no longer required
+    try:
+        meta = get_plate_metadata(conn, plate_id)
+        wells = get_well_data(conn, plate_id)
+        label_map = get_label_map(conn, plate_id)
 
-    # flatfield correction image: ZYXC
-    ff_mask_id = meta.get("ff_mask_id") or 0
-    flatfield_masks = get_cached_image(get_key(ff_mask_id, 0))
-    if flatfield_masks is None:
-        flatfield_masks = get_image(conn, ff_mask_id)
+        # flatfield correction image: ZYXC
+        ff_mask_id = meta.get("ff_mask_id") or 0
+        flatfield_masks = get_cached_image(get_key(ff_mask_id, 0))
         if flatfield_masks is None:
-            raise ValueError(f"Plate {plate_id} flat-field mask missing")
-    flatfield_masks = flatfield_masks.astype(np.float32)
+            flatfield_masks = get_image(conn, ff_mask_id)
+            if flatfield_masks is None:
+                raise ValueError(f"Plate {plate_id} flat-field mask missing")
+        flatfield_masks = flatfield_masks.astype(np.float32)
 
-    # Parse user well selection
-    well_pos_list = [w.strip() for w in well_pos_input.split(",")]
+        # Parse user well selection
+        well_pos_list = [w.strip() for w in well_pos_input.split(",")]
 
-    # Parse image index selection
-    image_index = _parse_image_index(image_input, wells, well_pos_list)
+        # Parse image index selection
+        image_index = _parse_image_index(image_input, wells, well_pos_list)
 
-    # Parse time crop
-    tstart, tend = _parse_time_range(time)
+        # Parse time crop
+        tstart, tend = _parse_time_range(time)
 
-    # Reset well/image data
-    well_id_list = []
-    well_metadata_list = []
-
-    image_arrays: list[npt.NDArray[Any]] = []
-    label_arrays: list[npt.NDArray[Any]] = []
-    image_ids: list[int] = []
-    image_positions: list[tuple[float, float] | None] = []
-
-    for i, well_pos in enumerate(well_pos_list):
-        if well_pos not in wells:
-            raise ValueError(f"Well {well_pos} not found in plate data")
-        logger.info(
-            "Loading well images %s (%d/%d)",
-            well_pos,
-            i + 1,
-            len(well_pos_list),
+        # Count images (for yield)
+        total = _count_images(
+            wells, label_map, well_pos_list, image_index, tstart, tend
         )
 
-        well_info = wells[well_pos]
-        well_id_list.append(well_info["well_id"])
-        well_metadata_list.append(well_info["metadata"])
+        # Reset well/image data
+        well_id_list = []
+        well_metadata_list = []
 
-        # Get images for selected indices
-        well_images = well_info["images"]
-        for idx in image_index:
-            if idx >= len(well_images):
-                logger.warning(
-                    "Image index %d out of range for well %s", idx, well_pos
-                )
-                continue
+        image_arrays: list[npt.NDArray[Any]] = []
+        label_arrays: list[npt.NDArray[Any]] = []
+        image_ids: list[int] = []
+        image_positions: list[tuple[float, float] | None] = []
+        done = 0
 
-            img_info = well_images[idx]
-            image_id = img_info["image_id"]  # type: ignore[assignment]
-            image_t = img_info["dims"][0]  # type: ignore[assignment]
-            image_ids.append(image_id)
-            image_positions.append(img_info.get("pos"))
-
-            # Determine timepoint range
-            t_start = tstart if tstart is not None else 0
-            t_end = tend if tend is not None else image_t
-
-            timepoint_arrays: list[npt.NDArray[Any]] = []
-            store = None
-            for t in range(t_start, t_end):
-                arr = get_cached_image(get_key(image_id, t))
-                if arr is None:
-                    if store is None:
-                        store, shape, dt_be = initialise_download(
-                            conn, get_omero_image_wrapper(conn, image_id)
-                        )
-                    arr = get_omero_image_timepoint(store, t, shape, dt_be)
-                    if cache_images:
-                        add_cached_image(
-                            get_key(image_id, t), arr, tag=plate_id
-                        )
-                # Flatfield correction
-                timepoint_arrays.append(
-                    arr.astype(np.float32) / flatfield_masks
-                )
-            if store is not None:
-                store.close()
-
-            if len(timepoint_arrays) == 1:
-                image_arrays.append(timepoint_arrays[0])
-            else:
-                image_arrays.append(np.stack(timepoint_arrays, axis=0))
-
-        # Get labels for this well
-        if well_pos in label_map:
+        for i, well_pos in enumerate(well_pos_list):
             logger.info(
-                "Loading well labels %s (%d/%d)",
+                "Loading well images %s (%d/%d)",
                 well_pos,
                 i + 1,
                 len(well_pos_list),
             )
+
+            well_info = wells[well_pos]
+            well_id_list.append(well_info["well_id"])
+            well_metadata_list.append(well_info["metadata"])
+
+            # Get images for selected indices
+            well_images = well_info["images"]
+            for idx in image_index:
+                if idx >= len(well_images):
+                    logger.warning(
+                        "Image index %d out of range for well %s",
+                        idx,
+                        well_pos,
+                    )
+                    continue
+
+                img_info = well_images[idx]
+                image_id = img_info["image_id"]  # type: ignore[assignment]
+                image_t = img_info["dims"][0]  # type: ignore[assignment]
+                image_ids.append(image_id)
+                image_positions.append(img_info.get("pos"))
+
+                # Determine timepoint range
+                t_start = tstart if tstart is not None else 0
+                t_end = tend if tend is not None else image_t
+
+                timepoint_arrays: list[npt.NDArray[Any]] = []
+                store = None
+                for t in range(t_start, t_end):
+                    arr = get_cached_image(get_key(image_id, t))
+                    if arr is None:
+                        if store is None:
+                            store, shape, dt_be = initialise_download(
+                                conn, get_omero_image_wrapper(conn, image_id)
+                            )
+                        arr = get_omero_image_timepoint(store, t, shape, dt_be)
+                        if cache_images:
+                            add_cached_image(
+                                get_key(image_id, t), arr, tag=plate_id
+                            )
+                    # Flatfield correction
+                    timepoint_arrays.append(
+                        arr.astype(np.float32) / flatfield_masks
+                    )
+                    done += 1
+                    # Return before yield to allow connection clean-up
+                    if stop_flag.is_set():
+                        return
+                    yield done, total
+                if store is not None:
+                    store.close()
+
+                if len(timepoint_arrays) == 1:
+                    image_arrays.append(timepoint_arrays[0])
+                else:
+                    image_arrays.append(np.stack(timepoint_arrays, axis=0))
+
+            # Get labels for this well
+            if well_pos in label_map:
+                logger.info(
+                    "Loading well labels %s (%d/%d)",
+                    well_pos,
+                    i + 1,
+                    len(well_pos_list),
+                )
+                well_label_entries = label_map[well_pos]
+                for idx in image_index:
+                    if idx < len(well_label_entries):
+                        label_entry = well_label_entries[idx]
+                        if label_entry is None:
+                            # No label for corresponding image
+                            continue
+
+                        label_id: int = label_entry["image_id"]  # type: ignore[assignment]
+                        label_t: int = label_entry["dims"][0]  # type: ignore[assignment, index]
+
+                        # Determine timepoint range
+                        t_start = tstart if tstart is not None else 0
+                        t_end = tend if tend is not None else label_t
+
+                        timepoint_label_arrays: list[npt.NDArray[Any]] = []
+                        store = None
+                        for t in range(t_start, t_end):
+                            arr = get_cached_image(get_key(label_id, t))
+                            if arr is None:
+                                if store is None:
+                                    store, shape, dt_be = initialise_download(
+                                        conn,
+                                        get_omero_image_wrapper(
+                                            conn, label_id
+                                        ),
+                                    )
+                                arr = get_omero_image_timepoint(
+                                    store, t, shape, dt_be
+                                )
+                                if cache_images:
+                                    add_cached_image(
+                                        get_key(label_id, t), arr, tag=plate_id
+                                    )
+                            timepoint_label_arrays.append(arr)
+                            done += 1
+                            # Return before yield to allow connection clean-up
+                            if stop_flag.is_set():
+                                return
+                            yield done, total
+                        if store is not None:
+                            store.close()
+
+                        if len(timepoint_label_arrays) == 1:
+                            label_arrays.append(timepoint_label_arrays[0])
+                        else:
+                            label_arrays.append(
+                                np.stack(timepoint_label_arrays, axis=0)
+                            )
+
+        # Re-populate OmeroData fields
+        omero_data.reset_well_and_image_data()
+        omero_data.well_id_list = well_id_list
+        omero_data.well_metadata_list = well_metadata_list
+
+        omero_data.plate_id = plate_id
+        omero_data.channel_data = meta["channel_data"]
+        omero_data.pixel_size = meta["pixel_size"]
+        omero_data.intensities = meta["intensities"]
+        omero_data.plate_name = meta["plate_name"]
+
+        omero_data.well_pos_list = well_pos_list
+
+        omero_data.image_index = image_index
+        omero_data.image_input = image_input
+
+        omero_data.image_ids = image_ids
+        omero_data.image_positions = image_positions
+        omero_data.images = _squeeze_stack(image_arrays, "images")
+        omero_data.labels = _squeeze_stack(label_arrays, "labels")
+
+        logger.info(
+            "Loaded plate %d: %d images, %d labels",
+            plate_id,
+            len(image_arrays),
+            len(label_arrays),
+        )
+    finally:
+        conn.close(hard=True)
+
+
+def _count_images(
+    wells: dict[str, Any],
+    label_map: dict[str, list[dict[str, int | tuple[int, ...]] | None]],
+    well_pos_list: list[str],
+    image_index: list[int],
+    tstart: int | None,
+    tend: int | None,
+) -> int:
+    total = 0
+    for well_pos in well_pos_list:
+        if well_pos not in wells:
+            raise ValueError(f"Well {well_pos} not found in plate data")
+        well_info = wells[well_pos]
+        # Get images for selected indices
+        well_images = well_info["images"]
+        for idx in image_index:
+            if idx >= len(well_images):
+                continue
+            img_info = well_images[idx]
+            image_t = img_info["dims"][0]  # type: ignore[assignment]
+            # Determine timepoint range
+            t_start = tstart if tstart is not None else 0
+            t_end = tend if tend is not None else image_t
+            total += t_end - t_start
+        # Get labels for this well
+        if well_pos in label_map:
             well_label_entries = label_map[well_pos]
             for idx in image_index:
                 if idx < len(well_label_entries):
@@ -1444,69 +1569,13 @@ def load_from_cache(
                     if label_entry is None:
                         # No label for corresponding image
                         continue
-
-                    label_id: int = label_entry["image_id"]  # type: ignore[assignment]
                     label_t: int = label_entry["dims"][0]  # type: ignore[assignment, index]
-
                     # Determine timepoint range
                     t_start = tstart if tstart is not None else 0
                     t_end = tend if tend is not None else label_t
+                    total += t_end - t_start
 
-                    timepoint_label_arrays: list[npt.NDArray[Any]] = []
-                    store = None
-                    for t in range(t_start, t_end):
-                        arr = get_cached_image(get_key(label_id, t))
-                        if arr is None:
-                            if store is None:
-                                store, shape, dt_be = initialise_download(
-                                    conn,
-                                    get_omero_image_wrapper(conn, label_id),
-                                )
-                            arr = get_omero_image_timepoint(
-                                store, t, shape, dt_be
-                            )
-                            if cache_images:
-                                add_cached_image(
-                                    get_key(label_id, t), arr, tag=plate_id
-                                )
-                        timepoint_label_arrays.append(arr)
-                    if store is not None:
-                        store.close()
-
-                    if len(timepoint_label_arrays) == 1:
-                        label_arrays.append(timepoint_label_arrays[0])
-                    else:
-                        label_arrays.append(
-                            np.stack(timepoint_label_arrays, axis=0)
-                        )
-
-    # Re-populate OmeroData fields
-    omero_data.reset_well_and_image_data()
-    omero_data.well_id_list = well_id_list
-    omero_data.well_metadata_list = well_metadata_list
-
-    omero_data.plate_id = plate_id
-    omero_data.channel_data = meta["channel_data"]
-    omero_data.pixel_size = meta["pixel_size"]
-    omero_data.intensities = meta["intensities"]
-    omero_data.plate_name = meta["plate_name"]
-
-    omero_data.well_pos_list = well_pos_list
-
-    omero_data.image_index = image_index
-    omero_data.image_input = image_input
-
-    omero_data.image_ids = image_ids
-    omero_data.image_positions = image_positions
-    omero_data.images = _squeeze_stack(image_arrays, "images")
-    omero_data.labels = _squeeze_stack(label_arrays, "labels")
-
-    logger.info(
-        "Loaded plate %d: %d images, %d labels",
-        plate_id,
-        len(image_arrays),
-        len(label_arrays),
-    )
+    return total
 
 
 def _squeeze_stack(
