@@ -149,16 +149,6 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
 
     def refresh(self) -> None:
         """Rebuild the combo from plate cache."""
-        # TODO: Add a method to clean orphaned plates.
-        # Doing this automatically during refresh can remove partially downloaded plates
-        # that were too large for the cache but have images in the cache.
-
-        # # Clean up plates with <50% completeness (skip active download)
-        # exclude = {get_active_download()}
-        # cleaned = clean_orphaned_plates(exclude_plate_ids=exclude)
-        # if cleaned:
-        #     logger.info("Cleaned orphaned plates during refresh: %s", cleaned)
-
         # Update cache size label
         volume_gb = cache_volume() / 2**30
         limit_gb = cache_size_limit() / 2**30
