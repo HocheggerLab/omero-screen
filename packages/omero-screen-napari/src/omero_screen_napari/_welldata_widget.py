@@ -915,6 +915,7 @@ def _display_stitched(
         add_label_layers(viewer, labels=stitched_labels)
     viewer.scale_bar.visible = True
     viewer.scale_bar.unit = "µm"
+    viewer.reset_view()
 
 
 @magic_factory(call_button="Enter")
