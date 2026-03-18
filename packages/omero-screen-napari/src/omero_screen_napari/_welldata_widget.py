@@ -255,13 +255,17 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
         plate_id = self._selected_plate_id()
         if plate_id is not None:
             start_cache_worker(plate_id)
-            # Note: Ideally we would like a callback event when the
-            # caching starts to enable the cancel button and
-            # when it completes to disable the cancel button.
-            # Presently we just poll the active download.
-            self._cache_timer = QTimer(self)
-            self._cache_timer.timeout.connect(self._poll_cache_status)
-            self._cache_timer.start(1000)
+            self.enable_cancel_button()
+
+    def enable_cancel_button(self) -> None:
+        """Enable the cancel button to stop the active download."""
+        # Note: Ideally we would like a callback event when the
+        # caching starts to enable the cancel button and
+        # when it completes to disable the cancel button.
+        # Presently we just poll the active download.
+        self._cache_timer = QTimer(self)
+        self._cache_timer.timeout.connect(self._poll_cache_status)
+        self._cache_timer.start(1000)
 
     def _poll_cache_status(self) -> None:
         """Check for newly cached wells and update the table."""
@@ -380,10 +384,16 @@ def _open_plate_info(
         welldata_instance.well_pos_list.value = well_pos
         welldata_instance()
 
+    def cache_callback(plate_id: int) -> None:
+        start_cache_worker(plate_id)
+        if _cached_plates_selector_ref is not None:
+            _cached_plates_selector_ref.enable_cancel_button()
+
     dialog = dialog_cls(
         plate_id,
         on_build_callback=build_callback,
         on_load_callback=load_callback,
+        on_cache_callback=cache_callback,
         parent=parent,
     )
     dialog.exec_()

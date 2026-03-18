@@ -231,6 +231,7 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
         plate_id: OMERO plate ID.
         on_build_callback: Callback used when the plate info has been built (receives plate ID).
         on_load_callback: Callback receiving a well position string (e.g. "A1").
+        on_cache_callback: Callback receiving plate ID to cache.
         parent: Parent widget.
     """
 
@@ -239,11 +240,13 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
         plate_id: int,
         on_build_callback: Callable[[int], None] | None = None,
         on_load_callback: Callable[[str], None] | None = None,
+        on_cache_callback: Callable[[int], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.plate_id = plate_id
         self.on_load_callback = on_load_callback
+        self.on_cache_callback = on_cache_callback
 
         try:
             header_info, metadata_keys, rows, is_cached = build_table_data(
@@ -281,6 +284,9 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
         # Buttons
         button_layout = QHBoxLayout()
         button_layout.addWidget(self._select_all_cb)
+        cache_btn = QPushButton("Cache Plate")
+        cache_btn.clicked.connect(self._on_cache_selected)
+        button_layout.addWidget(cache_btn)
         load_btn = QPushButton("Load Selected")
         load_btn.clicked.connect(self._on_load_selected)
         button_layout.addWidget(load_btn)
@@ -303,11 +309,11 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
         if is_cached:
             status = "<span style='color:green'>Cached</span>"
         else:
-            status = "<span style='color:orange'>Not cached</span>"
+            status = "<span style='color:orange'>OMERO</span>"
 
         text = (
             f"<b>Channels:</b> {header_info['channels']}  |  "
-            f"<b>Status:</b> {status}<br>"
+            f"<b>Metadata Status:</b> {status}<br>"
             f"<b>Wells:</b> {header_info['total_wells']}  |  "
             f"<b>Images:</b> {header_info['total_images']}  |  "
             f"<b>Pixel size:</b> {header_info['pixel_size']}"
@@ -471,6 +477,13 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
             self.on_load_callback(item.text())
             self.accept()
 
+    def _on_cache_selected(self) -> None:
+        """Cache the plate."""
+        if self.on_cache_callback is None:
+            return
+        self.on_cache_callback(self.plate_id)
+        self._start_cache_monitoring()
+
     def _start_cache_monitoring(self) -> None:
         """Start a QTimer to poll cache status if a worker is active."""
         from omero_screen_napari._welldata_widget import get_active_download
@@ -508,12 +521,12 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
             self._cache_timer.stop()
             self._cache_timer = None
 
-    def closeEvent(self, event: Any) -> None:
+    def closeEvent(self, a0: Any) -> None:
         """Stop the cache timer when the dialog closes."""
         if self._cache_timer is not None:
             self._cache_timer.stop()
             self._cache_timer = None
-        super().closeEvent(event)
+        super().closeEvent(a0)
 
     def _show_error(self, message: str) -> None:
         """Set up a minimal error-state layout."""
