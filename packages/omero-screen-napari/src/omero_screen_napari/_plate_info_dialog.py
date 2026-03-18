@@ -229,6 +229,7 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
 
     Args:
         plate_id: OMERO plate ID.
+        on_build_callback: Callback used when the plate info has been built (receives plate ID).
         on_load_callback: Callback receiving a well position string (e.g. "A1").
         parent: Parent widget.
     """
@@ -236,6 +237,7 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
     def __init__(
         self,
         plate_id: int,
+        on_build_callback: Callable[[int], None] | None = None,
         on_load_callback: Callable[[str], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -253,6 +255,9 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
             )
             self._show_error(str(e))
             return
+
+        if on_build_callback is not None:
+            on_build_callback(plate_id)
 
         self._rows = rows
         self._is_cached = is_cached

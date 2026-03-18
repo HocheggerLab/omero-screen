@@ -177,14 +177,7 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
             self._combo.addItem(display_text, userData=plate_id)
 
         # Restore previous selection if still present
-        if prev_plate_id is not None:
-            for i in range(self._combo.count()):
-                if (
-                    self._combo.itemData(i, Qt.ItemDataRole.UserRole)
-                    == prev_plate_id
-                ):
-                    self._combo.setCurrentIndex(i)
-                    break
+        self._select_plate(prev_plate_id)
 
         self._combo.blockSignals(False)
         self._update_detail()
@@ -195,6 +188,15 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
         if idx < 0:
             return None
         return self._combo.itemData(idx, Qt.ItemDataRole.UserRole)  # type: ignore[no-any-return]
+
+    def _select_plate(self, plate_id: int | None) -> None:
+        """Select the specified plate."""
+        if plate_id is None:
+            return
+        for i in range(self._combo.count()):
+            if self._combo.itemData(i, Qt.ItemDataRole.UserRole) == plate_id:
+                self._combo.setCurrentIndex(i)
+                break
 
     def _on_index_changed(self, _index: int) -> None:
         """Update detail label and button states when selection changes."""
@@ -376,12 +378,25 @@ def _open_plate_info(
         )
         return
 
+    def build_callback(plate_id: int) -> None:
+        # If the plate is not currently selected then
+        # refresh the plate list (for unknown plates) and select it
+        if (
+            _cached_plates_selector_ref is not None
+            and plate_id != _cached_plates_selector_ref._selected_plate_id()
+        ):
+            _cached_plates_selector_ref.refresh()
+            _cached_plates_selector_ref._select_plate(plate_id)
+
     def load_callback(well_pos: str) -> None:
         welldata_instance.well_pos_list.value = well_pos
         welldata_instance()
 
     dialog = dialog_cls(
-        plate_id, on_load_callback=load_callback, parent=parent
+        plate_id,
+        on_build_callback=build_callback,
+        on_load_callback=load_callback,
+        parent=parent,
     )
     dialog.exec_()
 
