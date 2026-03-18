@@ -49,6 +49,11 @@ def get_key(image_id: int, t: int) -> str | int | bytes:
     return image_id << 16 | t
 
 
+def exhaust(generator):
+     for _ in generator:
+         pass
+
+
 # --------------- Fixtures ---------------
 
 
@@ -417,7 +422,7 @@ class TestLoadFromCache:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(MagicMock(), od, plate_id, "A1", "All")
+            exhaust(load_from_cache(MagicMock(), od, plate_id, "A1", "All", threading.Event()))
 
             assert od.plate_id == plate_id
             assert od.channel_data == {"DAPI": "0", "Tub": "1"}
@@ -444,7 +449,7 @@ class TestLoadFromCache:
 
             od = OmeroData()
             with pytest.raises(Exception, match=msg):
-                load_from_cache(mock_conn, od, 999, "A1", "All")
+                exhaust(load_from_cache(mock_conn, od, 999, "A1", "All", threading.Event()))
 
     def test_load_from_cache_stores_positions(
         self, mock_cache, sample_meta, sample_wells, sample_label_map
@@ -471,7 +476,7 @@ class TestLoadFromCache:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(MagicMock(), od, plate_id, "A1", "All")
+            exhaust(load_from_cache(MagicMock(), od, plate_id, "A1", "All", threading.Event()))
 
             assert len(od.image_positions) == 2
             assert od.image_positions[0] == (0.0, 0.0)
@@ -513,7 +518,7 @@ class TestLoadFromCache:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(MagicMock(), od, plate_id, "A1", "All")
+            exhaust(load_from_cache(MagicMock(), od, plate_id, "A1", "All", threading.Event()))
 
             assert len(od.image_positions) == 2
             assert od.image_positions[0] is None
@@ -541,10 +546,41 @@ class TestLoadFromCache:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(MagicMock(), od, plate_id, "A1", "0")  # Only first image
+            exhaust(load_from_cache(MagicMock(), od, plate_id, "A1", "0", threading.Event()))  # Only first image
 
             assert len(od.image_ids) == 1
             assert od.image_ids[0] == 100
+
+    def test_load_with_stop_flag(
+        self, mock_cache, sample_meta, sample_wells, sample_label_map
+    ):
+        fake_cache, fake_image_cache = mock_cache
+        plate_id = 42
+        fake_cache[_get_meta_key(plate_id)] = sample_meta
+        fake_cache[_get_well_key(plate_id)] = sample_wells
+        fake_cache[_get_label_key(plate_id)] = sample_label_map
+
+        # Require images to avoid using connection
+        img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
+        fake_image_cache[get_key(100, 0)] = img_array
+        fake_image_cache[get_key(101, 0)] = img_array
+        label_array = np.ones((1, 100, 100, 1), dtype=np.int32)
+        fake_image_cache[get_key(500, 0)] = label_array
+        fake_image_cache[get_key(501, 0)] = label_array
+        fake_image_cache[get_key(999, 0)] = label_array
+
+        with (
+            patch("omero_screen_napari.plate_cache._cache", fake_cache),
+            patch("omero_screen_napari.omero_image._cache", fake_image_cache),
+        ):
+            from omero_screen_napari.plate_cache import load_from_cache
+
+            od = OmeroData()
+            stop_flag = threading.Event()
+            stop_flag.set()
+            exhaust(load_from_cache(MagicMock(), od, plate_id, "A1", "All", stop_flag))
+
+            assert len(od.image_ids) == 0
 
 
 # --------------- _unwrap_length ---------------
@@ -1372,7 +1408,7 @@ class TestLabelMultiTimepoint:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(MagicMock(), od, plate_id, "A1", "All")
+            exhaust(load_from_cache(MagicMock(), od, plate_id, "A1", "All", threading.Event()))
 
             # load_from_cache only loads t=0 for labels, so 1 label
             assert od.labels.shape[0] == 1
@@ -1667,7 +1703,7 @@ class TestLoadFromCacheDtype:
             from omero_screen_napari.plate_cache import load_from_cache
 
             od = OmeroData()
-            load_from_cache(MagicMock(), od, plate_id, "A1", "All")
+            exhaust(load_from_cache(MagicMock(), od, plate_id, "A1", "All", threading.Event()))
 
             assert od.images.dtype == np.float32
             # image is 1000 / 2 = 500
