@@ -18,7 +18,7 @@ from napari.utils import progress as napari_progress
 from napari.viewer import Viewer
 from omero.gateway import BlitzGateway
 from omero_screen.config import get_logger
-from qtpy.QtCore import Qt, QThreadPool, QTimer
+from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -301,27 +301,6 @@ class BackgroundGeneratorWorker(GeneratorWorker):  # type: ignore[misc]
 
     stop_flag: threading.Event | None = None
 
-    def start(self) -> None:
-        # Code below is copied from superqt.utils._qthreading.Worker.start
-        if self in self._worker_set:
-            raise RuntimeError("This worker is already started!")
-
-        # This will raise a RunTimeError if the worker is already deleted
-        repr(self)
-
-        self._worker_set.add(self)
-        self._finished.connect(self._set_discard)
-
-        # This is changed from the original code to remove the eventloop check
-
-        # if QThread.currentThread().loopLevel():
-        #     # if we're in a thread with an eventloop, queue the worker to start
-        #     start_ = partial(QThreadPool.globalInstance().start, self)
-        #     QTimer.singleShot(1, start_)
-        # else:
-        # otherwise start it immediately
-        QThreadPool.globalInstance().start(self)
-
     def quit(self) -> None:
         super().quit()
         # Override the quit method to set the stop flag.
@@ -479,7 +458,6 @@ def welldata_widget(
     well_pos_list: str = "Well Position",
     images: str = "All",
     time: str = "All",
-    cache: bool = True,
 ) -> None:
     """
     This function is a widget for handling well data in a napari viewer.
@@ -488,9 +466,6 @@ def welldata_widget(
     sets color maps, and adds label layers to the viewer.
     """
     plate_num = int(plate_id)
-
-    if cache:
-        start_cache_worker(plate_num)
 
     conn = None
     try:
