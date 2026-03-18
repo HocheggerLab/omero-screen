@@ -152,7 +152,7 @@ def _build_header_info(
     return {
         "plate_name": plate_name,
         "channels": ", ".join(channel_data.keys()),
-        "pixel_size": f"{pixel_size[0]} x {pixel_size[1]} \u00b5m",
+        "pixel_size": f"{pixel_size[0]:.3f} x {pixel_size[1]:.3f} \u00b5m",
         "total_wells": len(wells),
         "total_images": total_images,
     }
