@@ -18,7 +18,7 @@ from napari.utils import progress as napari_progress
 from napari.viewer import Viewer
 from omero.gateway import BlitzGateway
 from omero_screen.config import get_logger
-from qtpy.QtCore import Qt, QThreadPool
+from qtpy.QtCore import Qt, QThreadPool, QTimer
 from qtpy.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -92,18 +92,15 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
 
     Args:
         on_plate_selected: Callback receiving the plate_id as string.
-        on_resume_cache: Callback receiving the plate_id as int to start/resume caching.
     """
 
     def __init__(
         self,
         on_plate_selected: Callable[[str], None] | None = None,
-        on_resume_cache: Callable[[int], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._on_plate_selected = on_plate_selected
-        self._on_resume_cache = on_resume_cache
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -121,13 +118,6 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
         self._combo.activated.connect(self._on_activated)
         combo_row.addWidget(self._combo, stretch=1)
 
-        self._cache_btn = QPushButton("Cache")
-        self._cache_btn.setFixedWidth(60)
-        self._cache_btn.setToolTip("Download plate data to local cache")
-        self._cache_btn.clicked.connect(self._on_cache_clicked)
-        self._cache_btn.setEnabled(False)
-        combo_row.addWidget(self._cache_btn)
-
         self._delete_btn = QPushButton("Delete")
         self._delete_btn.setFixedWidth(60)
         self._delete_btn.setToolTip(
@@ -137,10 +127,18 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
         self._delete_btn.setEnabled(False)
         combo_row.addWidget(self._delete_btn)
 
-        refresh_btn = QPushButton("Refresh")
-        refresh_btn.setFixedWidth(60)
-        refresh_btn.clicked.connect(self.refresh)
-        combo_row.addWidget(refresh_btn)
+        self._cache_btn = QPushButton("Cache")
+        self._cache_btn.setFixedWidth(60)
+        self._cache_btn.setToolTip("Download plate data to local cache")
+        self._cache_btn.clicked.connect(self._on_cache_clicked)
+        self._cache_btn.setEnabled(False)
+        combo_row.addWidget(self._cache_btn)
+
+        self._cancel_btn = QPushButton("Cancel")
+        self._cancel_btn.setFixedWidth(60)
+        self._cancel_btn.clicked.connect(self._on_stop_clicked)
+        self._cancel_btn.setEnabled(False)
+        combo_row.addWidget(self._cancel_btn)
         layout.addLayout(combo_row)
 
         # Row 3: detail label
@@ -245,12 +243,6 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
             f"Status: {status_text} | Last cached: {last_cached}{well_info}"
         )
 
-    def _on_cache_clicked(self) -> None:
-        """Start or resume caching for the selected plate."""
-        plate_id = self._selected_plate_id()
-        if plate_id is not None and self._on_resume_cache is not None:
-            self._on_resume_cache(plate_id)
-
     def _on_delete_clicked(self) -> None:
         """Delete cached data."""
         plate_id = self._selected_plate_id()
@@ -267,6 +259,35 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
         if reply == QMessageBox.Yes:
             delete_plate_from_cache(plate_id)
             self.refresh()
+
+    def _on_cache_clicked(self) -> None:
+        """Start or resume caching for the selected plate."""
+        plate_id = self._selected_plate_id()
+        if plate_id is not None:
+            start_cache_worker(plate_id)
+            # Note: Ideally we would like a callback event when the
+            # caching starts to enable the cancel button and
+            # when it completes to disable the cancel button.
+            # Presently we just poll the active download.
+            self._cache_timer = QTimer(self)
+            self._cache_timer.timeout.connect(self._poll_cache_status)
+            self._cache_timer.start(1000)
+
+    def _poll_cache_status(self) -> None:
+        """Check for newly cached wells and update the table."""
+        if get_active_download() != 0:
+            self._cancel_btn.setEnabled(True)
+        else:
+            self._cancel_btn.setEnabled(False)
+            t = self._cache_timer
+            self._cache_timer = None
+            if t is not None:
+                t.stop()
+
+    def _on_stop_clicked(self) -> None:
+        """Stop caching data."""
+        self._cancel_btn.setEnabled(False)
+        _stop_active_download()
 
 
 # Mock event object with the current_step attribute
@@ -341,13 +362,11 @@ def well_widget_combined() -> QWidget:  # type: ignore
     native_layout = welldata_instance.native.layout()
     native_layout.insertWidget(2, plate_info_btn)
 
-    # Cached plates selector — selecting a plate populates plate_id field,
-    # Cache button starts/resumes caching
+    # Cached plates selector — selecting a plate populates plate_id field
     cached_selector = CachedPlatesSelector(
         on_plate_selected=lambda pid: setattr(
             welldata_instance.plate_id, "value", pid
         ),
-        on_resume_cache=start_cache_worker,
     )
     _cached_plates_selector_ref = cached_selector
 
@@ -728,6 +747,20 @@ def get_active_download() -> int:
         return (
             0 if _active_cache_stop_flag.is_set() else _active_cache_plate_id
         )
+
+
+def _stop_active_download() -> None:
+    """Stop the active download."""
+    with _active_lock:
+        if (
+            _active_cache_plate_id != 0
+            and not _active_cache_stop_flag.is_set()
+        ):
+            logger.info(
+                "Cancelling cache worker for plate %d",
+                _active_cache_plate_id,
+            )
+            _active_cache_stop_flag.set()
 
 
 def clear_viewer_layers(viewer: Viewer) -> None:
