@@ -15,7 +15,7 @@ import numpy as np
 from numpy.typing import NDArray
 from omero_screen.config import get_logger
 
-from omero_screen_napari.welldata_api import compose_labels, compose_tiles
+from omero_screen_napari.welldata_api import compose_tiles
 
 logger = get_logger(__name__)
 
@@ -277,7 +277,7 @@ def stitch_labels_from_positions(
     """Stitch label masks using their absolute stage positions.
 
     Args:
-        labels: Array of shape (N, Y, X, C).
+        labels: Array of shape (N, Y, X, C) or (N, T, Y, X, C).
         positions: Stage positions per image, length N.
         pixel_size: (pixel_size_x, pixel_size_y) in µm/pixel.
         rotation: Rotation angle in degrees.
@@ -285,16 +285,43 @@ def stitch_labels_from_positions(
         overlap_y: Overlap in y-dimension.
 
     Returns:
-        Stitched labels of shape (Y, X, C).
+        Stitched labels of shape (Y, X, C) or (T, Y, X, C).
     """
+    ndim = labels.ndim
+    assert ndim in (4, 5), f"Expected 4D or 5D images, got {ndim}D"
+
     grid_map = positions_to_grid(positions)
 
-    tiles: dict[int, dict[int, NDArray[Any]]] = {}
-    for col, row_map in grid_map.items():
-        tiles[col] = {}
-        for row, idx in row_map.items():
-            tiles[col][row] = labels[idx]
+    def _build_tiles(
+        source: NDArray[Any],
+    ) -> dict[int, dict[int, NDArray[Any]]]:
+        tiles: dict[int, dict[int, NDArray[Any]]] = {}
+        for col, row_map in grid_map.items():
+            tiles[col] = {}
+            for row, idx in row_map.items():
+                tiles[col][row] = source[idx]
+        return tiles
 
-    return compose_labels(
-        tiles, rotation=rotation, ox=-overlap_x, oy=-overlap_y
-    )
+    if ndim == 5:
+        # (N, T, Y, X, C) → stitch per timepoint, then stack
+        n_timepoints = labels.shape[1]
+        layers: list[NDArray[Any]] = []
+        for t in range(n_timepoints):
+            tiles = _build_tiles(labels[:, t])
+            layers.append(
+                compose_tiles(
+                    tiles,
+                    rotation=rotation,
+                    ox=-overlap_x,
+                    oy=-overlap_y,
+                )
+            )
+        return np.stack(layers)
+    else:
+        tiles = _build_tiles(labels)
+        return compose_tiles(
+            tiles,
+            rotation=rotation,
+            ox=-overlap_x,
+            oy=-overlap_y,
+        )
