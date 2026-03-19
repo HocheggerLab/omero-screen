@@ -33,6 +33,7 @@ from pandas.api.types import is_integer_dtype
 from skimage import measure
 
 from omero_screen import default_config
+from omero_screen.benchmarking import get_benchmark
 from omero_screen.config import get_logger
 from omero_screen.general_functions import filter_segmentation, scale_img
 from omero_screen.image_classifier import ImageClassifier
@@ -96,11 +97,13 @@ class Image:
         self._flatfield_dict = flatfield_dict
         self._border = border
 
+        self._bench = get_benchmark()
         self._get_metadata()
         self.nuc_diameter = (
             10  # default value for nuclei diameter for 10x images
         )
-        self.img_dict = self._get_img_dict()
+        with self._bench.stage("download"):
+            self.img_dict = self._get_img_dict()
         self.n_mask, self.c_mask, self.cyto_mask = self._segmentation()
 
     def _get_metadata(self) -> None:
@@ -170,9 +173,11 @@ class Image:
                     n_mask = masks[..., 0]
                 break  # stop the loop once the image is found
         if n_mask is None:
-            n_mask = self._n_segmentation()
+            with self._bench.stage("nucleus_segmentation"):
+                n_mask = self._n_segmentation()
             if "Tub" in self.channels:
-                c_mask = self._c_segmentation()
+                with self._bench.stage("cell_segmentation"):
+                    c_mask = self._c_segmentation()
                 n_mask, c_mask = self._compact_mask(np.stack([n_mask, c_mask]))
                 cyto_mask = self._get_cyto(n_mask, c_mask)
             else:

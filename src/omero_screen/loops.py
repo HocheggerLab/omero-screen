@@ -56,6 +56,7 @@ from omero_screen.image_analysis import Image, ImageProperties, get_cell_model
 from omero_screen.image_classifier import ImageClassifier
 from omero_screen.quality_control import quality_control_fig
 
+from .benchmarking import get_benchmark
 from .flatfield_corr import flatfieldcorr
 from .metadata_parser import MetadataParser
 from .plate_dataset import PlateDataset
@@ -79,8 +80,11 @@ def plate_loop(
         dictionary of matplotlib figures of the inference gallery keyed by class (can be None)
     """
     logger.info("Processing plate %s", plate_id)
-    metadata = MetadataParser(conn, plate_id)
-    metadata.manage_metadata()
+    bench = get_benchmark()
+
+    with bench.stage("metadata_parsing"):
+        metadata = MetadataParser(conn, plate_id)
+        metadata.manage_metadata()
     logger.debug("Channel Metadata: %s", str(metadata.channel_data))
 
     # Validate cell line required for segmentation model
@@ -91,7 +95,9 @@ def plate_loop(
             )
 
     dataset_id = PlateDataset(conn, plate_id).dataset_id
-    flatfield_dict = flatfieldcorr(conn, metadata, dataset_id)
+
+    with bench.stage("flatfield_correction"):
+        flatfield_dict = flatfieldcorr(conn, metadata, dataset_id)
 
     _print_device_info()
 
@@ -113,32 +119,41 @@ def plate_loop(
     logger.info("Performing cell cycle analysis")
     keys = metadata.channel_data.keys()
 
-    if "EdU" in keys:
-        try:
-            H3 = "H3P" in keys
-            cyto = "Tub" in keys
+    with bench.stage("cell_cycle_analysis"):
+        if "EdU" in keys:
+            try:
+                H3 = "H3P" in keys
+                cyto = "Tub" in keys
 
-            if H3 and cyto:
-                df_final_cc = cellcycle_analysis(df_final, H3=True, cyto=True)
-            elif H3:
-                df_final_cc = cellcycle_analysis(df_final, H3=True)
-            elif not cyto:
-                df_final_cc = cellcycle_analysis(df_final, cyto=False)
-            else:
-                df_final_cc = cellcycle_analysis(df_final)
-            wells = list(
-                conn.getObject("Plate", metadata.plate_id).listChildren()
-            )
-            _add_welldata(conn, wells, df_final_cc)
-        except Exception as e:  # noqa: BLE001
-            logger.exception("Cell cycle analysis failed", e)
+                if H3 and cyto:
+                    df_final_cc = cellcycle_analysis(
+                        df_final, H3=True, cyto=True
+                    )
+                elif H3:
+                    df_final_cc = cellcycle_analysis(df_final, H3=True)
+                elif not cyto:
+                    df_final_cc = cellcycle_analysis(df_final, cyto=False)
+                else:
+                    df_final_cc = cellcycle_analysis(df_final)
+                wells = list(
+                    conn.getObject("Plate", metadata.plate_id).listChildren()
+                )
+                _add_welldata(conn, wells, df_final_cc)
+            except Exception as e:  # noqa: BLE001
+                logger.exception("Cell cycle analysis failed", e)
+                df_final_cc = None
+        else:
             df_final_cc = None
-    else:
-        df_final_cc = None
 
-    _save_results(
-        conn, df_final, df_final_cc, df_quality_control, dict_gallery, metadata
-    )
+    with bench.stage("save_results"):
+        _save_results(
+            conn,
+            df_final,
+            df_final_cc,
+            df_quality_control,
+            dict_gallery,
+            metadata,
+        )
     _remove_intermediate_well_results(
         conn, list(conn.getObject("Plate", metadata.plate_id).listChildren())
     )
@@ -189,6 +204,7 @@ def process_wells(
         ]
     border = int(os.getenv("OMERO_SCREEN_CLEAR_BORDER", "5"))
     wells = list(conn.getObject("Plate", metadata.plate_id).listChildren())
+    get_benchmark().set_well_count(len(wells))
     for count, well in enumerate(wells):
         ann = parse_annotations(well)
         try:
@@ -352,26 +368,31 @@ def _well_loop(
         for image in dataset.listChildren():
             seg.add(image.getName())
 
+    bench = get_benchmark()
     for number in tqdm.tqdm(range(image_number)):
         omero_img = well.getImage(number)
         if f"{omero_img.getId()}_segmentation" in seg:
             continue
-        image = Image(
-            conn,
-            well,
-            omero_img,
-            metadata,
-            dataset_id,
-            flatfield_dict,
-            border=border,
-        )
-        if segmentation_mode:
-            continue
-        image_props = ImageProperties(
-            well, image, metadata, image_classifier=image_classifier
-        )
-        df_well = pd.concat([df_well, image_props.image_df])
-        df_well_quality = pd.concat([df_well_quality, image_props.quality_df])
+        with bench.image(omero_img.getId(), well=well.getWellPos()):
+            image = Image(
+                conn,
+                well,
+                omero_img,
+                metadata,
+                dataset_id,
+                flatfield_dict,
+                border=border,
+            )
+            if segmentation_mode:
+                continue
+            with bench.stage("feature_extraction"):
+                image_props = ImageProperties(
+                    well, image, metadata, image_classifier=image_classifier
+                )
+            df_well = pd.concat([df_well, image_props.image_df])
+            df_well_quality = pd.concat(
+                [df_well_quality, image_props.quality_df]
+            )
 
     return df_well, df_well_quality
 

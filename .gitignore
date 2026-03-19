@@ -261,6 +261,11 @@ docker-compose.override.yml
 scratch/
 
 # =========================
+# Benchmark reports
+# =========================
+benchmarks/
+
+# =========================
 # Ignore all cache files/directories
 **/*cache*
 **/.cache*

@@ -342,6 +342,10 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+explore = [
+    { name = "jupyterlab" },
+    { name = "nbformat" },
+]
 test = [
     { name = "pytest" },
     { name = "pytest-mock" },
@@ -350,6 +354,8 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "duckdb" },
+    { name = "jupyterlab", marker = "extra == 'explore'", specifier = ">=4.0" },
+    { name = "nbformat", marker = "extra == 'explore'", specifier = ">=5.9" },
     { name = "omero-screen", editable = "." },
     { name = "omero-utils", editable = "packages/omero-utils" },
     { name = "pandas" },
@@ -357,7 +363,7 @@ requires-dist = [
     { name = "pytest-mock", marker = "extra == 'test'" },
     { name = "rich" },
 ]
-provides-extras = ["test"]
+provides-extras = ["test", "explore"]
 
 [[package]]
 name = "certifi"

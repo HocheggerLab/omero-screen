@@ -52,6 +52,12 @@ def main() -> None:
         action=argparse.BooleanOptionalAction,
         help="Only perform image segmentation (default: %(default)s)",
     )
+    group.add_argument(
+        "--benchmark",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="Record per-image timing data and write a JSON benchmark report (default: %(default)s)",
+    )
     args = parser.parse_args()
 
     # Note: Lazy import to speed up parsing errors
@@ -70,6 +76,7 @@ def main() -> None:
     from omero.gateway import BlitzGateway
     from omero_utils.omero_connect import omero_connect
 
+    from omero_screen.benchmarking import get_benchmark, init_benchmark
     from omero_screen.loops import plate_loop
 
     @omero_connect
@@ -78,7 +85,12 @@ def main() -> None:
     ) -> None:
         assert conn is not None
         for plate_id in plate_ids:
+            init_benchmark(enabled=args.benchmark, plate_id=plate_id)
+            timer = get_benchmark()
             plate_loop(conn, plate_id, segmentation_mode=args.segmentation)
+            report_path = timer.save_report()
+            if args.benchmark:
+                print(f"Benchmark report saved to {report_path}")
 
     run_plate_loop(args.ID)
 
