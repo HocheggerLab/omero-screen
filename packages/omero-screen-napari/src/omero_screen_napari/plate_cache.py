@@ -1030,7 +1030,7 @@ def _fetch_well_map(
           left join ws.image as i
           left join i.pixels as pi
         where p.id = :plate_id
-        order by w.row, w.column, ws.posX, ws.posY
+        order by w.row, w.column, i.id
     """
     results = query_service.projection(query, params, conn.SERVICE_OPTS)
     if not results:
@@ -1165,10 +1165,7 @@ def _fetch_label_map(
         )
 
     # Now get well map to associate labels with wells
-    wells = get_cached_well_data(plate_id)
-    if wells is None:
-        # Well data should already be cached by cache_plate()
-        return {}
+    wells = get_well_data(conn, plate_id)
 
     label_map: dict[str, list[dict[str, int | tuple[int, ...]] | None]] = {}
     for well_pos, well_info in wells.items():
