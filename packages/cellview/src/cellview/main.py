@@ -1,12 +1,9 @@
 """Main entry point for the CellView application.
 
-This function parses command-line arguments and performs actions such as:
-- Importing data from CSV files or by plate ID
-- Cleaning up the database
-- Displaying plate summaries or project lists
-- Deleting measurements by plate ID
-It manages the database connection and delegates tasks based on the provided arguments.
+Dispatches CLI subcommands to their handler functions.
 """
+
+import argparse
 
 from cellview.db.clean_up import clean_up_db, del_measurements_by_plate_id
 from cellview.db.db import CellViewDB
@@ -17,168 +14,157 @@ from cellview.db.display import (
     display_single_project,
 )
 from cellview.db.edit import edit_experiment, edit_project
+from cellview.exporters.db_to_pandas import export_pandas_df
 from cellview.importers import import_data
 from cellview.utils.error_classes import CellViewError
-from cellview.utils.state import CellViewState, create_cellview_state
+from cellview.utils.state import create_cellview_state
 
-from .cli import parse_args
+from .cli import get_parser, parse_args
 
 
-def main_with_dependency_injection() -> None:
-    """Main entry point for CellView application using dependency injection.
+def _handle_import(args: argparse.Namespace, db: CellViewDB) -> None:
+    """Handle all import subcommands.
 
-    This is the new, preferred way to run CellView that uses dependency injection
-    instead of singleton pattern for better testability and thread safety.
+    Args:
+        args: Parsed CLI arguments.
+        db: CellView database instance.
     """
-    conn = None
-    try:
-        args = parse_args()
-        db = CellViewDB(args.db)
-        conn = db.connect()
+    if args.import_command == "csv":
+        state_args = argparse.Namespace(csv=args.path, plate_id=None)
+        state = create_cellview_state(state_args)
+        import_data(db, state)
 
-        if args.csv:
-            state = create_cellview_state(args)
-            import_data(db, state)
-        elif args.plate_id:
-            # Handle multiple plate IDs
-            if isinstance(args.plate_id, list) and len(args.plate_id) > 1:
-                # Validate plates belong to same screen
-                temp_state = create_cellview_state(args)
-                temp_state.validate_plates_same_screen(args.plate_id)
-
-                temp_state.console.print(
-                    f"[bold cyan]Importing {len(args.plate_id)} plates...[/bold cyan]"
-                )
-
-                import argparse
-
-                for pid in args.plate_id:
-                    temp_state.console.print(
-                        f"\n[bold green]Importing plate {pid}...[/bold green]"
-                    )
-                    # Create a new args object for this plate
-                    new_args_dict = vars(args).copy()
-                    new_args_dict["plate_id"] = pid
-                    new_args = argparse.Namespace(**new_args_dict)
-
-                    state = create_cellview_state(new_args)
-                    import_data(db, state)
-            else:
-                # Single plate ID (either int or list of 1 int)
-                if isinstance(args.plate_id, list):
-                    args.plate_id = args.plate_id[0]
-
-                state = create_cellview_state(args)
-                import_data(db, state)
-        elif args.screen_id:
-            # Create a temporary state to fetch plates
-            temp_state = create_cellview_state(args)
-            plate_ids = temp_state.get_plates_from_screen(args.screen_id)
-
+    elif args.import_command == "plate":
+        if len(args.ids) > 1:
+            state_args = argparse.Namespace(csv=None, plate_id=args.ids[0])
+            temp_state = create_cellview_state(state_args)
+            temp_state.validate_plates_same_screen(args.ids)
             temp_state.console.print(
-                f"[bold cyan]Found {len(plate_ids)} plates in screen {args.screen_id}[/bold cyan]"
+                f"[bold cyan]Importing {len(args.ids)} plates...[/bold cyan]"
             )
-
-            import argparse
-
-            for plate_id in plate_ids:
+            for pid in args.ids:
                 temp_state.console.print(
-                    f"\n[bold green]Importing plate {plate_id}...[/bold green]"
+                    f"\n[bold green]Importing plate {pid}...[/bold green]"
                 )
-                # Create a new args object for this plate
-                new_args_dict = vars(args).copy()
-                new_args_dict["plate_id"] = plate_id
-                new_args_dict["screen_id"] = None
-                new_args = argparse.Namespace(**new_args_dict)
-
-                state = create_cellview_state(new_args)
+                plate_args = argparse.Namespace(csv=None, plate_id=pid)
+                state = create_cellview_state(plate_args)
                 import_data(db, state)
-        if args.clean:
-            clean_up_db(db, conn)
-        if args.plate:
-            display_plate_summary(args.plate, conn)
-        if args.projects:
-            display_projects(conn)
-        if args.project:
-            display_single_project(conn, args.project)
-        if args.experiment:
-            display_experiment(conn, args.experiment)
-        if args.edit_project:
-            edit_project(args.edit_project, conn)
-        if args.edit_experiment:
-            edit_experiment(args.edit_experiment, conn)
-        if args.delete_plate:
-            del_measurements_by_plate_id(db, conn, args.delete_plate)
-            clean_up_db(db, conn)
-    except CellViewError as e:
-        e.display()
-        import sys
+        else:
+            state_args = argparse.Namespace(csv=None, plate_id=args.ids[0])
+            state = create_cellview_state(state_args)
+            import_data(db, state)
 
-        sys.exit(1)
-    finally:
-        if conn is not None:
-            conn.close()
+    elif args.import_command == "screen":
+        state_args = argparse.Namespace(csv=None, plate_id=None)
+        temp_state = create_cellview_state(state_args)
+        plate_ids = temp_state.get_plates_from_screen(args.id)
+        temp_state.console.print(
+            f"[bold cyan]Found {len(plate_ids)} plates "
+            f"in screen {args.id}[/bold cyan]"
+        )
+        for plate_id in plate_ids:
+            temp_state.console.print(
+                f"\n[bold green]Importing plate {plate_id}...[/bold green]"
+            )
+            plate_args = argparse.Namespace(csv=None, plate_id=plate_id)
+            state = create_cellview_state(plate_args)
+            import_data(db, state)
+
+    else:
+        get_parser().parse_args(["import", "--help"])
+
+
+def _handle_explore(args: argparse.Namespace) -> None:
+    """Handle the explore subcommand.
+
+    Args:
+        args: Parsed CLI arguments.
+    """
+    from cellview.explore._cli import launch_explore, show_available_templates
+
+    if args.list_templates:
+        show_available_templates()
+        return
+
+    experiment: str | int | None = None
+    if args.experiment:
+        try:
+            experiment = int(args.experiment)
+        except ValueError:
+            experiment = args.experiment
+
+    launch_explore(
+        plate_ids=args.plate_ids or None,
+        experiment=experiment,
+        template=args.template,
+        fresh=args.fresh,
+        no_napari=args.no_napari,
+    )
 
 
 def main() -> None:
-    """Main entry point for the CellView application (legacy singleton version).
+    """Main entry point for CellView application.
 
-    This function maintains the original singleton-based approach for backward
-    compatibility. For new code, prefer main_with_dependency_injection().
+    Dispatches to the appropriate handler based on the CLI subcommand.
     """
     conn = None
     try:
         args = parse_args()
+
+        # Commands that don't need a DB connection
+        if args.command == "explore":
+            _handle_explore(args)
+            return
+
+        if args.command is None:
+            get_parser().print_help()
+            return
+
+        # All remaining commands need a DB connection
         db = CellViewDB(args.db)
         conn = db.connect()
-        if args.csv:
-            state = CellViewState.get_instance(args)
-            import_data(db, state)
-        if args.plate_id:
-            # Handle multiple plate IDs
-            if isinstance(args.plate_id, list) and len(args.plate_id) > 1:
-                # Validate plates belong to same screen
-                # We can use a temporary state for validation
-                temp_state = CellViewState.get_instance(args)
-                temp_state.validate_plates_same_screen(args.plate_id)
 
-                print(f"Importing {len(args.plate_id)} plates...")
+        match args.command:
+            case "projects":
+                display_projects(conn)
 
-                import argparse
+            case "project":
+                display_single_project(conn, args.id)
 
-                for pid in args.plate_id:
-                    print(f"\nImporting plate {pid}...")
-                    # Create a new args object for this plate
-                    new_args_dict = vars(args).copy()
-                    new_args_dict["plate_id"] = pid
-                    new_args = argparse.Namespace(**new_args_dict)
+            case "experiment":
+                display_experiment(conn, args.id)
 
-                    state = CellViewState.get_instance(new_args)
-                    import_data(db, state)
-            else:
-                # Single plate ID (either int or list of 1 int)
-                if isinstance(args.plate_id, list):
-                    args.plate_id = args.plate_id[0]
+            case "plate":
+                display_plate_summary(args.id, conn)
 
-                state = CellViewState.get_instance(args)
-                import_data(db, state)
-        if args.clean:
-            clean_up_db(db, conn)
-        if args.plate:
-            display_plate_summary(args.plate, conn)
-        if args.projects:
-            display_projects(conn)
-        if args.project:
-            display_single_project(conn, args.project)
-        if args.experiment:
-            display_experiment(conn, args.experiment)
-        if args.edit_project:
-            edit_project(args.edit_project, conn)
-        if args.edit_experiment:
-            edit_experiment(args.edit_experiment, conn)
-        if args.delete_plate:
-            del_measurements_by_plate_id(db, conn, args.delete_plate)
-            clean_up_db(db, conn)
+            case "import":
+                _handle_import(args, db)
+
+            case "edit":
+                if args.edit_command == "project":
+                    edit_project(args.id, conn)
+                elif args.edit_command == "experiment":
+                    edit_experiment(args.id, conn)
+                else:
+                    get_parser().parse_args(["edit", "--help"])
+
+            case "export":
+                df, variable_names = export_pandas_df(args.id, conn)
+                print(
+                    f"Exported plate {args.id}: "
+                    f"{len(df)} rows, variables: {variable_names}"
+                )
+
+            case "delete":
+                if args.delete_command == "plate":
+                    del_measurements_by_plate_id(db, conn, args.id)
+                    clean_up_db(db, conn)
+                else:
+                    get_parser().parse_args(["delete", "--help"])
+
+            case "clean":
+                clean_up_db(db, conn)
+
     except CellViewError as e:
         e.display()
         import sys
@@ -190,4 +176,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main_with_dependency_injection()
+    main()

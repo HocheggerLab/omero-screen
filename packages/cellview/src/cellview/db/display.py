@@ -353,6 +353,11 @@ def display_experiment(
     con: duckdb.DuckDBPyConnection, experiment_id: int
 ) -> None:
     """Display a summary for the experiment, then channels and variable information for each plate in the experiment."""
+    from cellview.explore._registry import (
+        experiment_notebook_exists,
+        notebooks_for_plate,
+    )
+
     # Show experiment summary table (like in project, but for one experiment)
     summary_query = """
     SELECT
@@ -380,6 +385,10 @@ def display_experiment(
         style_columns=[0],
         highlight_style=Colors.SECONDARY.value,
     )
+
+    # Show experiment-level notebook status
+    if experiment_notebook_exists(experiment_id):
+        ui.success(f"Experiment notebook: explore_exp_{experiment_id}.ipynb")
 
     # Get all column names from repeats table except repeat_id, experiment_id, plate_id
     repeats_columns_query = """
@@ -462,6 +471,9 @@ def display_experiment(
             if info["variable_names"]
             else "-"
         )
+        nb_names = notebooks_for_plate(plate_id)
+        nb_str = ", ".join(nb_names) if nb_names else "-"
+
         display_rows.append(
             (
                 plate_id,
@@ -469,10 +481,18 @@ def display_experiment(
                 classifier_str,
                 cell_line_str,
                 variables_str,
+                nb_str,
             )
         )
 
-    columns = ["Plate ID", "Channels", "Classifier", "Cell Line", "Variables"]
+    columns = [
+        "Plate ID",
+        "Channels",
+        "Classifier",
+        "Cell Line",
+        "Variables",
+        "Notebooks",
+    ]
     display_table(
         con,
         title=f"Channels and Variables for Experiment {experiment_id}",

@@ -1,8 +1,6 @@
-"""Module for parsing command-line arguments.
+"""Command-line argument parser for CellView.
 
-This module provides a function to parse command-line arguments using the argparse library.
-It supports various options for database connection, CSV file import, plate ID, project listing,
-
+Provides subcommand-based CLI using argparse subparsers.
 """
 
 import argparse
@@ -13,94 +11,167 @@ def get_parser() -> argparse.ArgumentParser:
     """Create and return the command line argument parser.
 
     Returns:
-        argparse.ArgumentParser: The configured argument parser.
+        The configured argument parser with subcommands.
     """
-    parser = argparse.ArgumentParser(description="")
+    parser = argparse.ArgumentParser(
+        prog="cellview",
+        description="CellView: manage and explore single-cell measurement data.",
+    )
 
     parser.add_argument(
         "--db",
         type=Path,
         default=None,
-        help="Optional path to the DuckDB database file. Defaults to ~/cellview_data/cellview.duckdb",
+        help="Path to the DuckDB database file. "
+        "Defaults to ~/cellview_data/cellview.duckdb",
     )
 
-    parser.add_argument(
-        "--csv",
-        type=Path,
-        help="To trigger import, supply the path to the CSV file.",
+    subparsers = parser.add_subparsers(dest="command")
+
+    # --- Display commands ---
+    subparsers.add_parser(
+        "projects",
+        help="List all projects with experiment counts.",
     )
 
-    parser.add_argument(
-        "--plate-id",
-        type=int,
-        nargs="+",
-        help="The ID(s) of the plate(s) to import.",
+    p_project = subparsers.add_parser(
+        "project",
+        help="Show experiments and plates for a project.",
     )
+    p_project.add_argument("id", type=int, help="Project ID.")
 
-    parser.add_argument(
-        "--screen-id",
-        type=int,
-        help="The ID of the screen to import all plates from.",
+    p_experiment = subparsers.add_parser(
+        "experiment",
+        help="Show plates, channels, and variables for an experiment.",
     )
+    p_experiment.add_argument("id", type=int, help="Experiment ID.")
 
-    parser.add_argument(
-        "--clean",
-        action="store_true",
-        help="Clean up the database before importing.",
+    p_plate = subparsers.add_parser(
+        "plate",
+        help="Show summary, conditions, and measurements for a plate.",
     )
+    p_plate.add_argument("id", type=int, help="Plate ID.")
 
-    parser.add_argument(
-        "--plate",
-        type=int,
-        help="Display information about a specific plate.",
+    # --- Import commands ---
+    p_import = subparsers.add_parser(
+        "import",
+        help="Import data from CSV, OMERO plate, or screen.",
     )
+    import_sub = p_import.add_subparsers(dest="import_command")
 
-    parser.add_argument(
-        "--projects",
-        action="store_true",
-        help="Display name, description, and number of experiments for all projects.",
+    p_import_csv = import_sub.add_parser(
+        "csv",
+        help="Import from a CSV file.",
     )
+    p_import_csv.add_argument("path", type=Path, help="Path to the CSV file.")
 
-    parser.add_argument(
-        "--project",
-        type=int,
-        help="Display all experiments and their associated plate_ids for a single project.",
+    p_import_plate = import_sub.add_parser(
+        "plate",
+        help="Import one or more plates by ID.",
     )
-
-    parser.add_argument(
-        "--experiment",
-        type=int,
-        help="Display all plates and their associated measurements for a single experiment.",
+    p_import_plate.add_argument(
+        "ids", type=int, nargs="+", help="Plate ID(s) to import."
     )
-
-    parser.add_argument(
-        "--edit-project",
-        type=int,
-        help="Select a project by its ID and edit its name and description.",
-    )
-
-    parser.add_argument(
-        "--edit-experiment",
-        type=int,
-        help="Select an experiment by its ID and edit its name and description.",
-    )
-
-    parser.add_argument(
-        "--delete-plate",
-        type=int,
-        help="Delete a plate by its ID. This will also delete all associated data.",
-    )
-
-    parser.add_argument(
-        "--export-plate",
-        type=int,
-        help="Export a plate by its ID.",
-    )
-
-    parser.add_argument(
+    p_import_plate.add_argument(
         "--interactive",
         action="store_true",
-        help="Force interactive project/experiment selection even when OMERO metadata is available.",
+        help="Force interactive project/experiment selection.",
+    )
+
+    p_import_screen = import_sub.add_parser(
+        "screen",
+        help="Import all plates from a screen.",
+    )
+    p_import_screen.add_argument("id", type=int, help="Screen ID.")
+    p_import_screen.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Force interactive project/experiment selection.",
+    )
+
+    # --- Edit commands ---
+    p_edit = subparsers.add_parser(
+        "edit",
+        help="Edit project or experiment metadata.",
+    )
+    edit_sub = p_edit.add_subparsers(dest="edit_command")
+
+    p_edit_project = edit_sub.add_parser(
+        "project",
+        help="Edit a project's name and description.",
+    )
+    p_edit_project.add_argument("id", type=int, help="Project ID.")
+
+    p_edit_experiment = edit_sub.add_parser(
+        "experiment",
+        help="Edit an experiment's name and description.",
+    )
+    p_edit_experiment.add_argument("id", type=int, help="Experiment ID.")
+
+    # --- Export ---
+    p_export = subparsers.add_parser(
+        "export",
+        help="Export plate data.",
+    )
+    p_export.add_argument("id", type=int, help="Plate ID to export.")
+
+    # --- Delete ---
+    p_delete = subparsers.add_parser(
+        "delete",
+        help="Delete data.",
+    )
+    delete_sub = p_delete.add_subparsers(dest="delete_command")
+
+    p_delete_plate = delete_sub.add_parser(
+        "plate",
+        help="Delete a plate and all its associated data.",
+    )
+    p_delete_plate.add_argument("id", type=int, help="Plate ID.")
+
+    # --- Clean ---
+    subparsers.add_parser(
+        "clean",
+        help="Clean up orphaned records in the database.",
+    )
+
+    # --- Explore ---
+    p_explore = subparsers.add_parser(
+        "explore",
+        help="Launch a Jupyter notebook for interactive data exploration.",
+    )
+    p_explore.add_argument(
+        "plate_ids",
+        type=int,
+        nargs="*",
+        help="Plate ID(s) to explore.",
+    )
+    p_explore.add_argument(
+        "--experiment",
+        type=str,
+        metavar="EXPERIMENT",
+        help="Explore all plates from an experiment (name or ID).",
+    )
+    p_explore.add_argument(
+        "--template",
+        type=str,
+        default="cellcycle",
+        metavar="NAME",
+        help="Template notebook to use (default: cellcycle).",
+    )
+    p_explore.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Regenerate the notebook even if it already exists.",
+    )
+    p_explore.add_argument(
+        "--no-napari",
+        action="store_true",
+        help="Skip launching napari.",
+    )
+    p_explore.add_argument(
+        "--list-templates",
+        action="store_true",
+        help="List available templates and exit.",
     )
 
     return parser
@@ -109,11 +180,7 @@ def get_parser() -> argparse.ArgumentParser:
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments.
 
-    This function parses command-line arguments using the argparse library.
-    It supports various options for database connection, CSV file import, plate ID, project listing,
-    and cleanup.
-
     Returns:
-        argparse.Namespace: An object containing the parsed arguments.
+        An object containing the parsed arguments.
     """
     return get_parser().parse_args()

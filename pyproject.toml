@@ -136,6 +136,7 @@ warn_unused_ignores = false
 module = "omero_screen.cellpose3.*"
 ignore_errors = true
 
+
 # ===========================
 # Ruff Configuration Section
 # ===========================
