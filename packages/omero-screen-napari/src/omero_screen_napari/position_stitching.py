@@ -10,6 +10,7 @@ from the gap distribution so it works regardless of unit.
 """
 
 import logging
+import math
 from typing import Any
 
 import numpy as np
@@ -158,18 +159,39 @@ def positions_to_grid(
         n_cells,
         len(positions),
     )
+
     if n_cells and logger.isEnabledFor(logging.DEBUG):
+        # Print information for stitching.
+        # The grid computation works on the assumption the
+        # rows and columns are othogonal and aligned to the x/y axes.
+        # Compute rotation angle from each row to see the deviation.
         maxx = np.max(list(grid_map.keys()))
         maxy = 0
         for x_dict in grid_map.values():
             maxy = np.max(list(x_dict.keys()), initial=maxy)
         grid = []
+        angles = []
+        empty: dict[int, int] = {}
         for y in range(maxy + 1):
             grid_row = []
             for x in range(maxx + 1):
-                grid_row.append(grid_map.get(x, {}).get(y, -1))
+                grid_row.append(grid_map.get(x, empty).get(y, -1))
             grid.append(grid_row)
-        logger.debug("Position grid: %s", grid)
+            # min/max position index of row
+            r = np.array(grid_row)
+            indices = r[r >= 0]
+            min_i, max_i = indices[0], indices[-1]
+            if min_i < max_i:
+                dx = positions[max_i][0] - positions[min_i][0]
+                dy = positions[max_i][1] - positions[min_i][1]
+                angles.append(math.degrees(math.atan2(dy, dx)))
+        logger.debug(
+            "Position grid: %s. Angle %s +/- %s",
+            grid,
+            np.mean(angles),
+            np.std(angles),
+        )
+
     return grid_map
 
 
