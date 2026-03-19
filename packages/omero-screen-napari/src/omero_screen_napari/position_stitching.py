@@ -9,6 +9,7 @@ reference-frame units.  The clustering tolerance is computed adaptively
 from the gap distribution so it works regardless of unit.
 """
 
+import logging
 from typing import Any
 
 import numpy as np
@@ -157,6 +158,18 @@ def positions_to_grid(
         n_cells,
         len(positions),
     )
+    if n_cells and logger.isEnabledFor(logging.DEBUG):
+        maxx = np.max(list(grid_map.keys()))
+        maxy = 0
+        for x_dict in grid_map.values():
+            maxy = np.max(list(x_dict.keys()), initial=maxy)
+        grid = []
+        for y in range(maxy + 1):
+            grid_row = []
+            for x in range(maxx + 1):
+                grid_row.append(grid_map.get(x, {}).get(y, -1))
+            grid.append(grid_row)
+        logger.debug("Position grid: %s", grid)
     return grid_map
 
 
