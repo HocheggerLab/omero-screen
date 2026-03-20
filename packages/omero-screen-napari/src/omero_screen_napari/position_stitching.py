@@ -242,6 +242,8 @@ def stitch_from_positions(
     mode: str = "reflect",
     overlap_x: int = 0,
     overlap_y: int = 0,
+    translate_x: int = 0,
+    translate_y: int = 0,
 ) -> NDArray[Any]:
     """Stitch images using their absolute stage positions.
 
@@ -254,6 +256,8 @@ def stitch_from_positions(
         mode: Fill mode for rotation.
         overlap_x: Overlap in x-dimension.
         overlap_y: Overlap in y-dimension.
+        translate_x: Row translation in x.
+        translate_y: Column translation in y.
 
     Returns:
         Stitched array of shape (Y, X, C) or (T, Y, X, C).
@@ -285,6 +289,8 @@ def stitch_from_positions(
                     rotation=rotation,
                     ox=-overlap_x,
                     oy=-overlap_y,
+                    tx=translate_x,
+                    ty=translate_y,
                     edge=edge,
                     mode=mode,
                 )
@@ -297,6 +303,8 @@ def stitch_from_positions(
             rotation=rotation,
             ox=-overlap_x,
             oy=-overlap_y,
+            tx=translate_x,
+            ty=translate_y,
             edge=edge,
             mode=mode,
         )
@@ -308,6 +316,8 @@ def stitch_labels_from_positions(
     rotation: float = 0.0,
     overlap_x: int = 0,
     overlap_y: int = 0,
+    translate_x: int = 0,
+    translate_y: int = 0,
 ) -> NDArray[Any]:
     """Stitch label masks using their absolute stage positions.
 
@@ -318,6 +328,8 @@ def stitch_labels_from_positions(
         rotation: Rotation angle in degrees.
         overlap_x: Overlap in x-dimension.
         overlap_y: Overlap in y-dimension.
+        translate_x: Row translation in x.
+        translate_y: Column translation in y.
 
     Returns:
         Stitched labels of shape (Y, X, C) or (T, Y, X, C).
@@ -349,6 +361,8 @@ def stitch_labels_from_positions(
                     rotation=rotation,
                     ox=-overlap_x,
                     oy=-overlap_y,
+                    tx=translate_x,
+                    ty=translate_y,
                 )
             )
         return np.stack(layers)
@@ -359,4 +373,6 @@ def stitch_labels_from_positions(
             rotation=rotation,
             ox=-overlap_x,
             oy=-overlap_y,
+            tx=translate_x,
+            ty=translate_y,
         )

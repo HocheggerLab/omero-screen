@@ -408,6 +408,8 @@ _STITCH_DEFAULTS: dict[str, Any] = {
     "precise_rotation": False,
     "overlap_x": 7,
     "overlap_y": 7,
+    "translate_x": -4,
+    "translate_y": 4,
     "edge": 7,
     "mode": "reflect",
 }
@@ -426,6 +428,8 @@ def _get_stitch_params() -> dict[str, Any]:
                 "rotation": w.rotation.value if precise else 0.0,
                 "overlap_x": w.overlap_x.value,
                 "overlap_y": w.overlap_y.value,
+                "translate_x": w.translate_x.value,
+                "translate_y": w.translate_y.value,
                 "edge": w.edge.value,
                 "mode": w.mode.value,
             }
@@ -522,8 +526,11 @@ def _display_plate(viewer: Viewer) -> None:
                     well_positions,  # type: ignore[arg-type]
                     edge=sp["edge"],
                     mode=sp["mode"],
+                    rotation=sp["rotation"],
                     overlap_x=sp["overlap_x"],
                     overlap_y=sp["overlap_y"],
+                    translate_x=sp["translate_x"],
+                    translate_y=sp["translate_y"],
                 )
             )
 
@@ -536,6 +543,8 @@ def _display_plate(viewer: Viewer) -> None:
                         rotation=sp["rotation"],
                         overlap_x=sp["overlap_x"],
                         overlap_y=sp["overlap_y"],
+                        translate_x=sp["translate_x"],
+                        translate_y=sp["translate_y"],
                     )
                 )
 
@@ -1070,13 +1079,20 @@ def _display_stitched(
     viewer.reset_view()
 
 
-@magic_factory(call_button="Enter")
+@magic_factory(
+    call_button="Enter",
+    rotation={"step": 0.01, "min": -5, "max": 5},
+    translate_x={"step": 1, "min": -20, "max": 20},
+    translate_y={"step": 1, "min": -20, "max": 20},
+)
 def stitched_data_widget(
     viewer: Viewer,
     rotation: float = 0.15,
     precise_rotation: bool = False,
     overlap_x: int = 7,
     overlap_y: int = 7,
+    translate_x: int = -4,
+    translate_y: int = 4,
     edge: int = 7,
     mode: str = "reflect",
 ) -> None:

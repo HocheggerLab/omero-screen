@@ -9,7 +9,7 @@ import re
 import sys
 import tempfile
 import traceback
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Optional, cast
 
@@ -2243,7 +2243,6 @@ class ImageParser:
             for ann in map_anns:
                 ann_values = dict(ann.getValue())
                 for item in ann_values.values():
-                    print(item)
                     if isinstance(item, str) and "mip" in item:
                         return item.split("_")[-1]
         if (
@@ -2509,19 +2508,36 @@ def compose_tiles(
     rotation: float = 0,
     ox: int = 0,
     oy: int = 0,
+    tx: int = 0,
+    ty: int = 0,
     edge: int = 0,
     mode: str = "reflect",
 ) -> np.ndarray[Any, np.dtype[Any]]:
     """
     Compose tiles into a single image. It is assumed all tiles are the same shape: YXC.
+
+    Tiles are composed on the grid by default with edge-to-edge contact. If the tiles
+    should overlap/gap then use a tile offset (ox, oy). If successive rows or columns
+    are translated relative to the previous row/column then use tx or ty.
+    The position of each tile is:
+
+    xp = x * (size_x + ox) + y * tx
+    yp = y * (size_y + oy) + x * ty
+
+    The tile positions are used to generate the output image bounds, and then adjusted
+    so the tiles are composed within the output image bounds.
+
     Args:
-        tiles (dict): Dictionary of dictionaries of np.array tiles, keyed by [x][y].
-        rotation (float): Rotation angle (degrees in counter-clockwise direction).
-        ox (int): Tile offset in x (use negative for overlap).
-        oy (int): Tile offset in y (use negative for overlap).
-        edge (int): Edge size for blending overlaps.
-        mode (str): Mode used to fill the rotated image outside the bounds
+        tiles: Dictionary of dictionaries of np.array tiles, keyed by [x][y].
+        rotation: Rotation angle (degrees in counter-clockwise direction).
+        ox: Tile offset in x (use negative for overlap).
+        oy: Tile offset in y (use negative for overlap).
+        tx: Row translation in x.
+        ty: Column translation in y.
+        edge: Edge size for blending overlaps.
+        mode: Mode used to fill the rotated image outside the bounds
         (‘constant’, ‘edge’, ‘symmetric’, ‘reflect’, ‘wrap’).
+
     Returns
         composed (np.array): The composed image (YXC).
     """
@@ -2538,9 +2554,10 @@ def compose_tiles(
     im = tiles[maxx][y]
     os = im.shape
     m = np.ones(os[0:2], dtype=int)
-    m = transform.rotate(
-        m, rotation, resize=True, preserve_range=True, order=0
-    )  # type: ignore
+    if rotation:
+        m = transform.rotate(
+            m, rotation, resize=True, preserve_range=True, order=0
+        )  # type: ignore
     ns = m.shape
 
     # preserve image type
@@ -2555,13 +2572,31 @@ def compose_tiles(
         d = np.clip(d, a_min=0, a_max=edge)
         m = d / edge
 
+    # Compute the output x,y positions for each tile.
+    # Adjust the tile positions using the minimum observed position.
+    # Compute the output image bounds.
+    pos = np.zeros((maxx + 1, maxy + 1, 2), dtype=int)
+    valid = np.zeros((maxx + 1, maxy + 1), dtype=int)
+    for x, d in tiles.items():
+        for y in d:
+            pos[x, y] = (
+                x * (ns[1] + ox) + y * tx,
+                y * (ns[0] + oy) + x * ty,
+            )
+            valid[x, y] = 1
+    min_pos = pos[valid == 1].min(axis=0)
+    pos[:, :] -= min_pos
+    max_pos = pos[valid == 1].max(axis=0)
+
     # Create output.
     # Note that arrays are YXC format.
     channels = os[2]
     out = np.zeros(
         (
-            (maxy + 1) * ns[0] + maxy * oy,
-            (maxx + 1) * ns[1] + maxx * ox,
+            # y + width_y
+            max_pos[1] + ns[0],
+            # x + width_x
+            max_pos[0] + ns[1],
             channels,
         )
     )
@@ -2571,8 +2606,7 @@ def compose_tiles(
         # Fast path: no rotation — direct tile placement (no interpolation)
         for x, d in tiles.items():
             for y, im in d.items():
-                xp = x * (os[1] + ox)
-                yp = y * (os[0] + oy)
+                xp, yp = pos[x, y]
                 for c in range(channels):
                     out[yp : yp + ns[0], xp : xp + ns[1], c] += m * im[..., c]
                 sum_arr[yp : yp + ns[0], xp : xp + ns[1]] += m
@@ -2592,8 +2626,7 @@ def compose_tiles(
 
             # Accumulate results sequentially (tiles may overlap)
             for x, y, futures in tasks:
-                xp = x * (os[1] + ox)
-                yp = y * (os[0] + oy)
+                xp, yp = pos[x, y]
                 for c, fut in enumerate(futures):
                     out[yp : yp + ns[0], xp : xp + ns[1], c] += fut.result()
                 sum_arr[yp : yp + ns[0], xp : xp + ns[1]] += m
@@ -2686,16 +2719,24 @@ def compose_labels(
     rotation: float = 0,
     ox: int = 0,
     oy: int = 0,
+    tx: int = 0,
+    ty: int = 0,
 ) -> np.ndarray[Any, np.dtype[Any]]:
     """
     Compose labels tiles into a single image. It is assumed all tiles are the same shape: YXC.
     The unique ID of labels will be remapped. Overlapping labels on adjacent tiles are mapped
     to the same ID.
+
+    See ``compose_tiles`` for details of the offset and translation parameters.
+
     Args:
-        tiles (dict): Dictionary of dictionaries of np.array tiles, keyed by [x][y].
-        rotation (float): Rotation angle (degrees in counter-clockwise direction).
-        ox (int): Tile offset in x (use negative for overlap).
-        oy (int): Tile offset in y (use negative for overlap).
+        tiles: Dictionary of dictionaries of np.array tiles, keyed by [x][y].
+        rotation: Rotation angle (degrees in counter-clockwise direction).
+        ox: Tile offset in x (use negative for overlap).
+        oy: Tile offset in y (use negative for overlap).
+        tx: Row translation in x.
+        ty: Column translation in y.
+
     Returns
         composed (np.array): The composed labels (YXC).
     """
@@ -2707,22 +2748,46 @@ def compose_labels(
 
     # Rotate the first image to set the dimensions.
     y = next(iter(tiles[maxx]))
-    os = tiles[maxx][y].shape
-    ns = transform.rotate(
-        np.ones(os[0:2], dtype=int),
-        rotation,
-        resize=True,
-        preserve_range=True,
-        order=0,
-    ).shape  # type: ignore
+    im = tiles[maxx][y]
+    os = im.shape
+    m = np.ones(os[0:2], dtype=int)
+    if rotation:
+        m = transform.rotate(
+            m, rotation, resize=True, preserve_range=True, order=0
+        )  # type: ignore
+    ns = m.shape
+
+    # preserve image type
+    dtype = im.dtype
+
+    # Compute the output x,y positions for each tile.
+    # Adjust the tile positions using the minimum observed position.
+    # Compute the output image bounds.
+    pos = np.zeros((maxx + 1, maxy + 1, 2), dtype=int)
+    valid = np.zeros((maxx + 1, maxy + 1), dtype=int)
+    for x, d in tiles.items():
+        for y in d:
+            pos[x, y] = (
+                x * (ns[1] + ox) + y * tx,
+                y * (ns[0] + oy) + x * ty,
+            )
+            valid[x, y] = 1
+    min_pos = pos[valid == 1].min(axis=0)
+    pos[:, :] -= min_pos
+    max_pos = pos[valid == 1].max(axis=0)
 
     # Create output.
     # Note that arrays are YXC format.
     channels = os[2]
     out = [
         np.zeros(
-            ((maxy + 1) * ns[0] + maxy * oy, (maxx + 1) * ns[1] + maxx * ox),
-            dtype=tiles[maxx][y].dtype,
+            (
+                # y + width_y
+                max_pos[1] + ns[0],
+                # x + width_x
+                max_pos[0] + ns[1],
+            ),
+            dtype=dtype,
         )
         for i in range(channels)
     ]
@@ -2737,35 +2802,33 @@ def compose_labels(
         # Fast path: no rotation — direct label merge
         for x, d in tiles.items():
             for y, im in d.items():
-                xp = x * (os[1] + ox)
-                yp = y * (os[0] + oy)
+                xp, yp = pos[x, y]
                 for c in range(channels):
                     out[c] = merge_labels(
                         out[c], im[..., c], xp=xp, yp=yp, border=border
                     )
     else:
         # Pre-compute all rotations in parallel (threaded — skimage releases the GIL)
-        rotation_futures: dict[
-            tuple[int, int, int], Future[np.ndarray[Any, np.dtype[Any]]]
-        ] = {}
         with ThreadPoolExecutor() as executor:
+            tasks: list[tuple[int, int, list[Any]]] = []
             for x, d in tiles.items():
                 for y, im in d.items():
-                    for c in range(channels):
-                        rotation_futures[(x, y, c)] = executor.submit(
+                    futures = [
+                        executor.submit(
                             _rotate_channel, im[..., c], rotation, 0
                         )
+                        for c in range(channels)
+                    ]
+                    tasks.append((x, y, futures))
 
         # Merge labels sequentially (order-dependent)
-        for x, d in tiles.items():
-            for y, _im in d.items():
-                xp = x * (os[1] + ox)
-                yp = y * (os[0] + oy)
-                for c in range(channels):
-                    rotated = rotation_futures[(x, y, c)].result()
-                    out[c] = merge_labels(
-                        out[c], rotated, xp=xp, yp=yp, border=border
-                    )
+        for x, y, futures in tasks:
+            xp, yp = pos[x, y]
+            for c, fut in enumerate(futures):
+                rotated = fut.result()
+                out[c] = merge_labels(
+                    out[c], rotated, xp=xp, yp=yp, border=border
+                )
 
     return np.dstack(out)
 
