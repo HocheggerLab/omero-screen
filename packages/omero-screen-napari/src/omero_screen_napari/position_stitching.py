@@ -17,7 +17,7 @@ import numpy as np
 from numpy.typing import NDArray
 from omero_screen.config import get_logger
 
-from omero_screen_napari.welldata_api import compose_tiles
+from omero_screen_napari.welldata_api import compose_labels, compose_tiles
 
 logger = get_logger(__name__)
 
@@ -344,7 +344,7 @@ def stitch_labels_from_positions(
         for t in range(n_timepoints):
             tiles = _build_tiles(labels[:, t])
             layers.append(
-                compose_tiles(
+                compose_labels(
                     tiles,
                     rotation=rotation,
                     ox=-overlap_x,
@@ -354,7 +354,7 @@ def stitch_labels_from_positions(
         return np.stack(layers)
     else:
         tiles = _build_tiles(labels)
-        return compose_tiles(
+        return compose_labels(
             tiles,
             rotation=rotation,
             ox=-overlap_x,
