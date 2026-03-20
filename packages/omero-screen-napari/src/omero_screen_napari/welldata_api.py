@@ -2597,9 +2597,7 @@ def compose_labels(
     os = im.shape
     m = np.ones(os[0:2], dtype=int)
     if rotation:
-        m = transform.rotate(
-            m, rotation, resize=True, preserve_range=True, order=0
-        )  # type: ignore
+        m = _rotate_channel(m, rotation, 0)
     ns = m.shape
 
     # preserve image type
@@ -2642,6 +2640,9 @@ def compose_labels(
         border = -ox
     if oy < 0:
         border = max(border, -oy)
+    # translation can create overlap if both are used with same sign
+    if tx * ty > 0:
+        border = max(border, abs(tx), abs(ty))
 
     if rotation == 0:
         # Fast path: no rotation — direct label merge
@@ -2698,6 +2699,8 @@ def merge_labels(
     Returns
         updated (np.array): The updated labels.
     """
+    # Do not modify input new labels
+    im2 = im2.copy()
     s = im2.shape
     # Avoid overlap analysis when no border or all-zero current image
     if not (border and im1.any()):
