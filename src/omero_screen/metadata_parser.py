@@ -251,7 +251,14 @@ class MetadataParser:
         for well in self._get_plate().listChildren():
             delete_map_annotations(self.conn, well)
             well_name = well.getWellPos()
-            well_index = well_data["Well"].index(well_name)
+            try:
+                well_index = well_data["Well"].index(well_name)
+            except ValueError:
+                logger.debug(
+                    "Well %s not in metadata (may be marked as Empty), skipping annotation.",
+                    well_name,
+                )
+                continue
             well_meta_data = {
                 key: values[well_index]
                 for key, values in well_data.items()
@@ -444,7 +451,9 @@ class MetadataParser:
         """Validate and normalize channel metadata, ensuring a nuclei channel is present.
 
         Checks that the channel data includes at least one nuclei channel (DAPI, Hoechst, DNA, or RFP),
-        and normalizes the channel name to 'DAPI' if found. Returns a list of error messages for any issues.
+        and normalizes the channel name to 'DAPI' if found. Validates that channel indices are valid
+        integers forming a contiguous sequence starting from 0. Returns a list of error messages for
+        any issues.
 
         Returns:
             list[str]: A list of error messages. The list is empty if no errors are found.
@@ -470,6 +479,58 @@ class MetadataParser:
         else:
             self.channel_data = channel_data_normalized
 
+        # Validate channel indices are valid integers
+        parsed_indices: list[int] = []
+        for ch_name, ch_idx in self.channel_data.items():
+            try:
+                parsed_indices.append(int(ch_idx))
+            except (ValueError, TypeError):
+                errors.append(
+                    f"Channel '{ch_name}' has non-integer index '{ch_idx}'. "
+                    f"Channel indices must be integers (e.g. 0, 1, 2, ...)"
+                )
+
+        if parsed_indices:
+            n_channels = len(parsed_indices)
+            expected = set(range(n_channels))
+            actual = set(parsed_indices)
+            if actual != expected:
+                errors.append(
+                    f"Channel indices must be 0 to {n_channels - 1} for {n_channels} channels, "
+                    f"but got {sorted(actual)}. "
+                    f"Check your Excel metadata — indices should be consecutive starting from 0."
+                )
+
+        # Validate channel indices against actual image channels
+        if not errors:
+            errors.extend(self._validate_channel_indices_against_image())
+
+        return errors
+
+    def _validate_channel_indices_against_image(self) -> list[str]:
+        """Validate that channel indices in metadata do not exceed the actual number of channels in the images.
+
+        Returns:
+            list[str]: A list of error messages. The list is empty if no errors are found.
+        """
+        errors = []
+        try:
+            first_image = self._get_first_image()
+            actual_channel_count = first_image.getSizeC()
+            for ch_name, ch_idx in self.channel_data.items():
+                idx = int(ch_idx)
+                if idx < 0 or idx >= actual_channel_count:
+                    errors.append(
+                        f"Channel '{ch_name}' has index {idx}, but images only have "
+                        f"{actual_channel_count} channels (valid indices: 0-{actual_channel_count - 1}). "
+                        f"Check your Excel metadata."
+                    )
+        except Exception:  # noqa: BLE001
+            # Image retrieval may fail (e.g. no wells yet, or in unit tests).
+            # Channel-vs-image validation is skipped; other checks still apply.
+            logger.debug(
+                "Skipping channel index vs image validation (no image available)"
+            )
         return errors
 
     def _validate_well_data(self) -> list[str]:
@@ -637,8 +698,19 @@ class MetadataParser:
 
         Returns:
             dict[str, Any]: Dictionary with annotations
+
+        Raises:
+            ValueError: If the well position is not found in the metadata.
         """
-        idx = self.well_data["Well"].index(well_id)
+        try:
+            idx = self.well_data["Well"].index(well_id)
+        except ValueError:
+            available = sorted(self.well_data["Well"])
+            raise ValueError(
+                f"Well '{well_id}' not found in metadata. "
+                f"Available wells: {available}. "
+                f"Check that the well positions in your Excel file match the plate layout."
+            ) from None
         return {k: v[idx] for k, v in self.well_data.items() if k != "Well"}
 
     def _get_plate(self) -> PlateWrapper:

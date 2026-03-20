@@ -139,8 +139,21 @@ def plate_loop(
                     conn.getObject("Plate", metadata.plate_id).listChildren()
                 )
                 _add_welldata(conn, wells, df_final_cc)
+            except KeyError as e:
+                logger.error(
+                    "Cell cycle analysis failed — missing column: %s. "
+                    "This usually means a required channel (EdU, H3P, or DAPI) "
+                    "is missing or misspelled in the metadata.",
+                    e,
+                )
+                df_final_cc = None
             except Exception as e:  # noqa: BLE001
-                logger.exception("Cell cycle analysis failed", e)
+                logger.error(
+                    "Cell cycle analysis failed with unexpected error: %s. "
+                    "Check the log file for details.",
+                    e,
+                )
+                logger.debug("Cell cycle analysis traceback:", exc_info=True)
                 df_final_cc = None
         else:
             df_final_cc = None
@@ -207,10 +220,16 @@ def process_wells(
     get_benchmark().set_well_count(len(wells))
     for count, well in enumerate(wells):
         ann = parse_annotations(well)
-        try:
-            cell_line = ann["cell_line"]
-        except KeyError:
-            cell_line = ann["Cell_Line"]
+        # Normalise case-insensitive lookup for cell_line
+        ann_lower = {k.lower(): v for k, v in ann.items()}
+        cell_line = ann_lower.get("cell_line")
+        if cell_line is None:
+            raise WellAnnotationError(
+                f"Well {well.getWellPos()} is missing a 'cell_line' annotation. "
+                f"Available annotations: {list(ann.keys())}. "
+                f"Check your metadata — each well needs a 'cell_line' entry.",
+                logger,
+            )
         if cell_line == "Empty":
             continue
         well_data, well_quality = (
@@ -493,5 +512,10 @@ def _columns(df: pd.DataFrame) -> list[str]:
         df: DataFrame to reorder
     """
     cols: list[str] = df.columns.tolist()
+    if "experiment" not in cols:
+        logger.warning(
+            "'experiment' column not found in DataFrame — returning columns as-is."
+        )
+        return cols
     i = cols.index("experiment")
     return cols[i:] + cols[:i]

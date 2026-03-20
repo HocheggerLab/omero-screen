@@ -43,7 +43,36 @@ def cellcycle_analysis(
         cyto: True if cytoplasmic data is present
     Returns:
         dataframe with cell cycle and cell cycle detailed columns
+
+    Raises:
+        KeyError: If required columns are missing from the input DataFrame.
     """
+    # Validate required columns before processing
+    required_cols = [
+        "integrated_int_DAPI",
+        "intensity_mean_EdU_nucleus",
+        "intensity_min_EdU_nucleus",
+        "cell_line",
+    ]
+    if H3:
+        required_cols.extend(
+            [
+                "intensity_mean_H3P_nucleus",
+                "intensity_min_H3P_nucleus",
+            ]
+        )
+    if cyto:
+        required_cols.append("Cyto_ID")
+
+    missing = [col for col in required_cols if col not in df.columns]
+    if missing:
+        raise KeyError(
+            f"Cell cycle analysis requires columns that are missing from the data: "
+            f"{missing}. This usually means the corresponding channel "
+            f"(EdU, DAPI, or H3P) was not included in the plate metadata, "
+            f"or the channel name doesn't match expected naming."
+        )
+
     df1 = df.copy()
     if H3:
         values = [

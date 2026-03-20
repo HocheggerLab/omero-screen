@@ -128,7 +128,20 @@ class Image:
             _, array = get_image(self._conn, image_id)
 
         for ch, idx in self.channels.items():
-            img = array[..., int(idx)] / self._flatfield_dict[ch]
+            ch_idx = int(idx)
+            if ch_idx >= array.shape[-1]:
+                raise IndexError(
+                    f"Channel '{ch}' has index {ch_idx}, but image {image_id} "
+                    f"only has {array.shape[-1]} channels (valid indices: 0-{array.shape[-1] - 1}). "
+                    f"Check your channel metadata."
+                )
+            if ch not in self._flatfield_dict:
+                raise KeyError(
+                    f"Channel '{ch}' not found in flatfield correction masks. "
+                    f"Available channels: {list(self._flatfield_dict.keys())}. "
+                    f"This usually means the flatfield masks were generated with different metadata."
+                )
+            img = array[..., ch_idx] / self._flatfield_dict[ch]
             # Reduce (tzyx) to (tyx)
             img = np.squeeze(img, axis=1)
 
@@ -226,10 +239,20 @@ class Image:
 
         model_name = default_config.MODEL_DICT.get("nuclei")
         if model_name is None:
-            raise RuntimeError("Unknown model for nuclei")
+            raise RuntimeError(
+                "No nuclei segmentation model configured. "
+                "Add a 'nuclei' entry to MODEL_DICT in your config."
+            )
 
         segmentation_model = _get_segmentation_model(model_name)
         # Get the image array
+        if "DAPI" not in self.img_dict:
+            raise KeyError(
+                f"DAPI channel not found in image data. "
+                f"Available channels: {list(self.img_dict.keys())}. "
+                f"Nucleus segmentation requires a DAPI/Hoechst/DNA channel "
+                f"(it should be normalised to 'DAPI' during metadata parsing)."
+            )
         img_array = self.img_dict["DAPI"]
 
         # Initialize an array to store the segmentation masks
@@ -257,6 +280,13 @@ class Image:
                     normalize=False,
                 )
             except IndexError:
+                logger.warning(
+                    "Nucleus segmentation failed for image %s (t=%d) — "
+                    "returning empty mask. This may indicate an issue with "
+                    "the image data or segmentation model.",
+                    self.omero_image.getId(),
+                    t,
+                )
                 n_mask_array = np.zeros(scaled_img_t.shape, dtype=np.uint8)
             # Store the segmentation mask in the corresponding timepoint
             segmentation_masks[t] = filter_segmentation(
@@ -280,6 +310,18 @@ class Image:
         segmentation_model = _get_segmentation_model(model_name)
 
         # Get the image arrays for DAPI and Tubulin channels
+        if "DAPI" not in self.img_dict:
+            raise KeyError(
+                f"DAPI channel not found in image data. "
+                f"Available channels: {list(self.img_dict.keys())}. "
+                f"Cell segmentation requires both DAPI and Tub channels."
+            )
+        if "Tub" not in self.img_dict:
+            raise KeyError(
+                f"Tubulin ('Tub') channel not found in image data. "
+                f"Available channels: {list(self.img_dict.keys())}. "
+                f"Cell segmentation requires a 'Tub' channel in the metadata."
+            )
         dapi_array = self.img_dict["DAPI"]
         tub_array = self.img_dict["Tub"]
 
@@ -306,6 +348,14 @@ class Image:
                     comb_image_t, normalize=False
                 )
             except IndexError:
+                logger.warning(
+                    "Cell segmentation failed for image %s (t=%d) — "
+                    "returning empty mask. This may indicate an issue with "
+                    "the image data or segmentation model '%s'.",
+                    self.omero_image.getId(),
+                    t,
+                    model_name,
+                )
                 c_masks_array = np.zeros_like(comb_image_t).astype(np.uint8)
 
             # Store the segmentation mask in the corresponding timepoint

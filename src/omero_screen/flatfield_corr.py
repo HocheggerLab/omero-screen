@@ -281,6 +281,14 @@ def aggregate_imgs(
             image.getSizeC(),
             image.getSizeT(),
         ]
+        # Validate channel index against actual image channels
+        if channel >= xyzct[3]:
+            raise IndexError(
+                f"Channel index {channel} is out of range for image {img_id} "
+                f"which has {xyzct[3]} channels (valid indices: 0-{xyzct[3] - 1}). "
+                f"Check your channel metadata — the channel indices in the Excel file "
+                f"must match the actual channels in your images."
+            )
         # Get random timepoints
         num_images_to_select = min(10, xyzct[-1])
         selected_t = random.sample(range(xyzct[-1]), num_images_to_select)
