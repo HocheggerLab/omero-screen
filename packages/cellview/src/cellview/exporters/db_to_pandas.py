@@ -203,6 +203,5 @@ def export_pandas_df(
     parser = PlateParser(conn)
     df, variable_names = parser.build_df(plate_id)
     df.rename(columns={"experiment_name": "experiment"}, inplace=True)
-    # Drop any columns that contain NaN values
-    # df = df.dropna(axis=1, how="all")
+    df = df.dropna(axis=1, how="all")
     return df, variable_names
