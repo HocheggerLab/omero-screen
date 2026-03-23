@@ -406,8 +406,8 @@ def _open_plate_info(
 _STITCH_DEFAULTS: dict[str, Any] = {
     "overlap_x": 7,
     "overlap_y": 7,
-    "translate_x": -4,
-    "translate_y": 4,
+    "translate_x": -3,
+    "translate_y": 3,
     "edge": 7,
 }
 
@@ -1076,8 +1076,8 @@ def stitched_data_widget(
     viewer: Viewer,
     overlap_x: int = 7,
     overlap_y: int = 7,
-    translate_x: int = -4,
-    translate_y: int = 4,
+    translate_x: int = -3,
+    translate_y: int = 3,
     edge: int = 7,
 ) -> None:
     _display_plate(viewer)
