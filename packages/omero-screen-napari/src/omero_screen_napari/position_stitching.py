@@ -10,7 +10,6 @@ from the gap distribution so it works regardless of unit.
 """
 
 import logging
-import math
 from typing import Any
 
 import numpy as np
@@ -164,13 +163,12 @@ def positions_to_grid(
         # Print information for stitching.
         # The grid computation works on the assumption the
         # rows and columns are othogonal and aligned to the x/y axes.
-        # Compute rotation angle from each row to see the deviation.
         maxx = np.max(list(grid_map.keys()))
         maxy = 0
         for x_dict in grid_map.values():
             maxy = np.max(list(x_dict.keys()), initial=maxy)
         grid = []
-        angles = []
+        dx, dy = [], []
         empty: dict[int, int] = {}
         for y in range(maxy + 1):
             grid_row = []
@@ -181,15 +179,30 @@ def positions_to_grid(
             r = np.array(grid_row)
             indices = r[r >= 0]
             min_i, max_i = indices[0], indices[-1]
-            if min_i < max_i:
-                dx = positions[max_i][0] - positions[min_i][0]
-                dy = positions[max_i][1] - positions[min_i][1]
-                angles.append(math.degrees(math.atan2(dy, dx)))
+            if min_i != max_i:
+                dy.append(
+                    (positions[max_i][1] - positions[min_i][1]) / len(indices)
+                )
+        for x in range(maxx + 1):
+            grid_col = []
+            for y in range(maxy + 1):
+                grid_col.append(grid_map.get(x, empty).get(y, -1))
+            grid.append(grid_col)
+            # min/max position index of column
+            r = np.array(grid_col)
+            indices = r[r >= 0]
+            min_i, max_i = indices[0], indices[-1]
+            if min_i != max_i:
+                dx.append(
+                    (positions[max_i][0] - positions[min_i][0]) / len(indices)
+                )
         logger.debug(
-            "Position grid: %s. Angle %s +/- %s",
+            "Position grid: %s; dx %.3f +/- %.3f, dy %.3f +/- %.3f (raw units)",
             grid,
-            np.mean(angles),
-            np.std(angles),
+            np.mean(dx),
+            np.std(dx),
+            np.mean(dy),
+            np.std(dy),
         )
 
     return grid_map
@@ -237,9 +250,7 @@ def _compute_overlap(
 def stitch_from_positions(
     images: NDArray[Any],
     positions: list[tuple[float, float]],
-    rotation: float = 0.0,
     edge: int = 0,
-    mode: str = "reflect",
     overlap_x: int = 0,
     overlap_y: int = 0,
     translate_x: int = 0,
@@ -251,9 +262,7 @@ def stitch_from_positions(
         images: Array of shape (N, Y, X, C) or (N, T, Y, X, C).
         positions: Stage positions per image, length N.
         pixel_size: (pixel_size_x, pixel_size_y) in µm/pixel.
-        rotation: Rotation angle in degrees.
         edge: Edge blending width in pixels.
-        mode: Fill mode for rotation.
         overlap_x: Overlap in x-dimension.
         overlap_y: Overlap in y-dimension.
         translate_x: Row translation in x.
@@ -286,13 +295,11 @@ def stitch_from_positions(
             layers.append(
                 compose_tiles(
                     tiles,
-                    rotation=rotation,
                     ox=-overlap_x,
                     oy=-overlap_y,
                     tx=translate_x,
                     ty=translate_y,
                     edge=edge,
-                    mode=mode,
                 )
             )
         return np.stack(layers)
@@ -300,20 +307,17 @@ def stitch_from_positions(
         tiles = _build_tiles(images)
         return compose_tiles(
             tiles,
-            rotation=rotation,
             ox=-overlap_x,
             oy=-overlap_y,
             tx=translate_x,
             ty=translate_y,
             edge=edge,
-            mode=mode,
         )
 
 
 def stitch_labels_from_positions(
     labels: NDArray[Any],
     positions: list[tuple[float, float]],
-    rotation: float = 0.0,
     overlap_x: int = 0,
     overlap_y: int = 0,
     translate_x: int = 0,
@@ -325,7 +329,6 @@ def stitch_labels_from_positions(
         labels: Array of shape (N, Y, X, C) or (N, T, Y, X, C).
         positions: Stage positions per image, length N.
         pixel_size: (pixel_size_x, pixel_size_y) in µm/pixel.
-        rotation: Rotation angle in degrees.
         overlap_x: Overlap in x-dimension.
         overlap_y: Overlap in y-dimension.
         translate_x: Row translation in x.
@@ -358,7 +361,6 @@ def stitch_labels_from_positions(
             layers.append(
                 compose_labels(
                     tiles,
-                    rotation=rotation,
                     ox=-overlap_x,
                     oy=-overlap_y,
                     tx=translate_x,
@@ -370,7 +372,6 @@ def stitch_labels_from_positions(
         tiles = _build_tiles(labels)
         return compose_labels(
             tiles,
-            rotation=rotation,
             ox=-overlap_x,
             oy=-overlap_y,
             tx=translate_x,

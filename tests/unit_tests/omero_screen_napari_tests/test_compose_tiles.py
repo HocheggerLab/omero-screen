@@ -28,33 +28,24 @@ class TestComposeTiles:
                 idx += 1
         return tiles
 
-    def test_single_tile_no_rotation(self) -> None:
-        """1x1 grid, rotation=0 → output == input."""
+    def test_single_tile(self) -> None:
+        """1x1 grid → output == input."""
         tile = np.arange(24, dtype=np.float32).reshape(4, 3, 2)
         tiles = {0: {0: tile}}
-        result = compose_tiles(tiles, rotation=0)
+        result = compose_tiles(tiles)
         np.testing.assert_array_almost_equal(result, tile)
 
     def test_2x2_uniform_tiles(self) -> None:
-        """2x2 grid, uniform values, no rotation → correct shape and values."""
+        """2x2 grid, uniform values → correct shape and values."""
         tiles = self._make_tiles((2, 2), (16, 16, 2), fill=1.0)
-        result = compose_tiles(tiles, rotation=0)
+        result = compose_tiles(tiles)
         assert result.shape == (32, 32, 2)
         np.testing.assert_array_almost_equal(result, 1.0)
-
-    def test_rotation_changes_shape(self) -> None:
-        """Non-zero rotation → output larger than input tile."""
-        tiles = self._make_tiles((1, 1), (32, 32, 1), fill=1.0)
-        result = compose_tiles(tiles, rotation=15)
-        # Rotated tile should be larger than original
-        assert result.shape[0] > 32
-        assert result.shape[1] > 32
-        assert result.shape[2] == 1
 
     def test_overlap_blending(self) -> None:
         """Negative ox/oy with edge > 0 → overlap region is blended."""
         tiles = self._make_tiles((2, 1), (32, 32, 1), fill=1.0)
-        result = compose_tiles(tiles, rotation=0, ox=-8, oy=0, edge=4)
+        result = compose_tiles(tiles, ox=-8, oy=0, edge=4)
         # Width: 2*32 - 8 = 56
         assert result.shape == (32, 56, 1)
         # All values should be 1.0 (uniform tiles blended with weights)
@@ -65,7 +56,7 @@ class TestComposeTiles:
         tiles = self._make_tiles(
             (1, 1), (16, 16, 1), dtype=np.dtype(np.uint16), fill=100.0
         )
-        result = compose_tiles(tiles, rotation=0)
+        result = compose_tiles(tiles)
         assert result.dtype == np.uint16
 
     def test_preserves_float_dtype(self) -> None:
@@ -73,7 +64,7 @@ class TestComposeTiles:
         tiles = self._make_tiles(
             (1, 1), (16, 16, 1), dtype=np.dtype(np.float32), fill=1.5
         )
-        result = compose_tiles(tiles, rotation=0)
+        result = compose_tiles(tiles)
         assert result.dtype == np.float32
 
     def test_multichannel_correct_placement(self) -> None:
@@ -83,7 +74,7 @@ class TestComposeTiles:
         tile[..., 1] = 20
         tile[..., 2] = 30
         tiles = {0: {0: tile}}
-        result = compose_tiles(tiles, rotation=0)
+        result = compose_tiles(tiles)
         np.testing.assert_array_almost_equal(result[..., 0], 10.0)
         np.testing.assert_array_almost_equal(result[..., 1], 20.0)
         np.testing.assert_array_almost_equal(result[..., 2], 30.0)
@@ -113,17 +104,17 @@ class TestComposeLabels:
         tile = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]], dtype=np.int32)
         # Shape: (2, 2, 2) → YXC
         tiles = {0: {0: tile}}
-        result = compose_labels(tiles, rotation=0)
+        result = compose_labels(tiles)
         np.testing.assert_array_equal(result, tile)
 
     def test_2x2_non_overlapping(self) -> None:
         """2x2 with no overlap → all labels present in output."""
         tiles = self._make_label_tiles((2, 2), (16, 16, 1))
-        result = compose_labels(tiles, rotation=0)
+        result = compose_labels(tiles)
         assert result.shape == (32, 32, 1)
         unique_labels = np.unique(result)
-        # Should have background (0 from rotation border if any) plus the 4 label IDs
-        # With no rotation, tiles fill exactly, so we get remapped IDs
+        # Should have background plus the 4 label IDs
+        # Tiles fill exactly, so we get remapped IDs
         assert len(unique_labels) >= 4  # At least 4 unique non-zero labels
 
     def test_label_ids_unique(self) -> None:
@@ -138,21 +129,13 @@ class TestComposeLabels:
         tile2[8:, :, 0] = 2  # bottom half = label 2
 
         tiles = {0: {0: tile1}, 1: {0: tile2}}
-        result = compose_labels(tiles, rotation=0, ox=-4)
+        result = compose_labels(tiles, ox=-4)
         # Should have at least 2 distinct non-zero labels in the output
         unique = np.unique(result[result > 0])
         assert len(unique) >= 2
 
-    def test_labels_no_rotation(self) -> None:
-        """Verify compose_labels with rotation=0 produces correct shape."""
+    def test_labels_3x3(self) -> None:
+        """Verify compose_labels with produces correct shape."""
         tiles = self._make_label_tiles((3, 3), (8, 8, 1))
-        result = compose_labels(tiles, rotation=0)
+        result = compose_labels(tiles)
         assert result.shape == (24, 24, 1)
-
-    def test_labels_with_rotation(self) -> None:
-        """Rotation changes output shape for labels too."""
-        tiles = self._make_label_tiles((1, 1), (32, 32, 1))
-        result = compose_labels(tiles, rotation=15)
-        assert result.shape[0] > 32
-        assert result.shape[1] > 32
-        assert result.shape[2] == 1
