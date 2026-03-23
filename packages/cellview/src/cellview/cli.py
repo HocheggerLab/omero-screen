@@ -23,7 +23,7 @@ def get_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Path to the DuckDB database file. "
-        "Defaults to ~/cellview_data/cellview.duckdb",
+        "Defaults to ~/.cellview/cellview.duckdb",
     )
 
     subparsers = parser.add_subparsers(dest="command")

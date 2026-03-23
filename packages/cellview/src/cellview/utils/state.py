@@ -1171,6 +1171,9 @@ class CellViewStateCore:
     def _find_measurement_cols(self) -> list[str]:
         """Find columns that are likely to be measurements by identifying columns that vary within images.
 
+        Uses a rounded copy of float columns to avoid false positives from
+        floating-point precision drift (e.g. 0.9 stored as 0.8999999999999999).
+
         Returns:
             A list of measurement columns.
 
@@ -1179,12 +1182,19 @@ class CellViewStateCore:
         """
         assert isinstance(self.df, pd.DataFrame)
 
+        # Work on a copy with float columns rounded to 10 decimal places
+        # to prevent floating-point noise from making per-well condition
+        # columns (e.g. drug concentrations) appear variable within images.
+        df_rounded = self.df.copy()
+        float_cols = df_rounded.select_dtypes(include="float").columns
+        df_rounded[float_cols] = df_rounded[float_cols].round(10)
+
         # Count unique values per image for each column
-        nunique_per_well = self.df.groupby("image_id").nunique()
+        nunique_per_image = df_rounded.groupby("image_id").nunique()
 
         # For each column, find cols that have more than 1 unique value
-        variable_cols = nunique_per_well.columns[
-            nunique_per_well.max() > 1
+        variable_cols = nunique_per_image.columns[
+            nunique_per_image.max() > 1
         ].tolist()
 
         # Filter out Unnamed columns

@@ -34,12 +34,10 @@ class CellViewDB:
         if db_path is None:
             if os.getenv("TEST_DATABASE") == "true":
                 self.db_path = (
-                    Path.home() / "cellview_data" / "cellview-test.duckdb"
+                    Path.home() / ".cellview" / "cellview-test.duckdb"
                 )
             else:
-                self.db_path = (
-                    Path.home() / "cellview_data" / "cellview.duckdb"
-                )
+                self.db_path = Path.home() / ".cellview" / "cellview.duckdb"
         else:
             self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

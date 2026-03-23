@@ -214,9 +214,16 @@ class ConditionManager:
         """
         assert isinstance(self.state.df, pd.DataFrame)
 
+        # Work on a copy with float columns rounded to 10 decimal places
+        # to prevent floating-point noise from hiding per-well constants
+        # (e.g. 0.9 stored as 0.8999999999999999 in some rows).
+        df_rounded = self.state.df.copy()
+        float_cols = df_rounded.select_dtypes(include="float").columns
+        df_rounded[float_cols] = df_rounded[float_cols].round(10)
+
         # Find columns that are constant per well
         per_well_constant_cols = (
-            self.state.df.groupby("well")
+            df_rounded.groupby("well")
             .nunique()
             .eq(1)
             .all()
@@ -251,9 +258,22 @@ class ConditionManager:
         """
         try:
             assert isinstance(self.state.df, pd.DataFrame)
+            # Round float columns to eliminate floating-point noise
+            # (e.g. 0.8999999999999999 → 0.9) before storing as strings.
+            df_for_vars = self.state.df.copy()
+            float_var_cols = [
+                c
+                for c in variable_cols
+                if pd.api.types.is_float_dtype(df_for_vars[c])
+            ]
+            if float_var_cols:
+                df_for_vars[float_var_cols] = df_for_vars[
+                    float_var_cols
+                ].round(10)
+
             # Create a dictionary where keys are wells and values are dictionaries of variable values
             well_variables = (
-                self.state.df.groupby("well")[variable_cols]
+                df_for_vars.groupby("well")[variable_cols]
                 .first()
                 .to_dict("index")
             )
