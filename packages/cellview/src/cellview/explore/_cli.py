@@ -144,7 +144,11 @@ def launch_explore(
     # Launch napari (unless --no-napari)
     if not no_napari:
         subprocess.Popen(
-            [sys.executable, "-c", "import napari; napari.run()"],
+            [
+                sys.executable,
+                "-c",
+                "import napari; napari.Viewer(); napari.run()",
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )

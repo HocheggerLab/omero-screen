@@ -186,7 +186,6 @@ class CellViewDB:
                 condition_id INTEGER REFERENCES conditions(condition_id),
                 image_id INTEGER NOT NULL,
                 timepoint INTEGER NOT NULL,
-                classifier TEXT,
                 cell_cycle TEXT,
                 cell_cycle_detailed TEXT,
 

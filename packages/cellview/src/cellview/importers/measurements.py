@@ -91,6 +91,9 @@ class MeasurementsManager:
         Returns:
             The list of measurement columns.
         """
+        # Sanitise column names: replace spaces with underscores
+        df.columns = [col.replace(" ", "_") for col in df.columns]
+
         # Columns to exclude from measurements table
         exclude_cols = {
             "well",
@@ -124,8 +127,8 @@ class MeasurementsManager:
             raise MeasurementError("No condition_id_map available in state")
         self.logger.debug("measurment_cols: %s", measurement_cols)
 
-        # Add any missing intensity columns to the measurements table dynamically
-        self._ensure_intensity_columns_exist(measurement_cols)
+        # Add any missing dynamic columns to the measurements table
+        self._ensure_dynamic_columns_exist(measurement_cols)
 
         # Ensure we are working on a copy to avoid SettingWithCopyWarning
         if self.state.df._is_view:
@@ -185,10 +188,13 @@ class MeasurementsManager:
                 "Failed to import measurements into database"
             ) from err
 
-    def _ensure_intensity_columns_exist(
+    def _ensure_dynamic_columns_exist(
         self, measurement_cols: list[str]
     ) -> None:
-        """Dynamically add missing intensity columns to the measurements table.
+        """Dynamically add missing intensity and classifier columns to the measurements table.
+
+        ``intensity_*`` columns are added as FLOAT; ``classifier_*`` columns
+        are added as TEXT.
 
         Args:
             measurement_cols: List of measurement columns from the dataframe
@@ -209,42 +215,36 @@ class MeasurementsManager:
                 "Existing columns from PRAGMA table_info: %s", existing_columns
             )
 
-            # Find intensity columns that need to be added
-            intensity_columns_to_add = []
+            # Collect columns to add with their SQL types
+            columns_to_add: list[tuple[str, str]] = []
             for col in measurement_cols:
-                if (
-                    col.startswith("intensity_")
-                    and col not in existing_columns
-                ):
-                    self.logger.debug(
-                        "Column %s not found in existing columns, will be added",
-                        col,
-                    )
-                    intensity_columns_to_add.append(col)
-                elif col.startswith("intensity_"):
-                    self.logger.debug(
-                        "Column %s already exists, skipping", col
-                    )
+                if col in existing_columns:
+                    continue
+                if col.startswith("intensity_"):
+                    if not self._validate_intensity_column_name(col):
+                        raise MeasurementError(
+                            f"Invalid column name format: {col}"
+                        )
+                    columns_to_add.append((col, "FLOAT"))
+                elif col.startswith("classifier_"):
+                    if not self._validate_classifier_column_name(col):
+                        raise MeasurementError(
+                            f"Invalid classifier column name format: {col}"
+                        )
+                    columns_to_add.append((col, "TEXT"))
 
             # Add missing columns
-            for col in intensity_columns_to_add:
-                # Validate column name for security (prevent SQL injection)
-                if not self._validate_intensity_column_name(col):
-                    raise MeasurementError(
-                        f"Invalid column name format: {col}"
-                    )
-
+            for col, dtype in columns_to_add:
                 try:
                     self.logger.info(
-                        "Adding missing column to measurements table: %s", col
+                        "Adding missing column to measurements table: %s (%s)",
+                        col,
+                        dtype,
                     )
-                    # Use string formatting for DDL since parameterized queries don't work for column names
                     self.db_conn.execute(
-                        f'ALTER TABLE measurements ADD COLUMN "{col}" FLOAT'
+                        f'ALTER TABLE measurements ADD COLUMN "{col}" {dtype}'
                     )
                 except duckdb.CatalogException as e:
-                    # Column already exists - this can happen due to race conditions
-                    # or if a previous import partially completed
                     if "already exists" in str(e):
                         self.logger.warning(
                             "Column %s already exists (likely from previous partial import), continuing",
@@ -269,10 +269,21 @@ class MeasurementsManager:
         """
         import re
 
-        # Must start with intensity_ and contain alphanumeric characters, underscores, or other safe characters
-        # We allow unicode characters (e.g. Greek letters) which are common in biology
-        # \w in Python 3 regex matches [a-zA-Z0-9_] plus unicode word characters
         pattern = r"^intensity_[\w\-\(\)\.]+$"
+        return bool(re.match(pattern, column_name))
+
+    def _validate_classifier_column_name(self, column_name: str) -> bool:
+        """Validate that a classifier column name is safe for SQL DDL operations.
+
+        Args:
+            column_name: The column name to validate
+
+        Returns:
+            True if the column name is valid, False otherwise
+        """
+        import re
+
+        pattern = r"^classifier_[\w\-]+$"
         return bool(re.match(pattern, column_name))
 
 

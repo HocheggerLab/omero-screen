@@ -63,7 +63,7 @@ def sample_data_path(tmp_path_factory) -> Path:
         "well": ["A01", "A02"] * 10,  # Alternate between two wells
         "cell_line": ["MCF10A"] * num_rows,
         "clone": ["WT"] * num_rows,
-        "nuclei4": range(1, num_rows + 1),
+        "classifier_nuclei4": ["class_a", "class_b"] * 10,
         "label": ["cell_" + str(i) for i in range(1, num_rows + 1)],
         "area_nucleus": np.random.uniform(100, 200, num_rows),
         "plate_id": [1] * num_rows,

@@ -293,7 +293,9 @@ def process_wells(
 def _create_classifier(
     conn: BlitzGateway, model_name: str, gallery_width: int, batch_size: int
 ) -> ImageClassifier:
-    image_classifier = ImageClassifier(conn, model_name, class_name=model_name)
+    image_classifier = ImageClassifier(
+        conn, model_name, class_name=f"classifier_{model_name}"
+    )
     image_classifier.gallery_size = gallery_width**2
     image_classifier.batch_size = batch_size
     return image_classifier

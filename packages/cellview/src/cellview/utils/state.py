@@ -1165,8 +1165,8 @@ class CellViewStateCore:
         # Skip channel renaming - keep original antibody names for flexibility
         # self._rename_channel_columns(channels)  # REMOVED
         self._rename_centroid_cols()
-        self._optimize_measurement_types()
         self._set_classifier()
+        self._optimize_measurement_types()
 
     def _find_measurement_cols(self) -> list[str]:
         """Find columns that are likely to be measurements by identifying columns that vary within images.
@@ -1409,7 +1409,11 @@ class CellViewStateCore:
                 self.df[col] = self.df[col].astype("float32")
 
     def _set_classifier(self) -> None:
-        """Set the classifier field in the repeats table based on the first column name.
+        """Detect classifier_* columns, cast them to string, and record model names.
+
+        Scans all columns for the ``classifier_`` prefix instead of relying on
+        column position.  Model names are stored comma-separated in the
+        ``repeats.classifier`` field (e.g. ``"nuclei4, mitotic"``).
 
         Raises:
             StateError: If the repeat_id or database connection is not available.
@@ -1430,40 +1434,79 @@ class CellViewStateCore:
                 context={"state": self.__dict__},
             )
 
-        # Get the first column name
-        first_col = self.df.columns[0]
-        if first_col != "label":
-            # Update the classifier field in the repeats table using the stored connection
-            try:
-                self.db_conn.execute(
-                    """
-                    UPDATE repeats
-                    SET classifier = ?
-                    WHERE repeat_id = ?
-                    """,
-                    [first_col, self.repeat_id],
-                )
+        # Find all classifier_* columns (new-style prefixed)
+        classifier_cols = [
+            col for col in self.df.columns if col.startswith("classifier_")
+        ]
 
-                # Inform the user about the classifier
-                self.console.print(
-                    f"Found classifier column: [green]{first_col}[/green]"
-                )
-
-            except duckdb.Error as err:
-                raise DBError(
-                    "Failed to update classifier in repeats table",
-                    context={
-                        "repeat_id": self.repeat_id,
-                        "classifier": first_col,
-                        "error": str(err),
-                    },
-                ) from err
-
-            self.df.rename(columns={first_col: "classifier"}, inplace=True)
-        else:
-            self.console.print(
-                "No classifier column found in the file", style="yellow"
+        # Legacy support: detect unprefixed classifier columns anywhere in the
+        # dataframe.  Old pipeline used bare model names (e.g. "nuclei4") which
+        # could land at any position after _trim_df.  Rename them to
+        # classifier_{name} so the rest of the pipeline handles them uniformly.
+        if not classifier_cols:
+            _known_prefixes = (
+                "label",
+                "area_",
+                "centroid",
+                "intensity_",
+                "cell_cycle",
+                "image_id",
+                "timepoint",
+                "well",
+                "integrated_int",
             )
+            renames: dict[str, str] = {}
+            for col in self.df.columns:
+                if not any(col.startswith(p) for p in _known_prefixes):
+                    renames[col] = f"classifier_{col}"
+            if renames:
+                self.df.rename(columns=renames, inplace=True)
+                classifier_cols = list(renames.values())
+                for old, new in renames.items():
+                    self.console.print(
+                        f"Renamed legacy classifier column: [yellow]{old}[/yellow] → [green]{new}[/green]"
+                    )
+
+        if not classifier_cols:
+            self.console.print(
+                "No classifier columns found in the file", style="yellow"
+            )
+            return
+
+        # Extract model names and build display string
+        model_names = [
+            col.removeprefix("classifier_") for col in classifier_cols
+        ]
+        classifier_str = ", ".join(model_names)
+
+        # Cast classifier columns to string dtype
+        for col in classifier_cols:
+            self.df[col] = self.df[col].astype(str)
+
+        # Update the classifier field in the repeats table
+        try:
+            self.db_conn.execute(
+                """
+                UPDATE repeats
+                SET classifier = ?
+                WHERE repeat_id = ?
+                """,
+                [classifier_str, self.repeat_id],
+            )
+
+            self.console.print(
+                f"Found classifier column(s): [green]{classifier_str}[/green]"
+            )
+
+        except duckdb.Error as err:
+            raise DBError(
+                "Failed to update classifier in repeats table",
+                context={
+                    "repeat_id": self.repeat_id,
+                    "classifier": classifier_str,
+                    "error": str(err),
+                },
+            ) from err
 
 
 # Convenience function for creating state instances
