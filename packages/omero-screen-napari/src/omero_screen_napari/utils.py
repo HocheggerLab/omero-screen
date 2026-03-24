@@ -9,47 +9,6 @@ from skimage import exposure
 
 logger = get_logger(__name__)
 
-# def omero_connect(func):
-#     """
-#     decorator to log in and generate omero connection
-#     :param func: function to be decorated
-#     :return: wrapper function: passes conn to function and closes it after execution
-#     """
-#     # Load environment variables
-#     dotenv_path = set_env_vars()
-#     load_dotenv(dotenv_path=dotenv_path)
-
-#     username = os.getenv("USERNAME")
-#     password = os.getenv("PASSWORD")
-#     host = os.getenv("HOST")
-
-#     @functools.wraps(func)
-#     def wrapper_omero_connect(*args, **kwargs):
-#         conn = None
-#         value = None
-#         try:
-#             conn = BlitzGateway(username, password, host=host)
-#             logger.info(f"Connecting to Omero at host: {host}")
-#             if conn.connect():
-#                 value = func(*args, **kwargs, conn=conn)
-#                 conn.close()
-#                 logger.info("Disconnecting from Omero")
-#             else:
-#                 error_msg = (
-#                     f"Failed to connect to Omero: {conn.getLastError()}"
-#                 )
-#                 logger.error(error_msg)
-#                 # sourcery skip: raise-specific-error
-#                 raise Exception(error_msg)
-
-#         finally:
-#             # No side effects if called without a connection
-#             if conn:
-#                 conn.close()
-#         return value
-
-#     return wrapper_omero_connect
-
 
 def attach_file_to_well(
     well: WellWrapper, file_path: Path, conn: BlitzGateway

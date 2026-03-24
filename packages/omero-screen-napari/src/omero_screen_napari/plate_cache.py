@@ -40,6 +40,7 @@ from omero.model.enums import UnitsLength
 from omero.rtypes import unwrap
 from omero_screen.config import get_logger, getenv_as_int
 
+from omero_screen_napari.omero_data import get_project_id
 from omero_screen_napari.omero_image import (
     add_cached_image,
     cache_size_limit,
@@ -303,11 +304,6 @@ def get_cached_label_map(
     return _cache.get(_get_label_key(plate_id))  # type: ignore[no-any-return]
 
 
-def _get_project_id() -> int:
-    """Get OMERO screen project."""
-    return int(os.getenv("PROJECT_ID", "0"))
-
-
 def get_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
     """Return plate metadata from the cache, or from OMERO if not cached."""
     v = get_cached_plate_metadata(plate_id)
@@ -325,7 +321,7 @@ def get_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
             v = None
     if v is None:
         logger.info("Caching plate %d: fetching metadata", plate_id)
-        v = _fetch_plate_metadata(conn, plate_id, _get_project_id())
+        v = _fetch_plate_metadata(conn, plate_id, get_project_id())
         _cache.set(_get_meta_key(plate_id), v, tag=plate_id)
     return v  # type: ignore[no-any-return]
 
@@ -348,7 +344,7 @@ def get_label_map(
     v = get_cached_label_map(plate_id)
     if v is None:
         logger.info("Caching plate %d: fetching label map", plate_id)
-        v = _fetch_label_map(conn, plate_id, _get_project_id())
+        v = _fetch_label_map(conn, plate_id, get_project_id())
         _cache.set(_get_label_key(plate_id), v, tag=plate_id)
     return v  # type: ignore[no-any-return]
 
