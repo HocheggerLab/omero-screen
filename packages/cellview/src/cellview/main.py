@@ -74,6 +74,45 @@ def _handle_import(args: argparse.Namespace, db: CellViewDB) -> None:
         get_parser().parse_args(["import", "--help"])
 
 
+def _parse_plate_ids(raw: list[str]) -> list[int]:
+    """Parse plate IDs from CLI arguments.
+
+    Accepts plain integers (``3602 3603``) or a notebook-style name
+    (``plates_3602_3603_3604`` / ``plate_3602``).  A single string
+    argument that starts with ``plate`` is treated as a notebook name
+    and its embedded integers are extracted.
+
+    Args:
+        raw: Raw string arguments from the CLI.
+
+    Returns:
+        Sorted list of plate IDs.
+
+    Raises:
+        SystemExit: If parsing fails.
+    """
+    import sys
+
+    from cellview.utils.ui import ui
+
+    # Single argument that looks like a notebook name
+    if len(raw) == 1 and not raw[0].isdigit():
+        name = raw[0].removesuffix(".ipynb").removeprefix("explore_")
+        parts = name.split("_")
+        ids = [int(p) for p in parts if p.isdigit()]
+        if not ids:
+            ui.error(f"Cannot extract plate IDs from '{raw[0]}'")
+            sys.exit(1)
+        return sorted(ids)
+
+    # Plain integers
+    try:
+        return sorted(int(x) for x in raw)
+    except ValueError:
+        ui.error(f"Invalid plate ID(s): {raw}")
+        sys.exit(1)
+
+
 def _handle_explore(args: argparse.Namespace) -> None:
     """Handle the explore subcommand.
 
@@ -93,8 +132,10 @@ def _handle_explore(args: argparse.Namespace) -> None:
         except ValueError:
             experiment = args.experiment
 
+    plate_ids = _parse_plate_ids(args.plate_ids) if args.plate_ids else None
+
     launch_explore(
-        plate_ids=args.plate_ids or None,
+        plate_ids=plate_ids,
         experiment=experiment,
         template=args.template,
         fresh=args.fresh,

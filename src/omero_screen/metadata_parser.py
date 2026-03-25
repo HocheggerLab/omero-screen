@@ -45,6 +45,52 @@ console = Console()
 SUCCESS_STYLE = "bold cyan"
 
 
+def _normalize_cell_line_column(df: Any) -> Any:
+    """Rename any case variant of 'cell_line' to the canonical 'cell_line'.
+
+    Args:
+        df: A pandas DataFrame from the Excel metadata sheet.
+
+    Returns:
+        The DataFrame with the column renamed if a match was found.
+
+    Raises:
+        ExcelParsingError: If no cell_line column is found (any case).
+    """
+    col_map = {c: c.lower().replace(" ", "_") for c in df.columns}
+    for original, normalized in col_map.items():
+        if normalized == "cell_line" and original != "cell_line":
+            logger.debug(
+                "Normalizing Excel column '%s' → 'cell_line'", original
+            )
+            return df.rename(columns={original: "cell_line"})
+    if "cell_line" not in df.columns:
+        raise ExcelParsingError(
+            "No 'cell_line' column found in Excel Sheet2 (checked all case variants)",
+            logger,
+        )
+    return df
+
+
+def _normalize_cell_line_key(annotation: dict[str, Any]) -> dict[str, Any]:
+    """Rename any case variant of 'cell_line' key to the canonical 'cell_line'.
+
+    Args:
+        annotation: A dictionary of well annotations.
+
+    Returns:
+        The dictionary with the key renamed if a match was found.
+    """
+    if "cell_line" in annotation:
+        return annotation
+    for key in list(annotation):
+        if key.lower().replace(" ", "_") == "cell_line":
+            logger.debug("Normalizing annotation key '%s' → 'cell_line'", key)
+            annotation["cell_line"] = annotation.pop(key)
+            return annotation
+    return annotation
+
+
 # --------------------Metadata Parser--------------------
 class MetadataParser:
     """Parses and manages channel and well metadata for an OMERO plate.
@@ -218,6 +264,9 @@ class MetadataParser:
 
         df = meta_data["Sheet2"]
 
+        # Normalize cell_line column name (case-insensitive)
+        df = _normalize_cell_line_column(df)
+
         # Separate Empty wells so they are excluded from validation and processing
         empty_mask = df["cell_line"].astype(str).str.strip() == "Empty"
         self._empty_well_positions = df.loc[empty_mask, "Well"].tolist()
@@ -311,13 +360,11 @@ class MetadataParser:
                     f"No well annotations found for well {well_pos}", logger
                 )
 
+            # Normalize cell_line key (case-insensitive)
+            well_annotation = _normalize_cell_line_key(well_annotation)
+
             # Skip Empty wells entirely — they have no experimental data
-            if (
-                well_annotation.get(
-                    "cell_line", well_annotation.get("Cell_Line")
-                )
-                == "Empty"
-            ):
+            if well_annotation.get("cell_line") == "Empty":
                 self._empty_well_positions.append(well_pos)
                 continue
 
@@ -540,7 +587,7 @@ class MetadataParser:
             list[str]: List of error messages, empty if no errors
         """
         errors = []
-        # Check required keys exist
+        # Check required keys exist (cell_line is case-insensitive, already normalized)
         required_keys = {"Well", "cell_line"}
         if missing_keys := required_keys - self.well_data.keys():
             errors.append(

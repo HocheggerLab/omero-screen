@@ -141,9 +141,9 @@ def get_parser() -> argparse.ArgumentParser:
     )
     p_explore.add_argument(
         "plate_ids",
-        type=int,
+        type=str,
         nargs="*",
-        help="Plate ID(s) to explore.",
+        help="Plate ID(s) or notebook name (e.g. plates_3602_3603).",
     )
     p_explore.add_argument(
         "--experiment",
