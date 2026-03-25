@@ -29,13 +29,17 @@ def has_valid_positions(
     Requires at least 2 positions, all non-None, and positions that
     span more than one grid cell (i.e. not all identical).
     """
-    if len(positions) < 2 or not all(p is not None for p in positions):
+    # Extract (x,y) into lists
+    valid = [p for p in positions if p is not None]
+    if len(valid) < max(2, len(positions)):
+        return False
+
+    xs = [p[0] for p in valid if p[0] is not None]
+    ys = [p[1] for p in valid if p[0] is not None]
+    if min(len(xs), len(ys)) < len(positions):
         return False
 
     # Check that positions actually form a grid (not all at the same spot)
-    valid = [p for p in positions if p is not None]
-    xs = [p[0] for p in valid]
-    ys = [p[1] for p in valid]
     tol_x = _adaptive_tolerance(xs)
     tol_y = _adaptive_tolerance(ys)
     x_clusters = _cluster_values(xs, tol_x)
