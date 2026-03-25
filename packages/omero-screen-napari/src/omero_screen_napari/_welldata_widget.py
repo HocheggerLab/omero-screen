@@ -499,10 +499,23 @@ def _display_plate(viewer: Viewer) -> None:
     n_per_well = len(omero_data.image_index)
     iw_override = None
 
-    # Check first well's positions to decide if stitching is possible
+    # Check all wells can be stitched
     sp = _get_stitch_params()
     stitch = sp.get("stitch") and n_per_well > 0
-    if stitch and has_valid_positions(omero_data.image_positions[:n_per_well]):
+    if stitch:
+        for i in range(n_wells):
+            j = i * n_per_well
+            if not has_valid_positions(
+                omero_data.image_positions[j : j + n_per_well]
+            ):
+                logger.warning(
+                    "Unable to stitch well %s from stage positions",
+                    omero_data.well_pos_list[i],
+                )
+                stitch = False
+                break
+
+    if stitch:
         logger.info("Auto-stitching %d well(s) from stage positions", n_wells)
         stitched_imgs: list[np.ndarray[Any, np.dtype[Any]]] = []
         stitched_lbls: list[np.ndarray[Any, np.dtype[Any]]] = []
@@ -550,11 +563,7 @@ def _display_plate(viewer: Viewer) -> None:
         # For multi-well, each slider position = one well
         iw_override = 1 if n_wells > 1 else None
     else:
-        logger.info(
-            "Displaying %d well(s)%s",
-            n_wells,
-            " (unknown grid layout)" if stitch else "",
-        )
+        logger.info("Displaying %d well(s)", n_wells)
         clear_viewer_layers(viewer)
         add_image_to_viewer(viewer)
         set_color_maps(viewer)

@@ -32,11 +32,24 @@ def has_valid_positions(
     # Extract (x,y) into lists
     valid = [p for p in positions if p is not None]
     if len(valid) < max(2, len(positions)):
+        if logger.isEnabledFor(logging.DEBUG):
+            if len(valid) < len(positions):
+                logger.debug(
+                    "Missing positions: %d < %d", len(valid), len(positions)
+                )
+            else:
+                logger.debug("Not enough positions: %d", len(positions))
         return False
 
     xs = [p[0] for p in valid if p[0] is not None]
     ys = [p[1] for p in valid if p[0] is not None]
     if min(len(xs), len(ys)) < len(positions):
+        logger.debug(
+            "Missing X/Y positions: %d,%d < %d",
+            len(xs),
+            len(ys),
+            len(positions),
+        )
         return False
 
     # Check that positions actually form a grid (not all at the same spot)
