@@ -168,41 +168,45 @@ def positions_to_grid(
         for x_dict in grid_map.values():
             maxy = np.max(list(x_dict.keys()), initial=maxy)
         grid = []
-        dx, dy = [], []
+        # row/column translations between adjacent images
+        rx, ry = [], []
+        cx, cy = [], []
         empty: dict[int, int] = {}
+        # rows
         for y in range(maxy + 1):
             grid_row = []
             for x in range(maxx + 1):
                 grid_row.append(grid_map.get(x, empty).get(y, -1))
             grid.append(grid_row)
-            # min/max position index of row
-            r = np.array(grid_row)
-            indices = r[r >= 0]
-            min_i, max_i = indices[0], indices[-1]
-            if min_i != max_i:
-                dy.append(
-                    (positions[max_i][1] - positions[min_i][1]) / len(indices)
-                )
+            for x in range(maxx):
+                i = grid_row[x]
+                j = grid_row[x + 1]
+                if i >= 0 and j >= 0:
+                    rx.append(positions[j][0] - positions[i][0])
+                    ry.append(positions[j][1] - positions[i][1])
+        # columns
         for x in range(maxx + 1):
             grid_col = []
             for y in range(maxy + 1):
                 grid_col.append(grid_map.get(x, empty).get(y, -1))
-            grid.append(grid_col)
-            # min/max position index of column
-            r = np.array(grid_col)
-            indices = r[r >= 0]
-            min_i, max_i = indices[0], indices[-1]
-            if min_i != max_i:
-                dx.append(
-                    (positions[max_i][0] - positions[min_i][0]) / len(indices)
-                )
+            for y in range(maxy):
+                i = grid_col[y]
+                j = grid_col[y + 1]
+                if i >= 0 and j >= 0:
+                    cx.append(positions[j][0] - positions[i][0])
+                    cy.append(positions[j][1] - positions[i][1])
+
         logger.debug(
-            "Position grid: %s; dx %.3f +/- %.3f, dy %.3f +/- %.3f (raw units)",
+            "Position grid: %s; row %.3f,%.3f +/- %.3f,%.3f, col %.3f,%.3f +/- %.3f,%.3f (raw units)",
             grid,
-            np.mean(dx),
-            np.std(dx),
-            np.mean(dy),
-            np.std(dy),
+            np.mean(rx),
+            np.mean(ry),
+            np.std(rx),
+            np.std(ry),
+            np.mean(cx),
+            np.mean(cy),
+            np.std(cx),
+            np.std(cy),
         )
 
     return grid_map
