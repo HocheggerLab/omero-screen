@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import os
 import queue
 import threading
 import time
@@ -40,7 +39,7 @@ from omero.model.enums import UnitsLength
 from omero.rtypes import unwrap
 from omero_screen.config import get_logger, getenv_as_int
 
-from omero_screen_napari.omero_data import get_project_id
+from omero_screen_napari.omero_data import OmeroConnection, get_project_id
 from omero_screen_napari.omero_image import (
     add_cached_image,
     cache_size_limit,
@@ -304,8 +303,12 @@ def get_cached_label_map(
     return _cache.get(_get_label_key(plate_id))  # type: ignore[no-any-return]
 
 
-def get_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
-    """Return plate metadata from the cache, or from OMERO if not cached."""
+def get_plate_metadata(
+    connection: OmeroConnection, plate_id: int
+) -> dict[str, Any]:
+    """Return plate metadata from the cache, or from OMERO if not cached.
+
+    Re-uses the connection or creates one if required."""
     v = get_cached_plate_metadata(plate_id)
     if isinstance(v, dict):
         old_version = v.get("cache_version", 0)
@@ -321,30 +324,38 @@ def get_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
             v = None
     if v is None:
         logger.info("Caching plate %d: fetching metadata", plate_id)
-        v = _fetch_plate_metadata(conn, plate_id, get_project_id())
+        v = _fetch_plate_metadata(
+            connection.get_conn(), plate_id, get_project_id()
+        )
         _cache.set(_get_meta_key(plate_id), v, tag=plate_id)
     return v  # type: ignore[no-any-return]
 
 
-def get_well_data(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
-    """Return wells dict from the cache, or from OMERO if not cached."""
+def get_well_data(
+    connection: OmeroConnection, plate_id: int
+) -> dict[str, Any]:
+    """Return wells dict from the cache, or from OMERO if not cached.
+
+    Re-uses the connection or creates one if required."""
     v = get_cached_well_data(plate_id)
     if v is None:
         logger.info("Caching plate %d: fetching well data", plate_id)
-        v = _fetch_well_map(conn, plate_id)
+        v = _fetch_well_map(connection.get_conn(), plate_id)
         _cache.set(_get_well_key(plate_id), v, tag=plate_id)
     return v  # type: ignore[no-any-return]
 
 
 def get_label_map(
-    conn: BlitzGateway,
+    connection: OmeroConnection,
     plate_id: int,
 ) -> dict[str, list[dict[str, int | tuple[int, ...]] | None]]:
-    """Return label map from the cache, or from OMERO if not cached."""
+    """Return label map from the cache, or from OMERO if not cached.
+
+    Re-uses the connection or creates one if required."""
     v = get_cached_label_map(plate_id)
     if v is None:
         logger.info("Caching plate %d: fetching label map", plate_id)
-        v = _fetch_label_map(conn, plate_id, get_project_id())
+        v = _fetch_label_map(connection.get_conn(), plate_id, get_project_id())
         _cache.set(_get_label_key(plate_id), v, tag=plate_id)
     return v  # type: ignore[no-any-return]
 
@@ -553,11 +564,14 @@ def clean_orphaned_plates(
 
 def cache_plate(
     plate_id: int,
-    conn: BlitzGateway,
+    connection: OmeroConnection,
     stop_flag: threading.Event,
     max_workers: int = 3,
 ) -> Generator[tuple[int, int], None, None]:
     """Cache entire plate: metadata + images + labels.
+
+    Uses the provided OMERO connection to create connections.
+    The connections are always closed.
 
     Opens one OMERO connection for metadata, then spawns workers for images.
     Yields (images_done, images_total) for progress reporting.
@@ -569,7 +583,7 @@ def cache_plate(
 
     Args:
         plate_id: OMERO plate ID.
-        conn: Active OMERO connection (closed by this method).
+        connection: OMERO connection.
         stop_flag: Flag to used to stop the download.
         max_workers: Number of concurrent download threads.
 
@@ -579,9 +593,9 @@ def cache_plate(
     # Use try-block to close the connection when no longer required
     try:
         logger.info("Caching plate %d", plate_id)
-        meta = get_plate_metadata(conn, plate_id)
-        wells = get_well_data(conn, plate_id)
-        label_map = get_label_map(conn, plate_id)
+        meta = get_plate_metadata(connection, plate_id)
+        wells = get_well_data(connection, plate_id)
+        label_map = get_label_map(connection, plate_id)
 
         # Quick check to determine if the plate will fit in the cache.
         # Done after fetching the label map so the estimate includes labels.
@@ -607,7 +621,14 @@ def cache_plate(
 
         # Fetch flatfield mask image (image is cached)
         logger.info("Caching plate %d: fetching flatfield mask", plate_id)
-        _ = get_image(conn, meta["ff_mask_id"], tag=plate_id)
+        ff_mask_id = meta.get("ff_mask_id") or 0
+        flatfield_masks = get_cached_image(get_key(ff_mask_id, 0))
+        if flatfield_masks is None:
+            flatfield_masks = get_image(
+                connection.get_conn(), ff_mask_id, tag=plate_id
+            )
+            if flatfield_masks is None:
+                raise ValueError(f"Plate {plate_id} flat-field mask missing")
 
         # Build downloads grouped by well, sorted by well position.
         # Well-sorted partitioning ensures wells complete sequentially so
@@ -653,9 +674,13 @@ def cache_plate(
         # Accurate download size (assuming all images the same)
         estimated_bytes = 0
         if image_id:
-            estimated_bytes += get_bytes_size(conn, image_id) * n_images
+            estimated_bytes += (
+                get_bytes_size(connection.get_conn(), image_id) * n_images
+            )
         if label_id:
-            estimated_bytes += get_bytes_size(conn, label_id) * (
+            estimated_bytes += get_bytes_size(
+                connection.get_conn(), label_id
+            ) * (
                 # number of labels
                 len(keys) - n_images
             )
@@ -682,7 +707,7 @@ def cache_plate(
             return
     finally:
         # No longer required
-        conn.close(hard=True)
+        connection.close()
 
     # Distribute keys to workers round-robin
     max_workers = max(1, max_workers)
@@ -719,6 +744,7 @@ def cache_plate(
                     batch,
                     plate_id,
                     stop_flag,
+                    connection,
                     progress_q,
                 )
                 for batch in batches
@@ -1209,14 +1235,13 @@ def _download_batch(
     batch: list[tuple[int, int]],
     plate_id: int,
     stop_flag: threading.Event,
+    connection: OmeroConnection,
     progress_q: queue.Queue[int] | None = None,
-    conn: BlitzGateway | None = None,
 ) -> None:
     """Download a batch of images.
 
-    Uses the provided OMERO connection (pre-created by the caller) or
-    falls back to creating one.  The connection is always closed when
-    the batch finishes.
+    Uses the provided OMERO connection to create a connection.
+    The connection is always closed when the batch finishes.
 
     After every image is stored in the cache, the image byte size is put on
     *progress_q* so the caller can track download progress.
@@ -1226,26 +1251,12 @@ def _download_batch(
         plate_id: Plate ID.
         stop_flag: Flag to used to stop the download.
         progress_q: Optional queue for per-image progress signalling.
-        conn: Pre-created OMERO connection. If ``None``, a new one is
-            created (slower — connection overhead is paid inside the worker).
+        connection: OMERO connection.
     """
-    if conn is None:
-        username = os.getenv("USERNAME")
-        password = os.getenv("PASSWORD")
-        host = os.getenv("HOST")
-
-        conn = BlitzGateway(username, password, host=host)
-        conn.connect()
-        if not conn.isConnected():
-            raise RuntimeError(
-                f"Download worker failed to connect to OMERO at {host}"
-            )
-
     # The finally block closes the connection and RawPixelsStore
+    conn = connection.create_conn()
     store = None
     try:
-        conn.c.enableKeepAlive(60)
-
         last_image_id: int | None = None
 
         # Accumulators for per-phase timing (only when DEBUG logging)
@@ -1311,7 +1322,7 @@ def _download_batch(
 
 
 def load_from_cache(
-    conn: BlitzGateway,
+    connection: OmeroConnection,
     omero_data: Any,
     plate_id: int,
     well_pos_input: str,
@@ -1323,9 +1334,10 @@ def load_from_cache(
     """Populate OmeroData using the cache, otherwise from OMERO.
 
     The connection will not be used if the data is fully cached.
+    If a connection is created it will be closed by this method.
 
     Args:
-        conn: Active OMERO connection (closed by this method).
+        conn: OMERO connection.
         omero_data: OmeroData instance to populate.
         plate_id: Plate ID.
         well_pos_input: Comma-separated well positions (e.g. "A1, A2").
@@ -1339,15 +1351,17 @@ def load_from_cache(
     """
     # Use try-block to close the connection when no longer required
     try:
-        meta = get_plate_metadata(conn, plate_id)
-        wells = get_well_data(conn, plate_id)
-        label_map = get_label_map(conn, plate_id)
+        meta = get_plate_metadata(connection, plate_id)
+        wells = get_well_data(connection, plate_id)
+        label_map = get_label_map(connection, plate_id)
 
         # flatfield correction image: ZYXC
         ff_mask_id = meta.get("ff_mask_id") or 0
         flatfield_masks = get_cached_image(get_key(ff_mask_id, 0))
         if flatfield_masks is None:
-            flatfield_masks = get_image(conn, ff_mask_id)
+            flatfield_masks = get_image(
+                connection.get_conn(), ff_mask_id, tag=plate_id
+            )
             if flatfield_masks is None:
                 raise ValueError(f"Plate {plate_id} flat-field mask missing")
         flatfield_masks = flatfield_masks.astype(np.float32)
@@ -1415,8 +1429,10 @@ def load_from_cache(
                     arr = get_cached_image(get_key(image_id, t))
                     if arr is None:
                         if store is None:
+                            conn = connection.get_conn()
                             store, shape, dt_be = initialise_download(
-                                conn, get_omero_image_wrapper(conn, image_id)
+                                conn,
+                                get_omero_image_wrapper(conn, image_id),
                             )
                         arr = get_omero_image_timepoint(store, t, shape, dt_be)
                         if cache_images:
@@ -1469,6 +1485,7 @@ def load_from_cache(
                             arr = get_cached_image(get_key(label_id, t))
                             if arr is None:
                                 if store is None:
+                                    conn = connection.get_conn()
                                     store, shape, dt_be = initialise_download(
                                         conn,
                                         get_omero_image_wrapper(
@@ -1526,7 +1543,7 @@ def load_from_cache(
             len(label_arrays),
         )
     finally:
-        conn.close(hard=True)
+        connection.close()
 
 
 def _count_images(

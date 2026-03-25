@@ -16,7 +16,6 @@ from napari.layers import Image
 from napari.qt.threading import GeneratorWorker, create_worker
 from napari.utils import progress as napari_progress
 from napari.viewer import Viewer
-from omero.gateway import BlitzGateway
 from omero_screen.config import get_logger
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
@@ -30,6 +29,7 @@ from qtpy.QtWidgets import (
 )
 from vispy.color import Colormap
 
+from omero_screen_napari.omero_data import OmeroConnection
 from omero_screen_napari.omero_data_singleton import omero_data
 from omero_screen_napari.omero_image import cache_size_limit, cache_volume
 from omero_screen_napari.plate_cache import (
@@ -615,8 +615,8 @@ def start_cache_worker(plate_id: int) -> None:
                 _active_cache_stop_flag.set()
 
         # From here we are committed to starting a new download.
-        # Create a connection manually (worker is async, can't use decorator)
-        conn = _create_connection()
+        # Create connection details.
+        connection = OmeroConnection()
         # This flag can be used to stop a running download. It is set when
         # the download ends to signal the download is no longer active.
         stop_flag = threading.Event()
@@ -630,7 +630,7 @@ def start_cache_worker(plate_id: int) -> None:
         worker = create_worker(
             cache_plate,
             plate_id,
-            conn,
+            connection,
             stop_flag,
             max_workers=max_workers,
             _worker_class=BackgroundGeneratorWorker,
@@ -692,22 +692,6 @@ def start_cache_worker(plate_id: int) -> None:
         # End-of with _active_lock
 
     logger.info("Started cache worker for plate %d", plate_id)
-
-
-def _create_connection() -> BlitzGateway:
-    """Create a connection to the OMERO server."""
-    # Create a connection manually (worker is async, can't use decorator)
-    username = os.getenv("USERNAME")
-    password = os.getenv("PASSWORD")
-    host = os.getenv("HOST")
-    conn = BlitzGateway(username, password, host=host)
-    conn.connect()
-    if not conn.isConnected():
-        raise RuntimeError(
-            f"Failed to establish connection to OMERO server at {host} as {username}"
-        )
-    conn.c.enableKeepAlive(60)
-    return conn
 
 
 def get_active_download() -> int:
@@ -780,8 +764,8 @@ def start_data_worker(
                 _data_stop_flag.set()
 
         # From here we are committed to starting a new download.
-        # Create a connection manually (worker is async, can't use decorator)
-        conn = _create_connection()
+        # Create connection details.
+        connection = OmeroConnection()
         # This flag can be used to stop a running download. It is set when
         # the download ends to signal the download is no longer active.
         stop_flag = threading.Event()
@@ -794,7 +778,7 @@ def start_data_worker(
 
         worker = create_worker(
             load_from_cache,
-            conn,
+            connection,
             omero_data,
             plate_id,
             well_pos_input,

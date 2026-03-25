@@ -445,7 +445,7 @@ class TestLoadFromCache:
             # Throw an exception when the connection is used to get the plate.
             mock_conn = MagicMock()
             msg = "Boom!"
-            mock_conn.getObject.side_effect = Exception(msg)
+            mock_conn.get_conn.side_effect = Exception(msg)
 
             od = OmeroData()
             with pytest.raises(Exception, match=msg):
@@ -1508,12 +1508,13 @@ class TestImageWrapperReuse:
             from omero_screen_napari.plate_cache import _download_batch
 
             progress_q: queue.Queue[int] = queue.Queue()
-            _download_batch(batch, plate_id, stop_flag, progress_q, conn=mock_conn)
+            _download_batch(batch, plate_id, stop_flag, mock_conn, progress_q)
 
             # Should be called exactly 2 times: once for 100, once for 200
             assert mock_get_wrapper.call_count == 2
-            mock_get_wrapper.assert_any_call(mock_conn, 100)
-            mock_get_wrapper.assert_any_call(mock_conn, 200)
+            conn = mock_conn.create_conn.return_value
+            mock_get_wrapper.assert_any_call(conn, 100)
+            mock_get_wrapper.assert_any_call(conn, 200)
 
     def test_fetches_each_unique_image_id(self):
         """Each unique image_id triggers one wrapper fetch."""
@@ -1536,7 +1537,7 @@ class TestImageWrapperReuse:
         ):
             from omero_screen_napari.plate_cache import _download_batch
 
-            _download_batch(batch, plate_id, stop_flag, None, conn=mock_conn)
+            _download_batch(batch, plate_id, stop_flag, mock_conn)
 
             assert mock_get_wrapper.call_count == 3
 
@@ -1561,12 +1562,13 @@ class TestImageWrapperReuse:
         ):
             from omero_screen_napari.plate_cache import _download_batch
 
-            _download_batch(batch, plate_id, stop_flag, None, conn=mock_conn)
+            _download_batch(batch, plate_id, stop_flag, mock_conn)
 
             # Only one createRawPixelsStore call for the same image
             assert mock_get_wrapper.call_count == 1
-            assert mock_conn.c.sf.createRawPixelsStore.call_count == 1
-            store = mock_conn.c.sf.createRawPixelsStore.return_value
+            conn = mock_conn.create_conn.return_value
+            assert conn.c.sf.createRawPixelsStore.call_count == 1
+            store = conn.c.sf.createRawPixelsStore.return_value
             assert store.setPixelsId.call_count == 1
             # getTimepoint called 3 times (one per batch item)
             assert mock_get_timepoint.call_count == 3
@@ -1592,10 +1594,11 @@ class TestImageWrapperReuse:
         ):
             from omero_screen_napari.plate_cache import _download_batch
 
-            _download_batch(batch, plate_id, stop_flag, None, conn=mock_conn)
+            _download_batch(batch, plate_id, stop_flag, mock_conn)
 
             # Two different images → two createRawPixelsStore calls
-            assert mock_conn.c.sf.createRawPixelsStore.call_count == 2
+            conn = mock_conn.create_conn.return_value
+            assert conn.c.sf.createRawPixelsStore.call_count == 2
 
 
 # --------------- Download batch completeness ---------------
@@ -1631,7 +1634,7 @@ class TestDownloadBatchCompleteness:
         ):
             from omero_screen_napari.plate_cache import _download_batch
 
-            _download_batch(batch, plate_id, stop_flag, None, conn=mock_conn)
+            _download_batch(batch, plate_id, stop_flag, mock_conn)
 
         expected = [get_key(*x) for x in batch]
         assert expected == cached_keys
@@ -1666,7 +1669,7 @@ class TestDownloadBatchCompleteness:
         ):
             from omero_screen_napari.plate_cache import _download_batch
 
-            _download_batch(batch, plate_id, stop_flag, None, conn=mock_conn)
+            _download_batch(batch, plate_id, stop_flag, mock_conn)
 
         expected = []
         assert expected == cached_keys

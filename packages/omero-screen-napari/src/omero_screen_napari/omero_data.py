@@ -6,11 +6,12 @@ from typing import Any, Optional
 import numpy as np
 import polars as pl
 from numpy.typing import NDArray
-from omero.gateway import _DatasetWrapper, _PlateWrapper, _WellWrapper
-from omero_screen.config import get_logger
-
-# Initialize logger with the module's name
-logger = get_logger(__name__)
+from omero.gateway import (
+    BlitzGateway,
+    _DatasetWrapper,
+    _PlateWrapper,
+    _WellWrapper,
+)
 
 
 def get_project_id() -> int:
@@ -139,3 +140,62 @@ class OmeroData:
         self.image_ids = []
         self.image_positions = []
         self.labels = np.empty((0,))
+
+
+class OmeroConnection:
+    """Provide a connection to OMERO.
+
+    Connection credentials are obtained from the environment.
+    """
+
+    def __init__(self) -> None:
+        self.username = os.getenv("USERNAME")
+        self.password = os.getenv("PASSWORD")
+        self.host = os.getenv("HOST")
+        self.conn: BlitzGateway | None = None
+
+    def get_conn(self) -> BlitzGateway:
+        """Get the current connection to OMERO, creating one if required.
+
+        The connection is stored for reuse.
+
+        Returns:
+            OMERO connection
+
+        Raises:
+            RuntimeError: if a required connection cannot be opened.
+        """
+        conn = self.conn
+        if conn is None:
+            conn = self.create_conn()
+            self.conn = conn
+        return conn
+
+    def close(self, hard: bool = True) -> None:
+        """Close the current connection.
+
+        Args:
+            hard: If true perform a hard close.
+        """
+        conn = self.conn
+        if conn is not None:
+            self.conn = None
+            conn.close(hard=hard)
+
+    def create_conn(self) -> BlitzGateway:
+        """Create a new connection to OMERO.
+
+        Returns:
+            OMERO connection
+
+        Raises:
+            RuntimeError: if a connection cannot be opened.
+        """
+        conn = BlitzGateway(self.username, self.password, host=self.host)
+        conn.connect()
+        if not conn.isConnected():
+            raise RuntimeError(
+                f"Failed to establish connection to OMERO server at {self.host} as {self.username}"
+            )
+        conn.c.enableKeepAlive(60)
+        return conn
