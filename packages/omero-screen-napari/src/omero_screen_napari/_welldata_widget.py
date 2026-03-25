@@ -404,6 +404,7 @@ def _open_plate_info(
 
 # Defaults matching the stitched_data_widget signature (Operetta calibration)
 _STITCH_DEFAULTS: dict[str, Any] = {
+    "stitch": True,
     "overlap_x": 7,
     "overlap_y": 7,
     "translate_x": -3,
@@ -421,6 +422,7 @@ def _get_stitch_params() -> dict[str, Any]:
     if w is not None:
         try:
             return {
+                "stitch": w.stitch.value,
                 "overlap_x": w.overlap_x.value,
                 "overlap_y": w.overlap_y.value,
                 "translate_x": w.translate_x.value,
@@ -498,10 +500,10 @@ def _display_plate(viewer: Viewer) -> None:
     iw_override = None
 
     # Check first well's positions to decide if stitching is possible
-    first_well_pos = omero_data.image_positions[:n_per_well]
-    if n_per_well > 0 and has_valid_positions(first_well_pos):
+    sp = _get_stitch_params()
+    stitch = sp.get("stitch") and n_per_well > 0
+    if stitch and has_valid_positions(omero_data.image_positions[:n_per_well]):
         logger.info("Auto-stitching %d well(s) from stage positions", n_wells)
-        sp = _get_stitch_params()
         stitched_imgs: list[np.ndarray[Any, np.dtype[Any]]] = []
         stitched_lbls: list[np.ndarray[Any, np.dtype[Any]]] = []
 
@@ -548,7 +550,11 @@ def _display_plate(viewer: Viewer) -> None:
         # For multi-well, each slider position = one well
         iw_override = 1 if n_wells > 1 else None
     else:
-        logger.info("Displaying %d well(s) (unknown grid layout)", n_wells)
+        logger.info(
+            "Displaying %d well(s)%s",
+            n_wells,
+            " (unknown grid layout)" if stitch else "",
+        )
         clear_viewer_layers(viewer)
         add_image_to_viewer(viewer)
         set_color_maps(viewer)
@@ -1048,7 +1054,7 @@ def _display_stitched(
         add_label_layers(viewer, labels=stitched_labels)
     viewer.scale_bar.visible = True
     viewer.scale_bar.unit = "µm"
-    viewer.reset_view()
+    # viewer.reset_view()
 
 
 @magic_factory(
@@ -1058,6 +1064,7 @@ def _display_stitched(
 )
 def stitched_data_widget(
     viewer: Viewer,
+    stitch: bool = True,
     overlap_x: int = 7,
     overlap_y: int = 7,
     translate_x: int = -3,
