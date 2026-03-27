@@ -296,6 +296,8 @@ def display_single_project(
         con: The database connection
         project_id: The ID of the project to display
     """
+    from cellview.explore._registry import experiment_notebook_exists
+
     query = """
     SELECT
         e.experiment_id,
@@ -329,16 +331,28 @@ def display_single_project(
         plate_ids_str = (
             ", ".join(info["plate_ids"]) if info["plate_ids"] else "-"
         )
+        nb_label = (
+            f"explore_exp_{exp_id}"
+            if experiment_notebook_exists(exp_id)
+            else "-"
+        )
         display_rows.append(
             (
                 exp_id,
                 info["experiment_name"],
                 info["description"],
                 plate_ids_str,
+                nb_label,
             )
         )
 
-    columns = ["Experiment ID", "Experiment Name", "Description", "Plate IDs"]
+    columns = [
+        "Experiment ID",
+        "Experiment Name",
+        "Description",
+        "Plate IDs",
+        "Exp Notebook",
+    ]
     display_table(
         con,
         title=f"Experiments and Plates for Project {project_id}",
@@ -371,11 +385,19 @@ def display_experiment(
     GROUP BY e.experiment_id, e.experiment_name, e.description
     """
     summary_rows = con.execute(summary_query, [experiment_id]).fetchall()
+    # Append experiment notebook status to each summary row
+    nb_label = (
+        f"explore_exp_{experiment_id}"
+        if experiment_notebook_exists(experiment_id)
+        else "-"
+    )
+    summary_rows = [(*row, nb_label) for row in summary_rows]
     summary_columns = [
         "Experiment ID",
         "Experiment Name",
         "Description",
         "Plate IDs",
+        "Exp Notebook",
     ]
     display_table(
         con,
@@ -385,10 +407,6 @@ def display_experiment(
         style_columns=[0],
         highlight_style=Colors.SECONDARY.value,
     )
-
-    # Show experiment-level notebook status
-    if experiment_notebook_exists(experiment_id):
-        ui.success(f"Experiment notebook: explore_exp_{experiment_id}.ipynb")
 
     # Get all column names from repeats table except repeat_id, experiment_id, plate_id
     repeats_columns_query = """
