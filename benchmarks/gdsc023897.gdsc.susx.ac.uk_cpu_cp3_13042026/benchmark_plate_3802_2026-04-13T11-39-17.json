@@ -1,0 +1,77 @@
+{
+  "system": {
+    "platform": "macOS-15.7.2-arm64-arm-64bit",
+    "cpu": "arm",
+    "cpu_count": 10,
+    "python_version": "3.12.10",
+    "ram_gb": 16.0,
+    "gpu": "mps",
+    "cellpose_version": "unknown"
+  },
+  "plate_id": 3802,
+  "n_wells": 2,
+  "n_images": 4,
+  "stages": {
+    "metadata_parsing": 0.674,
+    "flatfield_correction": 19.1141,
+    "cell_cycle_analysis": 1.7284,
+    "save_results": 2.9571,
+    "total_s": 155.8916
+  },
+  "per_image": [
+    {
+      "image_id": 2260169,
+      "well": "B1",
+      "download_s": 1.1541,
+      "nucleus_segmentation_s": 14.2346,
+      "cell_segmentation_s": 17.9688,
+      "feature_extraction_s": 0.4896,
+      "total_s": 34.6788
+    },
+    {
+      "image_id": 2260170,
+      "well": "B1",
+      "download_s": 1.1173,
+      "nucleus_segmentation_s": 15.1987,
+      "cell_segmentation_s": 15.0312,
+      "feature_extraction_s": 0.399,
+      "total_s": 32.6011
+    },
+    {
+      "image_id": 2260168,
+      "well": "A1",
+      "download_s": 1.6708,
+      "nucleus_segmentation_s": 13.649,
+      "cell_segmentation_s": 15.4929,
+      "feature_extraction_s": 0.389,
+      "total_s": 31.923
+    },
+    {
+      "image_id": 2260171,
+      "well": "A1",
+      "download_s": 1.1518,
+      "nucleus_segmentation_s": 13.849,
+      "cell_segmentation_s": 13.4064,
+      "feature_extraction_s": 0.3759,
+      "total_s": 29.5753
+    }
+  ],
+  "summary": {
+    "total_mean_s": 32.1945,
+    "total_median_s": 32.262,
+    "total_std_s": 2.1032,
+    "cell_segmentation_mean_s": 15.4748,
+    "cell_segmentation_median_s": 15.2621,
+    "cell_segmentation_std_s": 1.8882,
+    "download_mean_s": 1.2735,
+    "download_median_s": 1.153,
+    "download_std_s": 0.2654,
+    "feature_extraction_mean_s": 0.4134,
+    "feature_extraction_median_s": 0.394,
+    "feature_extraction_std_s": 0.0517,
+    "nucleus_segmentation_mean_s": 14.2329,
+    "nucleus_segmentation_median_s": 14.0418,
+    "nucleus_segmentation_std_s": 0.6883,
+    "images_per_minute": 1.54
+  }
+}

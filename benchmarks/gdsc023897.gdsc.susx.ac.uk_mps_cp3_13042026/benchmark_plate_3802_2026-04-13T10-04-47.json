@@ -1,0 +1,77 @@
+{
+  "system": {
+    "platform": "macOS-15.7.2-arm64-arm-64bit",
+    "cpu": "arm",
+    "cpu_count": 10,
+    "python_version": "3.12.10",
+    "ram_gb": 16.0,
+    "gpu": "mps",
+    "cellpose_version": "unknown"
+  },
+  "plate_id": 3802,
+  "n_wells": 2,
+  "n_images": 4,
+  "stages": {
+    "metadata_parsing": 0.7015,
+    "flatfield_correction": 17.6031,
+    "cell_cycle_analysis": 1.4438,
+    "save_results": 2.8851,
+    "total_s": 52.2617
+  },
+  "per_image": [
+    {
+      "image_id": 2260169,
+      "well": "B1",
+      "download_s": 1.1303,
+      "nucleus_segmentation_s": 1.9926,
+      "cell_segmentation_s": 3.2741,
+      "feature_extraction_s": 0.4747,
+      "total_s": 7.6558
+    },
+    {
+      "image_id": 2260170,
+      "well": "B1",
+      "download_s": 1.1513,
+      "nucleus_segmentation_s": 1.7606,
+      "cell_segmentation_s": 2.2718,
+      "feature_extraction_s": 0.3727,
+      "total_s": 6.6216
+    },
+    {
+      "image_id": 2260168,
+      "well": "A1",
+      "download_s": 1.1156,
+      "nucleus_segmentation_s": 1.8029,
+      "cell_segmentation_s": 2.4277,
+      "feature_extraction_s": 0.3481,
+      "total_s": 6.4907
+    },
+    {
+      "image_id": 2260171,
+      "well": "A1",
+      "download_s": 1.172,
+      "nucleus_segmentation_s": 1.7254,
+      "cell_segmentation_s": 2.4515,
+      "feature_extraction_s": 0.3735,
+      "total_s": 6.519
+    }
+  ],
+  "summary": {
+    "total_mean_s": 6.8218,
+    "total_median_s": 6.5703,
+    "total_std_s": 0.5589,
+    "cell_segmentation_mean_s": 2.6063,
+    "cell_segmentation_median_s": 2.4396,
+    "cell_segmentation_std_s": 0.4523,
+    "download_mean_s": 1.1423,
+    "download_median_s": 1.1408,
+    "download_std_s": 0.0246,
+    "feature_extraction_mean_s": 0.3922,
+    "feature_extraction_median_s": 0.3731,
+    "feature_extraction_std_s": 0.0562,
+    "nucleus_segmentation_mean_s": 1.8204,
+    "nucleus_segmentation_median_s": 1.7817,
+    "nucleus_segmentation_std_s": 0.1191,
+    "images_per_minute": 4.59
+  }
+}

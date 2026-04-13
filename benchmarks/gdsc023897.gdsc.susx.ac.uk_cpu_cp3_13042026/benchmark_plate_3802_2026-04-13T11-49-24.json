@@ -1,0 +1,77 @@
+{
+  "system": {
+    "platform": "macOS-15.7.2-arm64-arm-64bit",
+    "cpu": "arm",
+    "cpu_count": 10,
+    "python_version": "3.12.10",
+    "ram_gb": 16.0,
+    "gpu": "mps",
+    "cellpose_version": "unknown"
+  },
+  "plate_id": 3802,
+  "n_wells": 2,
+  "n_images": 4,
+  "stages": {
+    "metadata_parsing": 0.6932,
+    "flatfield_correction": 18.1698,
+    "cell_cycle_analysis": 1.5242,
+    "save_results": 3.1585,
+    "total_s": 145.4805
+  },
+  "per_image": [
+    {
+      "image_id": 2260169,
+      "well": "B1",
+      "download_s": 1.3737,
+      "nucleus_segmentation_s": 12.936,
+      "cell_segmentation_s": 16.4398,
+      "feature_extraction_s": 0.4657,
+      "total_s": 32.0545
+    },
+    {
+      "image_id": 2260170,
+      "well": "B1",
+      "download_s": 1.1358,
+      "nucleus_segmentation_s": 12.7129,
+      "cell_segmentation_s": 13.9973,
+      "feature_extraction_s": 0.3933,
+      "total_s": 29.0457
+    },
+    {
+      "image_id": 2260168,
+      "well": "A1",
+      "download_s": 1.2511,
+      "nucleus_segmentation_s": 12.8096,
+      "cell_segmentation_s": 14.8078,
+      "feature_extraction_s": 0.3875,
+      "total_s": 30.1505
+    },
+    {
+      "image_id": 2260171,
+      "well": "A1",
+      "download_s": 1.2241,
+      "nucleus_segmentation_s": 12.9092,
+      "cell_segmentation_s": 12.5793,
+      "feature_extraction_s": 0.3554,
+      "total_s": 28.0956
+    }
+  ],
+  "summary": {
+    "total_mean_s": 29.8366,
+    "total_median_s": 29.5981,
+    "total_std_s": 1.7004,
+    "cell_segmentation_mean_s": 14.4561,
+    "cell_segmentation_median_s": 14.4025,
+    "cell_segmentation_std_s": 1.6116,
+    "download_mean_s": 1.2462,
+    "download_median_s": 1.2376,
+    "download_std_s": 0.0982,
+    "feature_extraction_mean_s": 0.4005,
+    "feature_extraction_median_s": 0.3904,
+    "feature_extraction_std_s": 0.0466,
+    "nucleus_segmentation_mean_s": 12.8419,
+    "nucleus_segmentation_median_s": 12.8594,
+    "nucleus_segmentation_std_s": 0.1018,
+    "images_per_minute": 1.65
+  }
+}

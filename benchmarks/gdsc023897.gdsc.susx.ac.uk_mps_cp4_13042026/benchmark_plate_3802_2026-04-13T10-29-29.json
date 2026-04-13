@@ -1,0 +1,77 @@
+{
+  "system": {
+    "platform": "macOS-15.7.2-arm64-arm-64bit",
+    "cpu": "arm",
+    "cpu_count": 10,
+    "python_version": "3.12.10",
+    "ram_gb": 16.0,
+    "gpu": "mps",
+    "cellpose_version": "unknown"
+  },
+  "plate_id": 3802,
+  "n_wells": 2,
+  "n_images": 4,
+  "stages": {
+    "metadata_parsing": 0.6471,
+    "flatfield_correction": 17.0664,
+    "cell_cycle_analysis": 1.8013,
+    "save_results": 2.7034,
+    "total_s": 217.103
+  },
+  "per_image": [
+    {
+      "image_id": 2260169,
+      "well": "B1",
+      "download_s": 1.1396,
+      "nucleus_segmentation_s": 22.3716,
+      "cell_segmentation_s": 24.6401,
+      "feature_extraction_s": 0.5225,
+      "total_s": 49.4327
+    },
+    {
+      "image_id": 2260170,
+      "well": "B1",
+      "download_s": 1.1435,
+      "nucleus_segmentation_s": 22.0222,
+      "cell_segmentation_s": 23.5526,
+      "feature_extraction_s": 0.4234,
+      "total_s": 47.93
+    },
+    {
+      "image_id": 2260168,
+      "well": "A1",
+      "download_s": 1.1789,
+      "nucleus_segmentation_s": 21.652,
+      "cell_segmentation_s": 23.9081,
+      "feature_extraction_s": 0.4026,
+      "total_s": 47.9631
+    },
+    {
+      "image_id": 2260171,
+      "well": "A1",
+      "download_s": 1.138,
+      "nucleus_segmentation_s": 21.5937,
+      "cell_segmentation_s": 23.3687,
+      "feature_extraction_s": 0.388,
+      "total_s": 47.2649
+    }
+  ],
+  "summary": {
+    "total_mean_s": 48.1477,
+    "total_median_s": 47.9465,
+    "total_std_s": 0.9151,
+    "cell_segmentation_mean_s": 23.8674,
+    "cell_segmentation_median_s": 23.7304,
+    "cell_segmentation_std_s": 0.5617,
+    "download_mean_s": 1.15,
+    "download_median_s": 1.1415,
+    "download_std_s": 0.0194,
+    "feature_extraction_mean_s": 0.4341,
+    "feature_extraction_median_s": 0.413,
+    "feature_extraction_std_s": 0.0607,
+    "nucleus_segmentation_mean_s": 21.9099,
+    "nucleus_segmentation_median_s": 21.8371,
+    "nucleus_segmentation_std_s": 0.3616,
+    "images_per_minute": 1.11
+  }
+}

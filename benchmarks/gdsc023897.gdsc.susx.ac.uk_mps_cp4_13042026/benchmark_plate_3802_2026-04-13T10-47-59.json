@@ -1,0 +1,77 @@
+{
+  "system": {
+    "platform": "macOS-15.7.2-arm64-arm-64bit",
+    "cpu": "arm",
+    "cpu_count": 10,
+    "python_version": "3.12.10",
+    "ram_gb": 16.0,
+    "gpu": "mps",
+    "cellpose_version": "unknown"
+  },
+  "plate_id": 3802,
+  "n_wells": 2,
+  "n_images": 4,
+  "stages": {
+    "metadata_parsing": 0.693,
+    "flatfield_correction": 17.6472,
+    "cell_cycle_analysis": 1.5997,
+    "save_results": 2.9958,
+    "total_s": 219.9854
+  },
+  "per_image": [
+    {
+      "image_id": 2260169,
+      "well": "B1",
+      "download_s": 1.1507,
+      "nucleus_segmentation_s": 22.45,
+      "cell_segmentation_s": 24.0321,
+      "feature_extraction_s": 0.4882,
+      "total_s": 48.9105
+    },
+    {
+      "image_id": 2260170,
+      "well": "B1",
+      "download_s": 1.169,
+      "nucleus_segmentation_s": 21.6866,
+      "cell_segmentation_s": 23.4942,
+      "feature_extraction_s": 0.4284,
+      "total_s": 47.5942
+    },
+    {
+      "image_id": 2260168,
+      "well": "A1",
+      "download_s": 1.135,
+      "nucleus_segmentation_s": 21.7366,
+      "cell_segmentation_s": 24.7345,
+      "feature_extraction_s": 0.4201,
+      "total_s": 48.7898
+    },
+    {
+      "image_id": 2260171,
+      "well": "A1",
+      "download_s": 1.1544,
+      "nucleus_segmentation_s": 22.5903,
+      "cell_segmentation_s": 24.4877,
+      "feature_extraction_s": 0.4002,
+      "total_s": 49.3969
+    }
+  ],
+  "summary": {
+    "total_mean_s": 48.6728,
+    "total_median_s": 48.8501,
+    "total_std_s": 0.7655,
+    "cell_segmentation_mean_s": 24.1871,
+    "cell_segmentation_median_s": 24.2599,
+    "cell_segmentation_std_s": 0.546,
+    "download_mean_s": 1.1523,
+    "download_median_s": 1.1525,
+    "download_std_s": 0.014,
+    "feature_extraction_mean_s": 0.4342,
+    "feature_extraction_median_s": 0.4243,
+    "feature_extraction_std_s": 0.0379,
+    "nucleus_segmentation_mean_s": 22.1159,
+    "nucleus_segmentation_median_s": 22.0933,
+    "nucleus_segmentation_std_s": 0.4708,
+    "images_per_minute": 1.09
+  }
+}

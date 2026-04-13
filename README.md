@@ -295,7 +295,7 @@ To manage the test server, use the provided script:
 
 ```bash
 # Start the test server
-./scripts/manage_test_server.sh start
+
 
 # Check server status
 ./scripts/manage_test_server.sh status

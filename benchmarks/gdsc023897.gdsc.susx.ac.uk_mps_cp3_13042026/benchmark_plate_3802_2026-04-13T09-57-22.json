@@ -1,0 +1,77 @@
+{
+  "system": {
+    "platform": "macOS-15.7.2-arm64-arm-64bit",
+    "cpu": "arm",
+    "cpu_count": 10,
+    "python_version": "3.12.10",
+    "ram_gb": 16.0,
+    "gpu": "mps",
+    "cellpose_version": "unknown"
+  },
+  "plate_id": 3802,
+  "n_wells": 2,
+  "n_images": 4,
+  "stages": {
+    "metadata_parsing": 0.6273,
+    "flatfield_correction": 17.5712,
+    "cell_cycle_analysis": 1.5237,
+    "save_results": 2.9292,
+    "total_s": 52.3572
+  },
+  "per_image": [
+    {
+      "image_id": 2260169,
+      "well": "B1",
+      "download_s": 1.1528,
+      "nucleus_segmentation_s": 2.0754,
+      "cell_segmentation_s": 3.3122,
+      "feature_extraction_s": 0.4574,
+      "total_s": 7.839
+    },
+    {
+      "image_id": 2260170,
+      "well": "B1",
+      "download_s": 1.1705,
+      "nucleus_segmentation_s": 1.7299,
+      "cell_segmentation_s": 2.3058,
+      "feature_extraction_s": 0.3824,
+      "total_s": 6.4059
+    },
+    {
+      "image_id": 2260168,
+      "well": "A1",
+      "download_s": 1.1604,
+      "nucleus_segmentation_s": 1.6784,
+      "cell_segmentation_s": 2.429,
+      "feature_extraction_s": 0.3602,
+      "total_s": 6.4739
+    },
+    {
+      "image_id": 2260171,
+      "well": "A1",
+      "download_s": 1.1378,
+      "nucleus_segmentation_s": 1.7042,
+      "cell_segmentation_s": 2.4753,
+      "feature_extraction_s": 0.3587,
+      "total_s": 6.4864
+    }
+  ],
+  "summary": {
+    "total_mean_s": 6.8013,
+    "total_median_s": 6.4801,
+    "total_std_s": 0.6927,
+    "cell_segmentation_mean_s": 2.6306,
+    "cell_segmentation_median_s": 2.4522,
+    "cell_segmentation_std_s": 0.46,
+    "download_mean_s": 1.1554,
+    "download_median_s": 1.1566,
+    "download_std_s": 0.0138,
+    "feature_extraction_mean_s": 0.3897,
+    "feature_extraction_median_s": 0.3713,
+    "feature_extraction_std_s": 0.0464,
+    "nucleus_segmentation_mean_s": 1.797,
+    "nucleus_segmentation_median_s": 1.717,
+    "nucleus_segmentation_std_s": 0.1868,
+    "images_per_minute": 4.58
+  }
+}

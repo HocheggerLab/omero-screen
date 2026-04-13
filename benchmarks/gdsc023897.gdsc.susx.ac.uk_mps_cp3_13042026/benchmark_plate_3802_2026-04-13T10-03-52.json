@@ -1,0 +1,77 @@
+{
+  "system": {
+    "platform": "macOS-15.7.2-arm64-arm-64bit",
+    "cpu": "arm",
+    "cpu_count": 10,
+    "python_version": "3.12.10",
+    "ram_gb": 16.0,
+    "gpu": "mps",
+    "cellpose_version": "unknown"
+  },
+  "plate_id": 3802,
+  "n_wells": 2,
+  "n_images": 4,
+  "stages": {
+    "metadata_parsing": 0.6726,
+    "flatfield_correction": 17.1959,
+    "cell_cycle_analysis": 1.5325,
+    "save_results": 2.7726,
+    "total_s": 51.4119
+  },
+  "per_image": [
+    {
+      "image_id": 2260169,
+      "well": "B1",
+      "download_s": 1.1522,
+      "nucleus_segmentation_s": 1.928,
+      "cell_segmentation_s": 3.2603,
+      "feature_extraction_s": 0.4587,
+      "total_s": 7.5627
+    },
+    {
+      "image_id": 2260170,
+      "well": "B1",
+      "download_s": 1.1173,
+      "nucleus_segmentation_s": 1.8078,
+      "cell_segmentation_s": 2.3018,
+      "feature_extraction_s": 0.3721,
+      "total_s": 6.3579
+    },
+    {
+      "image_id": 2260168,
+      "well": "A1",
+      "download_s": 1.1328,
+      "nucleus_segmentation_s": 1.7161,
+      "cell_segmentation_s": 2.4339,
+      "feature_extraction_s": 0.3824,
+      "total_s": 6.4784
+    },
+    {
+      "image_id": 2260171,
+      "well": "A1",
+      "download_s": 1.1457,
+      "nucleus_segmentation_s": 1.7547,
+      "cell_segmentation_s": 2.4462,
+      "feature_extraction_s": 0.3668,
+      "total_s": 6.482
+    }
+  ],
+  "summary": {
+    "total_mean_s": 6.7203,
+    "total_median_s": 6.4802,
+    "total_std_s": 0.5646,
+    "cell_segmentation_mean_s": 2.6106,
+    "cell_segmentation_median_s": 2.4401,
+    "cell_segmentation_std_s": 0.4381,
+    "download_mean_s": 1.137,
+    "download_median_s": 1.1392,
+    "download_std_s": 0.0154,
+    "feature_extraction_mean_s": 0.395,
+    "feature_extraction_median_s": 0.3773,
+    "feature_extraction_std_s": 0.043,
+    "nucleus_segmentation_mean_s": 1.8016,
+    "nucleus_segmentation_median_s": 1.7813,
+    "nucleus_segmentation_std_s": 0.0922,
+    "images_per_minute": 4.67
+  }
+}

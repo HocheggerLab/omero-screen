@@ -1,0 +1,77 @@
+{
+  "system": {
+    "platform": "macOS-15.7.2-arm64-arm-64bit",
+    "cpu": "arm",
+    "cpu_count": 10,
+    "python_version": "3.12.10",
+    "ram_gb": 16.0,
+    "gpu": "mps",
+    "cellpose_version": "unknown"
+  },
+  "plate_id": 3802,
+  "n_wells": 2,
+  "n_images": 4,
+  "stages": {
+    "metadata_parsing": 0.7258,
+    "flatfield_correction": 17.9741,
+    "cell_cycle_analysis": 1.4866,
+    "save_results": 2.9312,
+    "total_s": 53.925
+  },
+  "per_image": [
+    {
+      "image_id": 2260169,
+      "well": "B1",
+      "download_s": 1.1347,
+      "nucleus_segmentation_s": 2.1934,
+      "cell_segmentation_s": 3.2842,
+      "feature_extraction_s": 0.4472,
+      "total_s": 7.9034
+    },
+    {
+      "image_id": 2260170,
+      "well": "B1",
+      "download_s": 1.1258,
+      "nucleus_segmentation_s": 1.7501,
+      "cell_segmentation_s": 2.2887,
+      "feature_extraction_s": 0.3904,
+      "total_s": 6.3504
+    },
+    {
+      "image_id": 2260168,
+      "well": "A1",
+      "download_s": 1.4972,
+      "nucleus_segmentation_s": 1.9419,
+      "cell_segmentation_s": 2.4186,
+      "feature_extraction_s": 0.3777,
+      "total_s": 7.071
+    },
+    {
+      "image_id": 2260171,
+      "well": "A1",
+      "download_s": 1.6879,
+      "nucleus_segmentation_s": 1.7531,
+      "cell_segmentation_s": 2.4309,
+      "feature_extraction_s": 0.3648,
+      "total_s": 7.045
+    }
+  ],
+  "summary": {
+    "total_mean_s": 7.0924,
+    "total_median_s": 7.058,
+    "total_std_s": 0.6354,
+    "cell_segmentation_mean_s": 2.6056,
+    "cell_segmentation_median_s": 2.4247,
+    "cell_segmentation_std_s": 0.457,
+    "download_mean_s": 1.3614,
+    "download_median_s": 1.316,
+    "download_std_s": 0.2781,
+    "feature_extraction_mean_s": 0.395,
+    "feature_extraction_median_s": 0.3841,
+    "feature_extraction_std_s": 0.0363,
+    "nucleus_segmentation_mean_s": 1.9096,
+    "nucleus_segmentation_median_s": 1.8475,
+    "nucleus_segmentation_std_s": 0.2094,
+    "images_per_minute": 4.45
+  }
+}

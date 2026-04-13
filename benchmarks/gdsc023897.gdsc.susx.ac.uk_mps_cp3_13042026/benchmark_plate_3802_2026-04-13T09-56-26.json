@@ -1,0 +1,77 @@
+{
+  "system": {
+    "platform": "macOS-15.7.2-arm64-arm-64bit",
+    "cpu": "arm",
+    "cpu_count": 10,
+    "python_version": "3.12.10",
+    "ram_gb": 16.0,
+    "gpu": "mps",
+    "cellpose_version": "unknown"
+  },
+  "plate_id": 3802,
+  "n_wells": 2,
+  "n_images": 4,
+  "stages": {
+    "metadata_parsing": 1.1293,
+    "flatfield_correction": 21.6565,
+    "cell_cycle_analysis": 1.7507,
+    "save_results": 3.0633,
+    "total_s": 66.0699
+  },
+  "per_image": [
+    {
+      "image_id": 2260169,
+      "well": "B1",
+      "download_s": 3.3023,
+      "nucleus_segmentation_s": 2.7905,
+      "cell_segmentation_s": 3.4657,
+      "feature_extraction_s": 0.4803,
+      "total_s": 12.4238
+    },
+    {
+      "image_id": 2260170,
+      "well": "B1",
+      "download_s": 2.7177,
+      "nucleus_segmentation_s": 1.767,
+      "cell_segmentation_s": 2.327,
+      "feature_extraction_s": 0.3941,
+      "total_s": 8.4067
+    },
+    {
+      "image_id": 2260168,
+      "well": "A1",
+      "download_s": 2.5009,
+      "nucleus_segmentation_s": 1.7794,
+      "cell_segmentation_s": 2.4393,
+      "feature_extraction_s": 0.5379,
+      "total_s": 7.9692
+    },
+    {
+      "image_id": 2260171,
+      "well": "A1",
+      "download_s": 1.1495,
+      "nucleus_segmentation_s": 1.7612,
+      "cell_segmentation_s": 2.532,
+      "feature_extraction_s": 0.3678,
+      "total_s": 6.5256
+    }
+  ],
+  "summary": {
+    "total_mean_s": 8.8313,
+    "total_median_s": 8.188,
+    "total_std_s": 2.5263,
+    "cell_segmentation_mean_s": 2.691,
+    "cell_segmentation_median_s": 2.4856,
+    "cell_segmentation_std_s": 0.5232,
+    "download_mean_s": 2.4176,
+    "download_median_s": 2.6093,
+    "download_std_s": 0.9106,
+    "feature_extraction_mean_s": 0.4451,
+    "feature_extraction_median_s": 0.4372,
+    "feature_extraction_std_s": 0.0784,
+    "nucleus_segmentation_mean_s": 2.0245,
+    "nucleus_segmentation_median_s": 1.7732,
+    "nucleus_segmentation_std_s": 0.5107,
+    "images_per_minute": 3.63
+  }
+}
