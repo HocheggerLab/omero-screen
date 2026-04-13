@@ -1,9 +1,11 @@
 """Registry for tracking explore notebooks on the filesystem.
 
-Scans ~/.cellview/explore/ for notebook files and matches them to plate
-and experiment IDs based on deterministic naming conventions.
+Supports both the legacy flat ``~/.cellview/explore`` layout and the newer
+folder-based layout that groups notebooks by experiment/project or by plate
+selection.
 """
 
+import re
 from pathlib import Path
 
 EXPLORE_DIR = Path.home() / ".cellview" / "explore"
@@ -20,15 +22,19 @@ def notebooks_for_plate(plate_id: int) -> list[str]:
     """
     if not EXPLORE_DIR.exists():
         return []
-    results: list[str] = []
-    for nb in EXPLORE_DIR.glob("explore_plate*.ipynb"):
-        stem = nb.stem  # e.g. "explore_plates_12345_12378"
-        # extract all integers after the prefix
-        suffix = stem.replace("explore_", "")
+
+    results: set[str] = set()
+    for nb in _iter_explore_notebooks():
+        stem = nb.stem
+        if not stem.startswith("explore_plate"):
+            continue
+
+        suffix = stem.removeprefix("explore_")
         parts = suffix.split("_")
-        ids = [int(p) for p in parts if p.isdigit()]
+        ids = [int(part) for part in parts if part.isdigit()]
         if plate_id in ids:
-            results.append(suffix)
+            results.add(suffix)
+
     return sorted(results)
 
 
@@ -41,21 +47,65 @@ def experiment_notebook_exists(experiment_id: int) -> bool:
     Returns:
         True if the notebook file exists.
     """
-    return (EXPLORE_DIR / f"explore_exp_{experiment_id}.ipynb").exists()
+    canonical = legacy_notebook_path_for_experiment(experiment_id)
+    if canonical.exists():
+        return True
+
+    pattern = f"explore_exp_{experiment_id}.ipynb"
+    return any(nb.name == pattern for nb in _iter_explore_notebooks())
 
 
-def notebook_path_for_plates(plate_ids: list[int]) -> Path:
+def notebook_path_for_plates(
+    plate_ids: list[int],
+    *,
+    folder_name: str | None = None,
+) -> Path:
     """Return the canonical notebook path for a set of plate IDs.
 
-    Single plate  -> ``explore_plate_12345.ipynb``
-    Multiple      -> ``explore_plates_12345_12378_12390.ipynb``
+    Single plate  -> ``explore/plates/12345/explore_plate_12345.ipynb``
+    Multiple      -> ``explore/plates/12345_12378/explore_plates_12345_12378.ipynb``
 
     Args:
         plate_ids: Sorted list of plate IDs.
+        folder_name: Optional folder override for experiment/project grouping.
 
     Returns:
         Path to the notebook file (may not exist yet).
     """
+    sorted_ids = sorted(plate_ids)
+    if len(sorted_ids) == 1:
+        name = f"explore_plate_{sorted_ids[0]}"
+        default_folder = EXPLORE_DIR / "plates" / str(sorted_ids[0])
+    else:
+        ids_str = "_".join(str(pid) for pid in sorted_ids)
+        name = f"explore_plates_{ids_str}"
+        default_folder = EXPLORE_DIR / "plates" / ids_str
+
+    folder = _folder_path_from_name(folder_name) if folder_name else default_folder
+    return folder / f"{name}.ipynb"
+
+
+def notebook_path_for_experiment(
+    experiment_id: int,
+    *,
+    folder_name: str | None = None,
+) -> Path:
+    """Return the canonical notebook path for an experiment.
+
+    Args:
+        experiment_id: The experiment ID.
+        folder_name: Optional readable experiment/project folder name.
+
+    Returns:
+        Path to the notebook file (may not exist yet).
+    """
+    if folder_name:
+        return _folder_path_from_name(folder_name) / f"explore_exp_{experiment_id}.ipynb"
+    return legacy_notebook_path_for_experiment(experiment_id)
+
+
+def legacy_notebook_path_for_plates(plate_ids: list[int]) -> Path:
+    """Return the legacy flat explore path for a plate notebook."""
     sorted_ids = sorted(plate_ids)
     if len(sorted_ids) == 1:
         name = f"explore_plate_{sorted_ids[0]}"
@@ -65,13 +115,31 @@ def notebook_path_for_plates(plate_ids: list[int]) -> Path:
     return EXPLORE_DIR / f"{name}.ipynb"
 
 
-def notebook_path_for_experiment(experiment_id: int) -> Path:
-    """Return the canonical notebook path for an experiment.
-
-    Args:
-        experiment_id: The experiment ID.
-
-    Returns:
-        Path to the notebook file (may not exist yet).
-    """
+def legacy_notebook_path_for_experiment(experiment_id: int) -> Path:
+    """Return the legacy flat explore path for an experiment notebook."""
     return EXPLORE_DIR / f"explore_exp_{experiment_id}.ipynb"
+
+
+def sanitize_folder_name(name: str) -> str:
+    """Convert a single project or experiment name into a stable folder name."""
+    sanitized = re.sub(r"\s+", "_", name.strip())
+    sanitized = re.sub(r"[^0-9A-Za-z._-]+", "_", sanitized)
+    sanitized = re.sub(r"_+", "_", sanitized).strip("._")
+    return sanitized or "explore"
+
+
+def _folder_path_from_name(folder_name: str) -> Path:
+    """Build an explore subdirectory path from a slash-delimited folder name."""
+    parts = [sanitize_folder_name(part) for part in folder_name.split("/") if part.strip()]
+    if not parts:
+        return EXPLORE_DIR / "explore"
+
+    folder = EXPLORE_DIR
+    for part in parts:
+        folder /= part
+    return folder
+
+
+def _iter_explore_notebooks() -> list[Path]:
+    """Return every explore notebook in both flat and nested layouts."""
+    return list(EXPLORE_DIR.rglob("explore_*.ipynb")) if EXPLORE_DIR.exists() else []

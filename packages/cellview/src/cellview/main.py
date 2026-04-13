@@ -140,6 +140,7 @@ def _handle_explore(args: argparse.Namespace) -> None:
         template=args.template,
         fresh=args.fresh,
         no_napari=args.no_napari,
+        code=args.code,
     )
 
 
