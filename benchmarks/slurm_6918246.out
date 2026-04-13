@@ -1,0 +1,526 @@
+========================================
+  OMERO-Screen Benchmark Job
+  Host:    artemis-a40-10.local
+  Node:    artemis-a40-10
+  GPUs:    0
+  Started: Mon Apr 13 02:01:23 PM UTC 2026
+========================================
+Plate ID:     3802
+Repeats:      10
+Cellpose:     cp4
+Device:       auto-detect
+Metadata:     /mnt/lustre/users/gdsc/hh65/omero-screen/benchmarks/benchmark-metadata.xlsx
+Output dir:   /mnt/lustre/users/gdsc/hh65/omero-screen/benchmarks/artemis-a40-10.local_NVIDIA_A40_cp4_13042026
+─  Connected to OMERO server at ome2.hpc.susx.ac.uk as helfrid: Mon Apr 13 14… ─
+
+======================================================================
+  RUN 1/10
+======================================================================
+Cleaning up dataset from previous run...
+  Deleting 5 images from dataset 12537...
+  Deleting dataset '3802' (ID: 12537)...
+  Dataset cleanup complete
+Cleaning up plate metadata (annotations + leftover Excel)...
+  Deleted 5 annotation(s) from plate 3802
+  Deleted 2 annotation(s) from well B1
+  Deleted 2 annotation(s) from well A1
+  Metadata cleanup complete (2 wells checked)
+Attaching Excel metadata to plate...
+✓ Found plate with id 3802
+✓ Found Excel file attachment on plate 3802
+✓ Metadata validation passed for plate 3802
+╭──────────────────────────────── Channel Data ────────────────────────────────╮
+│   Channel Information                                                        │
+│ ┏━━━━━━━━━━━━━━┳━━━━━━━┓                                                     │
+│ ┃ Channel Name ┃ Index ┃                                                     │
+│ ┡━━━━━━━━━━━━━━╇━━━━━━━┩                                                     │
+│ │ DAPI         │ 0     │                                                     │
+│ │ Tub          │ 1     │                                                     │
+│ │ EdU          │ 2     │                                                     │
+│ └──────────────┴───────┘                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭───────────────────────────── Well Data Summary ──────────────────────────────╮
+│           Well Data Summary                                                  │
+│ ┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━┓                                        │
+│ ┃ Key       ┃ Unique Values ┃ Count ┃                                        │
+│ ┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━┩                                        │
+│ │ cell_line │ RPE-1         │ 2     │                                        │
+│ │ clone     │ WT, P53KO     │ 1, 1  │                                        │
+│ │ sirna     │ NT            │ 2     │                                        │
+│ │ DIA       │ 0             │ 2     │                                        │
+│ │ Day       │ 4             │ 2     │                                        │
+│ └───────────┴───────────────┴───────┘                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓ The images in plate 3802 have a pixel size of 1.2 micrometers
+✓ Metadata parsed from Excel file and transferred to plate 3802
+✓ Plate dataset created with ID 12538 and linked to Screens project
+
+Assembling Flatfield Correction Masks for 3 Channels
+
+Flatfield correction masks successfully loaded
+Report saved: /mnt/lustre/users/gdsc/hh65/omero-screen/benchmarks/artemis-a40-10.local_NVIDIA_A40_cp4_13042026/benchmark_plate_3802_2026-04-13T14-06-53.json
+
+======================================================================
+  RUN 2/10
+======================================================================
+Cleaning up dataset from previous run...
+  Deleting 5 images from dataset 12538...
+  Deleting dataset '3802' (ID: 12538)...
+  Dataset cleanup complete
+Cleaning up plate metadata (annotations + leftover Excel)...
+  Deleted 5 annotation(s) from plate 3802
+  Deleted 2 annotation(s) from well B1
+  Deleted 2 annotation(s) from well A1
+  Metadata cleanup complete (2 wells checked)
+Attaching Excel metadata to plate...
+✓ Found plate with id 3802
+✓ Found Excel file attachment on plate 3802
+✓ Metadata validation passed for plate 3802
+╭──────────────────────────────── Channel Data ────────────────────────────────╮
+│   Channel Information                                                        │
+│ ┏━━━━━━━━━━━━━━┳━━━━━━━┓                                                     │
+│ ┃ Channel Name ┃ Index ┃                                                     │
+│ ┡━━━━━━━━━━━━━━╇━━━━━━━┩                                                     │
+│ │ DAPI         │ 0     │                                                     │
+│ │ Tub          │ 1     │                                                     │
+│ │ EdU          │ 2     │                                                     │
+│ └──────────────┴───────┘                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭───────────────────────────── Well Data Summary ──────────────────────────────╮
+│           Well Data Summary                                                  │
+│ ┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━┓                                        │
+│ ┃ Key       ┃ Unique Values ┃ Count ┃                                        │
+│ ┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━┩                                        │
+│ │ cell_line │ RPE-1         │ 2     │                                        │
+│ │ clone     │ WT, P53KO     │ 1, 1  │                                        │
+│ │ sirna     │ NT            │ 2     │                                        │
+│ │ DIA       │ 0             │ 2     │                                        │
+│ │ Day       │ 4             │ 2     │                                        │
+│ └───────────┴───────────────┴───────┘                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓ The images in plate 3802 have a pixel size of 1.2 micrometers
+✓ Metadata parsed from Excel file and transferred to plate 3802
+✓ Plate dataset created with ID 12539 and linked to Screens project
+
+Assembling Flatfield Correction Masks for 3 Channels
+
+Flatfield correction masks successfully loaded
+Report saved: /mnt/lustre/users/gdsc/hh65/omero-screen/benchmarks/artemis-a40-10.local_NVIDIA_A40_cp4_13042026/benchmark_plate_3802_2026-04-13T14-07-40.json
+
+======================================================================
+  RUN 3/10
+======================================================================
+Cleaning up dataset from previous run...
+  Deleting 5 images from dataset 12539...
+  Deleting dataset '3802' (ID: 12539)...
+  Dataset cleanup complete
+Cleaning up plate metadata (annotations + leftover Excel)...
+  Deleted 5 annotation(s) from plate 3802
+  Deleted 2 annotation(s) from well B1
+  Deleted 2 annotation(s) from well A1
+  Metadata cleanup complete (2 wells checked)
+Attaching Excel metadata to plate...
+✓ Found plate with id 3802
+✓ Found Excel file attachment on plate 3802
+✓ Metadata validation passed for plate 3802
+╭──────────────────────────────── Channel Data ────────────────────────────────╮
+│   Channel Information                                                        │
+│ ┏━━━━━━━━━━━━━━┳━━━━━━━┓                                                     │
+│ ┃ Channel Name ┃ Index ┃                                                     │
+│ ┡━━━━━━━━━━━━━━╇━━━━━━━┩                                                     │
+│ │ DAPI         │ 0     │                                                     │
+│ │ Tub          │ 1     │                                                     │
+│ │ EdU          │ 2     │                                                     │
+│ └──────────────┴───────┘                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭───────────────────────────── Well Data Summary ──────────────────────────────╮
+│           Well Data Summary                                                  │
+│ ┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━┓                                        │
+│ ┃ Key       ┃ Unique Values ┃ Count ┃                                        │
+│ ┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━┩                                        │
+│ │ cell_line │ RPE-1         │ 2     │                                        │
+│ │ clone     │ WT, P53KO     │ 1, 1  │                                        │
+│ │ sirna     │ NT            │ 2     │                                        │
+│ │ DIA       │ 0             │ 2     │                                        │
+│ │ Day       │ 4             │ 2     │                                        │
+│ └───────────┴───────────────┴───────┘                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓ The images in plate 3802 have a pixel size of 1.2 micrometers
+✓ Metadata parsed from Excel file and transferred to plate 3802
+✓ Plate dataset created with ID 12540 and linked to Screens project
+
+Assembling Flatfield Correction Masks for 3 Channels
+
+Flatfield correction masks successfully loaded
+Report saved: /mnt/lustre/users/gdsc/hh65/omero-screen/benchmarks/artemis-a40-10.local_NVIDIA_A40_cp4_13042026/benchmark_plate_3802_2026-04-13T14-08-27.json
+
+======================================================================
+  RUN 4/10
+======================================================================
+Cleaning up dataset from previous run...
+  Deleting 5 images from dataset 12540...
+  Deleting dataset '3802' (ID: 12540)...
+  Dataset cleanup complete
+Cleaning up plate metadata (annotations + leftover Excel)...
+  Deleted 5 annotation(s) from plate 3802
+  Deleted 2 annotation(s) from well B1
+  Deleted 2 annotation(s) from well A1
+  Metadata cleanup complete (2 wells checked)
+Attaching Excel metadata to plate...
+✓ Found plate with id 3802
+✓ Found Excel file attachment on plate 3802
+✓ Metadata validation passed for plate 3802
+╭──────────────────────────────── Channel Data ────────────────────────────────╮
+│   Channel Information                                                        │
+│ ┏━━━━━━━━━━━━━━┳━━━━━━━┓                                                     │
+│ ┃ Channel Name ┃ Index ┃                                                     │
+│ ┡━━━━━━━━━━━━━━╇━━━━━━━┩                                                     │
+│ │ DAPI         │ 0     │                                                     │
+│ │ Tub          │ 1     │                                                     │
+│ │ EdU          │ 2     │                                                     │
+│ └──────────────┴───────┘                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭───────────────────────────── Well Data Summary ──────────────────────────────╮
+│           Well Data Summary                                                  │
+│ ┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━┓                                        │
+│ ┃ Key       ┃ Unique Values ┃ Count ┃                                        │
+│ ┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━┩                                        │
+│ │ cell_line │ RPE-1         │ 2     │                                        │
+│ │ clone     │ WT, P53KO     │ 1, 1  │                                        │
+│ │ sirna     │ NT            │ 2     │                                        │
+│ │ DIA       │ 0             │ 2     │                                        │
+│ │ Day       │ 4             │ 2     │                                        │
+│ └───────────┴───────────────┴───────┘                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓ The images in plate 3802 have a pixel size of 1.2 micrometers
+✓ Metadata parsed from Excel file and transferred to plate 3802
+✓ Plate dataset created with ID 12541 and linked to Screens project
+
+Assembling Flatfield Correction Masks for 3 Channels
+
+Flatfield correction masks successfully loaded
+Report saved: /mnt/lustre/users/gdsc/hh65/omero-screen/benchmarks/artemis-a40-10.local_NVIDIA_A40_cp4_13042026/benchmark_plate_3802_2026-04-13T14-09-14.json
+
+======================================================================
+  RUN 5/10
+======================================================================
+Cleaning up dataset from previous run...
+  Deleting 5 images from dataset 12541...
+  Deleting dataset '3802' (ID: 12541)...
+  Dataset cleanup complete
+Cleaning up plate metadata (annotations + leftover Excel)...
+  Deleted 5 annotation(s) from plate 3802
+  Deleted 2 annotation(s) from well B1
+  Deleted 2 annotation(s) from well A1
+  Metadata cleanup complete (2 wells checked)
+Attaching Excel metadata to plate...
+✓ Found plate with id 3802
+✓ Found Excel file attachment on plate 3802
+✓ Metadata validation passed for plate 3802
+╭──────────────────────────────── Channel Data ────────────────────────────────╮
+│   Channel Information                                                        │
+│ ┏━━━━━━━━━━━━━━┳━━━━━━━┓                                                     │
+│ ┃ Channel Name ┃ Index ┃                                                     │
+│ ┡━━━━━━━━━━━━━━╇━━━━━━━┩                                                     │
+│ │ DAPI         │ 0     │                                                     │
+│ │ Tub          │ 1     │                                                     │
+│ │ EdU          │ 2     │                                                     │
+│ └──────────────┴───────┘                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭───────────────────────────── Well Data Summary ──────────────────────────────╮
+│           Well Data Summary                                                  │
+│ ┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━┓                                        │
+│ ┃ Key       ┃ Unique Values ┃ Count ┃                                        │
+│ ┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━┩                                        │
+│ │ cell_line │ RPE-1         │ 2     │                                        │
+│ │ clone     │ WT, P53KO     │ 1, 1  │                                        │
+│ │ sirna     │ NT            │ 2     │                                        │
+│ │ DIA       │ 0             │ 2     │                                        │
+│ │ Day       │ 4             │ 2     │                                        │
+│ └───────────┴───────────────┴───────┘                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓ The images in plate 3802 have a pixel size of 1.2 micrometers
+✓ Metadata parsed from Excel file and transferred to plate 3802
+✓ Plate dataset created with ID 12542 and linked to Screens project
+
+Assembling Flatfield Correction Masks for 3 Channels
+
+Flatfield correction masks successfully loaded
+Report saved: /mnt/lustre/users/gdsc/hh65/omero-screen/benchmarks/artemis-a40-10.local_NVIDIA_A40_cp4_13042026/benchmark_plate_3802_2026-04-13T14-10-01.json
+
+======================================================================
+  RUN 6/10
+======================================================================
+Cleaning up dataset from previous run...
+  Deleting 5 images from dataset 12542...
+  Deleting dataset '3802' (ID: 12542)...
+  Dataset cleanup complete
+Cleaning up plate metadata (annotations + leftover Excel)...
+  Deleted 5 annotation(s) from plate 3802
+  Deleted 2 annotation(s) from well B1
+  Deleted 2 annotation(s) from well A1
+  Metadata cleanup complete (2 wells checked)
+Attaching Excel metadata to plate...
+✓ Found plate with id 3802
+✓ Found Excel file attachment on plate 3802
+✓ Metadata validation passed for plate 3802
+╭──────────────────────────────── Channel Data ────────────────────────────────╮
+│   Channel Information                                                        │
+│ ┏━━━━━━━━━━━━━━┳━━━━━━━┓                                                     │
+│ ┃ Channel Name ┃ Index ┃                                                     │
+│ ┡━━━━━━━━━━━━━━╇━━━━━━━┩                                                     │
+│ │ DAPI         │ 0     │                                                     │
+│ │ Tub          │ 1     │                                                     │
+│ │ EdU          │ 2     │                                                     │
+│ └──────────────┴───────┘                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭───────────────────────────── Well Data Summary ──────────────────────────────╮
+│           Well Data Summary                                                  │
+│ ┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━┓                                        │
+│ ┃ Key       ┃ Unique Values ┃ Count ┃                                        │
+│ ┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━┩                                        │
+│ │ cell_line │ RPE-1         │ 2     │                                        │
+│ │ clone     │ WT, P53KO     │ 1, 1  │                                        │
+│ │ sirna     │ NT            │ 2     │                                        │
+│ │ DIA       │ 0             │ 2     │                                        │
+│ │ Day       │ 4             │ 2     │                                        │
+│ └───────────┴───────────────┴───────┘                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓ The images in plate 3802 have a pixel size of 1.2 micrometers
+✓ Metadata parsed from Excel file and transferred to plate 3802
+✓ Plate dataset created with ID 12543 and linked to Screens project
+
+Assembling Flatfield Correction Masks for 3 Channels
+
+Flatfield correction masks successfully loaded
+Report saved: /mnt/lustre/users/gdsc/hh65/omero-screen/benchmarks/artemis-a40-10.local_NVIDIA_A40_cp4_13042026/benchmark_plate_3802_2026-04-13T14-10-48.json
+
+======================================================================
+  RUN 7/10
+======================================================================
+Cleaning up dataset from previous run...
+  Deleting 5 images from dataset 12543...
+  Deleting dataset '3802' (ID: 12543)...
+  Dataset cleanup complete
+Cleaning up plate metadata (annotations + leftover Excel)...
+  Deleted 5 annotation(s) from plate 3802
+  Deleted 2 annotation(s) from well B1
+  Deleted 2 annotation(s) from well A1
+  Metadata cleanup complete (2 wells checked)
+Attaching Excel metadata to plate...
+✓ Found plate with id 3802
+✓ Found Excel file attachment on plate 3802
+✓ Metadata validation passed for plate 3802
+╭──────────────────────────────── Channel Data ────────────────────────────────╮
+│   Channel Information                                                        │
+│ ┏━━━━━━━━━━━━━━┳━━━━━━━┓                                                     │
+│ ┃ Channel Name ┃ Index ┃                                                     │
+│ ┡━━━━━━━━━━━━━━╇━━━━━━━┩                                                     │
+│ │ DAPI         │ 0     │                                                     │
+│ │ Tub          │ 1     │                                                     │
+│ │ EdU          │ 2     │                                                     │
+│ └──────────────┴───────┘                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭───────────────────────────── Well Data Summary ──────────────────────────────╮
+│           Well Data Summary                                                  │
+│ ┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━┓                                        │
+│ ┃ Key       ┃ Unique Values ┃ Count ┃                                        │
+│ ┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━┩                                        │
+│ │ cell_line │ RPE-1         │ 2     │                                        │
+│ │ clone     │ WT, P53KO     │ 1, 1  │                                        │
+│ │ sirna     │ NT            │ 2     │                                        │
+│ │ DIA       │ 0             │ 2     │                                        │
+│ │ Day       │ 4             │ 2     │                                        │
+│ └───────────┴───────────────┴───────┘                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓ The images in plate 3802 have a pixel size of 1.2 micrometers
+✓ Metadata parsed from Excel file and transferred to plate 3802
+✓ Plate dataset created with ID 12544 and linked to Screens project
+
+Assembling Flatfield Correction Masks for 3 Channels
+
+Flatfield correction masks successfully loaded
+Report saved: /mnt/lustre/users/gdsc/hh65/omero-screen/benchmarks/artemis-a40-10.local_NVIDIA_A40_cp4_13042026/benchmark_plate_3802_2026-04-13T14-11-37.json
+
+======================================================================
+  RUN 8/10
+======================================================================
+Cleaning up dataset from previous run...
+  Deleting 5 images from dataset 12544...
+  Deleting dataset '3802' (ID: 12544)...
+  Dataset cleanup complete
+Cleaning up plate metadata (annotations + leftover Excel)...
+  Deleted 5 annotation(s) from plate 3802
+  Deleted 2 annotation(s) from well B1
+  Deleted 2 annotation(s) from well A1
+  Metadata cleanup complete (2 wells checked)
+Attaching Excel metadata to plate...
+✓ Found plate with id 3802
+✓ Found Excel file attachment on plate 3802
+✓ Metadata validation passed for plate 3802
+╭──────────────────────────────── Channel Data ────────────────────────────────╮
+│   Channel Information                                                        │
+│ ┏━━━━━━━━━━━━━━┳━━━━━━━┓                                                     │
+│ ┃ Channel Name ┃ Index ┃                                                     │
+│ ┡━━━━━━━━━━━━━━╇━━━━━━━┩                                                     │
+│ │ DAPI         │ 0     │                                                     │
+│ │ Tub          │ 1     │                                                     │
+│ │ EdU          │ 2     │                                                     │
+│ └──────────────┴───────┘                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭───────────────────────────── Well Data Summary ──────────────────────────────╮
+│           Well Data Summary                                                  │
+│ ┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━┓                                        │
+│ ┃ Key       ┃ Unique Values ┃ Count ┃                                        │
+│ ┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━┩                                        │
+│ │ cell_line │ RPE-1         │ 2     │                                        │
+│ │ clone     │ WT, P53KO     │ 1, 1  │                                        │
+│ │ sirna     │ NT            │ 2     │                                        │
+│ │ DIA       │ 0             │ 2     │                                        │
+│ │ Day       │ 4             │ 2     │                                        │
+│ └───────────┴───────────────┴───────┘                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓ The images in plate 3802 have a pixel size of 1.2 micrometers
+✓ Metadata parsed from Excel file and transferred to plate 3802
+✓ Plate dataset created with ID 12545 and linked to Screens project
+
+Assembling Flatfield Correction Masks for 3 Channels
+
+Flatfield correction masks successfully loaded
+Report saved: /mnt/lustre/users/gdsc/hh65/omero-screen/benchmarks/artemis-a40-10.local_NVIDIA_A40_cp4_13042026/benchmark_plate_3802_2026-04-13T14-12-23.json
+
+======================================================================
+  RUN 9/10
+======================================================================
+Cleaning up dataset from previous run...
+  Deleting 5 images from dataset 12545...
+  Deleting dataset '3802' (ID: 12545)...
+  Dataset cleanup complete
+Cleaning up plate metadata (annotations + leftover Excel)...
+  Deleted 5 annotation(s) from plate 3802
+  Deleted 2 annotation(s) from well B1
+  Deleted 2 annotation(s) from well A1
+  Metadata cleanup complete (2 wells checked)
+Attaching Excel metadata to plate...
+✓ Found plate with id 3802
+✓ Found Excel file attachment on plate 3802
+✓ Metadata validation passed for plate 3802
+╭──────────────────────────────── Channel Data ────────────────────────────────╮
+│   Channel Information                                                        │
+│ ┏━━━━━━━━━━━━━━┳━━━━━━━┓                                                     │
+│ ┃ Channel Name ┃ Index ┃                                                     │
+│ ┡━━━━━━━━━━━━━━╇━━━━━━━┩                                                     │
+│ │ DAPI         │ 0     │                                                     │
+│ │ Tub          │ 1     │                                                     │
+│ │ EdU          │ 2     │                                                     │
+│ └──────────────┴───────┘                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭───────────────────────────── Well Data Summary ──────────────────────────────╮
+│           Well Data Summary                                                  │
+│ ┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━┓                                        │
+│ ┃ Key       ┃ Unique Values ┃ Count ┃                                        │
+│ ┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━┩                                        │
+│ │ cell_line │ RPE-1         │ 2     │                                        │
+│ │ clone     │ WT, P53KO     │ 1, 1  │                                        │
+│ │ sirna     │ NT            │ 2     │                                        │
+│ │ DIA       │ 0             │ 2     │                                        │
+│ │ Day       │ 4             │ 2     │                                        │
+│ └───────────┴───────────────┴───────┘                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓ The images in plate 3802 have a pixel size of 1.2 micrometers
+✓ Metadata parsed from Excel file and transferred to plate 3802
+✓ Plate dataset created with ID 12546 and linked to Screens project
+
+Assembling Flatfield Correction Masks for 3 Channels
+
+Flatfield correction masks successfully loaded
+Report saved: /mnt/lustre/users/gdsc/hh65/omero-screen/benchmarks/artemis-a40-10.local_NVIDIA_A40_cp4_13042026/benchmark_plate_3802_2026-04-13T14-13-10.json
+
+======================================================================
+  RUN 10/10
+======================================================================
+Cleaning up dataset from previous run...
+  Deleting 5 images from dataset 12546...
+  Deleting dataset '3802' (ID: 12546)...
+  Dataset cleanup complete
+Cleaning up plate metadata (annotations + leftover Excel)...
+  Deleted 5 annotation(s) from plate 3802
+  Deleted 2 annotation(s) from well B1
+  Deleted 2 annotation(s) from well A1
+  Metadata cleanup complete (2 wells checked)
+Attaching Excel metadata to plate...
+✓ Found plate with id 3802
+✓ Found Excel file attachment on plate 3802
+✓ Metadata validation passed for plate 3802
+╭──────────────────────────────── Channel Data ────────────────────────────────╮
+│   Channel Information                                                        │
+│ ┏━━━━━━━━━━━━━━┳━━━━━━━┓                                                     │
+│ ┃ Channel Name ┃ Index ┃                                                     │
+│ ┡━━━━━━━━━━━━━━╇━━━━━━━┩                                                     │
+│ │ DAPI         │ 0     │                                                     │
+│ │ Tub          │ 1     │                                                     │
+│ │ EdU          │ 2     │                                                     │
+│ └──────────────┴───────┘                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭───────────────────────────── Well Data Summary ──────────────────────────────╮
+│           Well Data Summary                                                  │
+│ ┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━┓                                        │
+│ ┃ Key       ┃ Unique Values ┃ Count ┃                                        │
+│ ┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━┩                                        │
+│ │ cell_line │ RPE-1         │ 2     │                                        │
+│ │ clone     │ WT, P53KO     │ 1, 1  │                                        │
+│ │ sirna     │ NT            │ 2     │                                        │
+│ │ DIA       │ 0             │ 2     │                                        │
+│ │ Day       │ 4             │ 2     │                                        │
+│ └───────────┴───────────────┴───────┘                                        │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓ The images in plate 3802 have a pixel size of 1.2 micrometers
+✓ Metadata parsed from Excel file and transferred to plate 3802
+✓ Plate dataset created with ID 12547 and linked to Screens project
+
+Assembling Flatfield Correction Masks for 3 Channels
+
+Flatfield correction masks successfully loaded
+Report saved: /mnt/lustre/users/gdsc/hh65/omero-screen/benchmarks/artemis-a40-10.local_NVIDIA_A40_cp4_13042026/benchmark_plate_3802_2026-04-13T14-13-58.json
+
+======================================================================
+  BENCHMARK SUMMARY — 10 runs, plate 3802
+  Output directory: /mnt/lustre/users/gdsc/hh65/omero-screen/benchmarks/artemis-a40-10.local_NVIDIA_A40_cp4_13042026
+======================================================================
+
+ Run   Total (s)   Img/min   Images
+————  ——————————  ————————  ———————
+   1      133.34      1.80        4
+   2       44.33      5.41        4
+   3       43.59      5.51        4
+   4       43.93      5.46        4
+   5       43.70      5.49        4
+   6       44.69      5.37        4
+   7       45.11      5.32        4
+   8       43.37      5.53        4
+   9       43.97      5.46        4
+  10       44.80      5.36        4
+
+Metric                              Mean    Median       Std
+——————————————————————————————  ————————  ————————  ————————
+Total time (s)                    53.084    44.150    28.205
+Images/minute                      5.071     5.435     1.151
+
+Stage Timings (s)                   Mean    Median       Std
+——————————————————————————————  ————————  ————————  ————————
+cell_cycle_analysis                3.061     2.544     1.283
+flatfield_correction              17.887    15.525     7.201
+metadata_parsing                   0.954     0.564     1.246
+save_results                       2.368     2.310     0.185
+
+Per-Image Timings (s)               Mean    Median       Std
+——————————————————————————————  ————————  ————————  ————————
+image_total                        6.686     5.220     9.012
+cell_segmentation                  2.023     2.024     0.139
+download                           0.777     0.776     0.036
+feature_extraction                 0.597     0.566     0.113
+nucleus_segmentation               2.739     1.326     8.840
+─  Closed connection to OMERO server at ome2.hpc.susx.ac.uk: Mon Apr 13 14:13… ─
+========================================
+  Finished: Mon Apr 13 02:14:30 PM UTC 2026
+========================================
