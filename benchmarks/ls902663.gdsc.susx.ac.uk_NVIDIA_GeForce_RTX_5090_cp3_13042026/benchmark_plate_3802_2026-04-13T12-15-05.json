@@ -1,0 +1,77 @@
+{
+  "system": {
+    "platform": "Linux-6.17.0-14-generic-x86_64-with-glibc2.39",
+    "cpu": "x86_64",
+    "cpu_count": 32,
+    "python_version": "3.12.3",
+    "ram_gb": 60.5,
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "cellpose_version": "unknown"
+  },
+  "plate_id": 3802,
+  "n_wells": 2,
+  "n_images": 4,
+  "stages": {
+    "metadata_parsing": 0.7763,
+    "flatfield_correction": 13.2723,
+    "cell_cycle_analysis": 1.4548,
+    "save_results": 2.4843,
+    "total_s": 51.3058
+  },
+  "per_image": [
+    {
+      "image_id": 2260169,
+      "well": "B1",
+      "download_s": 0.7423,
+      "nucleus_segmentation_s": 21.4318,
+      "cell_segmentation_s": 0.4555,
+      "feature_extraction_s": 0.2932,
+      "total_s": 23.466
+    },
+    {
+      "image_id": 2260170,
+      "well": "B1",
+      "download_s": 0.6938,
+      "nucleus_segmentation_s": 0.7653,
+      "cell_segmentation_s": 0.3514,
+      "feature_extraction_s": 0.2459,
+      "total_s": 2.5586
+    },
+    {
+      "image_id": 2260168,
+      "well": "A1",
+      "download_s": 0.6959,
+      "nucleus_segmentation_s": 0.7508,
+      "cell_segmentation_s": 0.3646,
+      "feature_extraction_s": 0.2307,
+      "total_s": 2.5203
+    },
+    {
+      "image_id": 2260171,
+      "well": "A1",
+      "download_s": 0.6502,
+      "nucleus_segmentation_s": 0.7587,
+      "cell_segmentation_s": 0.3253,
+      "feature_extraction_s": 0.3769,
+      "total_s": 2.5696
+    }
+  ],
+  "summary": {
+    "total_mean_s": 7.7787,
+    "total_median_s": 2.5641,
+    "total_std_s": 10.4583,
+    "cell_segmentation_mean_s": 0.3742,
+    "cell_segmentation_median_s": 0.358,
+    "cell_segmentation_std_s": 0.0566,
+    "download_mean_s": 0.6956,
+    "download_median_s": 0.6948,
+    "download_std_s": 0.0376,
+    "feature_extraction_mean_s": 0.2867,
+    "feature_extraction_median_s": 0.2696,
+    "feature_extraction_std_s": 0.0658,
+    "nucleus_segmentation_mean_s": 5.9266,
+    "nucleus_segmentation_median_s": 0.762,
+    "nucleus_segmentation_std_s": 10.3368,
+    "images_per_minute": 4.68
+  }
+}
