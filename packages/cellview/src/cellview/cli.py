@@ -169,6 +169,11 @@ def get_parser() -> argparse.ArgumentParser:
         help="Skip launching napari.",
     )
     p_explore.add_argument(
+        "--code",
+        action="store_true",
+        help="Open the notebook folder in VS Code instead of JupyterLab.",
+    )
+    p_explore.add_argument(
         "--list-templates",
         action="store_true",
         help="List available templates and exit.",

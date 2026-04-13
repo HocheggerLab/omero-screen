@@ -1,7 +1,6 @@
 """Tests for the explore CLI argument parsing."""
 
 import pytest
-
 from cellview.cli import get_parser
 from cellview.main import _parse_plate_ids
 
@@ -47,6 +46,11 @@ class TestExploreCLIArgs:
         args = parser.parse_args(["explore", "12345", "--no-napari"])
         assert args.no_napari is True
 
+    def test_code_flag(self) -> None:
+        parser = get_parser()
+        args = parser.parse_args(["explore", "12345", "--code"])
+        assert args.code is True
+
     def test_explore_defaults(self) -> None:
         parser = get_parser()
         args = parser.parse_args(["explore"])
@@ -54,6 +58,7 @@ class TestExploreCLIArgs:
         assert args.experiment is None
         assert args.fresh is False
         assert args.no_napari is False
+        assert args.code is False
         assert args.template == "cellcycle"
         assert args.list_templates is False
 
