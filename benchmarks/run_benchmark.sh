@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -J omero-benchmark
-#SBATCH -o /mnt/lustre/users/%u/omero-screen/benchmarks/slurm_%j.out
-#SBATCH -e /mnt/lustre/users/%u/omero-screen/benchmarks/slurm_%j.err
+#SBATCH -o /mnt/lustre/users/gdsc/hh65/omero-screen/benchmarks/slurm_%j.out
+#SBATCH -e /mnt/lustre/users/gdsc/hh65/omero-screen/benchmarks/slurm_%j.err
 #SBATCH --mail-user=hh65@sussex.ac.uk
 #SBATCH --mail-type=END,FAIL
 #SBATCH --partition=gpu
@@ -22,7 +22,7 @@
 
 set -euo pipefail
 
-REPO_ROOT="/mnt/lustre/users/${USER}/omero-screen"
+REPO_ROOT="/mnt/lustre/users/gdsc/${USER}/omero-screen"
 cd "${REPO_ROOT}"
 
 # Load internet proxy so compute nodes can reach the OMERO server
