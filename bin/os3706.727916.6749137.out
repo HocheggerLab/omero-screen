@@ -1,0 +1,38 @@
+[2026-04-10 10:56:09] PYTHONPATH=/mnt/lustre/users/gdsc/hh65/omero-screen
+[2026-04-10 10:56:09] exec: uv run python torch-test.py
+[2026-04-10 10:56:23] exec: uv run python run_omero_screen.py 3706 --inference nuclei4
+╭─────────────────────────────────── Error ────────────────────────────────────╮
+│ OmeroConnectionError:                                                        │
+│ Failed to establish connection to OMERO server at ome2.hpc.susx.ac.uk as     │
+│ helfrid                                                                      │
+│                                                                              │
+│ Location:                                                                    │
+│   File "/mnt/lustre/users/gdsc/hh65/omero-screen/bin/run_omero_screen.py",   │
+│ line 99, in <module>                                                         │
+│     main()                                                                   │
+│   File "/mnt/lustre/users/gdsc/hh65/omero-screen/bin/run_omero_screen.py",   │
+│ line 95, in main                                                             │
+│     run_plate_loop(args.ID)                                                  │
+│   File                                                                       │
+│ "/mnt/lustre/users/gdsc/hh65/omero-screen/packages/omero-utils/src/omero_uti │
+│ ls/omero_connect.py", line 73, in wrapper_omero_connect                      │
+│     raise OmeroConnectionError(                                              │
+│   File                                                                       │
+│ "/mnt/lustre/users/gdsc/hh65/omero-screen/packages/omero-utils/src/omero_uti │
+│ ls/message.py", line 124, in __init__                                        │
+│     super().__init__(message, logger_instance, original_error)               │
+│   File                                                                       │
+│ "/mnt/lustre/users/gdsc/hh65/omero-screen/packages/omero-utils/src/omero_uti │
+│ ls/message.py", line 75, in __init__                                         │
+│     self._log_and_display_error(message)                                     │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+Traceback (most recent call last):
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/bin/run_omero_screen.py", line 99, in <module>
+    main()
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/bin/run_omero_screen.py", line 95, in main
+    run_plate_loop(args.ID)
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/packages/omero-utils/src/omero_utils/omero_connect.py", line 73, in wrapper_omero_connect
+    raise OmeroConnectionError(
+omero_utils.message.OmeroConnectionError: Failed to establish connection to OMERO server at ome2.hpc.susx.ac.uk as helfrid
+!! 04/10/26 10:57:16.468 error: communicator not destroyed during global destruction.

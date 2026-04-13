@@ -1,0 +1,77 @@
+{
+  "system": {
+    "platform": "Linux-5.14.0-503.16.1.el9_5.x86_64-x86_64-with-glibc2.34",
+    "cpu": "x86_64",
+    "cpu_count": 128,
+    "python_version": "3.12.7",
+    "ram_gb": 503.0,
+    "gpu": "NVIDIA A40",
+    "cellpose_version": "unknown"
+  },
+  "plate_id": 3802,
+  "n_wells": 2,
+  "n_images": 4,
+  "stages": {
+    "metadata_parsing": 0.5679,
+    "flatfield_correction": 15.1728,
+    "cell_cycle_analysis": 2.5699,
+    "save_results": 2.4043,
+    "total_s": 38.571
+  },
+  "per_image": [
+    {
+      "image_id": 2260169,
+      "well": "B1",
+      "download_s": 0.731,
+      "nucleus_segmentation_s": 0.9365,
+      "cell_segmentation_s": 1.3781,
+      "feature_extraction_s": 0.6682,
+      "total_s": 4.2165
+    },
+    {
+      "image_id": 2260170,
+      "well": "B1",
+      "download_s": 0.7308,
+      "nucleus_segmentation_s": 0.8959,
+      "cell_segmentation_s": 1.1867,
+      "feature_extraction_s": 0.556,
+      "total_s": 3.8892
+    },
+    {
+      "image_id": 2260168,
+      "well": "A1",
+      "download_s": 0.738,
+      "nucleus_segmentation_s": 0.8353,
+      "cell_segmentation_s": 1.2177,
+      "feature_extraction_s": 0.5214,
+      "total_s": 3.8513
+    },
+    {
+      "image_id": 2260171,
+      "well": "A1",
+      "download_s": 0.6946,
+      "nucleus_segmentation_s": 0.8983,
+      "cell_segmentation_s": 1.0641,
+      "feature_extraction_s": 0.5131,
+      "total_s": 3.87
+    }
+  ],
+  "summary": {
+    "total_mean_s": 3.9567,
+    "total_median_s": 3.8796,
+    "total_std_s": 0.1739,
+    "cell_segmentation_mean_s": 1.2117,
+    "cell_segmentation_median_s": 1.2022,
+    "cell_segmentation_std_s": 0.1293,
+    "download_mean_s": 0.7236,
+    "download_median_s": 0.7309,
+    "download_std_s": 0.0196,
+    "feature_extraction_mean_s": 0.5646,
+    "feature_extraction_median_s": 0.5387,
+    "feature_extraction_std_s": 0.0715,
+    "nucleus_segmentation_mean_s": 0.8915,
+    "nucleus_segmentation_median_s": 0.8971,
+    "nucleus_segmentation_std_s": 0.0418,
+    "images_per_minute": 6.22
+  }
+}

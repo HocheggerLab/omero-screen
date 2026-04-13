@@ -1,0 +1,98 @@
+[2026-03-17 15:53:52] PYTHONPATH=/mnt/lustre/users/gdsc/hh65/omero-screen
+[2026-03-17 15:53:52] exec: uv run python torch-test.py
+Downloading pyarrow (45.5MiB)
+   Building omero-screen-napari @ file:///mnt/lustre/users/gdsc/hh65/omero-screen/packages/omero-screen-napari
+   Building cellview @ file:///mnt/lustre/users/gdsc/hh65/omero-screen/packages/cellview
+   Building omero-utils @ file:///mnt/lustre/users/gdsc/hh65/omero-screen/packages/omero-utils
+   Building omero-screen-plots @ file:///mnt/lustre/users/gdsc/hh65/omero-screen/packages/omero-screen-plots
+   Building omero-screen @ file:///mnt/lustre/users/gdsc/hh65/omero-screen
+ Downloading pyarrow
+      Built omero-screen-napari @ file:///mnt/lustre/users/gdsc/hh65/omero-screen/packages/omero-screen-napari
+      Built omero-utils @ file:///mnt/lustre/users/gdsc/hh65/omero-screen/packages/omero-utils
+      Built omero-screen-plots @ file:///mnt/lustre/users/gdsc/hh65/omero-screen/packages/omero-screen-plots
+      Built omero-screen @ file:///mnt/lustre/users/gdsc/hh65/omero-screen
+      Built cellview @ file:///mnt/lustre/users/gdsc/hh65/omero-screen/packages/cellview
+Uninstalled 5 packages in 337ms
+Installed 7 packages in 1.50s
+[2026-03-17 15:56:49] exec: uv run python run_omero_screen.py 1551 --inference ppase_screen2
+─  Connected to OMERO server at ome2.hpc.susx.ac.uk as helfrid: Tue Mar 17 16… ─
+✓ Found plate with id 1551
+✓ Metadata validation passed for plate 1551
+╭──────────────────────────────── Channel Data ────────────────────────────────╮
+│   Channel Information                                                        │
+│ ┏━━━━━━━━━━━━━━┳━━━━━━━┓                                                     │
+│ ┃ Channel Name ┃ Index ┃                                                     │
+│ ┡━━━━━━━━━━━━━━╇━━━━━━━┩                                                     │
+│ │ DAPI         │ 0     │                                                     │
+│ │ Dummy        │ 1     │                                                     │
+│ └──────────────┴───────┘                                                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭───────────────────────────── Well Data Summary ──────────────────────────────╮
+│                              Well Data Summary                               │
+│ ┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓ │
+│ ┃ Key       ┃ Unique Values                ┃ Count                         ┃ │
+│ ┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩ │
+│ │ cell_line │ U2OS                         │ 83                            │ │
+│ │ condition │ PPP3CA, NUDT14, PPM1A,       │ 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, │ │
+│ │           │ FLJ22405, PPP1CC, PR48,      │ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, │ │
+│ │           │ NUDT15, DUSP10, PSPH,        │ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, │ │
+│ │           │ PPP2R2A, PPP2R3A, PTPN6,     │ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, │ │
+│ │           │ PTPRJ, NT5M, SSH1, DUSP11,   │ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, │ │
+│ │           │ CTDSP1, PTPN5, PPP3R1,       │ 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, │ │
+│ │           │ PTPRO, DUSP14, DUSP21,       │ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, │ │
+│ │           │ PFKFB1, PPFIA1, PTPRD,       │ 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, │ │
+│ │           │ PIB5PA, DUSP3, CILP, DOT1L,  │ 1                             │ │
+│ │           │ PTPRH, DLG1, PPP1R3A, ILKAP, │                               │ │
+│ │           │ EYA4, SET, PFKFB3, PTPRA,    │                               │ │
+│ │           │ PPP1R1B, PPP4C, PHPT1,       │                               │ │
+│ │           │ DKFZP566K0524, FLJ25449,     │                               │ │
+│ │           │ PPP1R3C, ALPPL2, G6PC3,      │                               │ │
+│ │           │ INPP4A, FLJ32332, CTDP1,     │                               │ │
+│ │           │ FLJ23751, G6PC, ACP2,        │                               │ │
+│ │           │ CDC25C, PTPN11, PGAM2,       │                               │ │
+│ │           │ PTPN18, INPP5E, NT5C1A,      │                               │ │
+│ │           │ MTMR4, DUSP4, NT5C3,         │                               │ │
+│ │           │ MK-STYX, EPM2A, ALPL,        │                               │ │
+│ │           │ KIAA0310, SGPP1, PTPN21,     │                               │ │
+│ │           │ DUSP19, EYA2, PTPDC1, NUDT1, │                               │ │
+│ │           │ PTPRT, CDC25A, MTM1,         │                               │ │
+│ │           │ PPP1R14B, DUSP5, NUDT3,      │                               │ │
+│ │           │ PPM1B, PTPN13, Ctrl, PPP2R4, │                               │ │
+│ │           │ PTPN2                        │                               │ │
+│ │ 1NM_uM    │ 0.2                          │ 83                            │ │
+│ └───────────┴──────────────────────────────┴───────────────────────────────┘ │
+╰──────────────────────────────────────────────────────────────────────────────╯
+✓ The images in plate 1551 have a pixel size of 0.6 micrometers
+✓ Metadata parsed from plate 1551
+✓ Plate dataset exists with ID: 11079
+Image 1551_flatfield_masks already exists in the dataset.
+Flatfield correction masks successfully loaded
+Active Channels: ['RFP']
+  0%|          | 0/25 [00:00<?, ?it/s]  0%|          | 0/25 [00:04<?, ?it/s]
+─  Closed connection to OMERO server at ome2.hpc.susx.ac.uk: Tue Mar 17 16:01… ─
+Traceback (most recent call last):
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/bin/run_omero_screen.py", line 87, in <module>
+    main()
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/bin/run_omero_screen.py", line 83, in main
+    run_plate_loop(args.ID)
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/packages/omero-utils/src/omero_utils/omero_connect.py", line 86, in wrapper_omero_connect
+    value = func(*args, **kwargs, conn=conn)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/bin/run_omero_screen.py", line 81, in run_plate_loop
+    plate_loop(conn, plate_id, segmentation_mode=args.segmentation)
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/src/omero_screen/loops.py", line 98, in plate_loop
+    df_final, df_quality_control, dict_gallery = process_wells(
+                                                 ^^^^^^^^^^^^^^
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/src/omero_screen/loops.py", line 219, in process_wells
+    well_data, well_quality = _well_loop(
+                              ^^^^^^^^^^^
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/src/omero_screen/loops.py", line 370, in _well_loop
+    image_props = ImageProperties(
+                  ^^^^^^^^^^^^^^^^
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/src/omero_screen/image_analysis.py", line 431, in __init__
+    if cls.select_channels(image_obj.img_dict):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/src/omero_screen/image_classifier.py", line 238, in select_channels
+    image_data[channel] for channel in self.active_channels
+    ~~~~~~~~~~^^^^^^^^^
+KeyError: 'RFP'

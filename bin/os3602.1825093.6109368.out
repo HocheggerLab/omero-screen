@@ -1,0 +1,122 @@
+[2026-03-18 12:49:33] PYTHONPATH=/mnt/lustre/users/gdsc/hh65/omero-screen
+[2026-03-18 12:49:33] exec: uv run python torch-test.py
+[2026-03-18 12:52:35] exec: uv run python run_omero_screen.py 3602 --inference nuclei4
+─  Connected to OMERO server at ome2.hpc.susx.ac.uk as helfrid: Wed Mar 18 13… ─
+✓ Found plate with id 3602
+✓ Found Excel file attachment on plate 3602
+╭─────────────────────────────────── Error ────────────────────────────────────╮
+│ ExcelParsingError:                                                           │
+│ Failed to parse Excel file: 'Well'                                           │
+│                                                                              │
+│ Location:                                                                    │
+│   File                                                                       │
+│ "/mnt/lustre/users/gdsc/hh65/omero-screen/src/omero_screen/metadata_parser.p │
+│ y", line 223, in _load_data_from_excel                                       │
+│     self._empty_well_positions = df.loc.tolist()                             │
+│                                  ~~~~~~^^^^^^^^^^^^^^^^^^^^                  │
+│   File                                                                       │
+│ "/mnt/lustre/users/gdsc/hh65/omero-screen/.venv/lib/python3.12/site-packages │
+│ /pandas/core/indexing.py", line 1185, in __getitem__                         │
+│     return self._getitem_tuple(key)                                          │
+│            ^^^^^^^^^^^^^^^^^^^^^^^^                                          │
+│   File                                                                       │
+│ "/mnt/lustre/users/gdsc/hh65/omero-screen/.venv/lib/python3.12/site-packages │
+│ /pandas/core/indexing.py", line 1369, in _getitem_tuple                      │
+│     return self._getitem_lowerdim(tup)                                       │
+│            ^^^^^^^^^^^^^^^^^^^^^^^^^^^                                       │
+│   File                                                                       │
+│ "/mnt/lustre/users/gdsc/hh65/omero-screen/.venv/lib/python3.12/site-packages │
+│ /pandas/core/indexing.py", line 1066, in _getitem_lowerdim                   │
+│     section = self._getitem_axis(key, axis=i)                                │
+│               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^                                │
+│   File                                                                       │
+│ "/mnt/lustre/users/gdsc/hh65/omero-screen/.venv/lib/python3.12/site-packages │
+│ /pandas/core/indexing.py", line 1432, in _getitem_axis                       │
+│     return self._get_label(key, axis=axis)                                   │
+│            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^                                   │
+│   File                                                                       │
+│ "/mnt/lustre/users/gdsc/hh65/omero-screen/.venv/lib/python3.12/site-packages │
+│ /pandas/core/indexing.py", line 1382, in _get_label                          │
+│     return self.obj.xs(label, axis=axis)                                     │
+│            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^                                     │
+│   File                                                                       │
+│ "/mnt/lustre/users/gdsc/hh65/omero-screen/.venv/lib/python3.12/site-packages │
+│ /pandas/core/generic.py", line 4309, in xs                                   │
+│     return self                                                              │
+│            ~~~~^^^^^                                                         │
+│   File                                                                       │
+│ "/mnt/lustre/users/gdsc/hh65/omero-screen/.venv/lib/python3.12/site-packages │
+│ /pandas/core/frame.py", line 4113, in __getitem__                            │
+│     indexer = self.columns.get_loc(key)                                      │
+│               ^^^^^^^^^^^^^^^^^^^^^^^^^                                      │
+│   File                                                                       │
+│ "/mnt/lustre/users/gdsc/hh65/omero-screen/.venv/lib/python3.12/site-packages │
+│ /pandas/core/indexes/base.py", line 3819, in get_loc                         │
+│     raise KeyError(key) from err                                             │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+─  Closed connection to OMERO server at ome2.hpc.susx.ac.uk: Wed Mar 18 13:00… ─
+Traceback (most recent call last):
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/.venv/lib/python3.12/site-packages/pandas/core/indexes/base.py", line 3812, in get_loc
+    return self._engine.get_loc(casted_key)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "pandas/_libs/index.pyx", line 167, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/index.pyx", line 196, in pandas._libs.index.IndexEngine.get_loc
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7088, in pandas._libs.hashtable.PyObjectHashTable.get_item
+  File "pandas/_libs/hashtable_class_helper.pxi", line 7096, in pandas._libs.hashtable.PyObjectHashTable.get_item
+KeyError: 'Well'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/src/omero_screen/metadata_parser.py", line 143, in _parse_metadata
+    self.channel_data, self.well_data = self._load_data_from_excel(
+                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/src/omero_screen/metadata_parser.py", line 223, in _load_data_from_excel
+    self._empty_well_positions = df.loc[empty_mask, "Well"].tolist()
+                                 ~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/.venv/lib/python3.12/site-packages/pandas/core/indexing.py", line 1185, in __getitem__
+    return self._getitem_tuple(key)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/.venv/lib/python3.12/site-packages/pandas/core/indexing.py", line 1369, in _getitem_tuple
+    return self._getitem_lowerdim(tup)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/.venv/lib/python3.12/site-packages/pandas/core/indexing.py", line 1066, in _getitem_lowerdim
+    section = self._getitem_axis(key, axis=i)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/.venv/lib/python3.12/site-packages/pandas/core/indexing.py", line 1432, in _getitem_axis
+    return self._get_label(key, axis=axis)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/.venv/lib/python3.12/site-packages/pandas/core/indexing.py", line 1382, in _get_label
+    return self.obj.xs(label, axis=axis)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/.venv/lib/python3.12/site-packages/pandas/core/generic.py", line 4309, in xs
+    return self[key]
+           ~~~~^^^^^
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/.venv/lib/python3.12/site-packages/pandas/core/frame.py", line 4113, in __getitem__
+    indexer = self.columns.get_loc(key)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/.venv/lib/python3.12/site-packages/pandas/core/indexes/base.py", line 3819, in get_loc
+    raise KeyError(key) from err
+KeyError: 'Well'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/bin/run_omero_screen.py", line 87, in <module>
+    main()
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/bin/run_omero_screen.py", line 83, in main
+    run_plate_loop(args.ID)
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/packages/omero-utils/src/omero_utils/omero_connect.py", line 86, in wrapper_omero_connect
+    value = func(*args, **kwargs, conn=conn)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/bin/run_omero_screen.py", line 81, in run_plate_loop
+    plate_loop(conn, plate_id, segmentation_mode=args.segmentation)
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/src/omero_screen/loops.py", line 83, in plate_loop
+    metadata.manage_metadata()
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/src/omero_screen/metadata_parser.py", line 105, in manage_metadata
+    self._parse_metadata()  # checks for excel file or well data and pulls channel and well data into self.channel_data and self.well_data dictionaries
+    ^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/lustre/users/gdsc/hh65/omero-screen/src/omero_screen/metadata_parser.py", line 147, in _parse_metadata
+    raise ExcelParsingError(
+omero_utils.message.ExcelParsingError: Failed to parse Excel file: 'Well'
