@@ -165,12 +165,16 @@ def launch_explore(
         )
         ui.info("Napari viewer launched")
 
-    editor = "vscode" if code else os.environ.get("CELLVIEW_EDITOR", "jupyter").lower()
+    editor = (
+        "vscode"
+        if code
+        else os.environ.get("CELLVIEW_EDITOR", "jupyter").lower()
+    )
 
     if editor == "vscode":
-        subprocess.Popen(["code", str(target.notebook_path.parent)])
+        subprocess.Popen(["code", str(EXPLORE_DIR)])
         ui.info(
-            "Opened notebook folder in VS Code — select the venv kernel "
+            "Opened explore directory in VS Code — select the venv kernel "
             "if prompted"
         )
     else:
@@ -235,7 +239,9 @@ def _folder_name_for_experiment(experiment_id: int) -> str | None:
         return None
 
     project_name_raw, experiment_name_raw = row
-    project_name = str(project_name_raw) if project_name_raw is not None else None
+    project_name = (
+        str(project_name_raw) if project_name_raw is not None else None
+    )
     experiment_name = (
         str(experiment_name_raw) if experiment_name_raw is not None else None
     )
@@ -278,7 +284,9 @@ def _folder_name_for_plates(plate_ids: list[int]) -> str | None:
         return experiment_name or project_name
 
     unique_projects = {
-        project_name for project_name, _ in unique_pairs if project_name is not None
+        project_name
+        for project_name, _ in unique_pairs
+        if project_name is not None
     }
     if len(unique_projects) == 1:
         return next(iter(unique_projects))
@@ -288,7 +296,11 @@ def _folder_name_for_plates(plate_ids: list[int]) -> str | None:
 
 def _migrate_legacy_notebook(legacy_path: Path, target_path: Path) -> None:
     """Move a flat-layout notebook into its new folder when needed."""
-    if legacy_path == target_path or not legacy_path.exists() or target_path.exists():
+    if (
+        legacy_path == target_path
+        or not legacy_path.exists()
+        or target_path.exists()
+    ):
         return
 
     target_path.parent.mkdir(parents=True, exist_ok=True)

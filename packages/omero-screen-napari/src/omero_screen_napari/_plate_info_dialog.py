@@ -5,7 +5,6 @@ display plate metadata, per-well cell line and dynamic annotation keys,
 image counts, timepoints, and label availability.
 """
 
-import os
 from collections.abc import Callable
 from typing import Any
 
@@ -180,29 +179,20 @@ def _build_from_omero(
     plate_id: int,
 ) -> tuple[dict[str, Any], list[str], list[dict[str, Any]], bool]:
     """Build table data by fetching from OMERO (slow path)."""
-    from omero.gateway import BlitzGateway
-
+    from omero_screen_napari.omero_data import OmeroConnection
     from omero_screen_napari.plate_cache import (
         get_label_map,
         get_plate_metadata,
         get_well_data,
     )
 
-    username = os.getenv("USERNAME")
-    password = os.getenv("PASSWORD")
-    host = os.getenv("HOST")
-
-    conn = BlitzGateway(username, password, host=host)
-    conn.connect()
-    if not conn.isConnected():
-        raise RuntimeError(f"Failed to connect to OMERO server at {host}")
-
+    connection = OmeroConnection()
     try:
-        meta = get_plate_metadata(conn, plate_id)
-        wells = get_well_data(conn, plate_id)
-        labels = get_label_map(conn, plate_id)
+        meta = get_plate_metadata(connection, plate_id)
+        wells = get_well_data(connection, plate_id)
+        labels = get_label_map(connection, plate_id)
     finally:
-        conn.close(hard=True)
+        connection.close(hard=True)
 
     header_info = _build_header_info(meta, wells)
     metadata_keys = _collect_metadata_keys(wells)
