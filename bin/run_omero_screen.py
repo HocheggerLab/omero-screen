@@ -11,6 +11,16 @@ Main Functions:
 import argparse
 import os
 
+_CP4_MODELS: dict[str, str] = {
+    "nuclei": "cp4:cpsam",
+    "RPE": "cp4:cpsam",
+    "HELA": "cp4:cpsam",
+    "U2OS": "cp4:cpsam",
+    "HCC1143": "cp4:cpsam",
+    "MM231": "cp4:cpsam",
+    "PALB": "cp4:cpsam",
+}
+
 
 def main() -> None:
     """Main entry point for the OMERO screen application."""
@@ -53,6 +63,19 @@ def main() -> None:
         help="Only perform image segmentation (default: %(default)s)",
     )
     group.add_argument(
+        "--cp4",
+        default=False,
+        action="store_true",
+        help="Use Cellpose 4 (cpsam) for segmentation instead of the default Cellpose 3 models.",
+    )
+    group.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        metavar="MODEL",
+        help="Override all segmentation models with a single model name (e.g. 'cp4:cpsam', 'cp3:cyto3'). Overrides --cp4.",
+    )
+    group.add_argument(
         "--benchmark",
         default=False,
         action=argparse.BooleanOptionalAction,
@@ -72,6 +95,14 @@ def main() -> None:
         os.environ["OMERO_SCREEN_INFERENCE_GALLERY_WIDTH"] = str(args.gallery)
     if args.batch:
         os.environ["OMERO_SCREEN_INFERENCE_BATCH_SIZE"] = str(args.batch)
+
+    if args.model or args.cp4:
+        from omero_screen import default_config
+
+        model_name = args.model if args.model else "cp4:cpsam"
+        default_config.MODEL_DICT = {
+            k: model_name for k in default_config.MODEL_DICT
+        }
 
     from omero.gateway import BlitzGateway
     from omero_utils.omero_connect import omero_connect
