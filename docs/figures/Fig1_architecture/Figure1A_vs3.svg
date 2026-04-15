@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" viewBox="0 0 595.3 841.9">
+  <!-- Generator: Adobe Illustrator 29.3.1, SVG Export Plug-In . SVG Version: 2.1.0 Build 151)  -->
+  <defs>
+    <style>
+      .st0 {
+        stroke-dasharray: 2;
+      }
+
+      .st0, .st1, .st2, .st3, .st4, .st5, .st6, .st7 {
+        stroke-miterlimit: 10;
+        stroke-width: .5px;
+      }
+
+      .st0, .st1, .st2, .st6 {
+        fill: none;
+      }
+
+      .st0, .st1, .st3, .st4, .st5, .st7 {
+        stroke: #1d1d1b;
+      }
+
+      .st2 {
+        stroke: #e6332a;
+      }
+
+      .st8 {
+        font-size: 6.8px;
+      }
+
+      .st8, .st9, .st10 {
+        fill: #1d1d1b;
+      }
+
+      .st8, .st9, .st10, .st11 {
+        font-family: ArialMT, Arial;
+      }
+
+      .st9, .st11 {
+        font-size: 6px;
+      }
+
+      .st10 {
+        font-size: 7px;
+      }
+
+      .st12 {
+        fill: #312783;
+      }
+
+      .st3 {
+        fill: #d6e4f0;
+      }
+
+      .st4 {
+        fill: #fff2cc;
+      }
+
+      .st5 {
+        fill: #d9ead3;
+      }
+
+      .st11 {
+        fill: #1e1e1c;
+        isolation: isolate;
+      }
+
+      .st6 {
+        stroke: #312783;
+      }
+
+      .st7 {
+        fill: #e6d4e9;
+      }
+
+      .st13 {
+        fill: #e6332a;
+      }
+    </style>
+  </defs>
+  <rect class="st7" x="250.3" y="184.5" width="82.9" height="19.5" rx="6.4" ry="6.4"/>
+  <rect class="st5" x="156.8" y="184.5" width="72.2" height="19.5" rx="6.4" ry="6.4"/>
+  <rect class="st5" x="257.5" y="78.4" width="72.2" height="79.2" rx="6.4" ry="6.4"/>
+  <rect class="st4" x="31.4" y="67.3" width="72.2" height="92.9" rx="6.4" ry="6.4"/>
+  <rect class="st1" x="20.5" y="64" width="316.4" height="148.3" rx="6.4" ry="6.4"/>
+  <text class="st10" transform="translate(45.9 74.9)"><tspan x="0" y="0">omero-screen</tspan></text>
+  <text class="st9" transform="translate(44.1 87.6)"><tspan x="0" y="0">metadata-parsing</tspan></text>
+  <text class="st9" transform="translate(107.5 123.2)"><tspan x="0" y="0">plate/well md</tspan></text>
+  <rect class="st1" x="38.1" y="79.2" width="58.9" height="13" rx="6.4" ry="6.4"/>
+  <text class="st9" transform="translate(51.2 102.6)"><tspan x="0" y="0">flatfield-corr.</tspan></text>
+  <rect class="st1" x="38.1" y="94.1" width="58.9" height="13" rx="6.4" ry="6.4"/>
+  <text class="st9" transform="translate(48.3 119.2)"><tspan x="0" y="0">segmentation*</tspan></text>
+  <rect class="st1" x="38.1" y="110.8" width="58.9" height="13" rx="6.4" ry="6.4"/>
+  <text class="st9" transform="translate(50.5 135.1)"><tspan x="0" y="0">classification</tspan></text>
+  <rect class="st1" x="38.1" y="126.6" width="58.9" height="13" rx="6.4" ry="6.4"/>
+  <text class="st9" transform="translate(44.3 150.8)"><tspan x="0" y="0">feature extraction</tspan></text>
+  <rect class="st1" x="38.1" y="142.4" width="58.9" height="13" rx="6.4" ry="6.4"/>
+  <g>
+    <line class="st12" x1="226.8" y1="94" x2="251.4" y2="94"/>
+    <g>
+      <line class="st6" x1="226.8" y1="94" x2="247.8" y2="94"/>
+      <polygon class="st12" points="247.1 96.5 251.4 94 247.1 91.5 247.1 96.5"/>
+    </g>
+  </g>
+  <g>
+    <line class="st12" x1="232.2" y1="193.6" x2="248.4" y2="193.6"/>
+    <g>
+      <line class="st6" x1="232.2" y1="193.6" x2="244.8" y2="193.6"/>
+      <polygon class="st12" points="244 196.1 248.4 193.6 244 191.1 244 196.1"/>
+    </g>
+  </g>
+  <g>
+    <line class="st12" x1="187.3" y1="170.1" x2="187.3" y2="182.5"/>
+    <g>
+      <line class="st6" x1="187.3" y1="170.1" x2="187.3" y2="178.9"/>
+      <polygon class="st12" points="184.8 178.1 187.3 182.5 189.8 178.1 184.8 178.1"/>
+    </g>
+  </g>
+  <text class="st9" transform="translate(106 131.2)"><tspan x="0" y="0">flatfield masks</tspan></text>
+  <g>
+    <line class="st13" x1="112.7" y1="109.6" x2="137.3" y2="109.6"/>
+    <g>
+      <line class="st2" x1="112.7" y1="109.6" x2="133.8" y2="109.6"/>
+      <polygon class="st13" points="133 112.1 137.3 109.6 133 107.1 133 112.1"/>
+    </g>
+  </g>
+  <g>
+    <line class="st13" x1="251.4" y1="120.3" x2="226.8" y2="120.3"/>
+    <g>
+      <line class="st2" x1="251.4" y1="120.3" x2="230.4" y2="120.3"/>
+      <polygon class="st13" points="231.1 117.8 226.8 120.3 231.1 122.7 231.1 117.8"/>
+    </g>
+  </g>
+  <text class="st9" transform="translate(108.2 139.1)"><tspan x="0" y="0">segm.masks</tspan></text>
+  <text class="st9" transform="translate(111.3 147)"><tspan x="0" y="0">qc, results</tspan></text>
+  <text class="st9" transform="translate(124.1 192.8)"><tspan x="0" y="0">aligned</tspan><tspan x="-10.2" y="7.2">single cell data</tspan></text>
+  <text class="st9" transform="translate(195.5 172.7)"><tspan x="0" y="0">single cell </tspan><tspan x="-2" y="7.2">feature data</tspan></text>
+  <g>
+    <line class="st13" x1="116.3" y1="188.5" x2="137.6" y2="176.3"/>
+    <g>
+      <line class="st2" x1="116.3" y1="188.5" x2="134.5" y2="178.1"/>
+      <polygon class="st13" points="135.1 180.6 137.6 176.3 132.6 176.3 135.1 180.6"/>
+    </g>
+  </g>
+  <g>
+    <line class="st12" x1="232" y1="184.6" x2="248.6" y2="166.4"/>
+    <g>
+      <line class="st6" x1="232" y1="184.6" x2="246.1" y2="169"/>
+      <polygon class="st12" points="247.5 171.2 248.6 166.4 243.8 167.9 247.5 171.2"/>
+    </g>
+  </g>
+  <g>
+    <line class="st12" x1="137.2" y1="85.6" x2="112.9" y2="85.6"/>
+    <g>
+      <line class="st6" x1="137.2" y1="85.6" x2="116.5" y2="85.6"/>
+      <polygon class="st12" points="117.2 83.1 112.9 85.6 117.2 88.1 117.2 83.1"/>
+    </g>
+  </g>
+  <g>
+    <line class="st12" x1="133.7" y1="173.6" x2="112.4" y2="185.2"/>
+    <g>
+      <line class="st6" x1="133.7" y1="173.6" x2="115.6" y2="183.5"/>
+      <polygon class="st12" points="115 181 112.4 185.2 117.4 185.3 115 181"/>
+    </g>
+  </g>
+  <rect class="st3" x="152.8" y="81.4" width="61.2" height="66.6"/>
+  <text class="st9"><tspan x="154.7" y="129.7">Metadata</tspan><tspan x="154.7" y="136.9">Masks</tspan><tspan x="154.7" y="144.1">Feature Data</tspan></text>
+  <text class="st10" transform="translate(165.6 77.9)"><tspan x="0" y="0">omero-utils</tspan></text>
+  <text class="st10" transform="translate(154.9 104)"><tspan x="0" y="0">OMERO</tspan><tspan x="3.5" y="8.4">server</tspan></text>
+  <text class="st10" transform="translate(148.9 24.3)"><tspan x="0" y="0">Images</tspan></text>
+  <text class="st10" transform="translate(181 25.5)"><tspan x="0" y="0">Metavdata</tspan></text>
+  <text class="st9" transform="translate(149.1 154.6)"><tspan x="0" y="0">Connections Attachments</tspan></text>
+  <text class="st9" transform="translate(164.2 161.2)"><tspan x="0" y="0">Annotations</tspan></text>
+  <rect class="st0" x="146.8" y="70.3" width="72.2" height="92.9" rx="6.4" ry="6.4"/>
+  <image id="GDZRNo" width="474" height="382" transform="translate(183 31.6) scale(0)" xlink:href="Figure1A_vs3-1.png"/>
+  <image id="Layer_0" width="1854" height="3024" transform="translate(153.6 29.3) scale(0)" xlink:href="Figure1A_vs3-2.png"/>
+  <text class="st9" transform="translate(154.7 88.7)"><tspan x="0" y="0">Plates, Wells, Images</tspan></text>
+  <text class="st11" transform="translate(28.6 147.7) rotate(-90)"><tspan x="0" y="0">Iterates: wells → images</tspan></text>
+  <g>
+    <rect class="st4" x="32.3" y="162.5" width="72.2" height="46.5" rx="6.4" ry="6.4"/>
+    <text class="st10" transform="translate(53.2 170.1)"><tspan x="0" y="0">cyclic IF</tspan></text>
+    <text class="st9" transform="translate(51.4 183.4)"><tspan x="0" y="0">registration</tspan></text>
+    <rect class="st1" x="39" y="174.4" width="58.9" height="13" rx="6.4" ry="6.4"/>
+    <text class="st9" transform="translate(46.4 197.8)"><tspan x="0" y="0">feature alignment</tspan></text>
+    <rect class="st1" x="39" y="189.3" width="58.9" height="13" rx="6.4" ry="6.4"/>
+  </g>
+  <text class="st10" transform="translate(261.2 86)"><tspan x="0" y="0">omero-screen-napari</tspan></text>
+  <text class="st9" transform="translate(272.9 98.8)"><tspan x="0" y="0">welldata-viewer</tspan></text>
+  <rect class="st1" x="264.2" y="90.3" width="58.9" height="13" rx="6.4" ry="6.4"/>
+  <text class="st9" transform="translate(277.1 113.7)"><tspan x="0" y="0">cell galleries</tspan></text>
+  <rect class="st1" x="264.2" y="105.3" width="58.9" height="13" rx="6.4" ry="6.4"/>
+  <text class="st9" transform="translate(269.3 130.3)"><tspan x="0" y="0">classifier manager</tspan></text>
+  <rect class="st1" x="264.2" y="121.9" width="58.9" height="13" rx="6.4" ry="6.4"/>
+  <text class="st9" transform="translate(277 146.2)"><tspan x="0" y="0">local cache</tspan></text>
+  <text class="st9" transform="translate(222.1 132.6)"><tspan x="0" y="0">CNN models</tspan></text>
+  <text class="st8" transform="translate(116.3 94.5) scale(.9 1)"><tspan x="0" y="0">Images</tspan></text>
+  <rect class="st1" x="264.2" y="137.8" width="58.9" height="13" rx="6.4" ry="6.4"/>
+  <text class="st10" transform="translate(172.4 192.1)"><tspan x="0" y="0">cellview db</tspan></text>
+  <text class="st9" transform="translate(161.8 200.4)"><tspan x="0" y="0">local duck-db database</tspan></text>
+  <text class="st10" transform="translate(260.9 192.1)"><tspan x="0" y="0">omero-screen-plots</tspan></text>
+  <text class="st9" transform="translate(254.3 200.4)"><tspan x="0" y="0">notebooks, plotting functions</tspan></text>
+  <text/>
+</svg>

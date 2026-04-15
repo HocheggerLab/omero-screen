@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 595.28 841.89">
+  <!-- Generator: Adobe Illustrator 29.3.1, SVG Export Plug-In . SVG Version: 2.1.0 Build 151)  -->
+  <defs>
+    <style>
+      .st0 {
+        stroke-width: .75px;
+      }
+
+      .st0, .st1, .st2, .st3, .st4 {
+        stroke: #1d1d1b;
+      }
+
+      .st0, .st1, .st2, .st3, .st4, .st5 {
+        stroke-miterlimit: 10;
+      }
+
+      .st0, .st1, .st5 {
+        fill: none;
+      }
+
+      .st1, .st2, .st3, .st4, .st5 {
+        stroke-width: .5px;
+      }
+
+      .st6, .st7, .st8, .st9 {
+        fill: #1d1d1b;
+      }
+
+      .st7 {
+        font-size: 6px;
+      }
+
+      .st7, .st8 {
+        font-family: ArialMT, Arial;
+      }
+
+      .st8, .st9 {
+        font-size: 7px;
+      }
+
+      .st10 {
+        fill: #312783;
+      }
+
+      .st2 {
+        fill: #d6e4f0;
+      }
+
+      .st3 {
+        fill: #fff2cc;
+      }
+
+      .st4 {
+        fill: #d9ead3;
+      }
+
+      .st5 {
+        stroke: #312783;
+      }
+
+      .st9 {
+        font-family: Arial-BoldMT, Arial;
+        font-weight: 700;
+      }
+    </style>
+  </defs>
+  <rect class="st4" x="159.81" y="118.79" width="138.82" height="27.23" rx="6.37" ry="6.37"/>
+  <rect class="st3" x="107.29" y="209.87" width="78.05" height="56.07" rx="6.37" ry="6.37"/>
+  <g>
+    <text class="st7" transform="translate(168.42 137.86)"><tspan x="0" y="0">metadata-parsing</tspan></text>
+    <rect class="st1" x="163.5" y="129.43" width="58.87" height="12.98" rx="6.37" ry="6.37"/>
+  </g>
+  <g>
+    <text class="st7" transform="translate(248.9 137.86)"><tspan x="0" y="0">flatfield-corr.</tspan></text>
+    <rect class="st1" x="235.8" y="129.43" width="58.87" height="12.98" rx="6.37" ry="6.37"/>
+  </g>
+  <text class="st7" transform="translate(177.94 162.98)"><tspan x="0" y="0">annotations</tspan></text>
+  <text class="st7" transform="translate(248.92 163.05)"><tspan x="0" y="0">flatfield-masks</tspan></text>
+  <text class="st7" transform="translate(158.42 176.59)"><tspan x="0" y="0">plate/well</tspan><tspan x="-.5" y="7.2">hirarchies</tspan></text>
+  <text class="st7" transform="translate(154.84 205.76)"><tspan x="0" y="0">image</tspan></text>
+  <text class="st9" transform="translate(117.55 261.8) rotate(-90)"><tspan x="0" y="0">Analysis-Loop</tspan></text>
+  <text class="st9" transform="translate(201.25 126.88)"><tspan x="0" y="0">Pro-processing</tspan></text>
+  <text class="st7" transform="translate(231.52 242.56)"><tspan x="0" y="0">final analysis</tspan><tspan x="11.84" y="7.2">files</tspan></text>
+  <text class="st7" transform="translate(187.36 229.34)"><tspan x="0" y="0">masks</tspan></text>
+  <g>
+    <text class="st7" transform="translate(132.54 222.5)"><tspan x="0" y="0">segmentation*</tspan></text>
+    <rect class="st1" x="122.1" y="214.07" width="58.87" height="12.98" rx="6.37" ry="6.37"/>
+  </g>
+  <text class="st7" transform="translate(135.16 237.84)"><tspan x="0" y="0">classification</tspan></text>
+  <rect class="st1" x="122.73" y="229.41" width="58.87" height="12.98" rx="6.37" ry="6.37"/>
+  <text class="st7" transform="translate(128.99 253.6)"><tspan x="0" y="0">feature extraction</tspan></text>
+  <rect class="st1" x="122.73" y="245.17" width="58.87" height="12.98" rx="6.37" ry="6.37"/>
+  <g>
+    <g>
+      <line class="st10" x1="224.32" y1="162.85" x2="205.02" y2="148.13"/>
+      <g>
+        <line class="st5" x1="224.32" y1="162.85" x2="207.87" y2="150.3"/>
+        <polygon class="st10" points="209.96 148.76 205.02 148.13 206.94 152.73 209.96 148.76"/>
+      </g>
+    </g>
+    <g>
+      <line class="st10" x1="201.87" y1="152.24" x2="221.18" y2="166.97"/>
+      <g>
+        <line class="st5" x1="201.87" y1="152.24" x2="218.32" y2="164.79"/>
+        <polygon class="st10" points="216.23 166.33 221.18 166.97 219.26 162.37 216.23 166.33"/>
+      </g>
+    </g>
+  </g>
+  <g>
+    <g>
+      <line class="st10" x1="229.61" y1="162.85" x2="248.92" y2="148.13"/>
+      <g>
+        <line class="st5" x1="229.61" y1="162.85" x2="246.06" y2="150.3"/>
+        <polygon class="st10" points="247 152.73 248.92 148.13 243.97 148.76 247 152.73"/>
+      </g>
+    </g>
+    <g>
+      <line class="st10" x1="252.06" y1="152.24" x2="232.76" y2="166.97"/>
+      <g>
+        <line class="st5" x1="252.06" y1="152.24" x2="235.61" y2="164.79"/>
+        <polygon class="st10" points="234.68 162.37 232.76 166.97 237.7 166.33 234.68 162.37"/>
+      </g>
+    </g>
+  </g>
+  <g>
+    <line class="st10" x1="203.27" y1="179.18" x2="188.78" y2="179.18"/>
+    <g>
+      <line class="st5" x1="203.27" y1="179.18" x2="192.37" y2="179.18"/>
+      <polygon class="st10" points="193.1 176.69 188.78 179.18 193.1 181.68 193.1 176.69"/>
+    </g>
+  </g>
+  <g>
+    <line class="st10" x1="188.78" y1="220.56" x2="203.27" y2="220.56"/>
+    <g>
+      <line class="st5" x1="188.78" y1="220.56" x2="199.68" y2="220.56"/>
+      <polygon class="st10" points="198.95 223.05 203.27 220.56 198.95 218.07 198.95 223.05"/>
+    </g>
+  </g>
+  <g>
+    <line class="st10" x1="163.01" y1="188.04" x2="163.01" y2="200.17"/>
+    <g>
+      <line class="st5" x1="163.01" y1="188.04" x2="163.01" y2="196.59"/>
+      <polygon class="st10" points="160.51 195.86 163.01 200.17 165.5 195.86 160.51 195.86"/>
+    </g>
+  </g>
+  <rect class="st2" x="207.24" y="172.12" width="43.28" height="57.22"/>
+  <text class="st8" transform="translate(215.77 181.69)"><tspan x="0" y="0">OMERO</tspan><tspan x="3.5" y="8.4">server</tspan></text>
+  <g>
+    <path class="st0" d="M117.6,208.33c-.09-.92-1.23-15.72,10.75-24.89,6.97-5.34,14.61-5.87,19.59-5.45"/>
+    <polygon class="st6" points="146.25 181.61 153.23 178.92 147.42 174.22 146.25 181.61"/>
+  </g>
+  <g>
+    <path class="st1" d="M189.91,261.18c.87.3,14.99,4.9,26.72-4.57,7.71-6.23,9.68-14.73,10.15-19.54"/>
+    <polygon class="st6" points="229.17 237.92 226.89 233.48 224.19 237.67 229.17 237.92"/>
+  </g>
+</svg>

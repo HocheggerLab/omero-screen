@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" width="1200" height="900">
+  <defs>
+    <!-- Arrow markers -->
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#555"/>
+    </marker>
+    <marker id="arrow-read" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2196F3"/>
+    </marker>
+    <marker id="arrow-write" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#E65100"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="900" fill="white"/>
+
+  <!-- ==================== -->
+  <!-- OMERO SERVER (Centre) -->
+  <!-- ==================== -->
+  <g id="omero-server">
+    <rect x="420" y="340" width="360" height="180" rx="12" fill="#E3F2FD" stroke="#1565C0" stroke-width="2.5"/>
+    <text x="600" y="380" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="22" font-weight="bold" fill="#0D47A1">OMERO Server</text>
+    <!-- Sub-items inside -->
+    <text x="600" y="415" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="13" fill="#37474F">Plates &amp; Images</text>
+    <text x="600" y="435" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="13" fill="#37474F">Metadata (Annotations)</text>
+    <text x="600" y="455" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="13" fill="#37474F">Segmentation Masks</text>
+    <text x="600" y="475" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="13" fill="#37474F">Analysis Results (CSV)</text>
+    <text x="600" y="495" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="13" fill="#37474F">Flatfield Corrections</text>
+  </g>
+
+  <!-- ========================= -->
+  <!-- omero-utils (Layer around OMERO) -->
+  <!-- ========================= -->
+  <g id="omero-utils">
+    <rect x="380" y="300" width="440" height="260" rx="16" fill="none" stroke="#78909C" stroke-width="1.5" stroke-dasharray="8,4"/>
+    <text x="820" y="320" text-anchor="end" font-family="Helvetica Neue, Arial" font-size="13" font-style="italic" fill="#78909C">omero-utils</text>
+    <text x="820" y="336" text-anchor="end" font-family="Helvetica Neue, Arial" font-size="11" fill="#90A4AE">connection · attachments · annotations</text>
+  </g>
+
+  <!-- ================================= -->
+  <!-- ANALYSIS PIPELINE (Left side) -->
+  <!-- ================================= -->
+  <g id="analysis-pipeline">
+    <rect x="30" y="270" width="280" height="320" rx="10" fill="#FFF3E0" stroke="#E65100" stroke-width="2"/>
+    <text x="170" y="302" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="19" font-weight="bold" fill="#BF360C">omero-screen</text>
+    <text x="170" y="322" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="12" fill="#8D6E63">Analysis Pipeline</text>
+
+    <!-- Pipeline steps as a vertical flow -->
+    <g id="pipeline-steps">
+      <rect x="55" y="340" width="230" height="32" rx="6" fill="#FFE0B2" stroke="#FB8C00" stroke-width="1"/>
+      <text x="170" y="361" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="13" fill="#4E342E">Metadata Parsing</text>
+
+      <line x1="170" y1="372" x2="170" y2="382" stroke="#BF360C" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <rect x="55" y="385" width="230" height="32" rx="6" fill="#FFE0B2" stroke="#FB8C00" stroke-width="1"/>
+      <text x="170" y="406" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="13" fill="#4E342E">Flatfield Correction</text>
+
+      <line x1="170" y1="417" x2="170" y2="427" stroke="#BF360C" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <rect x="55" y="430" width="230" height="32" rx="6" fill="#FFE0B2" stroke="#FB8C00" stroke-width="1"/>
+      <text x="170" y="451" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="13" fill="#4E342E">Cellpose Segmentation</text>
+
+      <line x1="170" y1="462" x2="170" y2="472" stroke="#BF360C" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <rect x="55" y="475" width="230" height="32" rx="6" fill="#FFE0B2" stroke="#FB8C00" stroke-width="1"/>
+      <text x="170" y="496" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="13" fill="#4E342E">Feature Extraction</text>
+
+      <line x1="170" y1="507" x2="170" y2="517" stroke="#BF360C" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <rect x="55" y="520" width="230" height="32" rx="6" fill="#FFE0B2" stroke="#FB8C00" stroke-width="1"/>
+      <text x="170" y="541" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="13" fill="#4E342E">Cell Cycle Analysis</text>
+    </g>
+
+    <!-- QC box -->
+    <rect x="55" y="560" width="230" height="22" rx="4" fill="none" stroke="#BF360C" stroke-width="1" stroke-dasharray="4,3"/>
+    <text x="170" y="576" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="11" fill="#8D6E63">Quality Control &amp; Classification</text>
+  </g>
+
+  <!-- Arrows: Pipeline <-> OMERO (bidirectional) -->
+  <g id="arrows-pipeline-omero">
+    <!-- Read: OMERO -> Pipeline (images, metadata) -->
+    <path d="M 420 400 L 320 380" fill="none" stroke="#2196F3" stroke-width="2" marker-end="url(#arrow-read)"/>
+    <text x="358" y="378" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="10" fill="#1565C0" transform="rotate(-6, 358, 378)">images</text>
+
+    <!-- Write: Pipeline -> OMERO (results, masks) -->
+    <path d="M 310 480 L 420 470" fill="none" stroke="#E65100" stroke-width="2" marker-end="url(#arrow-write)"/>
+    <text x="358" y="466" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="10" fill="#BF360C" transform="rotate(5, 358, 466)">masks, CSVs</text>
+  </g>
+
+  <!-- ============================== -->
+  <!-- CELLVIEW (Bottom centre) -->
+  <!-- ============================== -->
+  <g id="cellview">
+    <rect x="420" y="680" width="360" height="120" rx="10" fill="#E8F5E9" stroke="#2E7D32" stroke-width="2"/>
+    <text x="600" y="715" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="19" font-weight="bold" fill="#1B5E20">cellview</text>
+    <text x="600" y="735" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="12" fill="#4E342E">Local DuckDB Database</text>
+
+    <text x="600" y="762" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="12" fill="#558B2F">Import · Query · Export</text>
+    <text x="600" y="780" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="12" fill="#558B2F">Single-cell measurements</text>
+  </g>
+
+  <!-- Arrow: OMERO -> CellView (import CSVs, one-way) -->
+  <g id="arrows-omero-cellview">
+    <path d="M 600 520 L 600 676" fill="none" stroke="#2196F3" stroke-width="2" marker-end="url(#arrow-read)"/>
+    <text x="616" y="600" font-family="Helvetica Neue, Arial" font-size="11" fill="#1565C0">import analysis CSVs</text>
+  </g>
+
+  <!-- ============================== -->
+  <!-- PLOTS (Bottom left) -->
+  <!-- ============================== -->
+  <g id="plots">
+    <rect x="60" y="700" width="280" height="100" rx="10" fill="#F3E5F5" stroke="#6A1B9A" stroke-width="2"/>
+    <text x="200" y="733" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="19" font-weight="bold" fill="#4A148C">omero-screen-plots</text>
+    <text x="200" y="753" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="12" fill="#4E342E">Publication Figures</text>
+    <text x="200" y="775" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="12" fill="#7B1FA2">Statistical analysis · Cell cycle plots</text>
+  </g>
+
+  <!-- Arrow: CellView -> Plots -->
+  <g id="arrows-cellview-plots">
+    <path d="M 420 740 L 348 740" fill="none" stroke="#2196F3" stroke-width="2" marker-end="url(#arrow-read)"/>
+    <text x="384" y="732" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="10" fill="#1565C0">DataFrames</text>
+  </g>
+
+  <!-- ============================== -->
+  <!-- NAPARI (Right side) -->
+  <!-- ============================== -->
+  <g id="napari">
+    <rect x="890" y="250" width="280" height="360" rx="10" fill="#FFF8E1" stroke="#F9A825" stroke-width="2"/>
+    <text x="1030" y="282" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="19" font-weight="bold" fill="#F57F17">omero-screen-napari</text>
+    <text x="1030" y="302" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="12" fill="#8D6E63">Interactive Exploration</text>
+
+    <!-- Sub-components -->
+    <rect x="915" y="320" width="230" height="36" rx="6" fill="#FFF9C4" stroke="#FBC02D" stroke-width="1"/>
+    <text x="1030" y="343" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="13" fill="#4E342E">Well Data Viewer</text>
+
+    <rect x="915" y="368" width="230" height="36" rx="6" fill="#FFF9C4" stroke="#FBC02D" stroke-width="1"/>
+    <text x="1030" y="391" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="13" fill="#4E342E">Cell Gallery</text>
+
+    <rect x="915" y="416" width="230" height="36" rx="6" fill="#FFF9C4" stroke="#FBC02D" stroke-width="1"/>
+    <text x="1030" y="439" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="13" fill="#4E342E">Training Data Generator</text>
+
+    <rect x="915" y="464" width="230" height="36" rx="6" fill="#FFF9C4" stroke="#FBC02D" stroke-width="1"/>
+    <text x="1030" y="487" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="13" fill="#4E342E">Classifier Manager</text>
+
+    <!-- Local cache/storage -->
+    <rect x="915" y="520" width="230" height="60" rx="6" fill="none" stroke="#F9A825" stroke-width="1" stroke-dasharray="5,3"/>
+    <text x="1030" y="543" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="12" fill="#8D6E63">Local Cache</text>
+    <text x="1030" y="560" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="11" fill="#A1887F">NPY files · SQLite · Sessions</text>
+  </g>
+
+  <!-- Arrows: Napari <-> OMERO -->
+  <g id="arrows-napari-omero">
+    <!-- Read: OMERO -> Napari (images, masks) -->
+    <path d="M 780 390 L 886 370" fill="none" stroke="#2196F3" stroke-width="2" marker-end="url(#arrow-read)"/>
+    <text x="836" y="368" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="10" fill="#1565C0" transform="rotate(-10, 836, 368)">images, masks</text>
+
+    <!-- Write: Napari -> OMERO (classifiers) -->
+    <path d="M 890 460 L 780 450" fill="none" stroke="#E65100" stroke-width="2" marker-end="url(#arrow-write)"/>
+    <text x="836" y="448" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="10" fill="#BF360C" transform="rotate(5, 836, 448)">classifiers</text>
+  </g>
+
+  <!-- ============================== -->
+  <!-- OUTPUT SYMBOLS (Bottom right) -->
+  <!-- ============================== -->
+  <g id="outputs">
+    <!-- Publication output -->
+    <rect x="60" y="830" width="160" height="40" rx="6" fill="#EDE7F6" stroke="#9575CD" stroke-width="1.5"/>
+    <text x="140" y="855" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="13" fill="#4527A0">Publication Figures</text>
+
+    <line x1="200" y1="800" x2="200" y2="826" stroke="#7B1FA2" stroke-width="1.5" marker-end="url(#arrow)"/>
+  </g>
+
+  <!-- ============================== -->
+  <!-- LEGEND -->
+  <!-- ============================== -->
+  <g id="legend" transform="translate(920, 680)">
+    <rect x="0" y="0" width="240" height="90" rx="6" fill="#FAFAFA" stroke="#E0E0E0" stroke-width="1"/>
+    <text x="120" y="22" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="12" font-weight="bold" fill="#424242">Legend</text>
+
+    <line x1="15" y1="40" x2="55" y2="40" stroke="#2196F3" stroke-width="2" marker-end="url(#arrow-read)"/>
+    <text x="65" y="44" font-family="Helvetica Neue, Arial" font-size="11" fill="#424242">Data read</text>
+
+    <line x1="15" y1="60" x2="55" y2="60" stroke="#E65100" stroke-width="2" marker-end="url(#arrow-write)"/>
+    <text x="65" y="64" font-family="Helvetica Neue, Arial" font-size="11" fill="#424242">Data write</text>
+
+    <line x1="15" y1="78" x2="55" y2="78" stroke="#78909C" stroke-width="1.5" stroke-dasharray="8,4"/>
+    <text x="65" y="82" font-family="Helvetica Neue, Arial" font-size="11" fill="#424242">Abstraction layer</text>
+  </g>
+
+  <!-- ============================== -->
+  <!-- TITLE -->
+  <!-- ============================== -->
+  <text x="600" y="50" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="14" fill="#616161">Figure 1</text>
+  <text x="600" y="75" text-anchor="middle" font-family="Helvetica Neue, Arial" font-size="11" fill="#9E9E9E">OMERO-Screen Architecture</text>
+
+</svg>

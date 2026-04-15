@@ -130,6 +130,9 @@ venv.bak/
 # mkdocs documentation
 /site
 
+# Docs source figures (SVGs are source assets, not build artefacts)
+# # docs/figures  # removed: SVGs are source assets that must be committed is intentionally tracked
+
 # mypy
 .mypy_cache/
 .dmypy.json
@@ -293,4 +296,4 @@ packages/omero-screen-plots/examples/data/sample_plate_data.csv
 omero_screen_napari_original/*
 omero_screen_napari_original
 
-docs/figures
+# docs/figures  # removed: SVGs are source assets that must be committed

@@ -1,0 +1,283 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 595.28 841.89">
+  <!-- Generator: Based on Figure1A_vs1.svg Illustrator style -->
+  <defs>
+    <style>
+      .st0 {
+        stroke: #1d1d1b;
+      }
+
+      .st0, .st1, .st5 {
+        fill: none;
+        stroke-miterlimit: 10;
+        stroke-width: .5px;
+      }
+
+      .st1 {
+        stroke: #e6332a;
+      }
+
+      .st2 {
+        font-size: 6px;
+      }
+
+      .st2, .st3 {
+        fill: #1d1d1b;
+        font-family: ArialMT, Arial;
+      }
+
+      .st3 {
+        font-size: 7px;
+      }
+
+      .st4 {
+        fill: #e6332a;
+      }
+
+      /* Blue for read arrows */
+      .st5 {
+        stroke: #2858a6;
+      }
+
+      .st6 {
+        fill: #2858a6;
+      }
+
+      /* Dashed stroke for abstraction layers */
+      .st7 {
+        fill: none;
+        stroke: #1d1d1b;
+        stroke-miterlimit: 10;
+        stroke-width: .5px;
+        stroke-dasharray: 3,2;
+      }
+    </style>
+  </defs>
+
+  <!-- ============================================ -->
+  <!-- OMERO SERVER (Top centre - the hub)          -->
+  <!-- ============================================ -->
+  <g id="omero-server">
+    <!-- Main OMERO box -->
+    <rect class="st0" x="195" y="60" width="205" height="100" rx="6" ry="6"/>
+    <text class="st3" transform="translate(255 75)"><tspan x="0" y="0">OMERO Server</tspan></text>
+
+    <!-- Content labels inside -->
+    <text class="st2" transform="translate(210 90)">
+      <tspan x="0" y="0">Plates, Wells, Images</tspan>
+      <tspan x="0" y="8">Channel Metadata</tspan>
+      <tspan x="0" y="16">Segmentation Masks</tspan>
+      <tspan x="0" y="24">Analysis Results (CSV)</tspan>
+      <tspan x="0" y="32">Flatfield Corrections</tspan>
+      <tspan x="0" y="40">Classifier Models</tspan>
+    </text>
+  </g>
+
+  <!-- ============================================ -->
+  <!-- omero-utils (Abstraction layer around OMERO) -->
+  <!-- ============================================ -->
+  <g id="omero-utils">
+    <rect class="st7" x="185" y="48" width="225" height="125" rx="8" ry="8"/>
+    <text class="st3" transform="translate(190 58)"><tspan x="0" y="0">omero-utils</tspan></text>
+    <text class="st2" transform="translate(250 58)"><tspan x="0" y="0">Connections · Attachments · Annotations</tspan></text>
+  </g>
+
+  <!-- ============================================ -->
+  <!-- omero-screen (Left - Analysis Pipeline)      -->
+  <!-- ============================================ -->
+  <g id="omero-screen">
+    <!-- Outer box -->
+    <rect class="st0" x="20" y="220" width="155" height="260" rx="6" ry="6"/>
+    <text class="st3" transform="translate(55 236)"><tspan x="0" y="0">omero-screen</tspan></text>
+    <text class="st2" transform="translate(42 246)"><tspan x="0" y="0">Analysis Pipeline</tspan></text>
+
+    <!-- Pipeline step boxes -->
+    <rect class="st0" x="30" y="258" width="135" height="16" rx="3" ry="3"/>
+    <text class="st2" transform="translate(42 269)"><tspan x="0" y="0">Metadata Parsing</tspan></text>
+
+    <!-- Arrow down -->
+    <line class="st0" x1="97.5" y1="274" x2="97.5" y2="280"/>
+    <polygon fill="#1d1d1b" points="95.5,279 97.5,282 99.5,279"/>
+
+    <rect class="st0" x="30" y="284" width="135" height="16" rx="3" ry="3"/>
+    <text class="st2" transform="translate(42 295)"><tspan x="0" y="0">Flatfield Correction</tspan></text>
+
+    <line class="st0" x1="97.5" y1="300" x2="97.5" y2="306"/>
+    <polygon fill="#1d1d1b" points="95.5,305 97.5,308 99.5,305"/>
+
+    <rect class="st0" x="30" y="310" width="135" height="16" rx="3" ry="3"/>
+    <text class="st2" transform="translate(42 321)"><tspan x="0" y="0">Cellpose Segmentation</tspan></text>
+
+    <line class="st0" x1="97.5" y1="326" x2="97.5" y2="332"/>
+    <polygon fill="#1d1d1b" points="95.5,331 97.5,334 99.5,331"/>
+
+    <rect class="st0" x="30" y="336" width="135" height="16" rx="3" ry="3"/>
+    <text class="st2" transform="translate(42 347)"><tspan x="0" y="0">Feature Extraction</tspan></text>
+
+    <line class="st0" x1="97.5" y1="352" x2="97.5" y2="358"/>
+    <polygon fill="#1d1d1b" points="95.5,357 97.5,360 99.5,357"/>
+
+    <rect class="st0" x="30" y="362" width="135" height="16" rx="3" ry="3"/>
+    <text class="st2" transform="translate(42 373)"><tspan x="0" y="0">Cell Cycle Analysis</tspan></text>
+
+    <line class="st0" x1="97.5" y1="378" x2="97.5" y2="384"/>
+    <polygon fill="#1d1d1b" points="95.5,383 97.5,386 99.5,383"/>
+
+    <rect class="st0" x="30" y="388" width="135" height="16" rx="3" ry="3"/>
+    <text class="st2" transform="translate(42 399)"><tspan x="0" y="0">Quality Control</tspan></text>
+
+    <!-- Optional classification (dashed) -->
+    <line class="st0" x1="97.5" y1="404" x2="97.5" y2="410"/>
+    <polygon fill="#1d1d1b" points="95.5,409 97.5,412 99.5,409"/>
+
+    <rect class="st7" x="30" y="414" width="135" height="16" rx="3" ry="3"/>
+    <text class="st2" transform="translate(36 425)"><tspan x="0" y="0">Image Classification (opt.)</tspan></text>
+
+    <!-- Loop annotation -->
+    <text class="st2" transform="translate(28 456)"><tspan x="0" y="0">Iterates: wells → images</tspan></text>
+    <text class="st2" transform="translate(28 464)"><tspan x="0" y="0">Resumable per-well</tspan></text>
+  </g>
+
+  <!-- Arrows: omero-screen <-> OMERO -->
+  <g id="arrows-pipeline-omero">
+    <!-- Read: OMERO -> Pipeline (blue, images + metadata) -->
+    <line class="st5" x1="210" y1="160" x2="130" y2="218"/>
+    <polygon class="st6" points="132,216 128,220 134,220"/>
+    <text class="st2" transform="translate(140 188)"><tspan x="0" y="0" fill="#2858a6">images</tspan></text>
+    <text class="st2" transform="translate(140 196)"><tspan x="0" y="0" fill="#2858a6">metadata</tspan></text>
+
+    <!-- Write: Pipeline -> OMERO (red, masks + CSVs) -->
+    <line class="st1" x1="155" y1="230" x2="200" y2="170"/>
+    <polygon class="st4" points="198,173 203,168 197,168"/>
+    <text class="st2" transform="translate(168 200)"><tspan x="0" y="0" fill="#e6332a">masks</tspan></text>
+    <text class="st2" transform="translate(168 208)"><tspan x="0" y="0" fill="#e6332a">CSVs, figures</tspan></text>
+  </g>
+
+  <!-- ============================================ -->
+  <!-- omero-screen-napari (Right side)             -->
+  <!-- ============================================ -->
+  <g id="napari">
+    <rect class="st0" x="420" y="220" width="155" height="260" rx="6" ry="6"/>
+    <text class="st3" transform="translate(428 236)"><tspan x="0" y="0">omero-screen-napari</tspan></text>
+    <text class="st2" transform="translate(440 246)"><tspan x="0" y="0">Interactive Exploration</tspan></text>
+
+    <!-- Sub-components -->
+    <rect class="st0" x="430" y="258" width="135" height="16" rx="3" ry="3"/>
+    <text class="st2" transform="translate(445 269)"><tspan x="0" y="0">Well Data Viewer</tspan></text>
+
+    <rect class="st0" x="430" y="282" width="135" height="16" rx="3" ry="3"/>
+    <text class="st2" transform="translate(455 293)"><tspan x="0" y="0">Cell Gallery</tspan></text>
+
+    <rect class="st0" x="430" y="306" width="135" height="16" rx="3" ry="3"/>
+    <text class="st2" transform="translate(432 317)"><tspan x="0" y="0">Training Data Generator</tspan></text>
+
+    <rect class="st0" x="430" y="330" width="135" height="16" rx="3" ry="3"/>
+    <text class="st2" transform="translate(438 341)"><tspan x="0" y="0">Classifier Manager</tspan></text>
+
+    <rect class="st0" x="430" y="354" width="135" height="16" rx="3" ry="3"/>
+    <text class="st2" transform="translate(440 365)"><tspan x="0" y="0">Session Manager</tspan></text>
+
+    <!-- Local cache (dashed box) -->
+    <rect class="st7" x="430" y="384" width="135" height="46" rx="3" ry="3"/>
+    <text class="st3" transform="translate(465 397)"><tspan x="0" y="0">Local Cache</tspan></text>
+    <text class="st2" transform="translate(438 409)"><tspan x="0" y="0">NPY image crops</tspan></text>
+    <text class="st2" transform="translate(438 417)"><tspan x="0" y="0">SQLite annotations DB</tspan></text>
+    <text class="st2" transform="translate(438 425)"><tspan x="0" y="0">Session metadata</tspan></text>
+
+    <!-- Plate cache note -->
+    <text class="st2" transform="translate(432 454)"><tspan x="0" y="0">Blosc-compressed plate cache</tspan></text>
+  </g>
+
+  <!-- Arrows: napari <-> OMERO -->
+  <g id="arrows-napari-omero">
+    <!-- Read: OMERO -> Napari (blue) -->
+    <line class="st5" x1="385" y1="160" x2="465" y2="218"/>
+    <polygon class="st6" points="463,216 467,220 461,220"/>
+    <text class="st2" transform="translate(408 188)"><tspan x="0" y="0" fill="#2858a6">images</tspan></text>
+    <text class="st2" transform="translate(408 196)"><tspan x="0" y="0" fill="#2858a6">masks, data</tspan></text>
+
+    <!-- Write: Napari -> OMERO (red, classifiers) -->
+    <line class="st1" x1="440" y1="230" x2="395" y2="170"/>
+    <polygon class="st4" points="397,173 392,168 398,168"/>
+    <text class="st2" transform="translate(410 208)"><tspan x="0" y="0" fill="#e6332a">classifiers</tspan></text>
+  </g>
+
+  <!-- ============================================ -->
+  <!-- cellview (Bottom centre)                     -->
+  <!-- ============================================ -->
+  <g id="cellview">
+    <rect class="st0" x="195" y="540" width="205" height="80" rx="6" ry="6"/>
+    <text class="st3" transform="translate(270 556)"><tspan x="0" y="0">cellview</tspan></text>
+    <text class="st2" transform="translate(235 568)"><tspan x="0" y="0">Local DuckDB Database</tspan></text>
+
+    <text class="st2" transform="translate(210 582)">
+      <tspan x="0" y="0">Import from OMERO or CSV</tspan>
+      <tspan x="0" y="8">Query &amp; export single-cell data</tspan>
+      <tspan x="0" y="16">Project → Experiment → Plate hierarchy</tspan>
+    </text>
+  </g>
+
+  <!-- Arrow: OMERO -> cellview (blue, one-way import) -->
+  <g id="arrows-omero-cellview">
+    <line class="st5" x1="297.5" y1="173" x2="297.5" y2="538"/>
+    <polygon class="st6" points="295.5,536 297.5,540 299.5,536"/>
+    <text class="st2" transform="translate(302 490)"><tspan x="0" y="0" fill="#2858a6">import</tspan></text>
+    <text class="st2" transform="translate(302 498)"><tspan x="0" y="0" fill="#2858a6">analysis CSVs</tspan></text>
+  </g>
+
+  <!-- ============================================ -->
+  <!-- omero-screen-plots (Bottom left)             -->
+  <!-- ============================================ -->
+  <g id="plots">
+    <rect class="st0" x="20" y="540" width="155" height="80" rx="6" ry="6"/>
+    <text class="st3" transform="translate(32 556)"><tspan x="0" y="0">omero-screen-plots</tspan></text>
+    <text class="st2" transform="translate(40 568)"><tspan x="0" y="0">Publication Figures</tspan></text>
+
+    <text class="st2" transform="translate(30 582)">
+      <tspan x="0" y="0">Cell cycle quantification</tspan>
+      <tspan x="0" y="8">Feature distribution plots</tspan>
+      <tspan x="0" y="16">Statistical analysis</tspan>
+      <tspan x="0" y="24">Normalisation</tspan>
+    </text>
+  </g>
+
+  <!-- Arrow: cellview -> plots (blue) -->
+  <g id="arrows-cellview-plots">
+    <line class="st5" x1="195" y1="575" x2="180" y2="575"/>
+    <polygon class="st6" points="181,573 177,575 181,577"/>
+    <text class="st2" transform="translate(180 568)"><tspan x="0" y="0" fill="#2858a6">DataFrames</tspan></text>
+  </g>
+
+  <!-- ============================================ -->
+  <!-- Output: Publication figures                  -->
+  <!-- ============================================ -->
+  <g id="output-figures">
+    <rect class="st7" x="30" y="640" width="135" height="20" rx="3" ry="3"/>
+    <text class="st2" transform="translate(46 654)"><tspan x="0" y="0">Publication Figures</tspan></text>
+    <line class="st0" x1="97.5" y1="620" x2="97.5" y2="638"/>
+    <polygon fill="#1d1d1b" points="95.5,636 97.5,640 99.5,636"/>
+  </g>
+
+  <!-- ============================================ -->
+  <!-- LEGEND (Bottom right)                        -->
+  <!-- ============================================ -->
+  <g id="legend" transform="translate(420, 540)">
+    <rect class="st0" x="0" y="0" width="150" height="70" rx="4" ry="4"/>
+    <text class="st3" transform="translate(55 14)"><tspan x="0" y="0">Legend</tspan></text>
+
+    <!-- Blue read arrow -->
+    <line class="st5" x1="10" y1="28" x2="40" y2="28"/>
+    <polygon class="st6" points="38,26 42,28 38,30"/>
+    <text class="st2" transform="translate(48 30)"><tspan x="0" y="0">Data read</tspan></text>
+
+    <!-- Red write arrow -->
+    <line class="st1" x1="10" y1="42" x2="40" y2="42"/>
+    <polygon class="st4" points="38,40 42,42 38,44"/>
+    <text class="st2" transform="translate(48 44)"><tspan x="0" y="0">Data write</tspan></text>
+
+    <!-- Dashed = abstraction/optional -->
+    <line class="st7" x1="10" y1="56" x2="40" y2="56"/>
+    <text class="st2" transform="translate(48 58)"><tspan x="0" y="0">Abstraction / optional</tspan></text>
+  </g>
+
+</svg>
