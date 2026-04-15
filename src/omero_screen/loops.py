@@ -32,6 +32,11 @@ Returns:
 """
 
 import os
+
+os.environ.setdefault(
+    "TQDM_DISABLE", "1"
+)  # suppress Cellpose tile-level progress bars
+
 from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
