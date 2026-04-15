@@ -81,7 +81,9 @@ def notebook_path_for_plates(
         name = f"explore_plates_{ids_str}"
         default_folder = EXPLORE_DIR / "plates" / ids_str
 
-    folder = _folder_path_from_name(folder_name) if folder_name else default_folder
+    folder = (
+        _folder_path_from_name(folder_name) if folder_name else default_folder
+    )
     return folder / f"{name}.ipynb"
 
 
@@ -100,7 +102,10 @@ def notebook_path_for_experiment(
         Path to the notebook file (may not exist yet).
     """
     if folder_name:
-        return _folder_path_from_name(folder_name) / f"explore_exp_{experiment_id}.ipynb"
+        return (
+            _folder_path_from_name(folder_name)
+            / f"explore_exp_{experiment_id}.ipynb"
+        )
     return legacy_notebook_path_for_experiment(experiment_id)
 
 
@@ -130,7 +135,11 @@ def sanitize_folder_name(name: str) -> str:
 
 def _folder_path_from_name(folder_name: str) -> Path:
     """Build an explore subdirectory path from a slash-delimited folder name."""
-    parts = [sanitize_folder_name(part) for part in folder_name.split("/") if part.strip()]
+    parts = [
+        sanitize_folder_name(part)
+        for part in folder_name.split("/")
+        if part.strip()
+    ]
     if not parts:
         return EXPLORE_DIR / "explore"
 
@@ -142,4 +151,8 @@ def _folder_path_from_name(folder_name: str) -> Path:
 
 def _iter_explore_notebooks() -> list[Path]:
     """Return every explore notebook in both flat and nested layouts."""
-    return list(EXPLORE_DIR.rglob("explore_*.ipynb")) if EXPLORE_DIR.exists() else []
+    return (
+        list(EXPLORE_DIR.rglob("explore_*.ipynb"))
+        if EXPLORE_DIR.exists()
+        else []
+    )
