@@ -1,3 +1,9 @@
+## omero-screen-v0.3.4 (2026-04-15)
+
+### Refactor
+
+- **cellview**: new data structure for notebooks
+
 ## omero-screen-v0.3.3 (2026-02-25)
 
 ### Fix
