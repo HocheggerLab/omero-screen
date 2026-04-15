@@ -172,7 +172,7 @@ def launch_explore(
     )
 
     if editor == "vscode":
-        subprocess.Popen(["code", str(EXPLORE_DIR)])
+        subprocess.Popen(["code", str(target.notebook_path.parent)])
         ui.info(
             "Opened explore directory in VS Code — select the venv kernel "
             "if prompted"

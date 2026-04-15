@@ -86,3 +86,9 @@ Track recurring bugs, their solutions, and prevention strategies. This helps avo
 ### 2026-02-06 - Direct OMERO Loader: Various Initial Bugs
 - **Issues**: PlateI has no getWell (use iteration), Image ID vs Index confusion, CellView returns Pandas not Polars, incorrect channel mapping (BGR→RGB), keybinding conflicts, grayscale/color management, incorrect cell count, gallery crops not persisted, well position lost, TrainingDataSaver not initialized, yellow screen (channel name resolution), annotation count mismatch (cell_index collisions)
 - **Prevention**: See MEMORY.md for patterns on channel resolution, keybindings, RandomImageParser usage, and DB annotation cell_index
+
+### 2026-04-15 - Matplotlib Display Windows Accumulating During Pipeline Runs
+- **Issue**: Running `omero-screen` on a headless server (or long plate runs) would accumulate display window handles, eventually causing Qt/display errors or slowdown.
+- **Root Cause**: `flatfield_corr.py` was setting `matplotlib.use("MacOSX")` on Darwin, which forces an interactive backend. All figure creation in `cellcycle_analysis.py`, `quality_control.py`, and `flatfield_corr.py` would attempt to open display connections.
+- **Solution**: Changed `flatfield_corr.py` to unconditionally call `matplotlib.use("Agg")` early at module level before any pyplot import. This is the first module loaded in the pipeline chain, so it sets the non-interactive backend globally.
+- **Prevention**: Always set `matplotlib.use("Agg")` in pipeline/server code. Never use platform-conditional interactive backends in batch processing code.

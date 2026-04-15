@@ -73,6 +73,7 @@ class TestLaunchExplore:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        monkeypatch.delenv("CELLVIEW_EDITOR", raising=False)
         notebook_path = tmp_path / "plates" / "12345" / "explore_plate_12345.ipynb"
         notebook_path.parent.mkdir(parents=True)
         notebook_path.write_text("existing")

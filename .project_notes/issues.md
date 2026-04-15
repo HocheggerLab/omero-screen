@@ -48,3 +48,8 @@ Track completed work, ongoing issues, and ticket references. Helps maintain cont
 - **Status**: Completed
 - **Description**: Implemented streamlined training workflow that allows loading cell crops directly from OMERO without pre-loading entire wells via welldata_widget. Includes session management dashboard, direct data loader, and initial session saving when creating a new classifier.
 - **Notes**: Direct loader uses well **image input** format ("All", "0", "0, 1, 2", "3-5") not OMERO image ID.
+
+### 2026-04-15 - Terminal Progress UX + Documentation Improvements
+- **Status**: Completed
+- **Description**: Replaced flooding tqdm bars with a single Rich live progress panel (`ScreenProgress` in `progress.py`). Updated docs landing page with architecture SVG and pipeline chapter with loop SVG. Added `--cp4`, `--model`, `--benchmark` flags to sbatch script. Fixed matplotlib Agg backend to prevent display window overflow. Fixed `CELLVIEW_EDITOR` test isolation and explore VS Code path bug. Fixed mypy type errors in `progress.py` and `benchmarks/accuracy/load_image.py`.
+- **Notes**: `docs/figures` removed from `.gitignore` — SVGs are now tracked. Figures need `width="100%" height="auto"` patched into SVG tag for responsive display in Sphinx RTD theme.

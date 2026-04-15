@@ -9,7 +9,6 @@ flatfield correction masks.
 """
 
 import os
-import platform
 import random
 import tempfile
 from typing import Any
@@ -43,10 +42,9 @@ from .metadata_parser import MetadataParser
 
 logger = get_logger(__name__)
 
-if platform.system() == "Darwin":
-    matplotlib.use(
-        "MacOSX"
-    )  # avoid matplotlib warning about interactive backend
+matplotlib.use(
+    "Agg"
+)  # non-interactive backend — prevents display windows accumulating during pipeline runs
 
 
 def flatfieldcorr(
