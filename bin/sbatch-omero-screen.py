@@ -49,6 +49,10 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
         prog_options += f" --env {args.env}"
     if args.segmentation:
         prog_options += " --segmentation"
+    if args.model:
+        prog_options += f" --model {args.model}"
+    elif args.cp4:
+        prog_options += " --cp4"
 
     # Create the job file
     script = f"{name}.sh"
@@ -242,6 +246,19 @@ def _parse_args() -> argparse.Namespace:
         default=False,
         action=argparse.BooleanOptionalAction,
         help="Only perform image segmentation (default: %(default)s)",
+    )
+    group.add_argument(
+        "--cp4",
+        default=False,
+        action="store_true",
+        help="Use Cellpose 4 (cpsam) for segmentation instead of the default Cellpose 3 models.",
+    )
+    group.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        metavar="MODEL",
+        help="Override all segmentation models with a single model name (e.g. 'cp4:cpsam'). Overrides --cp4.",
     )
 
     return parser.parse_args()

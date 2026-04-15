@@ -87,6 +87,7 @@ dev = [
     "ruff==0.9.6",
     "nbstripout",
     "jupytext",
+    "sphinx-autobuild>=2025.8.25",
 ]
 
 docs = [ # installed only when we build docs

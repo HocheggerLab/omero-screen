@@ -27,7 +27,7 @@ from omero.gateway import (
     PlateWrapper,
 )
 from omero_utils.map_anns import add_map_annotations
-from tqdm import tqdm
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 from typing_extensions import Generator
 
 from omero_screen.aggregator import ImageAggregator
@@ -271,38 +271,45 @@ def aggregate_imgs(
         Flatfield correction mask for the given channel.
     """
     agg = ImageAggregator(60)
-    for img_id in tqdm(img_list):
-        # Get the image dimensions
-        image = conn.getObject("Image", img_id)
-        xyzct = [
-            image.getSizeX(),
-            image.getSizeY(),
-            image.getSizeZ(),
-            image.getSizeC(),
-            image.getSizeT(),
-        ]
-        # Validate channel index against actual image channels
-        if channel >= xyzct[3]:
-            raise IndexError(
-                f"Channel index {channel} is out of range for image {img_id} "
-                f"which has {xyzct[3]} channels (valid indices: 0-{xyzct[3] - 1}). "
-                f"Check your channel metadata — the channel indices in the Excel file "
-                f"must match the actual channels in your images."
-            )
-        # Get random timepoints
-        num_images_to_select = min(10, xyzct[-1])
-        selected_t = random.sample(range(xyzct[-1]), num_images_to_select)
-        axis_lengths = (xyzct[0], xyzct[1], xyzct[2], 1, 1)
-        for t in selected_t:
-            # Returns: ImageWrapper, ndarray (TZYXC order); crop uses xyzct
-            start = (0, 0, 0, channel, t)
-            _, image_array = get_image(
-                conn, img_id, start_coords=start, axis_lengths=axis_lengths
-            )
-            if xyzct[2] > 1:
-                image_array = np.max(image_array, axis=1, keepdims=True)
-            # images should be 2D so remove TZC
-            agg.add_image(image_array.squeeze(axis=(0, 1, 4)))
+    with Progress(
+        TextColumn("[cyan]Flatfield correction[/]  ch {task.description}"),
+        BarColumn(bar_width=30),
+        MofNCompleteColumn(),
+    ) as progress:
+        task = progress.add_task(str(channel), total=len(img_list))
+        for img_id in img_list:
+            # Get the image dimensions
+            image = conn.getObject("Image", img_id)
+            xyzct = [
+                image.getSizeX(),
+                image.getSizeY(),
+                image.getSizeZ(),
+                image.getSizeC(),
+                image.getSizeT(),
+            ]
+            # Validate channel index against actual image channels
+            if channel >= xyzct[3]:
+                raise IndexError(
+                    f"Channel index {channel} is out of range for image {img_id} "
+                    f"which has {xyzct[3]} channels (valid indices: 0-{xyzct[3] - 1}). "
+                    f"Check your channel metadata — the channel indices in the Excel file "
+                    f"must match the actual channels in your images."
+                )
+            # Get random timepoints
+            num_images_to_select = min(10, xyzct[-1])
+            selected_t = random.sample(range(xyzct[-1]), num_images_to_select)
+            axis_lengths = (xyzct[0], xyzct[1], xyzct[2], 1, 1)
+            for t in selected_t:
+                # Returns: ImageWrapper, ndarray (TZYXC order); crop uses xyzct
+                start = (0, 0, 0, channel, t)
+                _, image_array = get_image(
+                    conn, img_id, start_coords=start, axis_lengths=axis_lengths
+                )
+                if xyzct[2] > 1:
+                    image_array = np.max(image_array, axis=1, keepdims=True)
+                # images should be 2D so remove TZC
+                agg.add_image(image_array.squeeze(axis=(0, 1, 4)))
+            progress.update(task, advance=1)
     blurred_agg_img = agg.get_gaussian_image(30)
     assert blurred_agg_img is not None, "Failed to aggregated image"
     norm_img: npt.NDArray[Any] = blurred_agg_img / blurred_agg_img.mean()

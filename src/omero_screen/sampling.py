@@ -22,7 +22,6 @@ import omero
 from omero.gateway import BlitzGateway, ImageWrapper, MapAnnotationWrapper
 from omero.rtypes import unwrap
 from tifffile import imwrite
-from tqdm import tqdm
 
 from omero_screen.config import get_logger
 
@@ -90,7 +89,7 @@ def segmentation_samples(
         # For each sample (well_id, image_id, t):
         well_id = -1
         image_id = -1
-        for w, i, t in tqdm(samples, desc="Saving"):
+        for w, i, t in samples:
             # If a new ID get the objects
             if well_id != w:
                 well_id = w

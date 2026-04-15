@@ -32,11 +32,12 @@ Returns:
 """
 
 import os
+from collections.abc import Generator
+from contextlib import contextmanager
 from typing import Any
 
 import numpy.typing as npt
 import pandas as pd
-import tqdm
 from matplotlib.figure import Figure
 from omero.gateway import BlitzGateway, WellWrapper
 from omero_utils.attachments import (
@@ -60,8 +61,15 @@ from .benchmarking import get_benchmark
 from .flatfield_corr import flatfieldcorr
 from .metadata_parser import MetadataParser
 from .plate_dataset import PlateDataset
+from .progress import ScreenProgress
 
 logger = get_logger(__name__)
+
+
+@contextmanager
+def _nullctx() -> Generator[None, None, None]:
+    """No-op context manager used when no ScreenProgress is available."""
+    yield
 
 
 def plate_loop(
@@ -218,53 +226,65 @@ def process_wells(
     border = int(os.getenv("OMERO_SCREEN_CLEAR_BORDER", "5"))
     wells = list(conn.getObject("Plate", metadata.plate_id).listChildren())
     get_benchmark().set_well_count(len(wells))
-    for count, well in enumerate(wells):
-        ann = parse_annotations(well)
-        # Normalise case-insensitive lookup for cell_line
-        ann_lower = {k.lower(): v for k, v in ann.items()}
+
+    # Pre-filter to non-empty wells so the progress bar total is accurate
+    non_empty_wells = []
+    for well in wells:
+        ann_lower = {k.lower(): v for k, v in parse_annotations(well).items()}
         cell_line = ann_lower.get("cell_line")
         if cell_line is None:
             raise WellAnnotationError(
                 f"Well {well.getWellPos()} is missing a 'cell_line' annotation. "
-                f"Available annotations: {list(ann.keys())}. "
+                f"Available annotations: {list(ann_lower.keys())}. "
                 f"Check your metadata — each well needs a 'cell_line' entry.",
                 logger,
             )
-        if cell_line == "Empty":
-            continue
-        well_data, well_quality = (
-            [None, None]
-            if segmentation_mode
-            else _download_well_results(conn, well)
-        )
-        if well_data is not None:
-            logger.info(
-                "Loaded well results %s (%d/%d).",
-                well.getWellPos(),
-                count + 1,
-                len(wells),
+        if cell_line != "Empty":
+            non_empty_wells.append(well)
+
+    with ScreenProgress(metadata.plate_id, len(non_empty_wells)) as prog:
+        for count, well in enumerate(non_empty_wells):
+            n_images = len(list(well.listChildren()))
+            well_pos = well.getWellPos()
+            well_data, well_quality = (
+                [None, None]
+                if segmentation_mode
+                else _download_well_results(conn, well)
             )
-        else:
-            logger.info(
-                "Analysing well %s (%d/%d).",
-                well.getWellPos(),
-                count + 1,
-                len(wells),
-            )
-            well_data, well_quality = _well_loop(
-                conn,
-                well,
-                metadata,
-                dataset_id,
-                flatfield_dict,
-                image_classifier=image_classifier,
-                segmentation_mode=segmentation_mode,
-                border=border,
-            )
-            if not segmentation_mode:
-                _save_well_results(conn, well, well_data, well_quality)
-        df_final = pd.concat([df_final, well_data])
-        df_quality_control = pd.concat([df_quality_control, well_quality])
+            if well_data is not None:
+                logger.info(
+                    "Loaded well results %s (%d/%d).",
+                    well_pos,
+                    count + 1,
+                    len(non_empty_wells),
+                )
+                # Still tick through the well context so the bar advances
+                with prog.well(well_pos, n_images):
+                    prog.set_stage("loaded from cache")
+                    for _ in range(n_images):
+                        prog.image_done()
+            else:
+                logger.info(
+                    "Analysing well %s (%d/%d).",
+                    well_pos,
+                    count + 1,
+                    len(non_empty_wells),
+                )
+                well_data, well_quality = _well_loop(
+                    conn,
+                    well,
+                    metadata,
+                    dataset_id,
+                    flatfield_dict,
+                    image_classifier=image_classifier,
+                    segmentation_mode=segmentation_mode,
+                    border=border,
+                    prog=prog,
+                )
+                if not segmentation_mode:
+                    _save_well_results(conn, well, well_data, well_quality)
+            df_final = pd.concat([df_final, well_data])
+            df_quality_control = pd.concat([df_quality_control, well_quality])
 
     # Create and save galleries after the loop
     dict_gallery = None
@@ -357,6 +377,7 @@ def _well_loop(
     image_classifier: None | list[ImageClassifier],
     segmentation_mode: bool = False,
     border: int = 5,
+    prog: ScreenProgress | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Process all images in a well.
 
@@ -369,6 +390,7 @@ def _well_loop(
         image_classifier: Image classifier
         segmentation_mode: Only perform image segmentation
         border: Width of the border examined when filtering segmented objects (negative to disable)
+        prog: Live progress display (optional)
 
     Returns:
         Tuple[pd.DataFrame, pd.DataFrame]: DataFrames containing the final data and quality control data
@@ -390,30 +412,44 @@ def _well_loop(
             seg.add(image.getName())
 
     bench = get_benchmark()
-    for number in tqdm.tqdm(range(image_number)):
-        omero_img = well.getImage(number)
-        if f"{omero_img.getId()}_segmentation" in seg:
-            continue
-        with bench.image(omero_img.getId(), well=well.getWellPos()):
-            image = Image(
-                conn,
-                well,
-                omero_img,
-                metadata,
-                dataset_id,
-                flatfield_dict,
-                border=border,
-            )
-            if segmentation_mode:
+    with prog.well(well.getWellPos(), image_number) if prog else _nullctx():
+        for number in range(image_number):
+            omero_img = well.getImage(number)
+            if f"{omero_img.getId()}_segmentation" in seg:
+                if prog:
+                    prog.image_done()
                 continue
-            with bench.stage("feature_extraction"):
-                image_props = ImageProperties(
-                    well, image, metadata, image_classifier=image_classifier
+            with bench.image(omero_img.getId(), well=well.getWellPos()):
+                if prog:
+                    prog.set_stage("segmentation")
+                image = Image(
+                    conn,
+                    well,
+                    omero_img,
+                    metadata,
+                    dataset_id,
+                    flatfield_dict,
+                    border=border,
                 )
-            df_well = pd.concat([df_well, image_props.image_df])
-            df_well_quality = pd.concat(
-                [df_well_quality, image_props.quality_df]
-            )
+                if segmentation_mode:
+                    if prog:
+                        prog.image_done()
+                    continue
+                if prog:
+                    prog.set_stage("feature extraction")
+                with bench.stage("feature_extraction"):
+                    image_props = ImageProperties(
+                        well,
+                        image,
+                        metadata,
+                        image_classifier=image_classifier,
+                    )
+                df_well = pd.concat([df_well, image_props.image_df])
+                df_well_quality = pd.concat(
+                    [df_well_quality, image_props.quality_df]
+                )
+                if prog:
+                    prog.image_done()
 
     return df_well, df_well_quality
 
