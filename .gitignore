@@ -297,3 +297,12 @@ omero_screen_napari_original/*
 omero_screen_napari_original
 
 # docs/figures  # removed: SVGs are source assets that must be committed
+
+# Benchmark JSON output directories (machine-specific run data)
+benchmarks/artemis*/
+benchmarks/gdsc*/
+benchmarks/ls90*/
+
+# SLURM job scripts and output files
+**/os*.sh
+**/os*.out
