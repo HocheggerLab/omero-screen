@@ -86,6 +86,8 @@ class CellViewDB:
             if is_new_db or not self._is_initialized():
                 self.create_tables()
                 self.ui.success("Database schema initialized successfully")
+            else:
+                self.ensure_templates_table()
 
             return self.conn
         except duckdb.Error as err:
@@ -98,6 +100,43 @@ class CellViewDB:
                     "error": str(err),
                 },
             ) from err
+
+    def ensure_templates_table(self) -> None:
+        """Add the templates table to an existing database if absent.
+
+        Safe to call on any database version — does nothing if the table
+        already exists.
+        """
+        conn = self.conn
+        if conn is None:
+            return
+        try:
+            conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='templates'"
+            )
+            if conn.fetchone():
+                return  # already present
+
+            conn.execute(
+                "CREATE SEQUENCE IF NOT EXISTS template_id_seq START 1"
+            )
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS templates (
+                    template_id   INTEGER PRIMARY KEY DEFAULT nextval('template_id_seq'),
+                    name          TEXT NOT NULL UNIQUE,
+                    description   TEXT,
+                    format        TEXT NOT NULL DEFAULT 'jupyter',
+                    path          TEXT NOT NULL,
+                    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    parent_template_id INTEGER REFERENCES templates(template_id)
+                )
+            """)
+            self.logger.info(
+                "Migrated: added templates table to existing database"
+            )
+        except duckdb.Error as err:
+            self.logger.warning(f"Could not ensure templates table: {err}")
 
     def create_tables(self) -> None:
         """Create the database schema.
@@ -118,12 +157,14 @@ class CellViewDB:
             conn.execute("DROP TABLE IF EXISTS repeats")
             conn.execute("DROP TABLE IF EXISTS experiments")
             conn.execute("DROP TABLE IF EXISTS projects")
+            conn.execute("DROP TABLE IF EXISTS templates")
             conn.execute("DROP SEQUENCE IF EXISTS project_id_seq")
             conn.execute("DROP SEQUENCE IF EXISTS experiment_id_seq")
             conn.execute("DROP SEQUENCE IF EXISTS repeat_id_seq")
             conn.execute("DROP SEQUENCE IF EXISTS condition_id_seq")
             conn.execute("DROP SEQUENCE IF EXISTS variable_id_seq")
             conn.execute("DROP SEQUENCE IF EXISTS measurement_id_seq")
+            conn.execute("DROP SEQUENCE IF EXISTS template_id_seq")
 
             # Create sequences
             conn.execute("CREATE SEQUENCE project_id_seq START 1")
@@ -132,6 +173,7 @@ class CellViewDB:
             conn.execute("CREATE SEQUENCE condition_id_seq START 1")
             conn.execute("CREATE SEQUENCE variable_id_seq START 1")
             conn.execute("CREATE SEQUENCE measurement_id_seq START 1")
+            conn.execute("CREATE SEQUENCE template_id_seq START 1")
 
             # Create tables with auto-incrementing primary keys
             conn.execute("""
@@ -179,6 +221,17 @@ class CellViewDB:
                 condition_id INTEGER REFERENCES conditions(condition_id),
                 variable_name TEXT NOT NULL,
                 variable_value TEXT NOT NULL
+            );
+
+            CREATE TABLE templates (
+                template_id   INTEGER PRIMARY KEY DEFAULT nextval('template_id_seq'),
+                name          TEXT NOT NULL UNIQUE,
+                description   TEXT,
+                format        TEXT NOT NULL DEFAULT 'jupyter',
+                path          TEXT NOT NULL,
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+                parent_template_id INTEGER REFERENCES templates(template_id)
             );
 
             CREATE TABLE measurements (

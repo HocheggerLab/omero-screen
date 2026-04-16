@@ -178,6 +178,65 @@ def get_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="List available templates and exit.",
     )
+    p_explore.add_argument(
+        "--json",
+        action="store_true",
+        help=(
+            "Print a JSON context snapshot (schema, conditions, stats, notebooks) "
+            "to stdout and exit. Used by the agentic skill."
+        ),
+    )
+
+    # --- Template management ---
+    p_template = subparsers.add_parser(
+        "template",
+        help="Manage analysis notebook templates.",
+    )
+    template_sub = p_template.add_subparsers(dest="template_command")
+
+    template_sub.add_parser(
+        "list",
+        help="List all registered templates.",
+    )
+
+    p_template_add = template_sub.add_parser(
+        "add",
+        help="Register a template file in the DB.",
+    )
+    p_template_add.add_argument(
+        "path", type=Path, help="Path to the template file."
+    )
+    p_template_add.add_argument(
+        "--name",
+        type=str,
+        default=None,
+        help="Override the template name (default: filename stem).",
+    )
+    p_template_add.add_argument(
+        "--description",
+        type=str,
+        default=None,
+        help="Short description shown in listings.",
+    )
+
+    p_template_remove = template_sub.add_parser(
+        "remove",
+        help="Remove a template record from the DB (does not delete the file).",
+    )
+    p_template_remove.add_argument(
+        "name", type=str, help="Template name to remove."
+    )
+
+    p_template_show = template_sub.add_parser(
+        "show",
+        help="Show details for a single template.",
+    )
+    p_template_show.add_argument("name", type=str, help="Template name.")
+
+    template_sub.add_parser(
+        "sync",
+        help="Scan filesystem and register all discovered templates into the DB.",
+    )
 
     return parser
 

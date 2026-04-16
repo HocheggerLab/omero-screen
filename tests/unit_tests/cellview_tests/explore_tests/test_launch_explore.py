@@ -55,7 +55,7 @@ class TestLaunchExplore:
         monkeypatch.setattr(
             _cli,
             "get_template",
-            lambda name: SimpleNamespace(path=template_file, name=name),
+            lambda name: SimpleNamespace(path=template_file, name=name, fmt="jupyter"),
         )
         monkeypatch.setattr(
             _cli.subprocess,

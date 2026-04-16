@@ -3,7 +3,12 @@
 Dispatches CLI subcommands to their handler functions.
 """
 
+from __future__ import annotations
+
 import argparse
+from pathlib import Path
+
+import duckdb
 
 from cellview.db.clean_up import clean_up_db, del_measurements_by_plate_id
 from cellview.db.db import CellViewDB
@@ -119,7 +124,11 @@ def _handle_explore(args: argparse.Namespace) -> None:
     Args:
         args: Parsed CLI arguments.
     """
-    from cellview.explore._cli import launch_explore, show_available_templates
+    from cellview.explore._cli import (
+        explore_json_command,
+        launch_explore,
+        show_available_templates,
+    )
 
     if args.list_templates:
         show_available_templates()
@@ -134,6 +143,10 @@ def _handle_explore(args: argparse.Namespace) -> None:
 
     plate_ids = _parse_plate_ids(args.plate_ids) if args.plate_ids else None
 
+    if getattr(args, "json", False):
+        explore_json_command(plate_ids=plate_ids, experiment=experiment)
+        return
+
     launch_explore(
         plate_ids=plate_ids,
         experiment=experiment,
@@ -142,6 +155,95 @@ def _handle_explore(args: argparse.Namespace) -> None:
         no_napari=args.no_napari,
         code=args.code,
     )
+
+
+def _handle_template(
+    args: argparse.Namespace, conn: duckdb.DuckDBPyConnection
+) -> None:
+    """Handle the template subcommand.
+
+    Args:
+        args: Parsed CLI arguments.
+        conn: Active DuckDB connection.
+    """
+    import sys
+
+    from cellview.db.templates import (
+        delete_template,
+        get_template_record,
+        upsert_template,
+    )
+    from cellview.explore._template_registry import (
+        _extract_description,
+        _fmt_from_path,
+        list_templates_from_db,
+        sync_filesystem_to_db,
+    )
+    from cellview.utils.ui import ui
+
+    sub = getattr(args, "template_command", None)
+
+    if sub == "list" or sub is None:
+        # Auto-sync built-in templates so a fresh DB always has something to show
+        sync_filesystem_to_db(conn)
+        templates = list_templates_from_db(conn)
+        if not templates:
+            ui.warning("No templates registered. Run: cellview template sync")
+            return
+        ui.header("Registered templates")
+        for t in templates:
+            marker = (
+                " [dim](file missing)[/dim]" if t.source == "db-only" else ""
+            )
+            desc = f" — {t.description}" if t.description else ""
+            ui.info(f"  {t.name:20s} [{t.fmt:7s}] [{t.source}]{desc}{marker}")
+        return
+
+    if sub == "sync":
+        n = sync_filesystem_to_db(conn)
+        ui.success(f"Synced {n} template(s) to the database.")
+        return
+
+    if sub == "add":
+        path = args.path.expanduser().resolve()
+        if not path.exists():
+            ui.error(f"File not found: {path}")
+            sys.exit(1)
+        name = args.name or path.stem
+        fmt = _fmt_from_path(path)
+        description = args.description or _extract_description(path) or None
+        upsert_template(
+            conn, name=name, path=path, fmt=fmt, description=description
+        )
+        ui.success(f"Registered template '{name}' ({fmt}) from {path}")
+        return
+
+    if sub == "remove":
+        removed = delete_template(conn, args.name)
+        if removed:
+            ui.success(f"Removed template '{args.name}' from the database.")
+        else:
+            ui.warning(f"Template '{args.name}' not found in the database.")
+        return
+
+    if sub == "show":
+        sync_filesystem_to_db(conn)
+        rec = get_template_record(conn, args.name)
+        if rec is None:
+            ui.error(f"Template '{args.name}' not found.")
+            sys.exit(1)
+        p = Path(rec.path)
+        exists_tag = "exists" if p.exists() else "MISSING"
+        ui.header(f"Template: {rec.name}")
+        ui.info(f"  Format      : {rec.format}")
+        ui.info(f"  Path        : {rec.path} [{exists_tag}]")
+        ui.info(f"  Description : {rec.description or '(none)'}")
+        ui.info(f"  DB id       : {rec.template_id}")
+        if rec.parent_template_id:
+            ui.info(f"  Derived from: template_id {rec.parent_template_id}")
+        return
+
+    get_parser().parse_args(["template", "--help"])
 
 
 def main() -> None:
@@ -206,6 +308,9 @@ def main() -> None:
 
             case "clean":
                 clean_up_db(db, conn)
+
+            case "template":
+                _handle_template(args, conn)
 
     except CellViewError as e:
         e.display()

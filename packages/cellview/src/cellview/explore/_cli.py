@@ -4,6 +4,7 @@ Copies a template notebook, injects plate IDs, then opens it in
 JupyterLab or VS Code. Optionally launches napari alongside.
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -33,6 +34,7 @@ class ExploreTarget:
     legacy_path: Path
     plate_ids: list[int]
     label: str | int
+    fmt: str = "jupyter"  # "jupyter" or "marimo"
 
 
 def _resolve_experiment_plates(experiment: str | int) -> tuple[list[int], int]:
@@ -113,20 +115,39 @@ def launch_explore(
 ) -> None:
     """Copy a template notebook, inject plate IDs, and open it.
 
+    Automatically detects the template format:
+    - ``.ipynb`` templates open in JupyterLab (or VS Code).
+    - ``.py`` templates open with ``marimo edit`` (or VS Code).
+
+    The ``CELLVIEW_EDITOR`` environment variable can override the default
+    editor (``"jupyter"`` or ``"marimo"``).  Setting ``code=True`` opens the
+    parent folder in VS Code regardless of format.
+
     Args:
         plate_ids: List of plate IDs to explore.
         experiment: Experiment name or ID. Mutually exclusive with plate_ids.
-        template: Template name (without .ipynb). Defaults to "cellcycle".
+        template: Template name (without extension). Defaults to "cellcycle".
         fresh: If True, regenerate the notebook even if it already exists.
         no_napari: If True, skip launching napari.
         list_templates_flag: If True, list available templates and exit.
-        code: If True, force VS Code and open the parent folder.
+        code: If True, open the parent folder in VS Code.
     """
     if list_templates_flag:
         show_available_templates()
         return
 
-    target = _resolve_target(plate_ids=plate_ids, experiment=experiment)
+    # Resolve the template first so we know its format before building the path
+    tmpl = get_template(template)
+    if tmpl is None:
+        ui.error(
+            f"Template '{template}' not found. "
+            "Use --list-templates to see available templates."
+        )
+        sys.exit(1)
+
+    target = _resolve_target(
+        plate_ids=plate_ids, experiment=experiment, fmt=tmpl.fmt
+    )
 
     EXPLORE_DIR.mkdir(parents=True, exist_ok=True)
     _migrate_legacy_notebook(target.legacy_path, target.notebook_path)
@@ -134,14 +155,6 @@ def launch_explore(
     if target.notebook_path.exists() and not fresh:
         ui.info(f"Opening existing notebook: {target.notebook_path}")
     else:
-        tmpl = get_template(template)
-        if tmpl is None:
-            ui.error(
-                f"Template '{template}' not found. "
-                "Use --list-templates to see available templates."
-            )
-            sys.exit(1)
-
         create_notebook_from_template(
             tmpl.path,
             target.notebook_path,
@@ -165,28 +178,23 @@ def launch_explore(
         )
         ui.info("Napari viewer launched")
 
-    editor = (
-        "vscode"
-        if code
-        else os.environ.get("CELLVIEW_EDITOR", "jupyter").lower()
-    )
-
-    if editor == "vscode":
-        subprocess.Popen(["code", str(target.notebook_path.parent)])
-        ui.info(
-            "Opened explore directory in VS Code — select the venv kernel "
-            "if prompted"
-        )
-    else:
-        subprocess.Popen(["jupyter", "lab", str(target.notebook_path)])
-        ui.info("JupyterLab starting...")
+    _open_editor(target, code=code)
 
 
 def _resolve_target(
     plate_ids: list[int] | None,
     experiment: str | int | None,
+    fmt: str = "jupyter",
 ) -> ExploreTarget:
-    """Resolve notebook, migration, and folder metadata for explore."""
+    """Resolve notebook, migration, and folder metadata for explore.
+
+    Args:
+        plate_ids: One or more plate IDs.
+        experiment: Experiment name or ID.
+        fmt: Template format — ``"jupyter"`` (default) or ``"marimo"``.
+    """
+    ext = ".py" if fmt == "marimo" else ".ipynb"
+
     if experiment is not None:
         resolved_plates, exp_id = _resolve_experiment_plates(experiment)
         folder_name = _folder_name_for_experiment(exp_id)
@@ -194,10 +202,12 @@ def _resolve_target(
             notebook_path=notebook_path_for_experiment(
                 exp_id,
                 folder_name=folder_name,
+                ext=ext,
             ),
             legacy_path=legacy_notebook_path_for_experiment(exp_id),
             plate_ids=resolved_plates,
             label=experiment,
+            fmt=fmt,
         )
 
     if plate_ids:
@@ -206,14 +216,57 @@ def _resolve_target(
             notebook_path=notebook_path_for_plates(
                 plate_ids,
                 folder_name=folder_name,
+                ext=ext,
             ),
             legacy_path=legacy_notebook_path_for_plates(plate_ids),
             plate_ids=plate_ids,
             label=", ".join(str(pid) for pid in plate_ids),
+            fmt=fmt,
         )
 
     ui.error("Provide plate IDs or --explore-experiment")
     sys.exit(1)
+
+
+def _open_editor(target: ExploreTarget, *, code: bool) -> None:
+    """Launch the appropriate editor for the resolved target.
+
+    Decision logic:
+    - ``code=True``   → VS Code (folder), regardless of format
+    - format marimo   → ``marimo edit <file>``
+    - ``CELLVIEW_EDITOR=vscode`` → VS Code (folder)
+    - otherwise       → ``jupyter lab <file>``
+
+    Args:
+        target: Resolved explore target carrying path and format.
+        code: If True, force VS Code.
+    """
+    if code:
+        subprocess.Popen(["code", str(target.notebook_path.parent)])
+        ui.info(
+            "Opened explore directory in VS Code — select the venv kernel "
+            "if prompted"
+        )
+        return
+
+    editor_env = os.environ.get("CELLVIEW_EDITOR", "").lower()
+
+    if editor_env == "vscode":
+        subprocess.Popen(["code", str(target.notebook_path.parent)])
+        ui.info(
+            "Opened explore directory in VS Code — select the venv kernel "
+            "if prompted"
+        )
+        return
+
+    if target.fmt == "marimo":
+        subprocess.Popen(["marimo", "edit", str(target.notebook_path)])
+        ui.info("Marimo editor starting...")
+        return
+
+    # Default: JupyterLab
+    subprocess.Popen(["jupyter", "lab", str(target.notebook_path)])
+    ui.info("JupyterLab starting...")
 
 
 def _folder_name_for_experiment(experiment_id: int) -> str | None:
@@ -306,3 +359,31 @@ def _migrate_legacy_notebook(legacy_path: Path, target_path: Path) -> None:
     target_path.parent.mkdir(parents=True, exist_ok=True)
     legacy_path.replace(target_path)
     ui.info(f"Moved notebook into folder structure: {target_path}")
+
+
+def explore_json_command(
+    plate_ids: list[int] | None = None,
+    experiment: str | int | None = None,
+) -> None:
+    """Print a JSON context snapshot for a plate or experiment to stdout.
+
+    This is the primary entry point for the agentic workflow: the agent calls
+    this before writing any pandas or plotting code so it knows the exact
+    column schema, available conditions, cell counts, and linked notebooks.
+
+    Args:
+        plate_ids: One or more plate IDs to describe.
+        experiment: Experiment name (str) or ID (int).
+    """
+    from cellview.db.db import CellViewDB
+    from cellview.explore._explore_json import explore_json
+
+    db = CellViewDB()
+    conn = db.connect()
+    try:
+        snapshot = explore_json(
+            conn, plate_ids=plate_ids, experiment=experiment
+        )
+        print(json.dumps(snapshot, indent=2, default=str))
+    finally:
+        conn.close()

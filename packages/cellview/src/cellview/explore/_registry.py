@@ -59,6 +59,7 @@ def notebook_path_for_plates(
     plate_ids: list[int],
     *,
     folder_name: str | None = None,
+    ext: str = ".ipynb",
 ) -> Path:
     """Return the canonical notebook path for a set of plate IDs.
 
@@ -68,6 +69,7 @@ def notebook_path_for_plates(
     Args:
         plate_ids: Sorted list of plate IDs.
         folder_name: Optional folder override for experiment/project grouping.
+        ext: File extension, either ``".ipynb"`` (default) or ``".py"``.
 
     Returns:
         Path to the notebook file (may not exist yet).
@@ -84,19 +86,21 @@ def notebook_path_for_plates(
     folder = (
         _folder_path_from_name(folder_name) if folder_name else default_folder
     )
-    return folder / f"{name}.ipynb"
+    return folder / f"{name}{ext}"
 
 
 def notebook_path_for_experiment(
     experiment_id: int,
     *,
     folder_name: str | None = None,
+    ext: str = ".ipynb",
 ) -> Path:
     """Return the canonical notebook path for an experiment.
 
     Args:
         experiment_id: The experiment ID.
         folder_name: Optional readable experiment/project folder name.
+        ext: File extension, either ``".ipynb"`` (default) or ``".py"``.
 
     Returns:
         Path to the notebook file (may not exist yet).
@@ -104,9 +108,10 @@ def notebook_path_for_experiment(
     if folder_name:
         return (
             _folder_path_from_name(folder_name)
-            / f"explore_exp_{experiment_id}.ipynb"
+            / f"explore_exp_{experiment_id}{ext}"
         )
-    return legacy_notebook_path_for_experiment(experiment_id)
+    base = legacy_notebook_path_for_experiment(experiment_id)
+    return base.with_suffix(ext)
 
 
 def legacy_notebook_path_for_plates(plate_ids: list[int]) -> Path:
