@@ -21,8 +21,8 @@ from omero_screen_plots.utils import (
 class ClassificationPlotConfig(BasePlotConfig):
     """Configuration for classification plots."""
 
-    # Display mode: "stacked" for error bars, "triplicates" for individual repeats
-    display_mode: str = "stacked"
+    # Show triplicates: False for stacked bars with error bars, True for individual repeats
+    show_triplicates: bool = False
     y_lim: tuple[int, int] = (0, 100)
 
     # Triplicate mode settings
@@ -391,28 +391,24 @@ class ClassificationPlotBuilder(BasePlotBuilder):
             raise ValueError(
                 "build_plot requires conditions, classes, condition_col, and class_col parameters"
             )
-        if self.config.display_mode == "stacked":
-            # data should be tuple of (plot_data, std_data)
-            if not isinstance(data, tuple):
-                raise ValueError(
-                    "Stacked mode requires tuple of (plot_data, std_data)"
-                )
-            plot_data, std_data = data
-            self.build_stacked_plot(
-                plot_data, std_data, conditions, classes, condition_col
-            )
-        elif self.config.display_mode == "triplicates":
+        if self.config.show_triplicates:
             # data should be the original DataFrame
             if isinstance(data, tuple):
                 raise ValueError(
-                    "Triplicates mode requires original DataFrame"
+                    "show_triplicates=True requires original DataFrame"
                 )
             self.build_triplicates_plot(
                 data, conditions, classes, condition_col, class_col
             )
         else:
-            raise ValueError(
-                f"Unknown display mode: {self.config.display_mode}"
+            # data should be tuple of (plot_data, std_data)
+            if not isinstance(data, tuple):
+                raise ValueError(
+                    "show_triplicates=False requires tuple of (plot_data, std_data)"
+                )
+            plot_data, std_data = data
+            self.build_stacked_plot(
+                plot_data, std_data, conditions, classes, condition_col
             )
 
         return self

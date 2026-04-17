@@ -60,7 +60,6 @@ class TestExploreCLIArgs:
         assert args.no_napari is False
         assert args.code is False
         assert args.template == "cellcycle"
-        assert args.list_templates is False
 
 
 class TestParsePlateIds:

@@ -48,6 +48,7 @@ class CountPlotConfig(BasePlotConfig):
 
     # Count plot specific settings
     plot_type: PlotType = PlotType.NORMALISED
+    show_triplicates: bool = False
     group_size: int = 1
     within_group_spacing: float = 0.2
     between_group_gap: float = 0.5
@@ -308,13 +309,37 @@ class CountPlot(BasePlotBuilder):
             else [float(i) for i in range(len(conditions))]
         )
 
-        # Create bars with proper positioning
-        if self.config.group_size > 1:
+        assert self.ax is not None
+
+        if self.config.show_triplicates:
+            # One bar per plate_id per condition, side-by-side
+            plate_ids = sorted(data["plate_id"].unique())
+            n_plates = len(plate_ids)
+            bar_width = 0.6 / max(n_plates, 1)
+            offsets = [
+                (i - (n_plates - 1) / 2) * bar_width for i in range(n_plates)
+            ]
+            for plate_idx, plate_id in enumerate(plate_ids):
+                plate_data = data[data["plate_id"] == plate_id]
+                for cond_idx, condition in enumerate(conditions):
+                    cond_data = plate_data[
+                        plate_data[condition_col] == condition
+                    ]
+                    if not cond_data.empty:
+                        self.ax.bar(
+                            x_positions[cond_idx] + offsets[plate_idx],
+                            cond_data[count_col].iloc[0],
+                            width=bar_width * 0.9,
+                            color=COLOR.BLUE.value,
+                            edgecolor="black",
+                            linewidth=0.5,
+                            alpha=0.6 + 0.2 * plate_idx,
+                        )
+        elif self.config.group_size > 1:
             # Manual bar creation for grouped layout
             for idx, condition in enumerate(conditions):
                 cond_data = data[data[condition_col] == condition]
                 if not cond_data.empty:
-                    assert self.ax is not None
                     self.ax.bar(
                         x_positions[idx],
                         cond_data[count_col].mean(),
@@ -335,28 +360,27 @@ class CountPlot(BasePlotBuilder):
                 ax=self.ax,
             )
 
-        # Add individual points
-        assert self.ax is not None
-        show_repeat_points_adaptive(
-            data,
-            conditions,
-            condition_col,
-            count_col,
-            self.ax,
-            self.config.group_size,
-            x_positions,
-        )
+        # Add individual repeat points (mean bar modes only)
+        if not self.config.show_triplicates:
+            show_repeat_points_adaptive(
+                data,
+                conditions,
+                condition_col,
+                count_col,
+                self.ax,
+                self.config.group_size,
+                x_positions,
+            )
 
-        # Add significance marks if enough replicates
-        if data.plate_id.nunique() >= 3:
-            assert self.ax is not None
+        # Add significance marks if enough replicates (mean bar modes only)
+        if not self.config.show_triplicates and data.plate_id.nunique() >= 3:
             set_significance_marks_adaptive(
                 self.ax,
                 data,
                 conditions,
                 condition_col,
                 count_col,
-                self.ax.get_ylim()[1],
+                self.ax.get_ylim()[1] * 0.93,
                 group_size=self.config.group_size,
                 x_positions=x_positions,
             )

@@ -382,7 +382,7 @@ class BaseFeaturePlot(BasePlotBuilder):
 
         if self.config.show_significance and data.plate_id.nunique() >= 3:
             # Use the exact same approach for both box and violin plots
-            y_top = self.ax.get_ylim()[1]
+            y_top = self.ax.get_ylim()[1] * 0.93
 
             set_significance_marks_adaptive(
                 self.ax,
@@ -1156,7 +1156,7 @@ class NormFeaturePlot(BaseFeaturePlot):
 
         # Use the existing set_significance_marks_adaptive function
         # It will use calculate_pvalues internally with the "percent" column
-        y_max = 105  # Position marks at 105% for percentage plots
+        y_max = 98  # Position marks just below the top for percentage plots
 
         set_significance_marks_adaptive(
             self.ax,

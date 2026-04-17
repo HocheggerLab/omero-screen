@@ -228,7 +228,7 @@ class TestClassificationPlotBasicFunctionality:
             df=classification_data,
             classes=["normal", "micronuclei", "collapsed"],
             conditions=["control", "treatment1", "treatment2"],
-            display_mode="stacked",
+            show_triplicates=False,
             selector_col=None,
             save=False,
         )
@@ -247,7 +247,7 @@ class TestClassificationPlotBasicFunctionality:
             df=classification_data,
             classes=["normal", "micronuclei", "collapsed"],
             conditions=["control", "treatment1", "treatment2"],
-            display_mode="triplicates",
+            show_triplicates=True,
             selector_col=None,
             save=False,
         )
@@ -305,7 +305,7 @@ class TestClassificationPlotBasicFunctionality:
             df=classification_data,
             classes=["normal", "micronuclei", "collapsed"],
             conditions=["control", "treatment1", "treatment2"],
-            display_mode="triplicates",
+            show_triplicates=True,
             group_size=2,
             within_group_spacing=0.3,
             between_group_gap=0.7,
@@ -441,17 +441,6 @@ class TestClassificationPlotEdgeCases:
                 save=False,
             )
 
-    def test_invalid_display_mode(self, classification_data):
-        """Test classification_plot with invalid display mode."""
-        with pytest.raises(ValueError, match="display_mode must be 'stacked' or 'triplicates'"):
-            classification_plot(
-                df=classification_data,
-                classes=["normal", "micronuclei"],
-                conditions=["control", "treatment1"],
-                display_mode="invalid_mode",
-                save=False,
-            )
-
     def test_invalid_condition_column(self, classification_data):
         """Test classification_plot with invalid condition column."""
         with pytest.raises(ValueError, match="Condition column 'invalid_column' not found in dataframe"):
@@ -555,15 +544,15 @@ class TestClassificationPlotEdgeCases:
 class TestClassificationPlotParametrized:
     """Parametrized tests for different plot configurations."""
 
-    @pytest.mark.parametrize("display_mode", ["stacked", "triplicates"])
+    @pytest.mark.parametrize("show_triplicates", [False, True])
     @patch('matplotlib.pyplot.show')
-    def test_display_modes(self, mock_show, classification_data, display_mode):
+    def test_display_modes(self, mock_show, classification_data, show_triplicates):
         """Test both display modes work correctly."""
         fig, ax = classification_plot(
             df=classification_data,
             classes=["normal", "micronuclei", "collapsed"],
             conditions=["control", "treatment1", "treatment2"],
-            display_mode=display_mode,
+            show_triplicates=show_triplicates,
             selector_col=None,
             save=False,
         )
@@ -582,7 +571,7 @@ class TestClassificationPlotParametrized:
             df=classification_data,
             classes=["normal", "micronuclei", "collapsed"],
             conditions=["control", "treatment1", "treatment2"],
-            display_mode="triplicates",
+            show_triplicates=True,
             group_size=group_size,
             selector_col=None,
             save=False,
@@ -811,7 +800,7 @@ class TestClassificationPlotBuilder:
 
     def test_plot_builder_stacked_mode(self, classification_data):
         """Test plot builder in stacked mode."""
-        config = ClassificationPlotConfig(display_mode="stacked")
+        config = ClassificationPlotConfig(show_triplicates=False)
         builder = ClassificationPlotBuilder(config)
 
         # Create figure
@@ -839,7 +828,7 @@ class TestClassificationPlotBuilder:
 
     def test_plot_builder_triplicates_mode(self, classification_data):
         """Test plot builder in triplicates mode."""
-        config = ClassificationPlotConfig(display_mode="triplicates")
+        config = ClassificationPlotConfig(show_triplicates=True)
         builder = ClassificationPlotBuilder(config)
 
         # Create figure
@@ -892,7 +881,7 @@ class TestClassificationPlotConfig:
         """Test ClassificationPlotConfig default values."""
         config = ClassificationPlotConfig()
 
-        assert config.display_mode == "stacked"
+        assert config.show_triplicates is False
         assert config.y_lim == (0, 100)
         assert config.fig_size == (7, 7)
         assert config.size_units == "cm"
@@ -907,7 +896,7 @@ class TestClassificationPlotConfig:
     def test_config_custom_values(self):
         """Test ClassificationPlotConfig with custom values."""
         config = ClassificationPlotConfig(
-            display_mode="triplicates",
+            show_triplicates=True,
             y_lim=(0, 80),
             fig_size=(10, 8),
             size_units="inches",
@@ -917,7 +906,7 @@ class TestClassificationPlotConfig:
             show_legend=False,
         )
 
-        assert config.display_mode == "triplicates"
+        assert config.show_triplicates is True
         assert config.y_lim == (0, 80)
         assert config.fig_size == (10, 8)
         assert config.size_units == "inches"

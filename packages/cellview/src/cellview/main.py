@@ -124,15 +124,7 @@ def _handle_explore(args: argparse.Namespace) -> None:
     Args:
         args: Parsed CLI arguments.
     """
-    from cellview.explore._cli import (
-        explore_json_command,
-        launch_explore,
-        show_available_templates,
-    )
-
-    if args.list_templates:
-        show_available_templates()
-        return
+    from cellview.explore._cli import explore_json_command, launch_explore
 
     experiment: str | int | None = None
     if args.experiment:

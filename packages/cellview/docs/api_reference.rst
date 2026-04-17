@@ -2,8 +2,8 @@ API Reference
 =============
 
 CellView provides a Python API for loading plate data directly into pandas
-DataFrames. This is the recommended way to access data from notebooks and
-scripts.
+DataFrames from your Jupyter notebooks or analysis scripts. This page covers
+everything you need to get your data into Python and start analysing it.
 
 .. contents:: On this page
    :local:
@@ -15,7 +15,9 @@ Loading Data
 
 .. autofunction:: cellview.api.cellview_load_data
 
-Usage examples:
+The primary function you will use is ``cellview_load_data``. Call it with one
+or more OMERO plate IDs, or pass an experiment name or ID to load all plates
+from that experiment at once.
 
 .. code-block:: python
 
@@ -24,35 +26,151 @@ Usage examples:
    # Load a single plate
    df, variable_names = cellview_load_data(12345)
 
-   # Load multiple plates
+   # Load several plates together (useful for combining biological replicates)
    df, variable_names = cellview_load_data(12345, 12346, 12347)
 
    # Load all plates from an experiment by name
-   df, variable_names = cellview_load_data(experiment="palb_washout_recovery")
+   df, variable_names = cellview_load_data(experiment="palb_washout")
 
-   # Load all plates from an experiment by ID
+   # Load all plates from an experiment by numeric ID
    df, variable_names = cellview_load_data(experiment=6)
 
-**Return values**:
 
-- ``df`` -- A pandas DataFrame containing all single-cell measurements with
-  condition metadata (cell line, well, condition variables) joined in.
-- ``variable_names`` -- A list of the condition variable names (e.g.
-  ``["Drug", "Concentration", "Timepoint"]``), useful for grouping and
-  faceting in downstream plots.
+Auto-import Behaviour
+---------------------
 
-**Auto-import**: If a requested plate is not yet in the local database,
-``cellview_load_data`` will attempt to import it from OMERO automatically.
+.. note::
+
+   If a plate ID you request is not yet in your local CellView database,
+   ``cellview_load_data`` will attempt to import it from OMERO automatically.
+   This requires network access to your OMERO server and valid credentials
+   configured in your ``.env`` file. The import runs silently in the background
+   — if it succeeds, you get your data as normal; if it fails (e.g. no network
+   access), an error is raised with a clear message.
+
+   To import data manually before a session without network access, use the
+   CLI: ``cellview import plate <plate_id>``.
+
+
+Understanding the Return Values
+--------------------------------
+
+``cellview_load_data`` always returns a two-element tuple:
+``(df, variable_names)``.
+
+**The DataFrame (df)**
+
+``df`` is a standard `pandas DataFrame
+<https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html>`_.
+Each row represents one segmented cell. The following columns are always
+present:
+
+- ``plate_id`` — the OMERO plate ID (integer) the cell came from
+- ``cell_line`` — the name of the cell line (e.g. ``"RPE"``, ``"HeLa"``)
+- ``well_id`` — the well identifier (e.g. ``"B03"``)
+- ``experiment`` — the experiment name the plate belongs to
+- ``condition`` — the treatment condition label for that well
+
+If the experiment included an EdU channel (S-phase marker), two additional
+columns are present:
+
+- ``cell_cycle`` — cell cycle phase assigned to each cell: ``G1``, ``S``,
+  ``G2``, ``Polyploid``, or ``SubG1``
+- ``cell_cycle_detailed`` — same as ``cell_cycle`` but with ``Mitotic``
+  as a subclassification within G2/M (requires H3P channel)
+
+All single-cell measurement columns follow a naming pattern of
+``{measurement}_{channel}_{compartment}``, for example:
+
+- ``area_nucleus`` — nucleus area in pixels
+- ``intensity_mean_DAPI_nucleus`` — mean DAPI intensity in the nucleus
+- ``integrated_int_DAPI_norm`` — DAPI integrated intensity, normalised to
+  mode (proxy for DNA content)
+
+**The variable names list (variable_names)**
+
+``variable_names`` is a Python list of strings. It contains the names of any
+flexible experimental metadata variables that were stored when the plate was
+imported — for example ``["Drug", "Concentration", "Timepoint"]``.
+
+These variables become regular columns in ``df``, so you can use them directly
+for filtering and grouping. The list is returned separately because it tells
+you *which* columns are experimental metadata versus measurement columns —
+useful when you want to loop over conditions programmatically.
+
+.. code-block:: python
+
+   df, variable_names = cellview_load_data(12345, 12346)
+   print(variable_names)  # ['Drug', 'Concentration']
+
+   # Filter to control wells
+   ctrl = df[df["Drug"] == "DMSO"]
+
+   # Group by condition and compute median nucleus area
+   df.groupby("Drug")["area_nucleus"].median()
+
+
+Combining with omero-screen-plots
+----------------------------------
+
+The DataFrame returned by ``cellview_load_data`` is designed to work directly
+with the ``omero-screen-plots`` package. Here is a short complete example that
+loads two replicate plates, inspects the condition variables, then generates a
+combined cell cycle plot and a nucleus area comparison.
+
+.. code-block:: python
+
+   from cellview.api import cellview_load_data
+   from omero_screen_plots import combplot_cellcycle, feature_plot
+
+   # Load two replicate plates from the same experiment
+   df, variable_names = cellview_load_data(12345, 12346)
+
+   # Inspect what condition variables are available
+   print(variable_names)        # e.g. ['Drug', 'Concentration']
+   print(df["Drug"].unique())   # e.g. ['DMSO', 'Drug_A', 'Drug_B']
+
+   # Define which conditions to compare (order controls plot order)
+   conditions = ["DMSO", "Drug_A", "Drug_B"]
+
+   # Combined cell cycle plot: scatter + stacked bar in one figure
+   fig, axes = combplot_cellcycle(
+       df=df,
+       conditions=conditions,
+       condition_col="Drug",
+       selector_col="cell_line",
+       selector_val="RPE",
+       save=True,
+       file_format="svg",
+   )
+
+   # Nucleus area boxplot across the same conditions
+   fig, ax = feature_plot(
+       df=df,
+       feature="area_nucleus",
+       conditions=conditions,
+       condition_col="Drug",
+   )
+
+.. note::
+
+   If you have an AI coding assistant (such as Claude) available in your
+   notebook environment, it can help you write plotting calls based on the
+   explore guide context. Run ``cellview explore`` from the terminal to launch
+   a pre-configured notebook environment where AI assistants automatically
+   receive the plotting API documentation.
 
 
 Advanced: Dependency Injection API
-----------------------------------
+------------------------------------
 
 .. autofunction:: cellview.api.cellview_load_data_with_injection
 
-This is the underlying implementation used by ``cellview_load_data``. It
-accepts the same arguments and is exposed for cases where explicit control
-over the dependency injection pattern is needed (e.g. testing).
+This function is the underlying implementation called by ``cellview_load_data``.
+It accepts an optional ``conn`` parameter, which allows you to pass an explicit
+database connection — useful when writing tests or when you need fine-grained
+control over which database is used. In normal analysis workflows, prefer
+``cellview_load_data``.
 
 
 Legacy API
@@ -60,5 +178,5 @@ Legacy API
 
 .. autofunction:: cellview.api.cellview_load_data_legacy
 
-Singleton-based version kept for backward compatibility. Prefer
-``cellview_load_data`` for new code.
+Singleton-based version kept for backward compatibility with older notebooks.
+Prefer ``cellview_load_data`` for all new code.

@@ -23,7 +23,7 @@ def classification_plot(
     class_col: str = "Class",
     selector_col: str | None = "cell_line",
     selector_val: str | None = None,
-    display_mode: str = "stacked",
+    show_triplicates: bool = False,
     # Figure settings
     fig_size: tuple[float, float] = (7, 7),
     size_units: str = "cm",
@@ -50,8 +50,8 @@ def classification_plot(
     """Create a classification plot with flexible display options.
 
     The plot behavior changes based on parameters:
-    - display_mode="stacked": Shows stacked bars with error bars
-    - display_mode="triplicates": Shows individual repeat bars
+    - show_triplicates="stacked": Shows stacked bars with error bars
+    - show_triplicates="triplicates": Shows individual repeat bars
     - group_size > 1: Groups conditions together (works with triplicates mode)
 
     Parameters
@@ -75,8 +75,9 @@ def classification_plot(
 
     Display Options
     ^^^^^^^^^^^^^^^
-    display_mode : str, default="stacked"
-        "stacked" for error bars, "triplicates" for individual repeats
+    show_triplicates : bool, default=False
+        If False, shows stacked bars with error bars (mean ± SD).
+        If True, shows individual replicate bars side-by-side.
     y_lim : tuple[int, int], default=(0, 100)
         Y-axis limits
 
@@ -130,28 +131,24 @@ def classification_plot(
         Tuple of (figure, axes)
 
     Examples:
-        # Stacked plot with error bars
+        # Stacked plot with error bars (default)
         fig, ax = classification_plot(
-            df, ["G1", "S", "G2M"], ["Control", "Treatment"],
-            display_mode="stacked"
+            df, ["G1", "S", "G2M"], ["Control", "Treatment"]
         )
 
         # Individual triplicates without grouping
         fig, ax = classification_plot(
             df, ["G1", "S", "G2M"], ["Control", "Treatment"],
-            display_mode="triplicates"
+            show_triplicates=True
         )
 
         # Individual triplicates with grouping
         fig, ax = classification_plot(
             df, ["G1", "S", "G2M"], ["Control", "Treat1", "Treat2", "Treat3"],
-            display_mode="triplicates",
+            show_triplicates=True,
             group_size=2  # Groups conditions in pairs
         )
     """
-    if display_mode not in ["stacked", "triplicates"]:
-        raise ValueError("display_mode must be 'stacked' or 'triplicates'")
-
     # Create configuration
     config = ClassificationPlotConfig(
         fig_size=fig_size,
@@ -163,7 +160,7 @@ def classification_plot(
         file_format=file_format,
         tight_layout=tight_layout,
         dpi=dpi,
-        display_mode=display_mode,
+        show_triplicates=show_triplicates,
         y_lim=y_lim,
         bar_width=bar_width,
         show_legend=show_legend,
@@ -236,28 +233,26 @@ def classification_plot(
     builder = ClassificationPlotBuilder(config)
     builder.create_figure(axes)
 
-    # Process data and build plot based on display mode
-    if display_mode == "stacked":
-        # Process data for stacked plot
+    # Process data and build plot
+    if show_triplicates:
+        # Individual repeat bars — pass original DataFrame
+        builder.build_plot(
+            data=filtered_df,
+            conditions=conditions,
+            classes=classes,
+            condition_col=condition_col,
+            class_col=class_col,
+        )
+    else:
+        # Stacked bars with error bars — aggregate first
         plot_data, std_data = processor.process_data(
             filtered_df,
             condition_col=condition_col,
             conditions=conditions,
             classes=classes,
         )
-
-        # Build stacked plot
         builder.build_plot(
             data=(plot_data, std_data),
-            conditions=conditions,
-            classes=classes,
-            condition_col=condition_col,
-            class_col=class_col,
-        )
-    else:  # triplicates
-        # Build triplicates plot with original data
-        builder.build_plot(
-            data=filtered_df,
             conditions=conditions,
             classes=classes,
             condition_col=condition_col,

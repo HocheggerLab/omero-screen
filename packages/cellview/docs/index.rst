@@ -1,30 +1,59 @@
 CellView Documentation
 ======================
 
-CellView is a local DuckDB-backed database for managing single-cell
-measurement data from high-content microscopy screens. It sits between
-the OMERO-Screen analysis pipeline (which produces per-plate CSV results)
-and downstream analysis in Python notebooks or plotting libraries.
+CellView is a local DuckDB-backed database that sits between the
+OMERO-Screen analysis pipeline and your downstream data analysis. It
+stores single-cell measurements from high-content immunofluorescence
+screens in a structured, queryable form so you can browse, filter, and
+export your data without touching the OMERO server again.
 
-Key capabilities:
+Workflow Overview
+-----------------
 
-* **Import** data from CSV files, individual OMERO plates, or entire screens
-  into a structured, queryable database.
-* **Browse** projects, experiments, plates, and conditions via a rich
-  terminal interface.
-* **Edit** and **delete** metadata and plate records interactively.
+.. code-block:: text
+
+   OMERO-Screen
+   (per-plate CSV results)
+         |
+         v
+      [ import ]
+   cellview import csv / plate / screen
+         |
+         v
+     [ explore ]
+   cellview projects / experiment / plate
+         |
+         v
+    [ Python API ]
+   cellview_load_data(plate_id, ...)
+         |
+         v
+      [ plots ]
+   omero-screen-plots / your own notebooks
+
+Key Capabilities
+----------------
+
+* **Import** single-cell measurements from CSV files, individual OMERO
+  plates, or entire OMERO screens into a structured DuckDB database.
+* **Browse** projects, experiments, plates, and conditions via a
+  rich terminal interface.
+* **Edit** project and experiment metadata interactively.
+* **Delete** plate records and all associated measurements safely.
 * **Export** plate data as pandas or polars DataFrames for analysis.
 * **Explore** data interactively by launching a pre-populated Jupyter
-  notebook (with optional Napari viewer) from customisable templates.
-* **Clean** orphaned records to keep the database consistent.
-* **Python API** -- load data directly into DataFrames from your own scripts
-  or notebooks with a single function call.
+  notebook from customisable templates, with an optional Napari viewer.
+* **Templates** — ship your own analysis notebooks and launch them with
+  a single command.
+* **Python API** — load data directly into DataFrames from scripts or
+  notebooks with a single function call.
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
    user_guide
-   data_structure
+   explore_guide
    api_reference
+   data_structure
    dev_guide

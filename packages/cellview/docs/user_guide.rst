@@ -1,9 +1,11 @@
 User Guide
 ==========
 
-CellView is a local DuckDB-based database for organising, querying, and
-exploring single-cell measurement data produced by the OMERO-Screen analysis
-pipeline. It provides both a CLI and a Python API.
+CellView is a local database for storing, browsing, and exporting the
+single-cell measurements produced by the OMERO-Screen analysis pipeline.
+This guide walks through every command you will use day-to-day, with
+concrete examples. No programming experience is required — just a
+terminal and data to analyse.
 
 .. contents:: On this page
    :local:
@@ -13,154 +15,285 @@ pipeline. It provides both a CLI and a Python API.
 Getting Started
 ---------------
 
-After installing the ``omero-screen`` workspace the ``cellview`` command is
-available in your shell:
+CellView is part of the ``omero-screen`` workspace. If the workspace is
+already installed you do not need to install anything separately. To
+confirm that CellView is available, run:
 
 .. code-block:: bash
 
    cellview --help
 
-All commands accept an optional ``--db`` flag to point to a custom database
-file. When omitted, the default location ``~/.cellview/cellview.duckdb`` is
-used:
+You should see a list of subcommands. If you see a "command not found"
+error, make sure the virtual environment is activated:
 
 .. code-block:: bash
 
-   cellview --db /path/to/my.duckdb projects
+   source .venv/bin/activate
+
+**Default database location**
+
+CellView stores everything in a single DuckDB file. By default that file
+lives at:
+
+.. code-block:: text
+
+   ~/.cellview/cellview.duckdb
+
+The directory is created automatically the first time you run a command
+that writes to the database.
+
+**Using a custom database path**
+
+Every CellView command accepts a ``--db`` flag so you can point to a
+different file — useful when you want to keep separate databases for
+different projects or when working on a shared server:
+
+.. code-block:: bash
+
+   cellview --db /scratch/myproject/myproject.duckdb projects
 
 
-Browsing Data
--------------
+Browsing Your Data
+------------------
 
-CellView provides four read-only display commands for inspecting the contents
-of the database.
+CellView has four read-only commands for inspecting what is in the
+database. They do not change anything, so you can run them as often as
+you like.
 
 ``cellview projects``
 ~~~~~~~~~~~~~~~~~~~~~
 
-List every project with its experiment count.
+List every project in the database together with the number of
+experiments it contains.
 
 .. code-block:: bash
 
    cellview projects
 
+Example output (formatted as a rich table in your terminal):
+
+.. code-block:: text
+
+   ┌────┬──────────────────────┬────────────────┐
+   │ ID │ Name                 │ Experiments    │
+   ├────┼──────────────────────┼────────────────┤
+   │  1 │ PALB2 washout        │ 3              │
+   │  2 │ CDK inhibitor screen │ 1              │
+   └────┴──────────────────────┴────────────────┘
+
+Use the IDs shown here as arguments to the commands below.
+
 ``cellview project <id>``
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Show experiments and plates that belong to a project.
+Show the experiments and plates that belong to one project.
 
 .. code-block:: bash
 
    cellview project 1
 
+This prints each experiment within the project along with the plates it
+contains, so you can quickly find the plate IDs you need for export or
+further analysis.
+
 ``cellview experiment <id>``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Show plates, channels, and condition variables for an experiment.
+Show the plates in an experiment together with the measurement channels
+and any condition variables (for example drug, timepoint, concentration)
+that were recorded.
 
 .. code-block:: bash
 
    cellview experiment 3
 
+This is useful for checking whether an import completed correctly: you
+can confirm that all the expected plates are listed and that the channel
+and condition information looks right.
+
 ``cellview plate <id>``
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-Show a full plate summary: conditions per well, channel layout, and
-measurement statistics.
+Show a full summary for one plate: every condition and the number of
+cells measured per condition, the channel layout, and basic measurement
+statistics.
 
 .. code-block:: bash
 
    cellview plate 12345
 
+Use this command after importing a plate to verify the data landed
+correctly before running any analysis.
+
 
 Importing Data
 --------------
 
-Data can be imported from a local CSV file, from one or more OMERO plates, or
-from an entire OMERO screen.
+CellView supports three import routes. All of them walk you through an
+interactive prompt to assign the plate to a project and experiment. If
+the OMERO plate already has tags called ``Project: <name>`` and
+``Experiment: <name>``, CellView reads them automatically and skips the
+interactive step.
 
-``cellview import csv <path>``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+From a CSV file
+~~~~~~~~~~~~~~~
 
-Import single-cell measurements from a CSV file. The file must contain at
-least ``plate_id``, ``cell_line``, ``condition``, and measurement columns.
+Use this route when you have already run the OMERO-Screen pipeline and
+have a CSV file of single-cell measurements on disk.
 
 .. code-block:: bash
 
    cellview import csv /data/final_data_cc.csv
 
-``cellview import plate <ids...>``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**Required columns**
 
-Import one or more plates directly from OMERO by their plate IDs. When
-multiple IDs are given they must belong to the same screen.
+The CSV must contain at least the following columns. Any additional
+numeric columns are treated as measurements and stored in the database.
+
+* ``plate_id`` — the OMERO plate ID (integer)
+* ``cell_line`` — cell line name (e.g. ``RPE``, ``HeLa``)
+* ``condition`` — treatment condition (e.g. ``control``, ``drug_10uM``)
+
+.. note::
+
+   Column names are case-sensitive. Check that your CSV uses exactly
+   these names before importing. The pipeline output file is usually
+   called ``final_data_cc.csv`` and already has the correct column names.
+
+**Interactive prompts**
+
+After reading the CSV, CellView will ask you to select or create a
+project and experiment for the plate:
+
+.. code-block:: text
+
+   Select a project:
+     1. PALB2 washout
+     2. CDK inhibitor screen
+     3. [Create new project]
+   >
+
+Follow the prompts to assign the plate. If you make a mistake you can
+always edit the metadata afterwards (see `Editing Metadata`_) or delete
+the plate and re-import it (see `Deleting Data`_).
+
+**Skipping the prompts with OMERO tags**
+
+If the plate on the OMERO server has map annotations (key-value pairs)
+with keys ``Project`` and ``Experiment``, CellView reads them
+automatically:
+
+.. code-block:: text
+
+   Project: PALB2 washout
+   Experiment: siRNA timecourse
+
+When these tags are present the interactive step is skipped entirely.
+
+From OMERO plates
+~~~~~~~~~~~~~~~~~
+
+Use this route to import plates directly from the OMERO server without
+first exporting a CSV. You will need network access to the OMERO server.
 
 .. code-block:: bash
 
-   # Single plate
+   # Import a single plate
    cellview import plate 12345
 
-   # Multiple plates from the same screen
+   # Import several plates that belong to the same screen
    cellview import plate 12345 12346 12347
 
-.. option:: --interactive
+.. note::
 
-   Force interactive project/experiment selection, even when OMERO tags would
-   normally provide the metadata automatically.
+   When importing multiple plates they must all come from the same OMERO
+   screen. CellView uses the screen to determine which experiment the
+   plates belong to.
 
-   .. code-block:: bash
+**Forcing interactive selection**
 
-      cellview import plate 12345 --interactive
+If you want to override the automatic project/experiment detection (for
+example to move plates into a different experiment), add the
+``--interactive`` flag:
 
-``cellview import screen <id>``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. code-block:: bash
 
-Import every plate in an OMERO screen in one go.
+   cellview import plate 12345 --interactive
+
+From an entire OMERO screen
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Import every plate in a screen at once. This is the most convenient
+route when you have just finished a full screen and want to load all the
+data in one step.
 
 .. code-block:: bash
 
    cellview import screen 456
 
-.. option:: --interactive
+Add ``--interactive`` to override automatic project/experiment detection:
 
-   Force interactive project/experiment selection.
+.. code-block:: bash
+
+   cellview import screen 456 --interactive
 
 
 Editing Metadata
 ----------------
 
+You can rename projects and experiments or update their descriptions
+at any time. These changes are safe — they only update text fields and
+do not touch any measurement data.
+
 ``cellview edit project <id>``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Interactively edit a project's name and description.
 
 .. code-block:: bash
 
    cellview edit project 1
 
+CellView will show the current name and description and prompt you to
+enter new values. Press Enter to keep the existing value for any field.
+
 ``cellview edit experiment <id>``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Interactively edit an experiment's name and description.
 
 .. code-block:: bash
 
    cellview edit experiment 3
 
+Works the same way as editing a project.
+
+.. note::
+
+   To find the numeric IDs for projects and experiments, run
+   ``cellview projects`` first, then ``cellview project <id>`` to list
+   experiments within it.
+
 
 Exporting Data
 --------------
 
-``cellview export <id>``
-~~~~~~~~~~~~~~~~~~~~~~~~
+``cellview export <plate_id>``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Export all measurements for a plate as a pandas DataFrame (prints a summary to
-stdout). Useful for quick checks; for programmatic access see the
-:doc:`api_reference`.
+Print a summary of a plate's measurements to the terminal.
 
 .. code-block:: bash
 
    cellview export 12345
+
+This is useful for a quick sanity-check. For full programmatic access to
+the data — for example to load it into a pandas DataFrame for plotting —
+use the Python API instead (see :doc:`api_reference`).
+
+**Condition variables in exports**
+
+When you import a plate, CellView stores extra per-condition columns such
+as drug name, timepoint, and concentration. In the exported DataFrame
+these appear as individual columns alongside the measurement columns, so
+you can filter and group by them directly in Python without any extra
+wrangling.
 
 
 Deleting Data
@@ -169,13 +302,22 @@ Deleting Data
 ``cellview delete plate <id>``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Delete a plate and **all** of its associated data (conditions, measurements,
-condition variables). A database clean-up pass runs automatically afterwards
-to remove any resulting orphan records.
-
 .. code-block:: bash
 
    cellview delete plate 12345
+
+This removes the plate record and **all** associated data: conditions,
+condition variables, and every single-cell measurement row. A clean-up
+pass runs automatically afterwards to remove any orphaned records.
+
+.. warning::
+
+   Deletion is permanent. There is no undo. Before deleting a plate,
+   make sure you still have the original CSV file or the data is still
+   accessible on the OMERO server, in case you need to re-import it.
+
+If you only want to fix the metadata (wrong project or experiment name),
+use ``cellview edit`` instead — that is non-destructive.
 
 
 Database Maintenance
@@ -184,164 +326,18 @@ Database Maintenance
 ``cellview clean``
 ~~~~~~~~~~~~~~~~~~
 
-Run an iterative orphan-removal pass over the entire database. Records that
-no longer have a valid parent (e.g. conditions without a repeat, experiments
-without plates) are deleted bottom-up until the hierarchy is consistent.
+Run an orphan-removal pass over the database. Orphaned records are rows
+that no longer have a valid parent — for example an experiment that
+contains no plates, or conditions that point to a plate that was deleted.
 
 .. code-block:: bash
 
    cellview clean
 
-
-Interactive Data Exploration
-----------------------------
-
-The ``explore`` command is a one-step launcher that creates a pre-populated
-Jupyter notebook from a template, optionally opens a Napari viewer alongside
-it, and opens the notebook in your preferred editor.
-
-``cellview explore``
-~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: bash
-
-   # Explore specific plates
-   cellview explore 12345 12346
-
-   # Explore all plates from an experiment (by name or ID)
-   cellview explore --experiment palb_washout
-   cellview explore --experiment 6
-
-Options
-^^^^^^^
-
-.. option:: --experiment EXPERIMENT
-
-   Load all plates belonging to the given experiment. Accepts an experiment
-   name (string) or numeric ID.
-
-.. option:: --template NAME
-
-   Template notebook to use. Defaults to ``cellcycle``. See
-   :ref:`custom-templates` below for details on creating your own templates.
-
-   .. code-block:: bash
-
-      cellview explore 12345 --template myanalysis
-
-.. option:: --fresh
-
-   Regenerate the notebook from the template even if a notebook for the same
-   plates already exists.
-
-   .. code-block:: bash
-
-      cellview explore 12345 --fresh
-
-.. option:: --no-napari
-
-   Skip launching the Napari viewer.
-
-   .. code-block:: bash
-
-      cellview explore 12345 --no-napari
-
-.. option:: --list-templates
-
-   Print the available templates and exit.
-
-   .. code-block:: bash
-
-      cellview explore --list-templates
-
-
-How ``explore`` Works
-^^^^^^^^^^^^^^^^^^^^^
-
-1. **Notebook creation** -- CellView copies the selected template to
-   ``~/.cellview/explore/`` and injects the plate IDs into a
-   ``PLATE_IDS = [...]`` cell. If a notebook for the same set of plates (or
-   experiment) already exists it is reused unless ``--fresh`` is passed.
-
-2. **Napari launch** -- Unless ``--no-napari`` is given, a Napari viewer
-   window is opened in a background process.
-
-3. **Editor launch** -- The notebook is opened in **JupyterLab** by default.
-   Set the ``CELLVIEW_EDITOR`` environment variable to ``vscode`` to open the
-   notebook in VS Code instead:
-
-   .. code-block:: bash
-
-      export CELLVIEW_EDITOR=vscode
-      cellview explore 12345
-
-   Only two values are recognised:
-
-   * ``vscode`` -- opens the notebook with ``code <path>``
-   * anything else (or unset) -- opens the notebook with ``jupyter lab``
-
-Notebook naming conventions:
-
-* Single plate: ``explore_plate_12345.ipynb``
-* Multiple plates: ``explore_plates_12345_12346_12347.ipynb``
-* By experiment: ``explore_exp_6.ipynb``
-
-
-.. _custom-templates:
-
-Custom Analysis Templates
-^^^^^^^^^^^^^^^^^^^^^^^^^
-
-CellView ships with a built-in ``cellcycle`` template. You can add your own
-templates for different analysis workflows.
-
-**Where to put them**
-
-Place ``.ipynb`` files in:
-
-.. code-block:: text
-
-   ~/.cellview/templates/
-
-User templates with the same name as a built-in template take priority.
-
-**Template conventions**
-
-A template is a regular Jupyter notebook that follows one convention: it must
-contain a code cell with a ``PLATE_IDS`` assignment that CellView can patch:
-
-.. code-block:: python
-
-   # This line gets replaced with the actual plate IDs at launch time
-   PLATE_IDS: list[int] = []
-
-You can then use the IDs to load data via the Python API:
-
-.. code-block:: python
-
-   from cellview.api import cellview_load_data
-
-   df, variable_names = cellview_load_data(*PLATE_IDS)
-
-**Template description**
-
-The first Markdown cell in your notebook is used as the template description
-when running ``cellview explore --list-templates``.
-
-**Example workflow**
-
-.. code-block:: bash
-
-   # 1. Create the templates directory (first time only)
-   mkdir -p ~/.cellview/templates
-
-   # 2. Copy an existing notebook or create a new one
-   cp my_analysis.ipynb ~/.cellview/templates/dose_response.ipynb
-
-   # 3. Make sure it has a PLATE_IDS = [] cell
-
-   # 4. Use it
-   cellview explore 12345 --template dose_response
+You do not normally need to run this manually because plate deletion
+triggers a clean-up automatically. Run it if you have edited the
+database directly (for example with a DuckDB client) or if something
+looks inconsistent when browsing.
 
 
 Environment Variables
@@ -353,22 +349,59 @@ Environment Variables
 
    * - Variable
      - Description
-   * - ``CELLVIEW_EDITOR``
-     - Editor for ``cellview explore``. Set to ``vscode`` to open notebooks
-       in VS Code; otherwise JupyterLab is used.
    * - ``DATABASE_PATH``
-     - Default DuckDB file path (can also be overridden per-command with
-       ``--db``).
+     - Path to the default DuckDB file. When set, this overrides the
+       built-in default of ``~/.cellview/cellview.duckdb``. You can
+       still override this per-command with ``--db``.
    * - ``TEST_DATABASE``
-     - Set to ``true`` to use the test database instead of production.
+     - Set to ``true`` to use a separate test database at
+       ``~/.cellview/cellview-test.duckdb``. Useful when trying out
+       imports without affecting your production data.
+   * - ``CELLVIEW_EDITOR``
+     - Controls which editor opens notebooks launched by
+       ``cellview explore``. Set to ``vscode`` to open in VS Code;
+       leave unset to use JupyterLab. See :doc:`explore_guide` for
+       details.
 
 
-CLI Reference (auto-generated)
-------------------------------
+CLI Quick Reference
+-------------------
 
-The full argument parser is documented below for reference.
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
 
-.. argparse::
-   :module: cellview.cli
-   :func: get_parser
-   :prog: cellview
+   * - Command
+     - What it does
+   * - ``cellview projects``
+     - List all projects with experiment counts
+   * - ``cellview project <id>``
+     - Show experiments and plates in a project
+   * - ``cellview experiment <id>``
+     - Show plates, channels, and condition variables in an experiment
+   * - ``cellview plate <id>``
+     - Show full plate summary: conditions, channels, measurement stats
+   * - ``cellview import csv <path>``
+     - Import measurements from a CSV file
+   * - ``cellview import plate <ids...>``
+     - Import one or more plates from OMERO
+   * - ``cellview import plate <ids...> --interactive``
+     - Import from OMERO, forcing manual project/experiment selection
+   * - ``cellview import screen <id>``
+     - Import every plate in an OMERO screen
+   * - ``cellview edit project <id>``
+     - Rename a project or update its description
+   * - ``cellview edit experiment <id>``
+     - Rename an experiment or update its description
+   * - ``cellview export <plate_id>``
+     - Print a plate measurement summary to the terminal
+   * - ``cellview delete plate <id>``
+     - Permanently delete a plate and all its measurements
+   * - ``cellview clean``
+     - Remove orphaned records from the database
+   * - ``cellview explore <plate_ids...>``
+     - Launch a pre-populated Jupyter notebook for interactive analysis
+   * - ``cellview explore --experiment <name or id>``
+     - Launch a notebook for all plates in an experiment
+   * - ``cellview --db <path> <command>``
+     - Run any command against a custom database file

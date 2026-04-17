@@ -6,6 +6,7 @@ JupyterLab or VS Code. Optionally launches napari alongside.
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -19,9 +20,9 @@ from cellview.explore._registry import (
     notebook_path_for_plates,
 )
 from cellview.explore._template_registry import (
+    BUILTIN_TEMPLATE_DIR,
     create_notebook_from_template,
     get_template,
-    list_templates,
 )
 from cellview.utils.ui import ui
 
@@ -86,23 +87,6 @@ def _resolve_experiment_plates(experiment: str | int) -> tuple[list[int], int]:
         conn.close()
 
 
-def show_available_templates() -> None:
-    """Print all available templates to the console."""
-    templates = list_templates()
-    if not templates:
-        ui.warning(
-            "No templates found. Add .ipynb files to "
-            "~/.cellview/templates/ or check built-in templates."
-        )
-        return
-
-    ui.header("Available templates")
-    for t in templates:
-        desc = f" — {t.description}" if t.description else ""
-        source_tag = f"[{t.source}]"
-        ui.info(f"  {t.name:20s} {source_tag:12s}{desc}")
-
-
 def launch_explore(
     plate_ids: list[int] | None = None,
     experiment: str | int | None = None,
@@ -110,7 +94,6 @@ def launch_explore(
     template: str = "cellcycle",
     fresh: bool = False,
     no_napari: bool = False,
-    list_templates_flag: bool = False,
     code: bool = False,
 ) -> None:
     """Copy a template notebook, inject plate IDs, and open it.
@@ -121,7 +104,8 @@ def launch_explore(
 
     The ``CELLVIEW_EDITOR`` environment variable can override the default
     editor (``"jupyter"`` or ``"marimo"``).  Setting ``code=True`` opens the
-    parent folder in VS Code regardless of format.
+    entire ``~/.cellview/explore`` library in VS Code with the new notebook
+    focused, so you can browse all past analyses alongside the new one.
 
     Args:
         plate_ids: List of plate IDs to explore.
@@ -129,13 +113,8 @@ def launch_explore(
         template: Template name (without extension). Defaults to "cellcycle".
         fresh: If True, regenerate the notebook even if it already exists.
         no_napari: If True, skip launching napari.
-        list_templates_flag: If True, list available templates and exit.
-        code: If True, open the parent folder in VS Code.
+        code: If True, open the explore library in VS Code.
     """
-    if list_templates_flag:
-        show_available_templates()
-        return
-
     # Resolve the template first so we know its format before building the path
     tmpl = get_template(template)
     if tmpl is None:
@@ -150,6 +129,7 @@ def launch_explore(
     )
 
     EXPLORE_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_claude_md(EXPLORE_DIR)
     _migrate_legacy_notebook(target.legacy_path, target.notebook_path)
 
     if target.notebook_path.exists() and not fresh:
@@ -232,30 +212,26 @@ def _open_editor(target: ExploreTarget, *, code: bool) -> None:
     """Launch the appropriate editor for the resolved target.
 
     Decision logic:
-    - ``code=True``   → VS Code (folder), regardless of format
-    - format marimo   → ``marimo edit <file>``
-    - ``CELLVIEW_EDITOR=vscode`` → VS Code (folder)
-    - otherwise       → ``jupyter lab <file>``
+    - ``code=True`` or ``CELLVIEW_EDITOR=vscode``
+        → Opens the entire ``~/.cellview/explore`` library as the VS Code
+          workspace, then navigates directly to the notebook file via
+          ``--goto``.  This lets you browse all past analyses in the sidebar.
+    - format ``"marimo"`` → ``marimo edit <file>``
+    - default → ``jupyter lab <file>``
 
     Args:
         target: Resolved explore target carrying path and format.
         code: If True, force VS Code.
     """
-    if code:
-        subprocess.Popen(["code", str(target.notebook_path.parent)])
-        ui.info(
-            "Opened explore directory in VS Code — select the venv kernel "
-            "if prompted"
-        )
-        return
-
     editor_env = os.environ.get("CELLVIEW_EDITOR", "").lower()
 
-    if editor_env == "vscode":
-        subprocess.Popen(["code", str(target.notebook_path.parent)])
+    if code or editor_env == "vscode":
+        subprocess.Popen(
+            ["code", str(EXPLORE_DIR), "--goto", str(target.notebook_path)]
+        )
         ui.info(
-            "Opened explore directory in VS Code — select the venv kernel "
-            "if prompted"
+            f"Opened explore library in VS Code: {EXPLORE_DIR}\n"
+            f"  → focused on {target.notebook_path.name}"
         )
         return
 
@@ -345,6 +321,16 @@ def _folder_name_for_plates(plate_ids: list[int]) -> str | None:
         return next(iter(unique_projects))
 
     return None
+
+
+def _ensure_claude_md(explore_dir: Path) -> None:
+    """Copy the bundled CLAUDE.md into explore_dir if not already present."""
+    dest = explore_dir / "CLAUDE.md"
+    if dest.exists():
+        return
+    source = BUILTIN_TEMPLATE_DIR / "CLAUDE.md"
+    if source.exists():
+        shutil.copy2(source, dest)
 
 
 def _migrate_legacy_notebook(legacy_path: Path, target_path: Path) -> None:

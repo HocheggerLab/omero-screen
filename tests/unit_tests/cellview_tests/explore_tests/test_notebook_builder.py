@@ -17,13 +17,3 @@ class TestTemplateCLIArgs:
             ["explore", "12345", "--template", "drug_screen"]
         )
         assert args.template == "drug_screen"
-
-    def test_list_templates_flag(self) -> None:
-        parser = get_parser()
-        args = parser.parse_args(["explore", "--list-templates"])
-        assert args.list_templates is True
-
-    def test_list_templates_default_false(self) -> None:
-        parser = get_parser()
-        args = parser.parse_args(["explore"])
-        assert args.list_templates is False

@@ -174,11 +174,6 @@ def get_parser() -> argparse.ArgumentParser:
         help="Open the notebook folder in VS Code instead of JupyterLab.",
     )
     p_explore.add_argument(
-        "--list-templates",
-        action="store_true",
-        help="List available templates and exit.",
-    )
-    p_explore.add_argument(
         "--json",
         action="store_true",
         help=(

@@ -33,12 +33,13 @@ class TestLaunchExplore:
         assert target_path.exists()
         assert target_path.read_text() == "legacy"
 
-    def test_code_flag_opens_parent_folder(
+    def test_code_flag_opens_explore_library(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         template_file: Path,
     ) -> None:
+        """VS Code should open the entire explore library, not just the notebook folder."""
         notebook_path = tmp_path / "Project" / "Experiment" / "explore_exp_6.ipynb"
         launches: list[list[str]] = []
 
@@ -66,7 +67,9 @@ class TestLaunchExplore:
         _cli.launch_explore(experiment=6, no_napari=True, code=True)
 
         assert notebook_path.exists()
-        assert launches == [["code", str(notebook_path.parent)]]
+        assert launches == [
+            ["code", str(_cli.EXPLORE_DIR), "--goto", str(notebook_path)]
+        ]
 
     def test_jupyter_launches_notebook_file(
         self,

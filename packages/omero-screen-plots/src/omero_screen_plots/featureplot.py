@@ -121,7 +121,12 @@ def feature_plot_legacy(
     show_repeat_points(df_median, conditions, condition_col, feature, ax)
     if len(df.plate_id.unique()) >= 3:
         set_significance_marks(
-            ax, df_median, conditions, condition_col, feature, ax.get_ylim()[1]
+            ax,
+            df_median,
+            conditions,
+            condition_col,
+            feature,
+            ax.get_ylim()[1] * 0.93,
         )
     ax.set_ylabel(feature)
     ax.set_xlabel("")
@@ -240,7 +245,12 @@ def feature_plot(
     show_repeat_points(df_median, conditions, condition_col, feature, ax)
     if len(df.plate_id.unique()) >= 3:
         set_significance_marks(
-            ax, df_median, conditions, condition_col, feature, ax.get_ylim()[1]
+            ax,
+            df_median,
+            conditions,
+            condition_col,
+            feature,
+            ax.get_ylim()[1] * 0.93,
         )
     ax.set_ylabel(feature)
     ax.set_xlabel("")
@@ -446,7 +456,7 @@ def grouped_feature_plot(
         conditions,
         condition_col,
         feature,
-        ax.get_ylim()[1],
+        ax.get_ylim()[1] * 0.93,
         group_size=group_size,
         x_positions=x_positions,
     )

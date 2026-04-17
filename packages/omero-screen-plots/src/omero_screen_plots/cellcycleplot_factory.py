@@ -503,7 +503,7 @@ class StandardCellCyclePlot(BaseCellCyclePlot):
                     conditions,
                     condition_col,
                     "percent",
-                    ax.get_ylim()[1],
+                    ax.get_ylim()[1] * 0.93,
                 )
 
             # Format this subplot using display name for title

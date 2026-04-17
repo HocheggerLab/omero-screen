@@ -54,7 +54,7 @@ project and experiment interactively (or you can force this with the
 Database Schema
 ---------------
 
-CellView uses DuckDB as its storage engine. The schema consists of six
+CellView uses DuckDB as its storage engine. The schema consists of seven
 tables:
 
 ``projects``
@@ -156,6 +156,25 @@ The measurement columns are created dynamically based on the channels present
 in the imported data. Columns for each channel are generated per compartment
 (nucleus, cell, cytoplasm) with ``intensity_min``, ``intensity_mean``, and
 ``intensity_max`` prefixes.
+
+``templates``
+~~~~~~~~~~~~~
+
+Stores the template registry used by ``cellview explore`` and
+``cellview template``. This table is added automatically to existing
+databases the first time CellView connects after upgrading — you do not
+need to run any migration manually.
+
+.. code-block:: sql
+
+   template_id        INTEGER PRIMARY KEY  -- auto-increment
+   name               TEXT    UNIQUE       -- e.g. "cellcycle", "drug_screen"
+   description        TEXT
+   format             TEXT DEFAULT 'jupyter'  -- 'jupyter' or 'marimo'
+   path               TEXT                -- absolute path to the template file
+   created_at         TIMESTAMPTZ
+   updated_at         TIMESTAMPTZ
+   parent_template_id INTEGER REFERENCES templates  -- optional inheritance
 
 
 Data Flow

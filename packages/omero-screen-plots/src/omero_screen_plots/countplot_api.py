@@ -23,6 +23,7 @@ def count_plot(
     selector_col: str | None = "cell_line",
     selector_val: str | None = None,
     plot_type: PlotType = PlotType.NORMALISED,
+    show_triplicates: bool = False,
     title: str | None = None,
     colors: Any = COLOR,
     save: bool = False,
@@ -63,6 +64,9 @@ def count_plot(
     ^^^^^^^^^^^^^^^
     plot_type : PlotType, default=PlotType.NORMALISED
         The type of plot to create (NORMALISED or ABSOLUTE).
+    show_triplicates : bool, default=False
+        If True, show individual bars per replicate plate instead of the
+        mean bar with overlay points.
 
     Grouping & Layout
     ^^^^^^^^^^^^^^^^^
@@ -125,6 +129,7 @@ def count_plot(
         if hasattr(colors, "value")
         else [colors],
         plot_type=plot_type,
+        show_triplicates=show_triplicates,
         group_size=group_size,
         within_group_spacing=within_group_spacing,
         between_group_gap=between_group_gap,
