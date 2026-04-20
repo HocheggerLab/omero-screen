@@ -1202,6 +1202,16 @@ class CellViewStateCore:
             col for col in variable_cols if "Unnamed" not in col
         ]
 
+        # Background columns are per-image constants so they won't appear as
+        # variable within an image — include them explicitly.
+        assert isinstance(self.df, pd.DataFrame)
+        background_cols = [
+            col for col in self.df.columns if col.endswith("_background")
+        ]
+        for col in background_cols:
+            if col not in measurement_cols:
+                measurement_cols.append(col)
+
         self.logger.debug("Found measurement columns: %s", measurement_cols)
         return measurement_cols
 
@@ -1454,10 +1464,14 @@ class CellViewStateCore:
                 "timepoint",
                 "well",
                 "integrated_int",
+                "Cyto_ID",
             )
+            _known_suffixes = ("_background",)
             renames: dict[str, str] = {}
             for col in self.df.columns:
-                if not any(col.startswith(p) for p in _known_prefixes):
+                if not any(
+                    col.startswith(p) for p in _known_prefixes
+                ) and not any(col.endswith(s) for s in _known_suffixes):
                     renames[col] = f"classifier_{col}"
             if renames:
                 self.df.rename(columns=renames, inplace=True)

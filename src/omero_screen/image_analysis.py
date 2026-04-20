@@ -468,6 +468,7 @@ class ImageProperties:
         self._cond_dict = meta_data.well_conditions(well.getWellPos())
         self._overlay = self._overlay_mask()
         self.image_df = self._combine_channels(featurelist)
+        self._add_background()
         self.quality_df = self._concat_quality_df()
 
         if image_classifier is not None:
@@ -487,6 +488,38 @@ class ImageProperties:
                     self.image_df = cls.process_images(
                         self.image_df, classifier_mask
                     )
+
+    def _add_background(self) -> None:
+        """Add per-channel background intensity columns to image_df.
+
+        Background is estimated as the median intensity of pixels outside all
+        cell masks (or nucleus masks when no cell mask is available). One value
+        per channel per timepoint is broadcast to every row in that group.
+        """
+        ref_mask = (
+            self._image.c_mask
+            if self._image.c_mask is not None
+            else self._image.n_mask
+        )
+        # ref_mask shape: (T, Y, X) after squeezing
+        ref_mask_sq: npt.NDArray[Any] = np.squeeze(ref_mask)
+        timepoints = self._image.img_dict[
+            next(iter(self._image.img_dict))
+        ].shape[0]
+
+        for channel, img_array in self._image.img_dict.items():
+            col = f"{channel}_background"
+            bg_values: dict[int, float] = {}
+            for t in range(timepoints):
+                mask_t = ref_mask_sq if timepoints == 1 else ref_mask_sq[t]
+                img_t: npt.NDArray[Any] = np.squeeze(img_array[t])
+                background_pixels = img_t[mask_t == 0]
+                bg_values[t] = float(
+                    np.median(background_pixels)
+                    if background_pixels.size > 0
+                    else 0.0
+                )
+            self.image_df[col] = self.image_df["timepoint"].map(bg_values)
 
     def _overlay_mask(self) -> pd.DataFrame:
         """Links nuclear IDs with cell IDs.

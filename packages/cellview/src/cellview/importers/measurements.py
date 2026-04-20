@@ -232,6 +232,12 @@ class MeasurementsManager:
                             f"Invalid classifier column name format: {col}"
                         )
                     columns_to_add.append((col, "TEXT"))
+                elif col.endswith("_background"):
+                    if not self._validate_background_column_name(col):
+                        raise MeasurementError(
+                            f"Invalid background column name format: {col}"
+                        )
+                    columns_to_add.append((col, "FLOAT"))
 
             # Add missing columns
             for col, dtype in columns_to_add:
@@ -284,6 +290,20 @@ class MeasurementsManager:
         import re
 
         pattern = r"^classifier_[\w\-]+$"
+        return bool(re.match(pattern, column_name))
+
+    def _validate_background_column_name(self, column_name: str) -> bool:
+        """Validate that a background column name is safe for SQL DDL operations.
+
+        Args:
+            column_name: The column name to validate
+
+        Returns:
+            True if the column name is valid, False otherwise
+        """
+        import re
+
+        pattern = r"^[\w\-]+_background$"
         return bool(re.match(pattern, column_name))
 
 

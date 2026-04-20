@@ -331,7 +331,7 @@ wheels = [
 
 [[package]]
 name = "cellview"
-version = "0.3.3"
+version = "0.3.4"
 source = { editable = "packages/cellview" }
 dependencies = [
     { name = "duckdb" },
@@ -2143,7 +2143,7 @@ wheels = [
 
 [[package]]
 name = "omero-screen"
-version = "0.3.3"
+version = "0.3.4"
 source = { editable = "." }
 dependencies = [
     { name = "cellpose" },
@@ -2264,12 +2264,12 @@ docs = [
 
 [[package]]
 name = "omero-screen-napari"
-version = "0.3.3"
+version = "0.3.4"
 source = { editable = "packages/omero-screen-napari" }
 
 [[package]]
 name = "omero-screen-plots"
-version = "0.3.3"
+version = "0.3.4"
 source = { editable = "packages/omero-screen-plots" }
 dependencies = [
     { name = "matplotlib" },
@@ -2302,7 +2302,7 @@ dev = [
 
 [[package]]
 name = "omero-utils"
-version = "0.3.3"
+version = "0.3.4"
 source = { editable = "packages/omero-utils" }
 
 [[package]]
