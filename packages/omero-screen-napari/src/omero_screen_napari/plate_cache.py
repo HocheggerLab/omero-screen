@@ -978,6 +978,47 @@ def _parse_intensities_from_cellview(
         return _default_intensities(channel_data)
 
 
+def _load_plate_data_from_cellview(plate_id: int) -> pl.LazyFrame:
+    """Load plate measurement data from CellView as a LazyFrame.
+
+    Returns an empty LazyFrame if CellView is unavailable or the plate is
+    not in the database.
+    """
+    try:
+        from cellview.db.db import CellViewDB
+        from cellview.exporters.db_to_polars import export_polars_lf
+
+        db = CellViewDB()
+        db_conn = db.connect()
+        result = db_conn.execute(
+            "SELECT COUNT(*) FROM repeats WHERE plate_id = ?", [plate_id]
+        ).fetchone()
+        if not result or result[0] == 0:
+            db_conn.close()
+            logger.warning(
+                "Plate %d not found in CellView database — gallery will be unavailable",
+                plate_id,
+            )
+            return pl.LazyFrame()
+        lf, _ = export_polars_lf(plate_id, db_conn)
+        db_conn.close()
+        schema = lf.collect_schema()
+        logger.info(
+            "Loaded plate_data for plate %d: %d columns including %s",
+            plate_id,
+            len(schema),
+            list(schema.names())[:5],
+        )
+        return lf
+    except Exception:
+        logger.warning(
+            "Failed to load plate_data from CellView for plate %d — gallery will be unavailable",
+            plate_id,
+            exc_info=True,
+        )
+        return pl.LazyFrame()
+
+
 def _default_intensities(
     channel_data: dict[str, str],
 ) -> dict[int, tuple[int, int]]:
@@ -1535,6 +1576,7 @@ def load_from_cache(
         omero_data.image_positions = image_positions
         omero_data.images = _squeeze_stack(image_arrays, "images")
         omero_data.labels = _squeeze_stack(label_arrays, "labels")
+        omero_data.plate_data = _load_plate_data_from_cellview(plate_id)
 
         logger.info(
             "Loaded plate %d: %d images, %d labels",

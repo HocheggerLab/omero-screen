@@ -448,7 +448,10 @@ def _is_already_loaded(
     requested_wells = [w.strip() for w in well_pos_list.split(",")]
     if omero_data.well_pos_list != requested_wells:
         return False
-    return bool(omero_data.image_input == images)
+    if omero_data.image_input != images:
+        return False
+    # If plate_data is empty the gallery widget will fail; reload to populate it.
+    return len(omero_data.plate_data.collect_schema()) != 0
 
 
 @magic_factory(call_button="Enter")
@@ -1049,10 +1052,12 @@ def _display_stitched(
         scale=omero_data.pixel_size,
         name=names,
     )
-    # Set slider range to full 16-bit so user can adjust beyond auto limits
+    # Set slider range to full 16-bit and wire contrast-change events so that
+    # gallery_api._scale_full_image picks up user adjustments.
     for layer in viewer.layers:
         if isinstance(layer, Image):
             layer.contrast_limits_range = (0, 65535)
+            layer.events.contrast_limits.connect(on_contrast_change)
 
     set_color_maps(viewer)
     if stitched_labels is not None:

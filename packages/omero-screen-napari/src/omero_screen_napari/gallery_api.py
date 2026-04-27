@@ -66,6 +66,7 @@ class CroppedImageParser:
         self._omero_data: OmeroData = omero_data
         self._user_data: UserData = user_data
         self._well_data: pl.DataFrame = pl.DataFrame()
+        self._df: pl.DataFrame = pl.DataFrame()
         self._images: np.ndarray[Any, Any] = np.empty((0,))
         self._labels: np.ndarray[Any, Any] = np.empty((0,))
         self._ids: list[int] = []
@@ -110,6 +111,12 @@ class CroppedImageParser:
         logger.info("Generated %d crops", len(self._cropped_images))
 
     def _get_well_data(self) -> None:
+        schema = self._omero_data.plate_data.collect_schema()
+        if len(schema) == 0:
+            raise ValueError(
+                f"Plate {self._omero_data.plate_id} has no data in CellView. "
+                "Please import the plate into CellView before using the gallery."
+            )
         self._well_data = self._omero_data.plate_data.filter(
             pl.col("well") == self._user_data.well
         ).collect()
@@ -147,9 +154,7 @@ class CroppedImageParser:
         # Check for duplicate indices
         self._check_duplicate_indices(df)
 
-        self._centroids_row, self._centroids_col, self._ids = (
-            self._select_centroids(df)
-        )
+        self._df = df  # kept for per-image centroid lookup in _crop_data
         self._image_ids = df["image_id"].unique().to_list()
         # Sort image IDs to match the order in the OmeroData object
         self._image_ids.sort()
@@ -234,15 +239,19 @@ class CroppedImageParser:
         )
 
     def _crop_data(self) -> None:
-        for i, image_id in enumerate(self._image_ids):
+        for _i, image_id in enumerate(self._image_ids):
             if image_id not in self._omero_data.image_ids:
                 logger.warning(
                     "Image ID %s not loaded in OmeroData. Skipping.", image_id
                 )
                 continue
-            self._process_image_for_cropping(i, image_id)
+            image_df = self._df.filter(pl.col("image_id") == image_id)
+            self._centroids_row, self._centroids_col, self._ids = (
+                self._select_centroids(image_df)
+            )
+            self._process_image_for_cropping(image_id)
 
-    def _process_image_for_cropping(self, index: int, image_id: int) -> None:
+    def _process_image_for_cropping(self, image_id: int) -> None:
         """Checks if image and lable data are available and applies cropping and processing
         via _crop_and_process_image function
         """

@@ -148,8 +148,10 @@ class TestCroppedImageParser:
         parser._prepare_data_for_cropping()
 
         assert parser._image_ids == [101, 102]
-        assert parser._ids == [1, 2]
-        assert parser._centroids_row == [10, 20]
+        # Centroids are now resolved per-image in _crop_data; verify the
+        # stored dataframe carries the right rows for downstream lookup.
+        assert set(parser._df["image_id"].to_list()) == {101, 102}
+        assert parser._df["label"].to_list() == [1, 2]
 
     def test_prepare_data_for_cropping_filter_loaded_only(self, mock_omero_data, mock_user_data):
         mock_user_data.well = "A1"
@@ -172,10 +174,10 @@ class TestCroppedImageParser:
 
         parser._prepare_data_for_cropping()
 
-        # Should filter out 102
+        # Should filter out 102; _df retains only the loaded images
         assert parser._image_ids == [101, 103]
-        assert len(parser._ids) == 2
-        assert 2 not in parser._ids
+        assert set(parser._df["image_id"].to_list()) == {101, 103}
+        assert 102 not in parser._df["image_id"].to_list()
 
     def test_remove_duplicate_images(self, mock_omero_data, mock_user_data):
         parser = CroppedImageParser(mock_omero_data, mock_user_data)
