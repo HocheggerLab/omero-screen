@@ -14,7 +14,6 @@ from typing import Any, Optional, cast
 
 import duckdb
 import numpy as np
-import omero
 import pandas as pd
 import polars as pl
 import scipy.ndimage
@@ -2235,14 +2234,19 @@ class ImageParser:
                 )
 
     def check_mip(self, image: ImageWrapper) -> Optional[str]:
-        if map_anns := image.listAnnotations(
-            ns=omero.constants.metadata.NSCLIENTMAPANNOTATION
-        ):
+        annotations = image.listAnnotations()
+        if map_anns := [
+            ann for ann in annotations if isinstance(ann, MapAnnotationWrapper)
+        ]:
             for ann in map_anns:
                 ann_values = dict(ann.getValue())
-                for item in ann_values.values():
-                    if isinstance(item, str) and "mip" in item:
-                        return item.split("_")[-1]
+                for k, v in ann_values.items():
+                    if k == "MIP":
+                        return (
+                            str(v.split(":")[-1])
+                            if v.find(":") >= 0
+                            else str(v)
+                        )
         if (
             image.getSizeZ() > 1
         ):  # check if image has z-stacks even though no mip is assigned
