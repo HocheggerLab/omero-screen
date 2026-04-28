@@ -100,7 +100,7 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
 
         # Sessions table
         self.table = QTableWidget()
-        self.table.setColumnCount(9)
+        self.table.setColumnCount(10)
         self.table.setHorizontalHeaderLabels(
             [
                 "#",
@@ -108,6 +108,7 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
                 "Well",
                 "Images",
                 "Timepoint",
+                "Cell Cycle",
                 "Cells",
                 "Class Distribution",
                 "Status",
@@ -125,12 +126,12 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
         # Resize columns
         header = self.table.horizontalHeader()
         if header:
-            for i in range(6):
+            for i in range(7):
                 header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
             # Class Distribution stretches
-            header.setSectionResizeMode(6, QHeaderView.Stretch)
-            header.setSectionResizeMode(7, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(7, QHeaderView.Stretch)
             header.setSectionResizeMode(8, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(9, QHeaderView.ResizeToContents)
 
         main_layout.addWidget(self.table)
 
@@ -266,12 +267,19 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
                 tp_item.setText("N/A")
             self.table.setItem(row_idx, 4, tp_item)
 
+            # Cell Cycle (from session metadata user_data)
+            cellcycle = "All"
+            ud = session_metadata.get("user_data")
+            if isinstance(ud, dict):
+                cellcycle = ud.get("cellcycle", "All") or "All"
+            self.table.setItem(row_idx, 5, QTableWidgetItem(cellcycle))
+
             # Cells + Class Distribution (from get_image_stats)
             stat_entry = stats_lookup.get(session["id"], {})
             total_cells = stat_entry.get("total_cells", 0)
             cells_item = QTableWidgetItem()
             cells_item.setData(Qt.ItemDataRole.DisplayRole, total_cells)  # type: ignore
-            self.table.setItem(row_idx, 5, cells_item)
+            self.table.setItem(row_idx, 6, cells_item)
 
             dist = stat_entry.get("class_distribution", {})
             if dist:
@@ -280,7 +288,7 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
                 )
             else:
                 dist_str = "-"
-            self.table.setItem(row_idx, 6, QTableWidgetItem(dist_str))
+            self.table.setItem(row_idx, 7, QTableWidgetItem(dist_str))
 
             # Status (file validation)
             valid, msg = SessionDataLoader.validate_session_file(session)
@@ -291,7 +299,7 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
                 status_item.setForeground(Qt.darkGreen)  # type: ignore
             else:
                 status_item.setForeground(Qt.red)  # type: ignore
-            self.table.setItem(row_idx, 7, status_item)
+            self.table.setItem(row_idx, 8, status_item)
 
             # Actions (Load + Delete buttons)
             actions_widget = QWidget()
@@ -311,7 +319,7 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
             )
             actions_layout.addWidget(delete_button)
 
-            self.table.setCellWidget(row_idx, 8, actions_widget)
+            self.table.setCellWidget(row_idx, 9, actions_widget)
 
     def _refresh(self) -> None:
         """Refresh the summary and sessions table."""
@@ -331,7 +339,7 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
                 row_item
                 and row_item.data(Qt.ItemDataRole.UserRole) == session_id
             ):  # type: ignore
-                status_item = self.table.item(row, 7)
+                status_item = self.table.item(row, 8)
                 if status_item and not status_item.text().startswith("\u2713"):
                     QMessageBox.warning(
                         self,

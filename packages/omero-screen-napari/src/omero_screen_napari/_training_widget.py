@@ -8,7 +8,14 @@ import numpy as np
 from magicgui import magicgui
 from magicgui.widgets import Container, RadioButtons
 from omero_screen.config import get_logger
-from qtpy.QtWidgets import QMessageBox
+from qtpy.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from omero_screen_napari._classifier_selector import ClassifierSelector
 from omero_screen_napari.gallery_userdata_singleton import userdata
@@ -183,6 +190,13 @@ class ImageNavigator:
         if self.omero_data.selected_classes:
             self.omero_data.selected_classes[self.current_index] = class_name
 
+    def assign_all_to_class(self, class_name: str) -> None:
+        if self.omero_data.selected_classes:
+            n = len(self.omero_data.selected_classes)
+            self.omero_data.selected_classes[:] = [class_name] * n
+            self.update_class_choice()
+            logger.info(f"Assigned all {n} cells to class '{class_name}'")
+
     def update_class_choice(self) -> None:
         if self.omero_data.selected_classes:
             current_class = self.omero_data.selected_classes[
@@ -234,11 +248,55 @@ class TrainingWidget:
             call_button="Save training data",
         )(self.save_training_data)
 
+        self._assign_all_widget: QWidget = (
+            QWidget()
+        )  # placeholder; built in create_container
         self.container = self.create_container()
+
+    def _build_assign_all_widget(self) -> QWidget:
+        """Build a widget with one 'Assign all' button per non-unassigned class."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(2)
+        label = QLabel("Assign all cells to:")
+        layout.addWidget(label)
+        for class_name in self.image_navigator.class_options:
+            if class_name == "unassigned":
+                continue
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            btn = QPushButton(class_name)
+            btn.setToolTip(f"Set every cell in this dataset to '{class_name}'")
+            btn.clicked.connect(
+                lambda checked, cn=class_name: self._confirm_assign_all(cn)
+            )
+            row_layout.addWidget(btn)
+            layout.addWidget(row)
+        return widget
+
+    def _confirm_assign_all(self, class_name: str) -> None:
+        n = len(self.image_navigator.omero_data.selected_classes or [])
+        reply = QMessageBox.question(
+            None,
+            "Assign all cells",
+            f"Assign all {n} cells to '{class_name}'?\nThis will overwrite existing assignments.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            self.image_navigator.assign_all_to_class(class_name)
 
     def update_class_options(self, class_options: list[str]) -> None:
         self.image_navigator.class_options = class_options
         self.image_navigator.class_choice.choices = class_options
+        # Rebuild the assign-all buttons for the new class list
+        new_widget = self._build_assign_all_widget()
+        layout = self.container.native.layout()
+        layout.replaceWidget(self._assign_all_widget, new_widget)
+        self._assign_all_widget.deleteLater()
+        self._assign_all_widget = new_widget
         self.image_navigator.update_class_choice()
 
     def next_image(self) -> None:
@@ -461,6 +519,21 @@ class TrainingWidget:
         layout.insertWidget(
             2, self.classifier_selector.info_panel.manage_button
         )
+
+        # Build and insert the assign-all buttons widget after class_choice
+        self._assign_all_widget = self._build_assign_all_widget()
+        # class_choice is at index 5 (0=selector, 1=info, 2=manage, 3=prev, 4=next, 5=class_choice)
+        # append after the last inserted widget; find class_choice position and insert after it
+        class_choice_native = self.image_navigator.class_choice.native
+        for i in range(layout.count()):
+            if (
+                layout.itemAt(i)
+                and layout.itemAt(i).widget() is class_choice_native
+            ):
+                layout.insertWidget(i + 1, self._assign_all_widget)
+                break
+        else:
+            layout.addWidget(self._assign_all_widget)
 
         return container
 
