@@ -831,6 +831,7 @@ class TrainingDB:
 
                 stats.append(
                     {
+                        "session_id": row["session_id"],
                         "plate_id": row["plate_id"],
                         "well": row["well"],
                         "image_id": row["image_id"],

@@ -268,10 +268,10 @@ class TestSessionOperations:
                 file_path="/path/to/file.npy",
             )
 
-    def test_create_duplicate_session(self, sample_classifier):
-        """Test that duplicate sessions are rejected."""
+    def test_create_multiple_sessions_same_well(self, sample_classifier):
+        """Test that multiple sessions from the same well are allowed."""
         db, _ = sample_classifier
-        db.create_session(
+        session_id_1 = db.create_session(
             classifier_name="test-classifier",
             plate_id=123,
             well="A1",
@@ -279,15 +279,17 @@ class TestSessionOperations:
             timepoint=0,
             file_path="/path/to/file.npy",
         )
-        with pytest.raises(sqlite3.IntegrityError):
-            db.create_session(
-                classifier_name="test-classifier",
-                plate_id=123,
-                well="A1",
-                image_id=456,
-                timepoint=0,
-                file_path="/path/to/file2.npy",
-            )
+        session_id_2 = db.create_session(
+            classifier_name="test-classifier",
+            plate_id=123,
+            well="A1",
+            image_id=456,
+            timepoint=0,
+            file_path="/path/to/file2.npy",
+        )
+        assert session_id_1 != session_id_2
+        sessions = db.list_sessions("test-classifier")
+        assert len(sessions) == 2
 
     def test_get_session(self, sample_classifier):
         """Test retrieving a session."""

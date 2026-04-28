@@ -174,6 +174,11 @@ class ImageNavigator:
         viewer.update_console({"layers": viewer.layers})
         logger.debug("Viewer updated successfully.")
 
+    def reset_for_new_dataset(self) -> None:
+        """Reset display state so napari auto-scales the new dataset."""
+        self.first_load = True
+        self.saved_contrast_limits = None
+
     def assign_class(self, class_name: str) -> None:
         if self.omero_data.selected_classes:
             self.omero_data.selected_classes[self.current_index] = class_name
@@ -355,6 +360,7 @@ class TrainingWidget:
             )
 
         self.image_navigator.current_index = 0
+        self.image_navigator.reset_for_new_dataset()
         self.image_navigator.update_image()
         logger.info(
             f"Displaying {len(self.omero_data.selected_images)} "
@@ -426,6 +432,7 @@ class TrainingWidget:
 
         # Update viewer
         self.image_navigator.current_index = 0
+        self.image_navigator.reset_for_new_dataset()
         self.image_navigator.update_image()
         logger.info(
             f"Displaying {len(self.omero_data.selected_images)} "

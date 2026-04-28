@@ -220,16 +220,10 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
             self.table.setItem(0, 0, QTableWidgetItem("No sessions available"))
             return
 
-        # Build lookup from (plate_id, well, image_id, timepoint) -> full stat entry
-        stats_lookup: dict[tuple[int, str, int, int], dict[str, Any]] = {}
+        # Build lookup from session_id -> full stat entry
+        stats_lookup: dict[int, dict[str, Any]] = {}
         for stat in stats:
-            key = (
-                stat["plate_id"],
-                stat["well"],
-                stat["image_id"],
-                stat["timepoint"],
-            )
-            stats_lookup[key] = stat
+            stats_lookup[stat["session_id"]] = stat
 
         # Populate table
         self.table.setRowCount(len(sessions))
@@ -273,13 +267,7 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
             self.table.setItem(row_idx, 4, tp_item)
 
             # Cells + Class Distribution (from get_image_stats)
-            stats_key = (
-                session["plate_id"],
-                session.get("well", ""),
-                session.get("image_id", 0),
-                session.get("timepoint", 0),
-            )
-            stat_entry = stats_lookup.get(stats_key, {})
+            stat_entry = stats_lookup.get(session["id"], {})
             total_cells = stat_entry.get("total_cells", 0)
             cells_item = QTableWidgetItem()
             cells_item.setData(Qt.ItemDataRole.DisplayRole, total_cells)  # type: ignore

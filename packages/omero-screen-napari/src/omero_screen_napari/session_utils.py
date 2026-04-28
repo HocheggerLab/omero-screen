@@ -192,6 +192,9 @@ def apply_masks_to_crops(
         omero_data.selected_labels,
         strict=False,
     ):
+        # Ensure mask is 2D (H, W) before expanding to match image channels
+        if mask.ndim > 2:
+            mask = np.squeeze(mask)
         # Ensure the mask is expanded to match the image's channels
         expanded_mask = (
             np.repeat(mask[:, :, np.newaxis], image.shape[2], axis=2) > 0

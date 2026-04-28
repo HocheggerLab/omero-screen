@@ -184,11 +184,23 @@ def load_crops_from_omero(
             cached = get_image_timepoint(
                 conn, image_id, timepoint, tag=plate_id
             )  # ZYXC
-            image_array = cached.squeeze(axis=0).astype(np.float32)  # YXC
+            raw = cached.squeeze(axis=0)  # YXC, original dtype
+            image_array = raw.astype(np.float32)
 
             # Apply flatfield correction
             if ff_success and flatfield is not None:
                 image_array = image_array / flatfield
+
+            # Normalise per channel to [0, 1] using the 99.9th percentile of
+            # each channel so the display matches the gallery widget's per-channel
+            # scaling. Dividing by iinfo.max (65535) produces very dim images
+            # because fluorescence images rarely use the full bit depth.
+            n_channels = image_array.shape[-1]
+            for ch in range(n_channels):
+                ch_slice = image_array[..., ch]
+                p_high = float(np.percentile(ch_slice, 99.9))
+                if p_high > 0:
+                    image_array[..., ch] = np.clip(ch_slice / p_high, 0.0, 1.0)
 
             # Load segmentation masks
             success, masks = _load_segmentation_masks(
@@ -580,6 +592,15 @@ def _generate_crops(
         # Extract crop
         crop = image[row_start:row_end, col_start:col_end, :]
         label_crop = label_array[row_start:row_end, col_start:col_end]
+
+        # Isolate only the target cell's label (matching the gallery path's
+        # erase_masks behaviour so that no_background works correctly).
+        # Look up the label ID at the centroid position; if the centroid lands
+        # on background (label == 0), skip this crop.
+        target_label = label_array[row, col]
+        if target_label == 0:
+            continue
+        label_crop = np.where(label_crop == target_label, label_crop, 0)
 
         # Pad if needed
         if crop.shape[0] < crop_size or crop.shape[1] < crop_size:

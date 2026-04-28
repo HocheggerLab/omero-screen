@@ -238,7 +238,7 @@ QUERIES = {
         WHERE s.classifier_id = ?
     """,
     "get_image_stats": """
-        SELECT s.plate_id, s.well, s.image_id, s.timepoint,
+        SELECT s.id as session_id, s.plate_id, s.well, s.image_id, s.timepoint,
                COUNT(a.id) as total_cells,
                GROUP_CONCAT(a.class_label) as class_labels
         FROM annotation_sessions s

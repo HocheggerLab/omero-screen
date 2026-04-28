@@ -5,6 +5,7 @@ previously saved annotation sessions from NPY files and populating the
 OmeroData and UserData singletons.
 """
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -83,19 +84,62 @@ class SessionDataLoader:
 
         # 3. Restore UserData from session metadata BEFORE loading NPY,
         # so parse_npy_file uses the correct no_background/channels settings.
-        if session.get("metadata"):
-            metadata = session["metadata"]
-            if isinstance(metadata, dict) and "user_data" in metadata:
-                try:
-                    user_data.populate_from_dict(metadata["user_data"])
-                    logger.info("Restored UserData from session metadata")
-                except Exception as e:
-                    logger.warning(f"Could not restore UserData: {e}")
-                    # Non-fatal - continue with default user_data
-            # Restore channel_data so channel names can be resolved
-            if "channel_data" in metadata and not omero_data.channel_data:
-                omero_data.channel_data = metadata["channel_data"]
-                logger.info("Restored channel_data from session metadata")
+        user_data_dict: dict[str, Any] | None = None
+        channel_data_from_meta: dict[str, Any] | None = None
+
+        session_meta = session.get("metadata")
+        if isinstance(session_meta, dict):
+            ud = session_meta.get("user_data")
+            if isinstance(ud, dict):
+                user_data_dict = ud
+            channel_data_from_meta = session_meta.get("channel_data")
+
+        # Fall back to the classifier's metadata.json on disk if the DB
+        # session metadata is absent or has no user_data (e.g. older sessions).
+        if user_data_dict is None:
+            classifier_id = session.get("classifier_id")
+            if classifier_id is not None:
+                clf = db.get_classifier_by_id(int(classifier_id))
+                if clf:
+                    meta_path = (
+                        Path.home()
+                        / "omeroscreen_trainingdata"
+                        / clf["name"]
+                        / "metadata.json"
+                    )
+                    if meta_path.exists():
+                        try:
+                            with meta_path.open() as f:
+                                file_meta = json.load(f)
+                            ud = file_meta.get("user_data")
+                            if isinstance(ud, dict):
+                                user_data_dict = ud
+                                logger.info(
+                                    "Restored UserData from metadata.json (DB had none)"
+                                )
+                            if not channel_data_from_meta:
+                                channel_data_from_meta = file_meta.get(
+                                    "channel_data"
+                                )
+                        except Exception as e:
+                            logger.warning(
+                                f"Could not read metadata.json: {e}"
+                            )
+
+        if user_data_dict is not None:
+            try:
+                user_data.populate_from_dict(user_data_dict)
+                logger.info(
+                    f"Restored UserData: contour={user_data_dict.get('contour')}, "
+                    f"no_background={user_data_dict.get('no_background')}"
+                )
+            except Exception as e:
+                logger.warning(f"Could not restore UserData: {e}")
+
+        # Restore channel_data so channel names can be resolved
+        if channel_data_from_meta and not omero_data.channel_data:
+            omero_data.channel_data = channel_data_from_meta
+            logger.info("Restored channel_data from session metadata")
 
         # Store file path so TrainingDataSaver can reuse it on save.
         omero_data.session_file_path = file_path  # type: ignore[attr-defined]
