@@ -1,93 +1,180 @@
-# Training Widget
+# Training Widget — Annotating Cells
 
-## Overview
+## What this widget does
 
-The Training Widget is the core annotation interface for building cell classification
-training datasets. It lets you navigate through cell crops one at a time, assign
-class labels, and save annotated data to disk and database.
+The Training Widget is where you do the actual work of labelling cells. It shows you one cell crop at a time in the viewer and lets you assign it to a class using radio buttons or keyboard shortcuts. When you are done, you save the annotated session to disk.
 
-```{video} _static/training_demo.mp4
-:width: 100%
-```
+Over time, as you label more cells from more plates and wells, the training database grows and you can use it to train a machine learning classifier.
 
-> **TODO**: Record demo video showing classifier selection, crop navigation with
-> Q/W keys, class assignment, and saving a training session.
+## Opening the widget
 
-## UI Elements
+In Napari, go to **Plugins → Omero Screen Napari → Training Widget**.
 
-### Classifier Selector
+---
 
-| Control | Description |
-|---------|-------------|
-| **Classifier dropdown** | Select from classifiers registered in the training database |
-| **Info panel** | Displays session count, total annotations, class distribution |
-| **Manage Sessions** | Opens the Session Manager dialog |
+## The layout
 
-### Image Navigation
+The widget is divided into three sections from top to bottom:
 
-| Control | Description |
-|---------|-------------|
-| **Previous Image** | Navigate to the previous crop (also: **Q** key) |
-| **Next Image** | Navigate to the next crop (also: **W** key) |
-| **Class choice** | Radio buttons for assigning a class label to the current crop |
+1. **Classifier selector** — Choose which classifier you are working on.
+2. **Navigation and annotation** — Move through crops and assign labels.
+3. **Save** — Persist all your annotations to disk.
 
-### Data Management
+---
 
-| Control | Description |
-|---------|-------------|
-| **Save training data** | Persist all crops and annotations to NPY file + database |
+## Step 1 — Select a classifier
 
-## Keyboard Shortcuts
+The dropdown at the top lists all classifiers stored in the training database. Select the one you want to work on.
+
+Beneath the dropdown, the **info panel** shows a summary of the selected classifier:
+
+- Number of annotation sessions
+- Total cells annotated across all sessions
+- Class distribution (how many cells are in each category)
+
+If you have not created a classifier yet, do this first in the [Gallery Widget](gallery_widget.md).
+
+---
+
+## Step 2 — Load cell crops
+
+You need crops in memory before you can annotate. There are two ways to get them:
+
+### Option A — From the Gallery Widget (recommended for new sessions)
+
+1. Use the [Welldata Widget](welldata_widget.md) to load a plate well.
+2. Use the [Gallery Widget](gallery_widget.md) to generate a cell gallery and create a classifier (or just generate a gallery for an existing classifier).
+3. Switch to the Training Widget — the crops transfer automatically and the first cell is displayed.
+
+### Option B — Load a previous session
+
+If you have annotated some cells before and want to continue:
+
+1. Select your classifier from the dropdown.
+2. Click **Manage Sessions** to open the Session Manager.
+3. Find the session you want in the table and click **Load**.
+4. The widget restores all crops and your existing annotations. Continue from where you left off.
+
+### Option C — Add new data from OMERO
+
+If you want to annotate cells from a different plate or well than the one currently loaded in the viewer:
+
+1. Click **Manage Sessions** → **Add New Data**.
+2. The [Direct Load Dialog](session_manager.md#direct-load-dialog) opens.
+3. Enter the plate and well you want, then click **Load Data**.
+4. Crops are fetched from OMERO using the classifier's saved parameters and loaded automatically.
+
+---
+
+## Step 3 — Annotate cells
+
+### Navigating through crops
+
+| Action | How |
+|--------|-----|
+| Next cell | Click **Next Image** button, or press **W** |
+| Previous cell | Click **Previous Image** button, or press **Q** |
+
+The current cell number is shown implicitly by the image title in the viewer (e.g. `Cropped Image 7`). The napari status bar shows the total number of layers.
+
+### Assigning a class
+
+The **Select class** radio buttons show all classes defined for this classifier (e.g. `interphase`, `prophase`, `metaphase`, …). Click the button for the class that matches the cell you are looking at.
+
+The assignment is stored immediately in memory for that crop. When you move to the next cell, the radio buttons update to show whatever class was previously assigned to it (so you can review and change earlier decisions).
+
+### Assigning all cells to one class at once
+
+If most cells in a session belong to the same class, you can use the **Assign all cells to:** section. It shows one button for each of your classes (excluding `unassigned`). Clicking a button sets **every cell in the current session** to that class in one go.
+
+> ⚠ A confirmation dialog will appear before any bulk assignment — this is intentional, because it overwrites all existing annotations for this session. Click **Yes** only if you are sure.
+
+This is useful, for example, when you load a session filtered to `G1` phase: you can immediately assign all cells to `interphase` and then step through to correct the few exceptions.
+
+### Reading the crop display
+
+Each cell is shown as a small square image:
+
+- **Channels** are merged into an RGB composite using the mapping saved in the classifier (blue = DNA, green = cytoplasm, red = S-phase marker by default).
+- **Contour overlay** (white outline) shows the segmentation boundary, if this was enabled when the classifier was created.
+- **Background removal** (pixels outside the mask set to black) is applied if `No Background` was enabled when the classifier was created.
+
+These display settings are fixed per classifier — they were chosen when you created it in the Gallery Widget.
+
+### Napari contrast controls
+
+Napari automatically scales the brightness of each crop. If the auto-scaling looks wrong (images appear all black or all white), use the contrast slider in the Layers panel to adjust. Your contrast setting is preserved as you move between cells.
+
+---
+
+## Step 4 — Save your annotations
+
+Click **Save training data** to write everything to disk.
+
+This saves:
+
+- An **NPY file** at `~/omeroscreen_trainingdata/<classifier>/<plate>_<well>_<images>_<timepoint>.npy` containing the image crops and segmentation masks.
+- **Database records** — each crop's class assignment is stored in the training SQLite database, linked to the session and classifier.
+
+The info panel in the classifier selector updates immediately to show the new annotation counts and class distribution.
+
+> **Save frequently.** Annotations are held in memory until you click Save. If Napari crashes, unsaved work is lost.
+
+---
+
+## Keyboard shortcuts
 
 | Key | Action |
 |-----|--------|
-| **Q** | Previous image |
-| **W** | Next image |
+| **W** | Next cell |
+| **Q** | Previous cell |
 
-These shortcuts work when the Napari viewer has focus. They allow rapid navigation
-without moving the mouse away from the class radio buttons.
+These shortcuts work whenever the Napari viewer has focus. They are designed so you can keep one hand on the keyboard for navigation while your other hand uses the mouse to click radio buttons.
 
-## Workflow
+---
 
-### Starting a New Annotation Session
+## Managing sessions
 
-1. **Select a classifier** from the dropdown (create one first with the
-   [Setup Training Widget](setup_training_widget.md) if needed).
-2. **Load data** using one of two methods:
-   - **From Session Manager**: Click *Manage Sessions* → *Add New Data* to open
-     the Direct Load Dialog (see [Session Manager](session_manager.md)) and fetch
-     fresh crops from OMERO.
-   - **From Gallery**: Generate a gallery in the Gallery Widget, then open the
-     Training Widget — the crops transfer automatically.
-3. The **first crop** appears in the viewer with the mask overlay.
-4. **Assign a class** using the radio buttons (e.g. "healthy", "apoptotic").
-5. Press **W** to advance to the next crop. Press **Q** to go back.
-6. Continue until all crops are labelled (or as many as desired).
-7. Click **Save training data** to persist the session.
+Click **Manage Sessions** on the classifier info panel to open the Session Manager. This shows a table of every annotation session for the selected classifier, with the following information:
 
-### Resuming a Previous Session
+| Column | Meaning |
+|--------|---------|
+| **Plate ID** | OMERO plate the crops came from |
+| **Well** | Well position |
+| **Images** | Image indices used |
+| **Timepoint** | Timepoint index |
+| **Cell Cycle** | The cell cycle filter active when the session was created |
+| **Cells** | Number of crops in this session |
+| **Class Distribution** | How many cells are assigned to each class |
+| **Status** | ✓ Valid (green) = data file is present; ✗ Error (red) = file missing |
 
-1. Select the classifier from the dropdown.
-2. Click *Manage Sessions* → select a session → click **Load**.
-3. All crops and their existing annotations are restored.
-4. Continue annotating from where you left off.
-5. Click **Save training data** to update the session.
+From the Session Manager you can:
+- **Load** a previous session to continue annotating it.
+- **Delete** a session (with confirmation).
+- **Add New Data** to fetch fresh crops from a different plate or well.
 
-## Data Storage
+See [Session Manager & Direct Load](session_manager.md) for full details.
 
-Each training session produces:
+---
 
-- **NPY file**: `~/omeroscreen_trainingdata/<classifier>/<plate>_<well>_<images>_<timepoint>.npy`
-  containing the image crops and label masks as a numpy array.
-- **Database records**: Session metadata and per-crop annotations stored in the
-  training SQLite database.
+## CLI equivalent
+
+You can inspect and export annotation data without opening Napari:
+
+```bash
+omero-train list                        # all classifiers and session counts
+omero-train stats mitosis-rpe           # class distribution for one classifier
+omero-train export mitosis-rpe          # export all annotations to CSV
+omero-train export mitosis-rpe --plate 3869  # export only one plate's data
+```
+
+See the [CLI reference](cli_reference.md) for full details.
+
+---
 
 ## Tips
 
-- Annotations are stored in memory until you click **Save**. Save frequently to
-  avoid losing work.
-- The class distribution shown in the info panel updates after each save.
-- If you load new data (different plate/well), the widget automatically creates a
-  fresh session — previous data is not overwritten.
-- You can have multiple sessions per classifier, each from different plates or wells.
-  The Session Manager shows all sessions at a glance.
+- **Label a manageable batch** at a time — 100–200 cells per session is a good target. It is better to save and add more data later than to try to label 1000 cells in one sitting.
+- **Aim for balanced classes.** If you have 200 interphase cells and 5 mitotic cells, the classifier will be biased. Use the cell cycle filter in the Gallery Widget to enrich for rare phenotypes.
+- **Use the Assign All button for easy cases.** When a plate's well has almost entirely one phenotype (e.g. drug-treated cells that are all apoptotic), bulk-assign first and then correct the exceptions.
+- **Multiple sessions per classifier are fine** — and encouraged. Data from different plates, wells, and experimental repeats makes the classifier more robust.

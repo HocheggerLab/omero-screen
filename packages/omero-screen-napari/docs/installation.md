@@ -61,7 +61,6 @@ You should see:
 - Welldata Widget
 - Gallery Widget
 - Training Widget
-- Setup Training Widget
 - Aligned Plate Widget
 
 ## Troubleshooting

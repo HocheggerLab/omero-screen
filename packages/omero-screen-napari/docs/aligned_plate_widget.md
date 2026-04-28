@@ -1,51 +1,49 @@
 # Aligned Plate Widget
 
-## Overview
+## What this widget does
 
-The Aligned Plate Widget overlays images from multiple plates that have been
-spatially aligned. This is useful for comparing the same well position across
-different experimental conditions or timepoints acquired on separate plates.
+The Aligned Plate Widget loads images from multiple OMERO plates that have been spatially registered and overlays them in the Napari viewer. This is useful when the same well position was imaged across separate plates — for example, different drug treatments, time series acquired on different days, or repeated experiments — and you want to compare them side by side with the cells in the same positions.
 
-```{video} _static/aligned_plate_demo.mp4
-:width: 100%
-```
+## Opening the widget
 
-> **TODO**: Record demo video showing multi-plate loading with translation offsets
-> and channel overlay.
+In Napari, go to **Plugins → Omero Screen Napari → Aligned Plate Widget**.
 
-## UI Elements
+## What you need to fill in
 
-| Control | Description |
-|---------|-------------|
-| **Plate ID** | Primary plate identifier |
-| **Well Position** | Single well position (e.g. `A1`) |
-| **Image index** | Image index within the well (default 0) |
-| **Sample Alignments** | Show alignment samples for verification |
+| Field | What to enter | Example |
+|-------|--------------|---------|
+| **Plate ID** | The primary OMERO plate to load | `3869` |
+| **Well Position** | A single well position | `A1` |
+| **Image index** | Which image within the well to display | `0` |
+| **Sample Alignments** | Tick this to display alignment reference points for verification | off |
 
-## Workflow
+Click **Enter** to load.
 
-1. **Enter the primary Plate ID** and a single well position.
-2. **Click Enter** to load images.
-3. The widget:
-   - Loads the primary plate image for the specified well.
-   - Discovers all aligned plates from the alignment CSV data.
-   - Applies X/Y translation offsets so images from different plates overlay
-     correctly in the viewer.
-   - Adds each channel as a separate layer with appropriate colormaps.
-4. Duplicate channels (same name across plates) are filtered to avoid redundancy.
-5. Use Napari's layer visibility toggles and opacity sliders to compare plates.
+## What happens
 
-## Alignment Data
+1. The widget loads the primary plate image for the well you specified.
+2. It discovers all aligned plates from the alignment data stored in OMERO or a local CSV file (`agg_data.csv`).
+3. X/Y translation offsets are applied to each aligned plate so that cells from different plates land on the same pixel coordinates in the viewer.
+4. Each fluorescence channel is added as a separate layer with an appropriate colourmap.
+5. Duplicate channels (same channel name appearing in more than one plate) are filtered so the viewer is not cluttered.
 
-Plate alignment is defined by a CSV file (typically `agg_data.csv`) or OMERO
-annotations that specify translation offsets for each plate relative to a reference.
-The pixel size from image metadata is used to scale translations correctly.
+## Navigating the overlay
+
+Use Napari's standard layer controls to explore the overlay:
+
+- Toggle individual layers on/off using the eye icon next to each layer.
+- Adjust opacity sliders to blend layers visually.
+- Switch between **Additive** and **Translucent** blending modes for different comparison styles.
+
+## Alignment data
+
+Spatial alignment means that a prior analysis has calculated how much each plate's images need to be shifted (in X and Y, in pixels) to match a reference plate. This offset data must already exist — either as an OMERO annotation or as a `agg_data.csv` file — before using this widget.
+
+The pixel size from the image metadata is used to convert physical distances into pixel shifts correctly.
 
 ## Tips
 
-- Only a **single well** can be loaded at a time (no comma-separated lists).
-- Ensure alignment data has been generated before using this widget.
-- Use Napari's layer blending modes (additive, translucent) for effective overlay
-  comparison.
-- Enable **Sample Alignments** to visually verify that the spatial registration
-  is correct before interpreting results.
+- Only a **single well** can be loaded at a time.
+- Enable **Sample Alignments** to display the reference points used for registration, which lets you verify visually that the overlay is correct before drawing biological conclusions.
+- If the overlay looks misaligned, the alignment data may have been generated with a different image size or pixel size. Check that all plates were acquired with the same objective and settings.
+- Use **Additive** blending to see both plates' signals simultaneously; use **Translucent** with reduced opacity to compare one plate against another.

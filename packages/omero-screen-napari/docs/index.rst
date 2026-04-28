@@ -3,24 +3,22 @@
 Omero Screen Napari
 ===================
 
-**omero-screen-napari** provides interactive `Napari <https://napari.org>`_ widgets for exploring OMERO microscopy data, generating cell galleries, and creating training datasets for machine learning classifiers.
+**omero-screen-napari** adds interactive `Napari <https://napari.org>`_ widgets to your image viewer so you can load microscopy plates from an OMERO server, browse individual cells, and build labelled training datasets for machine learning classifiers — all without writing code.
 
-Widgets
--------
+The package registers four widgets accessible from the **Plugins → Omero Screen Napari** menu:
 
-The package registers five widgets accessible from the **Plugins** menu in Napari:
+*  **Welldata Widget** — Load well images from an OMERO plate, cache them locally, and stitch tiled acquisitions into a single composite view.
+*  **Gallery Widget** — Extract individual cell crops as a montage grid, filter by cell cycle phase, and define new classifiers.
+*  **Training Widget** — Navigate crops one by one, assign class labels with keyboard shortcuts, and save annotated sessions.
+*  **Aligned Plate Widget** — Overlay images from multiple spatially registered plates for side-by-side comparison.
 
-*  **Welldata Widget** -- Browse and visualize well images with caching, stitching, and metadata display.
-*  **Gallery Widget** -- Extract cell crops from segmented images and display them as montage grids.
-*  **Training Widget** -- Navigate crops, assign class labels, and save annotated training data.
-*  **Setup Training Widget** -- Define classifier classes and create new classifier projects.
-*  **Aligned Plate Widget** -- Overlay images from multiple aligned plates with spatial translations.
+Supporting dialogs launched from within the widgets:
 
-Supporting dialogs:
+*  **Session Manager** — Browse all annotation sessions for a classifier, check data integrity, load or delete sessions, and add new data.
+*  **Direct Load Dialog** — Fetch fresh cell crops from OMERO directly into the Training Widget without going through the Gallery workflow.
+*  **Plate Info Dialog** — Inspect well metadata, cache status, and select wells to load.
 
-*  **Session Manager** -- Browse, load, and delete annotation sessions.
-*  **Direct Load Dialog** -- Load new OMERO data directly into a training session.
-*  **Plate Info Dialog** -- Inspect well metadata and select wells to load.
+A command-line companion tool, **omero-train**, provides the same database operations without opening Napari.
 
 .. toctree::
    :maxdepth: 2
@@ -30,6 +28,6 @@ Supporting dialogs:
    welldata_widget
    gallery_widget
    training_widget
-   setup_training_widget
-   aligned_plate_widget
    session_manager
+   aligned_plate_widget
+   cli_reference
