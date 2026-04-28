@@ -105,7 +105,10 @@ def main() -> int:
     kwargs = {}
     if args.plate_id:
         kwargs["plate_id"] = args.plate_id
-    kwargs["tub"] = args.tub
+    # tub argument is only supported by some tests.
+    # It defaults to true so only add the keyword when disabling.
+    if not args.tub:
+        kwargs["tub"] = False
 
     if not args.connection:
         TEST_FUNCTIONS[args.test](**kwargs)
