@@ -83,12 +83,17 @@ class SetupTrainingWidget:
             self.image_navigator,
         )
 
+        _CELLCYCLE_CHOICES = ["All", "G1", "S", "G2/M", "G2", "M", "Polyploid"]
+
         self.add_class_widget = magicgui(
             call_button="Enter", text_input={"label": "Class name"}
         )(self.add_class)
         self.reset_class_options_widget = magicgui(
             call_button="Reset class options"
         )(self.reset_class_options)
+        self.cellcycle_widget = magicgui(
+            cellcycle={"choices": _CELLCYCLE_CHOICES, "label": "Cell cycle"},
+        )(self._set_cellcycle)
         self.save_meta_data_widget = magicgui(
             call_button="Save metadata",
             text_input={"label": "filename", "value": self.class_name},
@@ -104,7 +109,14 @@ class SetupTrainingWidget:
     def reset_class_options(self) -> None:
         self.image_navigator.reset_class_options()
 
+    def _set_cellcycle(self, cellcycle: str = "All") -> None:
+        if self.user_data is not None:
+            self.user_data.cellcycle = cellcycle
+
     def save_meta_data(self, text_input: str) -> None:
+        # Sync cellcycle selection into user_data before saving
+        if self.user_data is not None:
+            self.user_data.cellcycle = self.cellcycle_widget.cellcycle.value
         if new_classifier_name := text_input.strip():
             self.meta_data_saver.update_classifier_name(new_classifier_name)
         self.meta_data_saver.save_data()
@@ -114,6 +126,7 @@ class SetupTrainingWidget:
             self.add_class_widget,
             self.reset_class_options_widget,
             self.image_navigator.class_labels,
+            self.cellcycle_widget,
             self.save_meta_data_widget,
         ]
         return Container(widgets=widgets)
@@ -139,6 +152,9 @@ class MetaDataSaver:
         self.on_save_callback: Any = None  # Callback to trigger after save
 
     def save_data(self) -> None:
+        # Rebuild metadata from current user_data state so that settings
+        # changed after widget creation (contour, no_background, etc.) are captured.
+        self.metadata = self._create_metadata_dict()
         try:
             self._validate_classifier_name(self.classifier_name)
 
@@ -196,6 +212,7 @@ class MetaDataSaver:
 
             file_check = self._check_directory_contents()
             self._handle_saving_logic(file_check)
+            self._save_initial_session(db)
 
             # Trigger callback after successful save
             if self.on_save_callback:
@@ -248,7 +265,23 @@ class MetaDataSaver:
             RandomImageParser,
         )
 
-        cropper = CroppedImageParser(self.omero_data, self.user_data)
+        # Exclude cells already annotated for this classifier+well
+        well = (
+            self.omero_data.well_pos_list[0]
+            if self.omero_data.well_pos_list
+            else "unknown"
+        )
+        try:
+            excluded = db.get_used_centroids(
+                self.classifier_name, self.omero_data.plate_id, well
+            )
+        except Exception as exc:
+            logger.warning("Could not query used centroids: %s", exc)
+            excluded = set()
+
+        cropper = CroppedImageParser(
+            self.omero_data, self.user_data, excluded_centroids=excluded
+        )
         cropper.parse_crops()
         selector = RandomImageParser(
             self.omero_data, self.user_data, classifier=True
@@ -281,20 +314,39 @@ class MetaDataSaver:
         timepoint = self.user_data.timepoint
 
         # Build file path using image_input (not image_id) to match
-        # TrainingWidget._set_paths() convention
-        file_name = f"{self.omero_data.plate_id}_{well}_{self.omero_data.image_input}_{timepoint}.npy"
-        file_path = self.classifier_dir / file_name
+        # TrainingWidget._set_paths() convention. Append an incrementing
+        # index when the base name already exists so repeated runs on the
+        # same well never overwrite a previous session.
+        base = f"{self.omero_data.plate_id}_{well}_{self.omero_data.image_input}_{timepoint}"
+        file_path = self.classifier_dir / f"{base}.npy"
+        if file_path.exists():
+            index = 2
+            while (self.classifier_dir / f"{base}_{index}.npy").exists():
+                index += 1
+            file_path = self.classifier_dir / f"{base}_{index}.npy"
+
+        # Normalize crops to float32 so loading via session_utils produces
+        # consistent [0, 1] data regardless of original OMERO dtype (uint16 etc.)
+        crops = self.omero_data.selected_crops
+        if crops and np.issubdtype(crops[0].dtype, np.integer):
+            iinfo = np.iinfo(crops[0].dtype)
+            crops = [c.astype(np.float32) / iinfo.max for c in crops]
 
         # Save NPY file (same format as TrainingDataSaver._create_training_dict)
         training_dict: dict[str, Any] = {
             "data": (
-                self.omero_data.selected_crops,
+                crops,
                 self.omero_data.selected_labels,
             ),
             "target": self.omero_data.selected_classes,
         }
         np.save(file_path, training_dict, allow_pickle=True)  # type: ignore[arg-type,call-overload]
         logger.info(f"Initial session NPY saved to {file_path}")
+
+        # Tell the training widget which file to use for subsequent saves.
+        # Without this the training widget's stale saver would write to the
+        # previous session's NPY, overwriting it.
+        self.omero_data.session_file_path = file_path
 
         # Store image_input string in metadata for session manager display
         self.metadata["image_input"] = self.omero_data.image_input
@@ -323,7 +375,11 @@ class MetaDataSaver:
             ]
 
             if annotations:
-                db.add_annotations(session_id, annotations)
+                db.add_annotations(
+                    session_id,
+                    annotations,
+                    cell_meta=self.omero_data.selected_cell_meta or None,
+                )
 
             logger.info(
                 f"Initial session {session_id} created with "

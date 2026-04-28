@@ -87,6 +87,7 @@ def load_crops_from_omero(
     classifier_name: str,
     omero_data: "OmeroData",
     user_data: "UserData",
+    cellcycle: str = "All",
     conn: BlitzGateway | None = None,
 ) -> tuple[bool, str]:
     """Load cell crops directly from OMERO for annotation.
@@ -202,7 +203,7 @@ def load_crops_from_omero(
 
             # Load centroids
             success, centroids = _load_centroids_from_cellview(
-                plate_id, well_id, image_id, segmentation
+                plate_id, well_id, image_id, segmentation, cellcycle
             )
             if not success:
                 logger.warning(
@@ -348,6 +349,7 @@ def load_crops_from_omero(
         # Update user_data with loaded metadata
         user_data.populate_from_dict(user_data_dict)
         user_data.well = well_id
+        user_data.cellcycle = cellcycle
 
         logger.info(
             f"Successfully loaded {len(processed_images)} images for annotation"
@@ -468,7 +470,11 @@ def _load_flatfield_correction(
 
 
 def _load_centroids_from_cellview(
-    plate_id: int, well_id: str, image_id: int, segmentation: str
+    plate_id: int,
+    well_id: str,
+    image_id: int,
+    segmentation: str,
+    cellcycle: str = "All",
 ) -> tuple[bool, Any]:
     """Load cell centroids from CellView database.
 
@@ -477,6 +483,7 @@ def _load_centroids_from_cellview(
         well_id: Well position (e.g., "A1")
         image_id: Image ID (actual OMERO image ID, not index)
         segmentation: "nucleus" or "cell"
+        cellcycle: Cell cycle phase filter ("All", "G1", "S", "G2/M", etc.)
 
     Returns:
         (success: bool, centroids_array or error_message)
@@ -492,6 +499,13 @@ def _load_centroids_from_cellview(
 
         # Filter to specific well and image (Pandas syntax)
         filtered = df[(df["well"] == well_id) & (df["image_id"] == image_id)]
+
+        # Apply cell cycle phase filter
+        if cellcycle != "All" and "cell_cycle" in filtered.columns:
+            filtered = filtered[filtered["cell_cycle"] == cellcycle]
+            logger.info(
+                f"Cell cycle filter '{cellcycle}': {len(filtered)} cells remaining"
+            )
 
         if filtered.empty:
             return False, f"No data found for well {well_id}, image {image_id}"

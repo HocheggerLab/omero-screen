@@ -97,6 +97,9 @@ class SessionDataLoader:
                 omero_data.channel_data = metadata["channel_data"]
                 logger.info("Restored channel_data from session metadata")
 
+        # Store file path so TrainingDataSaver can reuse it on save.
+        omero_data.session_file_path = file_path  # type: ignore[attr-defined]
+
         # 4. Load and validate NPY data
         try:
             parse_npy_file(file_path, omero_data, user_data)

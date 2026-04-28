@@ -249,6 +249,26 @@ class TrainingWidget:
         self.image_navigator.previous_image()
 
     def save_training_data(self) -> None:
+        # If the setup widget generated new data (session_file_path changed),
+        # re-create the saver so we write to the correct file, not the stale one.
+        new_path = self.omero_data.session_file_path
+        if (
+            self.training_data_saver is not None
+            and new_path is not None
+            and self.training_data_saver.file_path != new_path
+            and self.class_name
+            and self.user_data
+        ):
+            self.training_data_saver = TrainingDataSaver(
+                self.class_name,
+                self.omero_data,
+                self.user_data,
+                self.image_navigator,
+                existing_file_path=new_path,
+            )
+            logger.info(
+                f"TrainingDataSaver refreshed to match session_file_path: {new_path}"
+            )
         if self.training_data_saver:
             self.training_data_saver.save_data_wrapper()
         else:
@@ -313,9 +333,8 @@ class TrainingWidget:
                     )
                     self.update_class_options(unique_classes)
 
-        # Always (re-)create TrainingDataSaver so file paths reflect the
-        # currently-loaded data.  Reusing a stale saver would write to the
-        # previous session's NPY path.
+        # (Re-)create TrainingDataSaver, reusing the loaded session's file path
+        # so that saving updates the existing NPY rather than creating a new one.
         classifier_name = self.classifier_selector.combobox.currentText()
         if (
             classifier_name
@@ -329,6 +348,7 @@ class TrainingWidget:
                 self.omero_data,
                 self.user_data,
                 self.image_navigator,
+                existing_file_path=self.omero_data.session_file_path,
             )
             logger.info(
                 f"TrainingDataSaver (re)initialized for classifier {classifier_name}"
@@ -383,7 +403,9 @@ class TrainingWidget:
 
                     # Always (re-)create TrainingDataSaver so file paths
                     # reflect the newly-loaded data, not a previous session.
+                    # Clear session_file_path so a new indexed file is created.
                     if self.class_name and self.user_data:
+                        self.omero_data.session_file_path = None
                         self.training_data_saver = TrainingDataSaver(
                             self.class_name,
                             self.omero_data,
@@ -443,6 +465,7 @@ class TrainingDataSaver:
         omero_data_inst: "OmeroData",
         user_data: "UserData",
         image_navigator: ImageNavigator,
+        existing_file_path: "Path | None" = None,
     ) -> None:
         self.classifier_name = classifier_name
         self.omero_data = omero_data_inst
@@ -450,7 +473,9 @@ class TrainingDataSaver:
         self.image_navigator = image_navigator
         self.home_dir = Path.home() / "omeroscreen_trainingdata"
         self.classifier_dir = self.home_dir / self.classifier_name
-        self.file_name, self.file_path, self.meta_data_path = self._set_paths()
+        self.file_name, self.file_path, self.meta_data_path = self._set_paths(
+            existing_file_path
+        )
         self.training_dict = self._create_training_dict()
         self.metadata = self._create_metadata_dict()
 
@@ -536,15 +561,25 @@ class TrainingDataSaver:
             f"Data for image {self.file_name} successfully saved, with metadata present."
         )
 
-    def _set_paths(self) -> tuple[str, Path, Path]:
+    def _set_paths(
+        self, existing_file_path: "Path | None" = None
+    ) -> tuple[str, Path, Path]:
+        meta_data_path = self.classifier_dir / "metadata.json"
+        # When loading an existing session, reuse its file so we update in place.
+        if existing_file_path is not None:
+            return existing_file_path.name, existing_file_path, meta_data_path
         plate = self.omero_data.plate_id
         well = self.omero_data.well_pos_list[0]
         image = self.omero_data.image_input
         time_point = self.user_data.timepoint
-        file_name = f"{plate}_{well}_{image}_{time_point}.npy"
-        file_path = self.classifier_dir / file_name
-        meta_data_path = self.classifier_dir / "metadata.json"
-        return file_name, file_path, meta_data_path
+        base = f"{plate}_{well}_{image}_{time_point}"
+        file_path = self.classifier_dir / f"{base}.npy"
+        if file_path.exists():
+            index = 2
+            while (self.classifier_dir / f"{base}_{index}.npy").exists():
+                index += 1
+            file_path = self.classifier_dir / f"{base}_{index}.npy"
+        return file_path.name, file_path, meta_data_path
 
     def check_files(self, contents: list[Path]) -> str:
         has_metadata = any(file.name == "metadata.json" for file in contents)
@@ -599,23 +634,12 @@ class TrainingDataSaver:
                     )
                     image_id = 0
 
-            # Create/Get session (create_session handles insertion)
-            # We want to overwrite if exists for this specific image/timepoint combo.
-            # TrainingDB.create_session raises IntegrityError if exists.
-            # We should try to get, if exists, update. If not, create.
-
-            # Using get_session to check existence
-            existing_session = db.get_session(
-                self.classifier_name,
-                self.omero_data.plate_id,
-                self.omero_data.well_pos_list[0],
-                image_id,
-                self.user_data.timepoint,
-            )
+            # Look up by file path so that indexed files (_2.npy, _3.npy …)
+            # always create a fresh session rather than updating the first one.
+            existing_session = db.get_session_by_file_path(str(self.file_path))
 
             if existing_session:
                 session_id = existing_session["id"]
-                # Update file path and metadata
                 db.update_session(
                     session_id,
                     file_path=str(self.file_path),
@@ -645,7 +669,11 @@ class TrainingDataSaver:
             # Replace annotations
             db.delete_annotations(session_id)
             if annotations:
-                db.add_annotations(session_id, annotations)
+                db.add_annotations(
+                    session_id,
+                    annotations,
+                    cell_meta=self.omero_data.selected_cell_meta or None,
+                )
 
             logger.info(
                 f"Saved {len(annotations)} annotations to database session {session_id}."
@@ -659,9 +687,13 @@ class TrainingDataSaver:
         logger.info(
             f"Creating training data dictionary with {len(self.omero_data.selected_classes)} entries."
         )
+        crops = self.omero_data.selected_crops
+        if crops and np.issubdtype(crops[0].dtype, np.integer):
+            iinfo = np.iinfo(crops[0].dtype)
+            crops = [c.astype(np.float32) / iinfo.max for c in crops]
         return {
             "data": (
-                self.omero_data.selected_crops,
+                crops,
                 self.omero_data.selected_labels,
             ),
             "target": self.omero_data.selected_classes,

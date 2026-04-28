@@ -9,7 +9,7 @@ import json
 import os
 import sqlite3
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any, cast
 
@@ -114,10 +114,63 @@ class TrainingDB:
                 logger.info(
                     f"Database initialized with schema version {SCHEMA_VERSION}"
                 )
+            elif result[0] < SCHEMA_VERSION:
+                self._migrate_schema(conn, result[0])
             elif result[0] != SCHEMA_VERSION:
                 logger.warning(
                     f"Schema version mismatch: DB={result[0]}, Code={SCHEMA_VERSION}"
                 )
+
+    def _migrate_schema(
+        self, conn: sqlite3.Connection, current_version: int
+    ) -> None:
+        """Apply incremental schema migrations."""
+        if current_version < 2:
+            # v2: add centroid coordinates and source image ID to annotations
+            for col, col_type in [
+                ("centroid_row", "INTEGER"),
+                ("centroid_col", "INTEGER"),
+                ("source_image_id", "INTEGER"),
+            ]:
+                with suppress(sqlite3.OperationalError):
+                    conn.execute(
+                        f"ALTER TABLE annotations ADD COLUMN {col} {col_type}"
+                    )
+            conn.execute(QUERIES["insert_schema_version"], (2,))
+            logger.info("Migrated database schema to version 2")
+
+        if current_version < 3:
+            # v3: drop UNIQUE(classifier_id, plate_id, well, image_id, timepoint)
+            # from annotation_sessions so multiple sessions per well are allowed.
+            # SQLite cannot DROP UNIQUE constraints; recreate the table.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS annotation_sessions_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    classifier_id INTEGER NOT NULL,
+                    plate_id INTEGER NOT NULL,
+                    well TEXT NOT NULL,
+                    image_id INTEGER NOT NULL,
+                    timepoint INTEGER DEFAULT 0,
+                    user TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    file_path TEXT NOT NULL,
+                    metadata_json TEXT,
+                    FOREIGN KEY (classifier_id) REFERENCES classifiers(id) ON DELETE CASCADE
+                )
+            """)
+            conn.execute("""
+                INSERT INTO annotation_sessions_new
+                SELECT id, classifier_id, plate_id, well, image_id, timepoint,
+                       user, created_at, updated_at, file_path, metadata_json
+                FROM annotation_sessions
+            """)
+            conn.execute("DROP TABLE annotation_sessions")
+            conn.execute(
+                "ALTER TABLE annotation_sessions_new RENAME TO annotation_sessions"
+            )
+            conn.execute(QUERIES["insert_schema_version"], (3,))
+            logger.info("Migrated database schema to version 3")
 
     # ========== Classifier Operations ==========
 
@@ -399,6 +452,33 @@ class TrainingDB:
                 return session
             return None
 
+    def get_session_by_file_path(
+        self, file_path: str
+    ) -> dict[str, Any] | None:
+        """Get annotation session by its NPY file path.
+
+        Args:
+            file_path: Absolute path to the NPY file
+
+        Returns:
+            Dictionary with session info or None if not found
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM annotation_sessions WHERE file_path = ?",
+                (file_path,),
+            )
+            row = cursor.fetchone()
+            if row:
+                session = dict(row)
+                if session["metadata_json"]:
+                    session["metadata"] = json.loads(session["metadata_json"])
+                else:
+                    session["metadata"] = None
+                del session["metadata_json"]
+                return session
+            return None
+
     def get_session_by_id(self, session_id: int) -> dict[str, Any] | None:
         """Get annotation session by ID.
 
@@ -511,13 +591,18 @@ class TrainingDB:
     # ========== Annotation Operations ==========
 
     def add_annotations(
-        self, session_id: int, annotations: list[tuple[int, str]]
+        self,
+        session_id: int,
+        annotations: list[tuple[int, str]],
+        cell_meta: list[dict[str, Any]] | None = None,
     ) -> None:
         """Add multiple annotations to a session.
 
         Args:
             session_id: Session ID
             annotations: List of (cell_index, class_label) tuples
+            cell_meta: Optional per-crop metadata list, same length as annotations.
+                Each entry may contain centroid_row, centroid_col, image_id.
 
         Raises:
             ValueError: If session doesn't exist
@@ -527,10 +612,18 @@ class TrainingDB:
             raise ValueError(f"Session {session_id} does not exist")
 
         with self._get_connection() as conn:
-            for cell_index, class_label in annotations:
+            for i, (cell_index, class_label) in enumerate(annotations):
+                meta = cell_meta[i] if cell_meta and i < len(cell_meta) else {}
                 conn.execute(
                     QUERIES["insert_annotation"],
-                    (session_id, cell_index, class_label),
+                    (
+                        session_id,
+                        cell_index,
+                        class_label,
+                        meta.get("centroid_row"),
+                        meta.get("centroid_col"),
+                        meta.get("image_id"),
+                    ),
                 )
             logger.info(
                 f"Added {len(annotations)} annotations to session {session_id}"
@@ -625,6 +718,30 @@ class TrainingDB:
                     f"Deleted all annotations for session {session_id}"
                 )
             return deleted
+
+    def get_used_centroids(
+        self, classifier_name: str, plate_id: int, well: str
+    ) -> set[tuple[int, int, int]]:
+        """Return centroids already annotated for a classifier+plate+well.
+
+        Args:
+            classifier_name: Classifier name
+            plate_id: OMERO plate ID
+            well: Well position (e.g. 'A1')
+
+        Returns:
+            Set of (centroid_row, centroid_col, source_image_id) tuples.
+            Only entries where all three values are non-NULL are included.
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute(
+                QUERIES["get_used_centroids"],
+                (classifier_name, plate_id, well),
+            )
+            return {
+                (int(row[0]), int(row[1]), int(row[2]))
+                for row in cursor.fetchall()
+            }
 
     # ========== Statistics ==========
 

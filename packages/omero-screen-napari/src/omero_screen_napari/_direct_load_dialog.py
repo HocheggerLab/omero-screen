@@ -109,6 +109,13 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
         self.timepoint_input.setValue(0)
         form_layout.addRow("Timepoint:", self.timepoint_input)
 
+        # Cell cycle phase filter
+        self.cellcycle_input = QComboBox()
+        self.cellcycle_input.addItems(
+            ["All", "G1", "S", "G2/M", "G2", "M", "Polyploid"]
+        )
+        form_layout.addRow("Cell Cycle Phase:", self.cellcycle_input)
+
         main_layout.addLayout(form_layout)
 
         # Preview section
@@ -265,6 +272,7 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
                 classifier_name=self.classifier_name,
                 omero_data=self.omero_data,
                 user_data=self.user_data,
+                cellcycle=self.cellcycle_input.currentText(),
             )
 
             if success:

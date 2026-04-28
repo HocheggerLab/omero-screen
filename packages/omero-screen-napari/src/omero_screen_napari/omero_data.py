@@ -88,10 +88,13 @@ class OmeroData:
     # gallery data
     cropped_images: list[NDArray[Any]] = field(default_factory=list)
     cropped_labels: list[NDArray[Any]] = field(default_factory=list)
+    cropped_cell_meta: list[dict[str, Any]] = field(default_factory=list)
     selected_images: list[NDArray[Any]] = field(default_factory=list)
     selected_labels: list[NDArray[Any]] = field(default_factory=list)
     selected_crops: list[NDArray[Any]] = field(default_factory=list)
     selected_classes: list[str] = field(default_factory=list)
+    selected_cell_meta: list[dict[str, Any]] = field(default_factory=list)
+    session_file_path: Optional[Path] = field(default=None)
 
     def reset(self) -> None:
         self.well_pos_list = []
@@ -122,10 +125,13 @@ class OmeroData:
         self.stitched_images = np.empty((0,))
         self.cropped_images = []
         self.cropped_labels = []
+        self.cropped_cell_meta = []
         self.selected_images = []
         self.selected_labels = []
         self.selected_crops = []
         self.selected_classes = []
+        self.selected_cell_meta = []
+        self.session_file_path = None
 
     def reset_well_and_image_data(self) -> None:
         """

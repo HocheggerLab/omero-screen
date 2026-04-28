@@ -7,7 +7,7 @@ including classifiers, annotation sessions, and individual cell annotations.
 from typing import Any
 
 # SQL schema version for migration tracking
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 # Main schema creation SQL
 CREATE_TABLES_SQL = """
@@ -48,8 +48,7 @@ CREATE TABLE IF NOT EXISTS annotation_sessions (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     file_path TEXT NOT NULL,
     metadata_json TEXT,
-    FOREIGN KEY (classifier_id) REFERENCES classifiers(id) ON DELETE CASCADE,
-    UNIQUE(classifier_id, plate_id, well, image_id, timepoint)
+    FOREIGN KEY (classifier_id) REFERENCES classifiers(id) ON DELETE CASCADE
 );
 
 -- Individual cell annotations
@@ -58,6 +57,9 @@ CREATE TABLE IF NOT EXISTS annotations (
     session_id INTEGER NOT NULL,
     cell_index INTEGER NOT NULL,
     class_label TEXT NOT NULL,
+    centroid_row INTEGER,
+    centroid_col INTEGER,
+    source_image_id INTEGER,
     annotated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (session_id) REFERENCES annotation_sessions(id) ON DELETE CASCADE,
     UNIQUE(session_id, cell_index)
@@ -194,8 +196,16 @@ QUERIES = {
     """,
     "insert_annotation": """
         INSERT OR REPLACE INTO annotations
-        (session_id, cell_index, class_label, annotated_at)
-        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        (session_id, cell_index, class_label, centroid_row, centroid_col, source_image_id, annotated_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    """,
+    "get_used_centroids": """
+        SELECT DISTINCT a.centroid_row, a.centroid_col, a.source_image_id
+        FROM annotations a
+        JOIN annotation_sessions s ON a.session_id = s.id
+        JOIN classifiers c ON s.classifier_id = c.id
+        WHERE c.name = ? AND s.plate_id = ? AND s.well = ?
+              AND a.centroid_row IS NOT NULL AND a.centroid_col IS NOT NULL
     """,
     "delete_annotations_by_session": """
         DELETE FROM annotations

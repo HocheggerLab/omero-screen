@@ -3,7 +3,7 @@ import random
 from ast import literal_eval
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, TypeVar
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
@@ -24,10 +24,15 @@ logger = get_logger(__name__)
 
 
 def show_gallery(
-    omero_data: OmeroData, user_data: UserData, classifier: bool = False
+    omero_data: OmeroData,
+    user_data: UserData,
+    classifier: bool = False,
+    excluded_centroids: set[tuple[int, int, int]] | None = None,
 ) -> None:
     if user_data.reload or omero_data.cropped_images == []:
-        cropped_image_parser = CroppedImageParser(omero_data, user_data)
+        cropped_image_parser = CroppedImageParser(
+            omero_data, user_data, excluded_centroids=excluded_centroids
+        )
         cropped_image_parser.parse_crops()
 
     random_image_parser = RandomImageParser(omero_data, user_data, classifier)
@@ -62,9 +67,17 @@ def show_gallery(
 
 
 class CroppedImageParser:
-    def __init__(self, omero_data: OmeroData, user_data: UserData) -> None:
+    def __init__(
+        self,
+        omero_data: OmeroData,
+        user_data: UserData,
+        excluded_centroids: set[tuple[int, int, int]] | None = None,
+    ) -> None:
         self._omero_data: OmeroData = omero_data
         self._user_data: UserData = user_data
+        self._excluded_centroids: set[tuple[int, int, int]] = (
+            excluded_centroids or set()
+        )
         self._well_data: pl.DataFrame = pl.DataFrame()
         self._df: pl.DataFrame = pl.DataFrame()
         self._images: np.ndarray[Any, Any] = np.empty((0,))
@@ -75,6 +88,8 @@ class CroppedImageParser:
         self._centroids_col: list[int] = []
         self._cropped_images: list[np.ndarray[Any, Any]] = []
         self._cropped_labels: list[np.ndarray[Any, Any]] = []
+        self._cell_meta: list[dict[str, Any]] = []
+        self._current_image_id: int = 0
 
     def parse_crops(self) -> None:
         logger.info(
@@ -108,6 +123,7 @@ class CroppedImageParser:
         self._remove_duplicate_images()
         self._omero_data.cropped_images = self._cropped_images
         self._omero_data.cropped_labels = self._cropped_labels
+        self._omero_data.cropped_cell_meta = self._cell_meta
         logger.info("Generated %d crops", len(self._cropped_images))
 
     def _get_well_data(self) -> None:
@@ -239,16 +255,33 @@ class CroppedImageParser:
         )
 
     def _crop_data(self) -> None:
-        for _i, image_id in enumerate(self._image_ids):
+        for image_id in self._image_ids:
             if image_id not in self._omero_data.image_ids:
                 logger.warning(
                     "Image ID %s not loaded in OmeroData. Skipping.", image_id
                 )
                 continue
             image_df = self._df.filter(pl.col("image_id") == image_id)
+            # Exclude cells already used in a previous session for this classifier
+            if self._excluded_centroids:
+                c0, c1, _ = self._get_centroid_columns()
+                excluded = self._excluded_centroids
+                cur_id = image_id
+                image_df = image_df.filter(
+                    ~pl.struct([c0, c1]).map_elements(
+                        lambda s, _c0=c0, _c1=c1, _id=cur_id, _ex=excluded: (
+                            int(s[_c0]),
+                            int(s[_c1]),
+                            _id,
+                        )
+                        in _ex,
+                        return_dtype=pl.Boolean,
+                    )
+                )
             self._centroids_row, self._centroids_col, self._ids = (
                 self._select_centroids(image_df)
             )
+            self._current_image_id = image_id
             self._process_image_for_cropping(image_id)
 
     def _process_image_for_cropping(self, image_id: int) -> None:
@@ -362,6 +395,13 @@ class CroppedImageParser:
             ):  # Check if the label is effectively empty
                 self._cropped_images.append(cropped_image)
                 self._cropped_labels.append(corrected_cropped_label)
+                self._cell_meta.append(
+                    {
+                        "centroid_row": int(row),
+                        "centroid_col": int(col),
+                        "image_id": self._current_image_id,
+                    }
+                )
 
     def _remove_duplicate_images(self) -> None:
         """Remove duplicate images and their corresponding labels from the dataset."""
@@ -532,12 +572,20 @@ class RandomImageParser:
         self._parse_random_images()
         if self._classifier:
             self._omero_data.selected_crops = self._random_images
+            self._omero_data.selected_cell_meta = [
+                self._omero_data.cropped_cell_meta[i]
+                for i in self._chosen_indices
+                if i < len(self._omero_data.cropped_cell_meta)
+            ]
         # self._check_identical_arrays()
         self._omero_data.cropped_images = self._remove_chosen_crops(
             self._omero_data.cropped_images
         )
         self._omero_data.cropped_labels = self._remove_chosen_crops(
             self._omero_data.cropped_labels
+        )
+        self._omero_data.cropped_cell_meta = self._remove_chosen_crops(
+            self._omero_data.cropped_cell_meta
         )
         if self._user_data.no_background:
             self._apply_mask_to_images()
@@ -621,9 +669,9 @@ class RandomImageParser:
                     )
         return  # No identical arrays found
 
-    def _remove_chosen_crops(
-        self, array_list: list[np.ndarray[Any, Any]]
-    ) -> list[np.ndarray[Any, Any]]:
+    _T = TypeVar("_T")
+
+    def _remove_chosen_crops(self, array_list: list[_T]) -> list[_T]:
         """Removes the chosen images and labels from the cropped_images and cropped_labels lists."""
         return [
             item
