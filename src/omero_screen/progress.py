@@ -79,7 +79,7 @@ class ScreenProgress:
         )
         self._img_task: TaskID = self._img_progress.add_task("", total=1)
         self._live = Live(
-            self._render(), refresh_per_second=4, console=Console(stderr=False)
+            self._render(), refresh_per_second=1, console=Console(stderr=False)
         )
 
     # ------------------------------------------------------------------
