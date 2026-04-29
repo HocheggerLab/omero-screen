@@ -31,6 +31,7 @@ from typing_extensions import Generator
 
 from omero_screen.aggregator import ImageAggregator
 from omero_screen.config import get_logger
+from omero_screen.constants import OmeroScreenNS
 from omero_screen.general_functions import scale_img
 
 # from omero_screen.general_functions import (
@@ -142,7 +143,7 @@ def upload_images(
     channel_dict = {
         f"channel_{i}": name for i, name in enumerate(channel_names)
     }
-    add_map_annotations(conn, image, channel_dict)
+    add_map_annotations(conn, image, channel_dict, ns=OmeroScreenNS.METADATA)
 
 
 def load_image_to_dict(
@@ -172,7 +173,7 @@ def load_image_to_dict(
     image_dict = {}
 
     # Fetch annotations attached to the image
-    annotations = image.listAnnotations()
+    annotations = image.listAnnotations(ns=OmeroScreenNS.METADATA)
 
     # Filter for MapAnnotations only
     map_anns = [

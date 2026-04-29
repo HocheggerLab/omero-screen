@@ -32,6 +32,8 @@ def _get_channel_names(conn: object, image: object) -> list[str]:
     """
     from omero_utils.map_anns import parse_annotations
 
+    from omero_screen.constants import OmeroScreenNS
+
     n_channels = int(image.getSizeC())  # type: ignore[attr-defined]
     defaults = [f"ch{i}" for i in range(n_channels)]
 
@@ -54,7 +56,7 @@ def _get_channel_names(conn: object, image: object) -> list[str]:
 
     channel_map: dict[int, str] = {}
     for obj in candidates:
-        anns = parse_annotations(obj)
+        anns = parse_annotations(obj, ns=OmeroScreenNS.METADATA)
         # Channel annotations are stored as {"DAPI": "0", "EdU": "1", ...}
         for k, v in anns.items():
             try:

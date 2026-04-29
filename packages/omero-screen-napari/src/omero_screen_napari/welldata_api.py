@@ -33,6 +33,7 @@ from omero.gateway import (
     WellWrapper,
 )
 from omero_screen.config import get_logger
+from omero_screen.constants import OmeroScreenNS
 from omero_utils import omero_connect
 from omero_utils.attachments import get_file_attachments
 from qtpy.QtCore import Qt
@@ -1577,7 +1578,7 @@ class ChannelDataParser:
         or raise exception if no appropriate annotation is found.
         """
 
-        annotations = self._plate.listAnnotations()
+        annotations = self._plate.listAnnotations(ns=OmeroScreenNS.METADATA)
 
         map_annotations = [
             ann for ann in annotations if isinstance(ann, MapAnnotationWrapper)
@@ -1691,7 +1692,9 @@ class FlatfieldMaskParser:
         Get channel information from Omero map annotations
         or raise exception if no appropriate annotation is found.
         """
-        annotations = self._flatfield_obj.listAnnotations()
+        annotations = self._flatfield_obj.listAnnotations(
+            ns=OmeroScreenNS.METADATA
+        )
         map_annotations = [
             ann for ann in annotations if isinstance(ann, MapAnnotationWrapper)
         ]
@@ -2059,7 +2062,7 @@ class WellDataParser:
         map_ann = None
         if not self._well:
             raise ValueError(f"Well at pos {self._well_pos} not found")
-        for ann in self._well.listAnnotations():
+        for ann in self._well.listAnnotations(ns=OmeroScreenNS.METADATA):
             if ann and ann.getValue():
                 map_ann = dict(ann.getValue())
                 if "cell_line" in map_ann:
@@ -2234,7 +2237,7 @@ class ImageParser:
                 )
 
     def check_mip(self, image: ImageWrapper) -> Optional[str]:
-        annotations = image.listAnnotations()
+        annotations = image.listAnnotations(ns=OmeroScreenNS.METADATA)
         if map_anns := [
             ann for ann in annotations if isinstance(ann, MapAnnotationWrapper)
         ]:

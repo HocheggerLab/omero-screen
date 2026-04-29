@@ -38,6 +38,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from omero_screen.config import get_logger
+from omero_screen.constants import OmeroScreenNS
 
 logger = get_logger(__name__)
 console = Console()
@@ -285,8 +286,15 @@ class MetadataParser:
         Args:
             channel_data (dict[str, str]): Dictionary mapping channel names to indices to be added as annotations.
         """
-        delete_map_annotations(self.conn, self._get_plate())
-        add_map_annotations(self.conn, self._get_plate(), channel_data)
+        delete_map_annotations(
+            self.conn, self._get_plate(), ns=OmeroScreenNS.METADATA
+        )
+        add_map_annotations(
+            self.conn,
+            self._get_plate(),
+            channel_data,
+            ns=OmeroScreenNS.METADATA,
+        )
 
     def _add_well_annotations(self, well_data: dict[str, Any]) -> None:
         """Replace existing well annotations with new metadata for each well in the plate.
@@ -298,7 +306,7 @@ class MetadataParser:
             well_data (dict[str, Any]): Dictionary mapping annotation keys to lists of values for each well.
         """
         for well in self._get_plate().listChildren():
-            delete_map_annotations(self.conn, well)
+            delete_map_annotations(self.conn, well, ns=OmeroScreenNS.METADATA)
             well_name = well.getWellPos()
             try:
                 well_index = well_data["Well"].index(well_name)
@@ -314,7 +322,9 @@ class MetadataParser:
                 if key
                 != "Well"  # Skip the Well key since we don't need it in annotations
             }
-            add_map_annotations(self.conn, well, well_meta_data)
+            add_map_annotations(
+                self.conn, well, well_meta_data, ns=OmeroScreenNS.METADATA
+            )
 
     def _parse_channel_annotations(self) -> dict[str, str]:
         """Extract channel annotations from the plate and return as a dictionary.
@@ -328,7 +338,9 @@ class MetadataParser:
         Raises:
             ChannelAnnotationError: If no channel annotations are found on the plate.
         """
-        annotations: dict[str, str] = parse_annotations(self._get_plate())
+        annotations: dict[str, str] = parse_annotations(
+            self._get_plate(), ns=OmeroScreenNS.METADATA
+        )
         if len(annotations):
             return annotations
         else:
@@ -354,7 +366,9 @@ class MetadataParser:
         for well in self._get_plate().listChildren():
             well_pos = well.getWellPos()
 
-            well_annotation = parse_annotations(well)
+            well_annotation = parse_annotations(
+                well, ns=OmeroScreenNS.METADATA
+            )
             if not well_annotation:
                 raise WellAnnotationError(
                     f"No well annotations found for well {well_pos}", logger

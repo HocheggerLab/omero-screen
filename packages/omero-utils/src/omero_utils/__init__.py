@@ -7,9 +7,9 @@ Available modules:
 
 - omero_connect: Decorator that handles OMERO connection lifecycle management.
 - omero_plate: Functions for creating and managing OMERO plates.
-- omero_images: Functions for creating and managing OMERO images.
-- omero_map_anns: Functions for creating and managing OMERO map annotations.
-- omero_message: Functions for handling OMERO messages.
+- images: Functions for creating and managing OMERO images.
+- map_anns: Functions for creating and managing OMERO map annotations.
+- message: Functions for handling OMERO messages.
 
 """
 

@@ -57,6 +57,7 @@ from omero_utils.message import WellAnnotationError
 
 from omero_screen.cellcycle_analysis import cellcycle_analysis, combplot
 from omero_screen.config import get_logger
+from omero_screen.constants import OmeroScreenNS
 from omero_screen.gallery_figure import create_gallery
 from omero_screen.image_analysis import Image, ImageProperties, get_cell_model
 from omero_screen.image_classifier import ImageClassifier
@@ -235,7 +236,12 @@ def process_wells(
     # Pre-filter to non-empty wells so the progress bar total is accurate
     non_empty_wells = []
     for well in wells:
-        ann_lower = {k.lower(): v for k, v in parse_annotations(well).items()}
+        ann_lower = {
+            k.lower(): v
+            for k, v in parse_annotations(
+                well, ns=OmeroScreenNS.METADATA
+            ).items()
+        }
         cell_line = ann_lower.get("cell_line")
         if cell_line is None:
             raise WellAnnotationError(

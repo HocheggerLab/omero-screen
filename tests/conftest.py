@@ -324,8 +324,8 @@ def base_plate_with_annotations(
     1. Channel annotations to the plate (DAPI:0, Tub:1, EdU:2)
     2. Well annotations to each well (cell_line and condition)
     """
-    from omero.constants.metadata import NSCLIENTMAPANNOTATION
     from omero.gateway import MapAnnotationWrapper
+    from omero_screen.constants import OmeroScreenNS
 
     # First clean up any existing annotations
     for well in base_plate.listChildren():
@@ -340,7 +340,7 @@ def base_plate_with_annotations(
 
     # Create map annotation for plate
     map_ann = MapAnnotationWrapper(omero_conn)
-    map_ann.setNs(NSCLIENTMAPANNOTATION)
+    map_ann.setNs(OmeroScreenNS.METADATA)
     map_ann.setValue(channel_map)
     map_ann.save()
     base_plate.linkAnnotation(map_ann)
@@ -357,7 +357,7 @@ def base_plate_with_annotations(
             # Convert dict to list of tuples for map annotation
             well_map = list(well_data[well_pos].items())
             map_ann = MapAnnotationWrapper(omero_conn)
-            map_ann.setNs(NSCLIENTMAPANNOTATION)
+            map_ann.setNs(OmeroScreenNS.METADATA)
             map_ann.setValue(well_map)
             map_ann.save()
             well.linkAnnotation(map_ann)

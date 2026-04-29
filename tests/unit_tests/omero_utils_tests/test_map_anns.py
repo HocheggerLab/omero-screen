@@ -47,13 +47,15 @@ def test_delete_map_annotations(
 
     # Create and link map annotation
     test_map = {"key1": "value1", "key2": "value2"}
+    ns = "foo.com/bar"
     map_ann = MapAnnotationWrapper(conn=omero_conn)
     map_ann.setValue(list(test_map.items()))
+    map_ann.setNs(ns)
     map_ann.save()
     obj.linkAnnotation(map_ann)
 
     # Delete map annotation
-    delete_map_annotations(omero_conn, obj)
+    delete_map_annotations(omero_conn, obj, ns=ns)
     obj = omero_conn.getObject(obj_type, obj_id)
     # Verify deletion
     assert map_ann not in obj.listAnnotations()
@@ -74,7 +76,8 @@ def test_add_map_annotations(
 
     # Add map annotations
     test_map = {"key1": "value1", "key2": "value2"}
-    add_map_annotations(omero_conn, obj, test_map)
+    ns = "foo.com/bar"
+    add_map_annotations(omero_conn, obj, test_map, ns=ns)
 
     # Get all map annotations
     map_anns = [
@@ -88,6 +91,7 @@ def test_add_map_annotations(
         "Map annotation should be added as a single annotation"
     )
     for ann in map_anns:
+        assert ann.getNs() == ns, f"Expected namespace {ns}, got {ann.getNs()}"
         value_pairs = ann.getValue()
         assert (
             len(value_pairs) == 2

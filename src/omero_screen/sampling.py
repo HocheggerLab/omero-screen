@@ -24,6 +24,7 @@ from omero.rtypes import unwrap
 from tifffile import imwrite
 
 from omero_screen.config import get_logger
+from omero_screen.constants import OmeroScreenNS
 
 from .flatfield_corr import flatfieldcorr_name
 from .metadata_parser import MetadataParser
@@ -257,7 +258,7 @@ def _get_mip_image_id(image: ImageWrapper) -> int:
     Returns:
         The MIP image ID; else 0
     """
-    annotations = image.listAnnotations()
+    annotations = image.listAnnotations(ns=OmeroScreenNS.METADATA)
     if map_anns := [
         ann for ann in annotations if isinstance(ann, MapAnnotationWrapper)
     ]:

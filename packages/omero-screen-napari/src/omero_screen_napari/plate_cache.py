@@ -38,6 +38,7 @@ from omero.model import LengthI
 from omero.model.enums import UnitsLength
 from omero.rtypes import unwrap
 from omero_screen.config import get_logger, getenv_as_int
+from omero_screen.constants import OmeroScreenNS
 
 from omero_screen_napari.omero_data import OmeroConnection, get_project_id
 from omero_screen_napari.omero_image import (
@@ -848,7 +849,7 @@ def _parse_channel_data(plate: Any) -> dict[str, str]:
     Returns:
         Dict mapping channel_name -> channel_index (as string).
     """
-    annotations = plate.listAnnotations()
+    annotations = plate.listAnnotations(ns=OmeroScreenNS.METADATA)
     map_annotations = [
         ann for ann in annotations if isinstance(ann, MapAnnotationWrapper)
     ]
@@ -1141,7 +1142,7 @@ def _fetch_well_map(
         for well in plate.listChildren():
             well_pos = well.getWellPos()
             if well_pos in well_map:
-                for ann in well.listAnnotations():
+                for ann in well.listAnnotations(ns=OmeroScreenNS.METADATA):
                     if ann and ann.getValue():
                         map_ann = dict(ann.getValue())
                         if "cell_line" in map_ann:

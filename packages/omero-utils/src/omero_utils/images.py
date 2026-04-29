@@ -22,9 +22,13 @@ from omero.gateway import (
     MapAnnotationWrapper,
 )
 from omero_screen.config import get_logger
+from omero_screen.constants import OmeroScreenNS
 from typing_extensions import Generator
 
-from omero_utils.map_anns import add_map_annotations, delete_map_annotation
+from omero_utils.map_anns import (
+    add_map_annotations,
+    delete_map_annotation,
+)
 
 logger = get_logger(__name__)
 
@@ -36,7 +40,7 @@ def upload_masks(
     n_mask: npt.NDArray[Any],
     c_mask: npt.NDArray[Any] | None = None,
 ) -> None:
-    """Uploads generated images to OMERO server and links them to the specified dataset.
+    """Uploads segmentation masks to OMERO server and links them to the specified dataset.
 
     The id of the mask is stored as an annotation on the original screen image.
 
@@ -74,8 +78,15 @@ def upload_masks(
     )
 
     # Create a map annotation to store the segmentation mask ID
-    delete_map_annotation(conn, image, "Segmentation_Mask")
-    add_map_annotations(conn, image, {"Segmentation_Mask": mask.getId()})
+    delete_map_annotation(
+        conn, image, "Segmentation_Mask", ns=OmeroScreenNS.METADATA
+    )
+    add_map_annotations(
+        conn,
+        image,
+        {"Segmentation_Mask": mask.getId()},
+        ns=OmeroScreenNS.METADATA,
+    )
 
 
 def delete_masks(conn: BlitzGateway, dataset_id: int) -> None:
@@ -91,7 +102,9 @@ def delete_masks(conn: BlitzGateway, dataset_id: int) -> None:
         if child.getName().endswith("_segmentation"):
             image_id = int(child.getName()[: -len("_segmentation")])
             image = conn.getObject("Image", image_id)
-            delete_map_annotation(conn, image, "Segmentation_Mask")
+            delete_map_annotation(
+                conn, image, "Segmentation_Mask", ns=OmeroScreenNS.METADATA
+            )
             conn.deleteObject(child._obj)
 
 
@@ -133,7 +146,7 @@ def _check_mip_annotation(image: ImageWrapper) -> int:
         The annotation MIP image ID; else 0
 
     """
-    annotations = image.listAnnotations()
+    annotations = image.listAnnotations(ns=OmeroScreenNS.METADATA)
     if map_anns := [
         ann for ann in annotations if isinstance(ann, MapAnnotationWrapper)
     ]:
@@ -175,8 +188,10 @@ def _load_mip(
         mip_array.shape[0],
         dataset=dataset,
     )
-    delete_map_annotation(conn, image, "MIP")
-    add_map_annotations(conn, image, {"MIP": new_image.getId()})
+    delete_map_annotation(conn, image, "MIP", ns=OmeroScreenNS.METADATA)
+    add_map_annotations(
+        conn, image, {"MIP": new_image.getId()}, ns=OmeroScreenNS.METADATA
+    )
     return mip_array
 
 
@@ -214,6 +229,6 @@ def delete_mip(conn: BlitzGateway, image_id: int) -> None:
     """
     image = conn.getObject("Image", image_id)
     if mip_id := _check_mip_annotation(image):
-        delete_map_annotation(conn, image, "MIP")
+        delete_map_annotation(conn, image, "MIP", ns=OmeroScreenNS.METADATA)
         mip = conn.getObject("Image", mip_id)
         conn.deleteObject(mip._obj)
