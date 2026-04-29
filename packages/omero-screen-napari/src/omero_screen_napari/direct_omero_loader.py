@@ -332,11 +332,16 @@ def load_crops_from_omero(
                 fill_missing_channels(img, channel_indices)
                 for img in masked_images
             ]
+            # selected_crops stores only the selected channels (no RGB padding) for training data
+            omero_data.selected_crops = [
+                img[..., channel_indices] for img in masked_images
+            ]
         else:
             processed_images = [
                 np.mean(img, axis=-1, keepdims=True).astype(img.dtype)
                 for img in masked_images
             ]
+            omero_data.selected_crops = processed_images
         logger.info(
             f"After channel processing: {len(processed_images)} images"
         )

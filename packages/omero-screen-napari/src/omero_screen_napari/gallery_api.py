@@ -571,7 +571,6 @@ class RandomImageParser:
         self._parse_random_index()
         self._parse_random_images()
         if self._classifier:
-            self._omero_data.selected_crops = self._random_images
             self._omero_data.selected_cell_meta = [
                 self._omero_data.cropped_cell_meta[i]
                 for i in self._chosen_indices
@@ -609,6 +608,13 @@ class RandomImageParser:
                 logger.warning(
                     "Channel %s not found in channel_data map.", channel_name
                 )
+
+        # selected_crops stores only the selected channels (no RGB padding) for training data
+        if self._classifier:
+            self._omero_data.selected_crops = [
+                img[..., channel_indices] if channel_indices else img
+                for img in self._random_images
+            ]
 
         self._random_images = [
             fill_missing_channels(img, channel_indices)

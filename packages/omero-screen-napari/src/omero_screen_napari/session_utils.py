@@ -78,51 +78,59 @@ def parse_npy_file(
             else:
                 masked_images = list(omero_data.selected_crops)
 
-            # Convert channel names to indices, matching gallery_api.py approach
-            channels_int = []
-            for ch in user_data.channels:
-                # Try direct int conversion first (for '0', '1', etc.)
-                try:
-                    channels_int.append(int(ch))
-                    continue
-                except ValueError:
-                    pass
-                # Look up channel name in omero_data.channel_data
-                val = omero_data.channel_data.get(ch)
-                if val is not None:
-                    try:
-                        channels_int.append(int(float(val)))
-                    except ValueError:
-                        logger.warning(
-                            f"Channel index '{val}' for '{ch}' is not a valid number."
-                        )
-                else:
-                    logger.warning(
-                        f"Channel '{ch}' not found in channel_data map."
-                    )
+            n_selected = len(user_data.channels)
+            n_in_crop = masked_images[0].shape[-1] if masked_images else 0
 
-            # If channel names could not be resolved (old metadata without
-            # channel_data, or plate not loaded), fall back gracefully.
-            if not channels_int and masked_images:
-                n_requested = len(user_data.channels)
-                if n_requested <= 1:
-                    # Single channel: average all channels for grayscale
-                    logger.info(
-                        "Could not resolve channel names; averaging all "
-                        "channels for grayscale display"
-                    )
-                else:
-                    # Multi-channel: use first N available channels
-                    num_available = (
-                        masked_images[0].shape[2]
-                        if len(masked_images[0].shape) > 2
-                        else 1
-                    )
-                    channels_int = list(range(min(n_requested, num_available)))
-                    logger.info(
-                        f"Could not resolve channel names, using first "
-                        f"{len(channels_int)} of {num_available} channels"
-                    )
+            if n_in_crop == n_selected:
+                # New format: crops already contain only the selected channels
+                # in sequential order — use 0..n-1 for display mapping
+                channels_int = list(range(n_selected))
+                logger.info(
+                    "Crops already channel-extracted (%d channels); using sequential indices",
+                    n_selected,
+                )
+            else:
+                # Old format: crops contain all OMERO channels — resolve names to indices
+                channels_int = []
+                for ch in user_data.channels:
+                    try:
+                        channels_int.append(int(ch))
+                        continue
+                    except ValueError:
+                        pass
+                    val = omero_data.channel_data.get(ch)
+                    if val is not None:
+                        try:
+                            channels_int.append(int(float(val)))
+                        except ValueError:
+                            logger.warning(
+                                f"Channel index '{val}' for '{ch}' is not a valid number."
+                            )
+                    else:
+                        logger.warning(
+                            f"Channel '{ch}' not found in channel_data map."
+                        )
+
+                if not channels_int and masked_images:
+                    n_requested = len(user_data.channels)
+                    if n_requested <= 1:
+                        logger.info(
+                            "Could not resolve channel names; averaging all "
+                            "channels for grayscale display"
+                        )
+                    else:
+                        num_available = (
+                            masked_images[0].shape[2]
+                            if len(masked_images[0].shape) > 2
+                            else 1
+                        )
+                        channels_int = list(
+                            range(min(n_requested, num_available))
+                        )
+                        logger.info(
+                            f"Could not resolve channel names, using first "
+                            f"{len(channels_int)} of {num_available} channels"
+                        )
 
             if channels_int:
                 processed_masked_images = [
