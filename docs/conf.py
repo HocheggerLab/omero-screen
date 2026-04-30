@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.abspath('../src'))
 sys.path.insert(0, os.path.abspath('../packages/omero-screen-plots/src'))
 sys.path.insert(0, os.path.abspath('../packages/cellview/src'))
 sys.path.insert(0, os.path.abspath('../packages/omero-screen-napari/src'))
+sys.path.insert(0, os.path.abspath('../packages/cellclass/src'))
 # Add extensions directory from omero-screen-plots
 sys.path.insert(0, os.path.abspath('../packages/omero-screen-plots/docs'))
 
