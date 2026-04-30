@@ -66,24 +66,28 @@ omero-screen/
 Set `ENV` environment variable to select (default: `"development"`). Project root auto-detected via git / `pyproject.toml` / `OMERO_SCREEN_PROJECT_ROOT`.
 
 ### Required Variables
-```
-# OMERO connection
-USERNAME, PASSWORD, HOST, PROJECT_ID
+**OMERO connection**:
+- `USERNAME`, `PASSWORD`, `HOST`: OMERO server credentials
 
-# Logging (config.py)
-LOG_LEVEL, LOG_FORMAT, ENABLE_CONSOLE_LOGGING, ENABLE_FILE_LOGGING
-LOG_FILE_PATH, LOG_MAX_BYTES, LOG_BACKUP_COUNT
+**Logging** (configured in `config.py`):
+- `LOG_LEVEL`: DEBUG, INFO, WARNING, ERROR
+- `LOG_FORMAT`: Python logging format string
+- `ENABLE_CONSOLE_LOGGING`: true/false
+- `ENABLE_FILE_LOGGING`: true/false
+- `LOG_FILE_PATH`: Path relative to project root (default: logs/app.log)
+- `LOG_MAX_BYTES`: Log rotation size (default: 1MB)
+- `LOG_BACKUP_COUNT`: Number of backup logs (default: 5)
 
-# CellView database
-TEST_DATABASE, DATABASE_PATH
+**CellView database**:
+- `TEST_DATABASE`: true for test database, false for production
+- `DATABASE_PATH`: Path to DuckDB file (e.g., ~/cellview_data/cellview.db)
 
-# Optional pipeline config
-OMERO_SCREEN_CONFIG           # Path to JSON overriding MODEL_DICT / FEATURELIST
-OMERO_SCREEN_INFERENCE_MODEL  # Colon-separated .pth model names for classification
-OMERO_SCREEN_INFERENCE_GALLERY_WIDTH  # default: 10
-OMERO_SCREEN_INFERENCE_BATCH_SIZE     # default: 100
-OMERO_SCREEN_CLEAR_BORDER             # Border width pixels (default: 5)
-```
+**Optional configuration**:
+- `OMERO_SCREEN_CONFIG`: Path to JSON file overriding default model/feature config
+- `OMERO_SCREEN_INFERENCE_MODEL`: Colon-separated model names for classification
+- `OMERO_SCREEN_INFERENCE_GALLERY_WIDTH`: Gallery grid size (default: 10)
+- `OMERO_SCREEN_INFERENCE_BATCH_SIZE`: Batch size for inference (default: 100)
+- `OMERO_SCREEN_CLEAR_BORDER`: Border width for filtering edge cells (default: 5)
 
 ### Logging System
 Smart mode detection in `config.py`:
