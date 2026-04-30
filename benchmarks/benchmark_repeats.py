@@ -27,11 +27,13 @@ from omero.gateway import (
     FileAnnotationWrapper,
     MapAnnotationWrapper,
 )
+from omero_utils.map_anns import parse_annotations
 from omero_utils.omero_connect import omero_connect
 
 from omero_screen import default_config
 from omero_screen.benchmarking import get_benchmark, init_benchmark
 from omero_screen.config import project_root
+from omero_screen.constants import OmeroScreenNS
 from omero_screen.loops import plate_loop
 
 # CP4 model overrides: use cpsam for both nuclei and cell segmentation
@@ -149,35 +151,30 @@ def _delete_plate_dataset(conn: BlitzGateway, plate_id: int) -> None:
         conn: OMERO connection.
         plate_id: Plate ID (dataset name matches this).
     """
-    project_id = os.getenv("PROJECT_ID")
-    if not project_id:
-        print("  WARNING: PROJECT_ID not set, skipping dataset cleanup")
+    # look for annotation on the plate
+    plate = conn.getObject("Plate", plate_id)
+    if plate is None:
         return
 
-    dataset_name = str(plate_id)
-    datasets = list(
-        conn.getObjects(
-            "Dataset",
-            opts={"project": project_id},
-            attributes={"name": dataset_name},
+    anns = parse_annotations(plate, ns=OmeroScreenNS.DATASET)
+    dataset_id = anns.get("Dataset", 0) if anns else 0
+    dataset = conn.getObject("Dataset", dataset_id)
+
+    if dataset is None:
+        print(f"  No dataset for plate '{plate_id}' found — nothing to delete")
+        return
+
+    image_ids = [img.getId() for img in dataset.listChildren()]
+    if image_ids:
+        print(
+            f"  Deleting {len(image_ids)} images from dataset {dataset_id}..."
         )
-    )
+        conn.deleteObjects("Image", image_ids, deleteAnns=True, wait=True)
 
-    if not datasets:
-        print(f"  No dataset '{dataset_name}' found — nothing to delete")
-        return
+    print(f"  Deleting dataset for plate '{plate_id}' (ID: {dataset_id})...")
+    conn.deleteObjects("Dataset", [dataset_id], deleteAnns=True, wait=True)
 
-    for dataset in datasets:
-        dataset_id = dataset.getId()
-        image_ids = [img.getId() for img in dataset.listChildren()]
-        if image_ids:
-            print(
-                f"  Deleting {len(image_ids)} images from dataset {dataset_id}..."
-            )
-            conn.deleteObjects("Image", image_ids, deleteAnns=True, wait=True)
-
-        print(f"  Deleting dataset '{dataset_name}' (ID: {dataset_id})...")
-        conn.deleteObjects("Dataset", [dataset_id], deleteAnns=True, wait=True)
+    # Note: Annotations will be deleted in _delete_plate_metadata
 
     print("  Dataset cleanup complete")
 
