@@ -72,3 +72,4 @@ Documentation Contents
    Omero Screen Plots <omero-screen-plots/index>
    Cellview <cellview/index>
    Omero Screen Napari <omero-screen-napari/index>
+   CellClass <cellclass/index>
