@@ -111,7 +111,7 @@ class PlateDataset:
                 .val
             )
         else:
-            project_id = projects[0].getId().val
+            project_id = projects[0].getId()
         logger.debug(f"Using Screens project {project_id}")
 
         # find plate dataset
