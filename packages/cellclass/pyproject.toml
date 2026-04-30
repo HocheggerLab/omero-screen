@@ -1,0 +1,112 @@
+[project]
+name = "cellclass"
+version = "0.1.0"
+description = "Cell classification using machine learning models"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=1.26.4",
+    "scikit-image>=0.25.2",
+    "scikit-learn>=1.0.2",
+    "tifffile>=2021.11.2",
+    "torch>=2.7.0",
+    "torchvision>=0.14.1",
+    "tqdm>=4.67.3",
+]
+
+[project.optional-dependencies]
+wandb = ["wandb>=0.18.7"]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4.4",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+cellclass-train   = "cellclass.bin.run_training:main"
+cellclass-test    = "cellclass.bin.test_model:main"
+cellclass-dataset = "cellclass.bin.create_dataset:main"
+cellclass-extract = "cellclass.bin.extract_model:main"
+cellclass-batch   = "cellclass.bin.batch_training:main"
+cellclass-sbatch  = "cellclass.bin.sbatch_training:main"
+cellclass-sample  = "cellclass.bin.sample_images:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ===========================
+# Mypy Configuration
+# ===========================
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+explicit_package_bases = true
+namespace_packages = true
+allow_untyped_decorators = true
+mypy_path = "src"
+exclude = [
+    "tests/.*",
+    ".venv/.*",
+    "build/.*",
+    "dist/.*",
+    "src/bin/.*",
+    ".*/test_stats\\.py",
+]
+incremental = true
+cache_dir = ".mypy_cache"
+ignore_missing_imports = true
+pretty = true
+warn_unused_configs = false
+warn_unused_ignores = false
+
+# ===========================
+# Ruff Configuration
+# ===========================
+
+[tool.ruff]
+line-length = 79
+lint.select = [
+    "D", "E", "F", "W",
+    "UP",
+    "I",
+    "BLE",
+    "B",
+    "A",
+    "C4",
+    "ISC",
+    "G",
+    "PIE",
+    "SIM",
+]
+lint.ignore = [
+    "E501",
+    "UP006",
+    "UP007",
+    "SIM117",
+    "ISC001",
+    "G004",
+    "D203",
+    "D213",
+    "BLE001",
+]
+exclude = [
+    ".bzr", ".direnv", ".eggs", ".git", ".mypy_cache",
+    ".ruff_cache", ".venv", "__pypackages__",
+    "build", "dist", "venv",
+    "tests/", "*/tests/",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+pythonpath = ["src"]
