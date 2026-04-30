@@ -55,7 +55,7 @@ from qtpy.QtWidgets import (
 from skimage.util import map_array
 from tqdm import tqdm
 
-from omero_screen_napari.omero_data import OmeroData
+from omero_screen_napari.omero_data import OmeroData, get_dataset_id
 from omero_screen_napari.omero_data_singleton import (
     omero_data,
     reset_omero_data,
@@ -269,28 +269,17 @@ class UserInput:
 
     def _load_dataset(self) -> None:
         """
-        Looks for a data set that matches the plate name in the screen project
-        with id supplied by omero_data.project_id via the env variable.
+        Looks for a data set using the plate annotation.
         if it finds the data set it assigns it to the omero_data object
-        otherwise it will throw an error becuase the program cant proceed without
-        flatfielmasks and segmentationlabels stored in the data set.
+        otherwise it will throw an error because the program can't proceed without
+        flatfield masks and segmentation labels stored in the data set.
 
         Raises:
             ValueError: If the plate has not been assigned a dataset.
         """
-        project = self._conn.getObject("Project", self._omero_data.project_id)
-        if not project:
-            logger.error(
-                "Project for screen with ID %s not found.",
-                self._omero_data.project_id,
-            )
-            raise ValueError(
-                f"Project for screen with ID {self._omero_data.project_id} not found."
-            )
         if dataset := self._conn.getObject(
             "Dataset",
-            attributes={"name": str(self._omero_data.plate_id)},
-            opts={"project": project.getId()},
+            get_dataset_id(self._conn, self._omero_data.plate_id),
         ):
             self._omero_data.screen_dataset = dataset
         else:

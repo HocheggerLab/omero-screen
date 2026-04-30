@@ -12,16 +12,23 @@ from omero.gateway import (
     _PlateWrapper,
     _WellWrapper,
 )
+from omero_screen.constants import OmeroScreenNS
+from omero_utils.map_anns import parse_annotations
 
 
-def get_project_id() -> int:
-    """_summary_
-    Fetch Omero PROJECT_ID from the environment, converting it to int if necessary
+def get_dataset_id(conn: BlitzGateway, plate_id: int) -> int:
+    """Fetch Omero dataset id for the plate.
+    Args:
+        conn: Omero connection
+        plate_id: Plate ID
     Returns:
-        int: project id to find flat field masks and segmentation directory in Omero
+        int: Dataset ID (or 0 if not found)
     """
-    default_project_id = 0
-    return int(os.getenv("PROJECT_ID", default_project_id))
+    plate = conn.getObject("Plate", plate_id)
+    if plate is None:
+        return 0
+    anns = parse_annotations(plate, ns=OmeroScreenNS.DATASET)
+    return int(anns.get("Dataset", 0)) if anns else 0
 
 
 def get_data_path() -> Path:
@@ -45,7 +52,6 @@ class OmeroData:
     image_input: str = field(default_factory=str)
     image_index: list[int] = field(default_factory=list)
     # Screen data
-    project_id: int = field(default_factory=get_project_id)
     screen_dataset: _DatasetWrapper = field(
         default_factory=_DatasetWrapper
     )  # dataset with flatfield masks and segementations
@@ -100,7 +106,6 @@ class OmeroData:
         self.well_pos_list = []
         self.image_input = ""
         self.image_index = []
-        self.project_id = get_project_id()
         self.screen_dataset = _DatasetWrapper()
         self.plate_id = 0
         self.plate_name = ""

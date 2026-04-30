@@ -40,7 +40,7 @@ from omero.rtypes import unwrap
 from omero_screen.config import get_logger, getenv_as_int
 from omero_screen.constants import OmeroScreenNS
 
-from omero_screen_napari.omero_data import OmeroConnection, get_project_id
+from omero_screen_napari.omero_data import OmeroConnection, get_dataset_id
 from omero_screen_napari.omero_image import (
     add_cached_image,
     cache_size_limit,
@@ -325,9 +325,7 @@ def get_plate_metadata(
             v = None
     if v is None:
         logger.info("Caching plate %d: fetching metadata", plate_id)
-        v = _fetch_plate_metadata(
-            connection.get_conn(), plate_id, get_project_id()
-        )
+        v = _fetch_plate_metadata(connection.get_conn(), plate_id)
         _cache.set(_get_meta_key(plate_id), v, tag=plate_id)
     return v  # type: ignore[no-any-return]
 
@@ -356,7 +354,7 @@ def get_label_map(
     v = get_cached_label_map(plate_id)
     if v is None:
         logger.info("Caching plate %d: fetching label map", plate_id)
-        v = _fetch_label_map(connection.get_conn(), plate_id, get_project_id())
+        v = _fetch_label_map(connection.get_conn(), plate_id)
         _cache.set(_get_label_key(plate_id), v, tag=plate_id)
     return v  # type: ignore[no-any-return]
 
@@ -799,16 +797,13 @@ def cache_plate(
 # --------------- Metadata Fetching ---------------
 
 
-def _fetch_plate_metadata(
-    conn: BlitzGateway, plate_id: int, project_id: int
-) -> dict[str, Any]:
+def _fetch_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
     """Fetch channel_data, pixel_size, intensities, plate_name, flat-field
     correction mask ID from OMERO.
 
     Args:
         conn: Active OMERO connection.
         plate_id: OMERO plate ID.
-        project_id: OMERO project ID containing the screen dataset.
 
     Returns:
         Dict with keys: channel_data, pixel_size, intensities, plate_name, ff_mask_id.
@@ -830,7 +825,7 @@ def _fetch_plate_metadata(
     intensities = _parse_intensities_from_cellview(plate_id, channel_data)
 
     # Flat-field correction image
-    ff_mask_id = _fetch_flatfield_mask_id(conn, plate_id, project_id)
+    ff_mask_id = _fetch_flatfield_mask_id(conn, plate_id)
 
     return {
         "channel_data": channel_data,
@@ -1030,7 +1025,6 @@ def _default_intensities(
 def _fetch_flatfield_mask_id(
     conn: BlitzGateway,
     plate_id: int,
-    project_id: int,
 ) -> int:
     """Find flatfield mask ID from OMERO dataset.
 
@@ -1043,14 +1037,9 @@ def _fetch_flatfield_mask_id(
         Flatfield mask image ID.
     """
     # Find the screen dataset
-    project = conn.getObject("Project", project_id)
-    if project is None:
-        raise ValueError(f"Project {project_id} not found")
-
     dataset = conn.getObject(
         "Dataset",
-        attributes={"name": str(plate_id)},
-        opts={"project": project.getId()},
+        get_dataset_id(conn, plate_id),
     )
     if dataset is None:
         raise ValueError(f"Dataset for plate {plate_id} not found")
@@ -1170,26 +1159,20 @@ def _unwrap_length(value: float | None, unit: str | None) -> float | None:
 def _fetch_label_map(
     conn: BlitzGateway,
     plate_id: int,
-    project_id: int,
 ) -> dict[str, list[dict[str, int | tuple[int, ...]] | None]]:
     """Map well image_ids to their segmentation label image_ids with dimensions.
 
     Args:
         conn: Active OMERO connection.
         plate_id: OMERO plate ID.
-        project_id: OMERO project ID.
 
     Returns:
         Dict mapping well_pos -> [{"image_id", "dims"}, ...].
     """
-    project = conn.getObject("Project", project_id)
-    if project is None:
-        return {}
-
+    # Find the screen dataset
     dataset = conn.getObject(
         "Dataset",
-        attributes={"name": str(plate_id)},
-        opts={"project": project.getId()},
+        get_dataset_id(conn, plate_id),
     )
     if dataset is None:
         return {}

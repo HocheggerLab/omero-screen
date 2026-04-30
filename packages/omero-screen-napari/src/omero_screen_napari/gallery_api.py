@@ -16,7 +16,7 @@ from skimage import exposure
 from skimage.measure import find_contours, label, regionprops
 
 from omero_screen_napari.gallery_userdata import UserData
-from omero_screen_napari.omero_data import OmeroData
+from omero_screen_napari.omero_data import OmeroData, get_dataset_id
 from omero_screen_napari.utils import save_fig
 from omero_screen_napari.welldata_api import well_image_parser
 
@@ -1012,15 +1012,12 @@ def _reset_data(
     else:
         raise ValueError(f"Error connection to plate {omero_data.plate_id}")
     # Check if both project and dataset can be retrieved, and then assign dataset to omero_data.screen_dataset
-    if (project := conn.getObject("Project", omero_data.project_id)) and (
-        dataset := conn.getObject(
-            "Dataset",
-            attributes={"name": str(omero_data.plate_id)},
-            opts={"project": project.getId()},
-        )
+    if dataset := conn.getObject(
+        "Dataset",
+        get_dataset_id(conn, omero_data.plate_id),
     ):
         omero_data.screen_dataset = dataset
     else:
         raise ValueError(
-            f"Error connection to project {omero_data.project_id}"
+            f"Error connection to plate dataset {omero_data.plate_id}"
         )
