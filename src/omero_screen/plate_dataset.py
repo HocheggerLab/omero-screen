@@ -15,11 +15,9 @@ Typical usage:
 
 """
 
-import os
-
 import omero
 from omero.gateway import BlitzGateway
-from omero_utils.map_anns import add_map_annotations
+from omero_utils.map_anns import add_map_annotations, parse_annotations
 from omero_utils.message import PlateDataError, log_success
 
 from omero_screen.config import get_logger
@@ -33,7 +31,10 @@ SUCCESS_STYLE = "bold cyan"
 class PlateDataset:
     """Manages the creation and retrieval of OMERO datasets associated with screening plates.
 
-    This class ensures that a dataset corresponding to a given plate ID exists within the OMERO 'Screens' project. If the dataset does not exist, it will be created and linked to the project. The class also provides access to the dataset's ID for further operations.
+    This class ensures that a dataset corresponding to a given plate ID exists within the OMERO 'Screens' project.
+    If the project does not exist, it will be created.
+    If the dataset does not exist, it will be created and linked to the project.
+    The class also provides access to the dataset's ID for further operations.
 
     Args:
         conn (BlitzGateway): An active OMERO connection.
@@ -45,7 +46,7 @@ class PlateDataset:
         dataset_id (int): The OMERO dataset ID associated with the plate.
 
     Raises:
-        PlateDataError: If the project is missing, the project name is incorrect, or multiple datasets are found with the same name.
+        PlateDataError: If the plate is missing, or multiple datasets are found with the same name.
     """
 
     def __init__(self, conn: BlitzGateway, plate_id: int):
@@ -62,26 +63,59 @@ class PlateDataset:
     def _create_dataset(self) -> int:
         """Create a new dataset or return the ID of an existing one.
 
-        This method checks if a dataset exists for the given plate ID within the 'Screens' project.
+        This method checks if the plate is annotated with a dataset ID and returns it if found.
+        Otherwise, it checks if a dataset exists for the given plate ID within the 'Screens' project.
+        A 'Screens' project is created if it does not exist to store datasets associated with plates.
         If the dataset does not exist, it creates a new one and links it to the project.
         If multiple datasets are found with the same name, it raises an error.
+        Adds an annotation to the plate with the dataset ID.
 
         Returns:
             int: The ID of the dataset.
         """
-        dataset_name = str(self.plate_id)
-        project_id = os.getenv("PROJECT_ID")
-        try:
-            project = self.conn.getObject("Project", project_id)
-            assert project is not None, "Project is missing"
-            assert project.getName() == "Screens", (
-                "Project name does not match 'Screens'"
-            )
-        except Exception as e:
+        # look for annotation on the plate
+        plate = self.conn.getObject("Plate", self.plate_id)
+        if plate is None:
             raise PlateDataError(
-                f"Screens project with ID {project_id} not found", logger
-            ) from e
+                f"Plate missing: '{self.plate_id}'",
+                logger,
+            )
+        anns = parse_annotations(plate, ns=OmeroScreenNS.DATASET)
+        # if found, return the dataset ID
+        if anns:
+            dataset_id = anns.get("Dataset", 0)
+            if dataset_id:
+                logger.debug(
+                    f"Found dataset annotation for plate {self.plate_id}: {dataset_id}"
+                )
+                return int(dataset_id)
 
+        # else, look for Screens project
+        owner_id = self.conn.getUser().getId()
+        projects = list(
+            self.conn.getObjects(
+                "Project",
+                opts={"owner": owner_id},
+                attributes={"name": "Screens"},
+            )
+        )
+        # create project if missing
+        if len(projects) == 0:
+            logger.debug("Creating Screens project")
+            obj = omero.model.ProjectI()
+            obj.setName(omero.rtypes.rstring("Screens"))
+            project_id = (
+                self.conn.getUpdateService()
+                .saveAndReturnObject(obj)
+                .getId()
+                .val
+            )
+        else:
+            project_id = projects[0].getId().val
+        logger.debug(f"Using Screens project {project_id}")
+
+        # find plate dataset
+        dataset_name = str(self.plate_id)
         datasets = list(
             self.conn.getObjects(
                 "Dataset",
@@ -104,6 +138,7 @@ class PlateDataset:
             )
             return int(dataset_id)
         else:
+            # create a new dataset and link it to the project
             obj = omero.model.DatasetI()
             obj.setName(omero.rtypes.rstring(self.plate_id))
             obj = self.conn.getUpdateService().saveAndReturnObject(obj)
@@ -112,6 +147,7 @@ class PlateDataset:
             link.setChild(obj)
             link.setParent(omero.model.ProjectI(project_id, False))
             self.conn.getUpdateService().saveObject(link)
+            # annotate the plate with the dataset ID for future reference
             add_map_annotations(
                 self.conn,
                 self.conn.getObject("Plate", self.plate_id),
