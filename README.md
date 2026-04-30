@@ -53,7 +53,6 @@ ENV=production  # Options: development, testing, production
 USERNAME="omero-login-name"
 PASSWORD="omero-password"
 HOST="omero-server-host"
-PROJECT_ID= 5313  #set up a "Screens" project in omero and use the project id here
 DATA_PATH = 'omero-napari-data'
 
 # Logging configuration
@@ -256,7 +255,6 @@ Example `.env.e2etest` configuration:
 USERNAME=root
 PASSWORD=omero
 HOST=localhost
-PROJECT_ID=1
 DATA_PATH = 'omero-napari-data'
 
 # Logging configuration

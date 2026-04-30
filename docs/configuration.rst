@@ -23,7 +23,6 @@ Create a ``.env`` file in the root directory with the following variables:
     USERNAME="omero-login-name"
     PASSWORD="omero-password"
     HOST="omero-server-host"
-    PROJECT_ID=5313  # Project ID for "Screens" project
     DATA_PATH='omero-napari-data'
 
 **Logging Configuration**

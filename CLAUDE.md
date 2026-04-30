@@ -287,7 +287,6 @@ System uses `.env.{ENV}` pattern with fallback to `.env`:
 ### Required Variables
 **OMERO connection**:
 - `USERNAME`, `PASSWORD`, `HOST`: OMERO server credentials
-- `PROJECT_ID`: Default project for screen data
 
 **Logging** (configured in `config.py`):
 - `LOG_LEVEL`: DEBUG, INFO, WARNING, ERROR

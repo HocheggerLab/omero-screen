@@ -38,7 +38,6 @@ The widgets connect to OMERO using credentials from environment files. Create a
 USERNAME=your_omero_username
 PASSWORD=your_omero_password
 HOST=your.omero.server.com
-PROJECT_ID=123
 ```
 
 Select the environment with the `ENV` variable:
