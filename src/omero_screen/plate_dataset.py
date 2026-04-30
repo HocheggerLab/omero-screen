@@ -19,9 +19,11 @@ import os
 
 import omero
 from omero.gateway import BlitzGateway
+from omero_utils.map_anns import add_map_annotations
 from omero_utils.message import PlateDataError, log_success
 
 from omero_screen.config import get_logger
+from omero_screen.constants import OmeroScreenNS
 
 logger = get_logger(__name__)
 
@@ -110,6 +112,12 @@ class PlateDataset:
             link.setChild(obj)
             link.setParent(omero.model.ProjectI(project_id, False))
             self.conn.getUpdateService().saveObject(link)
+            add_map_annotations(
+                self.conn,
+                self.conn.getObject("Plate", self.plate_id),
+                {"Dataset": new_dataset_id},
+                ns=OmeroScreenNS.DATASET,
+            )
             log_success(
                 SUCCESS_STYLE,
                 f"Plate dataset created with ID {new_dataset_id} and linked to Screens project",
