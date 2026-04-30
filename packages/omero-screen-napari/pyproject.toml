@@ -7,7 +7,9 @@ authors = [
     { name = "hh65", email = "hh65@sussex.ac.uk" }
 ]
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+    "cellclass",
+]
 
 [project.entry-points."napari.manifest"]
 omero-screen-napari = "omero_screen_napari:napari.yaml"
@@ -139,3 +141,6 @@ major_version_zero = true
 bump_message = "bump: version $current_version → $new_version"
 update_changelog_on_bump = true
 annotated_tag = true
+
+[tool.uv.sources]
+cellclass = { workspace = true }

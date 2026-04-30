@@ -2273,6 +2273,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-mock" },
     { name = "ruff" },
+    { name = "sphinx-argparse" },
     { name = "sphinx-autobuild" },
     { name = "typing-extensions" },
 ]
@@ -2333,6 +2334,7 @@ dev = [
     { name = "pytest", specifier = ">=8.3.4" },
     { name = "pytest-mock", specifier = ">=3.14.0" },
     { name = "ruff", specifier = "==0.9.6" },
+    { name = "sphinx-argparse", specifier = ">=0.5.2" },
     { name = "sphinx-autobuild", specifier = ">=2025.8.25" },
     { name = "typing-extensions", specifier = ">=4.9.0" },
 ]
@@ -2350,6 +2352,12 @@ docs = [
 name = "omero-screen-napari"
 version = "0.3.4"
 source = { editable = "packages/omero-screen-napari" }
+dependencies = [
+    { name = "cellclass" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "cellclass", editable = "packages/cellclass" }]
 
 [[package]]
 name = "omero-screen-plots"

@@ -18,6 +18,7 @@ from qtpy.QtWidgets import (
     QHeaderView,
     QLabel,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -89,6 +90,10 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
         self.add_data_button = QPushButton("Add New Data")
         self.add_data_button.clicked.connect(self._on_add_new_data)
         action_layout.addWidget(self.add_data_button)
+
+        self.export_button = QPushButton("Export Dataset")
+        self.export_button.clicked.connect(self._on_export_dataset)
+        action_layout.addWidget(self.export_button)
 
         action_layout.addStretch()
 
@@ -492,6 +497,82 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
             f"Classifier '{self.classifier_name}' and all its data have been removed.",
         )
         self.accept()
+
+    def _on_export_dataset(self) -> None:
+        """Build rois.npz and train.txt in the classifier directory."""
+        import argparse
+
+        from cellclass.bin.create_dataset import run as create_dataset_run
+
+        classifier_dir = (
+            Path.home() / "omeroscreen_trainingdata" / self.classifier_name
+        )
+
+        progress = QProgressDialog("Building dataset…", None, 0, 0, self)
+        progress.setWindowTitle("Export Dataset")
+        progress.setWindowModality(Qt.WindowModal)  # type: ignore[attr-defined]
+        progress.setMinimumDuration(0)
+        progress.show()
+
+        from qtpy.QtWidgets import QApplication
+
+        QApplication.processEvents()
+
+        try:
+            args = argparse.Namespace(
+                dir=str(classifier_dir),
+                name="rois",
+                out=None,
+                ignore=["unassigned"],
+                duplicates=False,
+                channels=None,
+                single_label=True,
+            )
+            create_dataset_run(args)
+
+            npz_path = classifier_dir / "rois.npz"
+            train_txt_path = classifier_dir / "train.txt"
+            self._write_train_txt(train_txt_path, npz_path)
+
+        except Exception as e:
+            progress.close()
+            logger.exception(f"Dataset export failed: {e}")
+            QMessageBox.critical(self, "Export Failed", str(e))
+            return
+
+        progress.close()
+        QMessageBox.information(
+            self,
+            "Export Complete",
+            f"Dataset saved to:\n  {classifier_dir / 'rois.npz'}\n\n"
+            f"Training template saved to:\n  {classifier_dir / 'train.txt'}\n\n"
+            "Copy both files to your GPU server and run:\n"
+            "  cellclass-batch train.txt --script batch.sh\n"
+            "  bash batch.sh",
+        )
+
+    def _write_train_txt(self, train_txt_path: Path, npz_path: Path) -> None:
+        """Write a default training sweep template.
+
+        Uses the npz filename as a relative path so the file works from the
+        classifier directory on the GPU server.
+
+        Args:
+            train_txt_path: Destination path for train.txt
+            npz_path: Path to the generated rois.npz
+        """
+        npz_rel = npz_path.name
+        flags = "--lr-scheduler plateau --flip 3 -d cuda --cudnn-benchmark --pin-memory --num-workers 4"
+        lines = [
+            f"{npz_rel} --model efficientnetb3s --freeze-weights --lr 1e-3 {flags} --batch-size 64",
+            f"{npz_rel} --model efficientnetb3s --freeze-weights --lr 1e-4 {flags} --batch-size 64",
+            f"{npz_rel} --model densenet121 --lr 1e-3 {flags} --batch-size 64",
+            f"{npz_rel} --model densenet121 --lr 1e-4 {flags} --batch-size 64",
+            f"{npz_rel} --model shufflenet2x1_0 --lr 1e-3 {flags} --batch-size 128",
+            f"{npz_rel} --model squeezenet1_0 --lr 1e-3 {flags} --batch-size 128",
+        ]
+        train_txt_path.write_text("\n".join(lines) + "\n")
+        logger.info(f"Wrote training template: {train_txt_path}")
 
     def _on_add_new_data(self) -> None:
         """Open dialog to add new data from OMERO."""
