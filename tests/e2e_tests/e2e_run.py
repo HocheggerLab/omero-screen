@@ -33,10 +33,7 @@ from tests.e2e_tests.e2e_flatfield_corr import run_flatfield_corr_test
 from tests.e2e_tests.e2e_mip import run_mip_test
 from tests.e2e_tests.e2e_omero_screen import run_omero_screen_test
 from tests.e2e_tests.e2e_pixelsize import run_pixel_size_test
-from tests.e2e_tests.e2e_plate_dataset import (
-    run_plate_dataset_missing_project_test,
-    run_plate_dataset_test,
-)
+from tests.e2e_tests.e2e_plate_dataset import run_plate_dataset_test
 
 # Set up output redirection for SLURM mode before any other imports
 parser = argparse.ArgumentParser(description="Run metadata integration tests")
@@ -84,7 +81,6 @@ TEST_FUNCTIONS = {
     "multierror": run_plate_multierror,
     "pixel_size": run_pixel_size_test,
     "plate_data": run_plate_dataset_test,
-    "missing_screen_project": run_plate_dataset_missing_project_test,
     "flatfield": run_flatfield_corr_test,
     "mip": run_mip_test,
     "omero_screen": run_omero_screen_test,

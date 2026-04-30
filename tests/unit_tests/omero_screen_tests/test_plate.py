@@ -37,13 +37,6 @@ def _run_plate_image(omero_conn, size_z, size_t):
         df = _get_channel_test_data()
         excel_file_handling(omero_conn, plate_id, df)
 
-        # Create Screens project
-        project = ProjectI()
-        project.setName(rstring("Screens"))
-        project_id = omero_conn.getUpdateService().saveAndReturnObject(project).getId().getValue()
-        os.environ["PROJECT_ID"] = str(project_id)
-        print(f"Created project {project_id}")
-
         # add flatfield correction image.
         # assume the standard plate image size.
         dataset_id = PlateDataset(omero_conn, plate_id).dataset_id
