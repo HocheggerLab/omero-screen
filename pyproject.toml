@@ -91,6 +91,7 @@ dev = [
     "nbstripout",
     "jupytext",
     "sphinx-autobuild>=2025.8.25",
+    "sphinx-argparse>=0.5.2",
 ]
 
 docs = [ # installed only when we build docs

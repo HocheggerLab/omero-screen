@@ -793,8 +793,8 @@ if __name__ == "__main__":
     group.add_argument(
         "--entity",
         type=none_or_str,
-        default="hocheggerlab",
-        help="Weights and Biases team (default: %(default)s)",
+        default=None,
+        help="Weights and Biases team/entity (default: logged-in user's workspace)",
     )
     group.add_argument(
         "--project",
