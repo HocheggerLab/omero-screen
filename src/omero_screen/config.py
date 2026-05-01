@@ -251,7 +251,8 @@ def get_logger(name: str) -> logging.Logger:
         if ENABLE_CONSOLE_LOGGING:
             ch = RichHandler()
             ch.setLevel(getattr(logging, LOG_LEVEL, logging.DEBUG))
-            ch.setFormatter(formatter)
+            # Rich console will add time, level and source file line to log messages.
+            # Do not use the custom formatter.
             handlers.append(ch)
 
         # File Handler
