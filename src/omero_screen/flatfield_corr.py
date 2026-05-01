@@ -75,7 +75,7 @@ def flatfieldcorr(
     for image in dataset.listChildren():
         if image.getName() == image_name:
             image_id = image.getId()
-            print(f"Image {image_name} already exists in the dataset.")
+            logger.info("Image %s already exists in the dataset.", image_name)
             image_dict = load_image_to_dict(conn, image_id)
             break  # stop the loop once the image is found
     # If the image is not already present, generate it
@@ -89,7 +89,7 @@ def flatfieldcorr(
     if len(image_dict) == 0:
         raise ValueError("No flatfield correction masks found")
     else:
-        print("Flatfield correction masks successfully loaded")
+        logger.info("Flatfield correction masks successfully loaded")
     return image_dict
 
 
@@ -214,8 +214,8 @@ def generate_corr_dict(
     Returns:
         Dictionary containing channel names and corresponding flatfield correction masks.
     """
-    print(
-        f"\nAssembling Flatfield Correction Masks for {len(channels)} Channels\n"
+    logger.info(
+        "Assembling Flatfield Correction Masks for %d Channels", len(channels)
     )
     corr_dict = {}
     img_list = random_imgs(plate)
