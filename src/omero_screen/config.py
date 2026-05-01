@@ -22,6 +22,8 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from dotenv import load_dotenv
+from rich.console import Console
+from rich.logging import RichHandler
 
 # Define project_root at module level
 # Define project_root at module level
@@ -247,7 +249,7 @@ def get_logger(name: str) -> logging.Logger:
 
         # Console Handler
         if ENABLE_CONSOLE_LOGGING:
-            ch = logging.StreamHandler()
+            ch = RichHandler()
             ch.setLevel(getattr(logging, LOG_LEVEL, logging.DEBUG))
             ch.setFormatter(formatter)
             handlers.append(ch)
@@ -319,6 +321,18 @@ def get_logger(name: str) -> logging.Logger:
         logging.getLogger("cellpose").setLevel(logging.WARNING)
 
     return logger
+
+
+def get_console() -> Console:
+    """Get the console from a configured console logger, or a default.
+
+    Returns:
+        Rich console
+    """
+    for h in logging.getLogger().handlers:
+        if isinstance(h, RichHandler):
+            return h.console
+    return Console()
 
 
 def getenv_as_int(name: str, default: int) -> int:

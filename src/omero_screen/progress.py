@@ -17,7 +17,6 @@ import time
 from collections.abc import Generator, Iterable, Iterator
 from contextlib import contextmanager
 
-from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
 from rich.progress import (
@@ -31,7 +30,7 @@ from rich.progress import (
 from rich.table import Table
 from rich.text import Text
 
-from omero_screen.config import get_logger
+from omero_screen.config import get_console, get_logger
 
 logger = get_logger(__name__)
 
@@ -41,6 +40,8 @@ _NOOP = object()
 
 class ScreenProgress:
     """Single live display for the entire plate analysis run.
+
+    Shares the same Rich console as the logger (if configured).
 
     Args:
         plate_id: OMERO plate ID shown in the panel header.
@@ -79,7 +80,7 @@ class ScreenProgress:
         )
         self._img_task: TaskID = self._img_progress.add_task("", total=1)
         self._live = Live(
-            self._render(), refresh_per_second=1, console=Console(stderr=False)
+            self._render(), refresh_per_second=1, console=get_console()
         )
 
     # ------------------------------------------------------------------
