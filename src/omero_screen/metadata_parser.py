@@ -33,15 +33,13 @@ from omero_utils.message import (
     WellAnnotationError,
     log_success,
 )
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from omero_screen.config import get_logger
+from omero_screen.config import get_console, get_logger
 from omero_screen.constants import OmeroScreenNS
 
 logger = get_logger(__name__)
-console = Console()
 
 SUCCESS_STYLE = "bold cyan"
 
@@ -436,10 +434,10 @@ class MetadataParser:
                 )
 
         # Display the tables in panels
-        console.print(
+        get_console().print(
             Panel(channel_table, title="Channel Data", border_style="cyan")
         )
-        console.print(
+        get_console().print(
             Panel(well_table, title="Well Data Summary", border_style="cyan")
         )
 

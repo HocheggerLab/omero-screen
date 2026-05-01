@@ -182,8 +182,6 @@ def aggregate_plates(
                     _get_mask_from_map(conn, im2[1], map2),
                     (round(y), round(x)),
                 )
-                # print(label1, len(label1))
-                # print(label2)
                 # Convert label1 -> label2 map to the row index -> col index
                 # Note: df1 int columns are converted to float to handle NAs during concatentation
                 row_ind = _map_label_to_index(
@@ -192,8 +190,6 @@ def aggregate_plates(
                 col_ind = _map_label_to_index(
                     label2, np.array(df2w["label"].values)
                 )
-                # print(row_ind, len(row_ind))
-                # print(col_ind)
                 # Drop unmapped labels
                 selected = (row_ind >= 0) & (col_ind >= 0)
                 row_ind = row_ind[selected]

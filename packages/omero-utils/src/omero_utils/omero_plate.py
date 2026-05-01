@@ -29,6 +29,7 @@ from omero.model import (
 )
 from omero.model.enums import UnitsLength
 from omero.rtypes import rint, rstring
+from omero_screen.config import get_logger
 from skimage.draw import ellipse
 from typing_extensions import Generator
 
@@ -255,6 +256,8 @@ def cleanup_plate(conn: BlitzGateway, plate: PlateI) -> None:
             deleteChildren=True,
             wait=True,
         )
-        print(f"Successfully deleted plate {plate.getId()}")
+        get_logger(__name__).info(
+            "Successfully deleted plate %s", plate.getId()
+        )
     except Exception as e:  # noqa: BLE001
-        print(f"Failed to delete plate: {e}")
+        get_logger(__name__).error("Failed to delete plate: %s", e)

@@ -83,9 +83,9 @@ class ImageClassifier:
         active_channels, class_options = self._extract_channels(meta_filename)
 
         if active_channels:
-            print(f"Active Channels: {active_channels}")
+            logger.info("Active Channels: %s", active_channels)
         else:
-            print("No active channels found.")
+            logger.warning("No active channels found.")
             return None, None, None
 
         # list of random samples, total number of items
