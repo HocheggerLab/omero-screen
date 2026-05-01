@@ -73,11 +73,3 @@ Quick Start
    api/countplot
    api/normalise
    api/utils
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Additional Information
-
-   contributing
-   changelog
-   license

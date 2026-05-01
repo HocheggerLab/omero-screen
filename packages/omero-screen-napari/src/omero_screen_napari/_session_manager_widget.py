@@ -501,12 +501,61 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
     def _on_export_dataset(self) -> None:
         """Build rois.npz and train.txt in the classifier directory."""
         import argparse
+        import json
 
+        import numpy as np
         from cellclass.bin.create_dataset import run as create_dataset_run
 
         classifier_dir = (
             Path.home() / "omeroscreen_trainingdata" / self.classifier_name
         )
+
+        # Read expected channel count from metadata.json
+        meta_path = classifier_dir / "metadata.json"
+        expected_channels: int | None = None
+        if meta_path.exists():
+            try:
+                with meta_path.open() as f:
+                    meta = json.load(f)
+                channels = meta.get("user_data", {}).get("channels", [])
+                if channels:
+                    expected_channels = len(channels)
+            except Exception:
+                pass
+
+        # Pre-validate all session .npy files before running create_dataset
+        if expected_channels is not None:
+            sessions = self.db.list_sessions(self.classifier_name)
+            bad_files: list[str] = []
+            for session in sessions or []:
+                fp = Path(session["file_path"])
+                if not fp.exists():
+                    continue
+                try:
+                    d = np.load(fp, allow_pickle=True).item()
+                    imgs = d["data"][0]
+                    if imgs and imgs[0].ndim >= 3:
+                        n_ch = imgs[0].shape[-1]
+                        if n_ch != expected_channels:
+                            bad_files.append(
+                                f"  {fp.name}  ({n_ch} channels, expected {expected_channels})"
+                            )
+                except Exception:
+                    pass
+
+            if bad_files:
+                file_list = "\n".join(bad_files)
+                QMessageBox.critical(
+                    self,
+                    "Channel Mismatch",
+                    f"The following session files have a different number of channels "
+                    f"than the classifier metadata ({expected_channels} channels):\n\n"
+                    f"{file_list}\n\n"
+                    "These sessions were likely saved by an older version of the widget "
+                    "before channel filtering was applied. Please delete them from the "
+                    "Session Manager and re-annotate if needed.",
+                )
+                return
 
         progress = QProgressDialog("Building dataset…", None, 0, 0, self)
         progress.setWindowTitle("Export Dataset")
@@ -534,6 +583,15 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
             train_txt_path = classifier_dir / "train.txt"
             self._write_train_txt(train_txt_path, npz_path)
 
+        except SystemExit as e:
+            progress.close()
+            logger.error(f"Dataset export failed: {e}")
+            QMessageBox.critical(
+                self,
+                "Export Failed",
+                "Dataset creation failed — check the terminal output for details.",
+            )
+            return
         except Exception as e:
             progress.close()
             logger.exception(f"Dataset export failed: {e}")
