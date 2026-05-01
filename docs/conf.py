@@ -99,7 +99,13 @@ source_suffix = {
 }
 
 templates_path = ['_templates']
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+exclude_patterns = [
+    '_build',
+    'Thumbs.db',
+    '.DS_Store',
+    'omero-screen-plots/test_plots.md',
+    'omero-screen-plots/dev_notes',
+]
 
 # -- Options for HTML output -------------------------------------------------
 
@@ -111,7 +117,6 @@ html_theme_options = {
     'collapse_navigation': False,
     'sticky_navigation': True,
     'includehidden': True,
-    'display_version': True,
 }
 
 # -- Intersphinx configuration ----------------------------------------------
