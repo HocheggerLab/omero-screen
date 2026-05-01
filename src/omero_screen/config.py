@@ -31,6 +31,9 @@ project_root = Path(__file__).parent.parent.parent.resolve()
 
 _LOGGING_CONFIGURED = False
 
+# Global console instance
+_console: Console = Console()
+
 
 def find_project_root() -> Path:
     """Find the project root directory using multiple strategies.
@@ -249,7 +252,7 @@ def get_logger(name: str) -> logging.Logger:
 
         # Console Handler
         if ENABLE_CONSOLE_LOGGING:
-            ch = RichHandler()
+            ch = RichHandler(console=get_console())
             ch.setLevel(getattr(logging, LOG_LEVEL, logging.DEBUG))
             # Rich console will add time, level and source file line to log messages.
             # Do not use the custom formatter.
@@ -325,15 +328,12 @@ def get_logger(name: str) -> logging.Logger:
 
 
 def get_console() -> Console:
-    """Get the console from a configured console logger, or a default.
+    """Get the global console.
 
     Returns:
         Rich console
     """
-    for h in logging.getLogger().handlers:
-        if isinstance(h, RichHandler):
-            return h.console
-    return Console()
+    return _console
 
 
 def getenv_as_int(name: str, default: int) -> int:

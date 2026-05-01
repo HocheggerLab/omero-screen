@@ -19,22 +19,13 @@ import traceback
 from datetime import datetime
 from typing import Optional
 
-from omero_screen.config import get_logger
-from rich.console import Console
+from omero_screen.config import get_console, get_logger
 from rich.panel import Panel
 
 # Initialize logger with the module's name
 logger = get_logger(__name__)
 
 ERROR_STYLE = "bold red"
-
-# Global console instance
-_console: Console = Console()
-
-
-def get_console() -> Console:
-    """Get the shared console instance."""
-    return _console
 
 
 def log_connection_success(
