@@ -11,6 +11,7 @@ from collections.abc import Callable
 from typing import Any, Optional
 
 import numpy as np
+import polars as pl
 from magicgui import magic_factory
 from napari.layers import Image
 from napari.qt.threading import GeneratorWorker, create_worker
@@ -21,9 +22,12 @@ from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
     QComboBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QMessageBox,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -53,33 +57,47 @@ logger = get_logger(__name__)
 
 
 class MetadataWidget(QWidget):  # type: ignore
-    """
-    A custom QWidget that displays metadata in a QLabel. The metadata is displayed as key-value pairs.
+    """Displays well metadata and optional classifier class counts."""
 
-    Inherits from:
-    QWidget: Base class for all user interface objects in PyQt5.
-
-    Attributes:
-    layout (QVBoxLayout): Layout for the widget.
-    label (QLabel): Label where the metadata is displayed.
-
-    Args:
-    metadata (dict): The metadata to be displayed. It should be a dictionary where the keys are the metadata
-    fields and the values are the metadata values.
-    """
-
-    def __init__(self, metadata: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        metadata: dict[str, Any],
+        classifier_data: dict[str, list[tuple[str, int]]] | None = None,
+    ) -> None:
         super().__init__()
         self._layout = QVBoxLayout()
+        self._layout.setContentsMargins(4, 4, 4, 4)
+        self._layout.setSpacing(4)
+
         self.label = QLabel()
         label_text = "".join(
             f"{key}: {value}\n" for key, value in metadata.items()
         )
-        self.label.setText(
-            label_text.rstrip()
-        )  # Remove the last newline character
-
+        self.label.setText(label_text.rstrip())
         self._layout.addWidget(self.label)
+
+        if classifier_data:
+            self._layout.addWidget(QLabel("<b>Classifiers</b>"))
+            table = QTableWidget(0, 3)
+            table.setHorizontalHeaderLabels(["Classifier", "Class", "Cells"])
+            table.setEditTriggers(QTableWidget.NoEditTriggers)  # type: ignore[attr-defined]
+            table.setSelectionMode(QTableWidget.NoSelection)  # type: ignore[attr-defined]
+            table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)  # type: ignore[attr-defined]
+            table.verticalHeader().setVisible(False)
+            table.setSortingEnabled(False)
+            for classifier, entries in classifier_data.items():
+                for class_val, count in entries:
+                    row = table.rowCount()
+                    table.insertRow(row)
+                    table.setItem(row, 0, QTableWidgetItem(classifier))
+                    table.setItem(row, 1, QTableWidgetItem(str(class_val)))
+                    table.setItem(row, 2, QTableWidgetItem(str(count)))
+            row_height = 25
+            header_height = 26
+            table.setFixedHeight(header_height + row_height * table.rowCount())
+            self._layout.addWidget(table)
+
+        self._layout.addStretch()
         self.setLayout(self._layout)
 
 
@@ -910,6 +928,39 @@ def on_contrast_change(event: Any) -> None:
     omero_data.intensities[channel_number] = tuple(layer.contrast_limits)
 
 
+def _extract_classifier_data(
+    well_pos: str | None,
+) -> dict[str, list[tuple[str, int]]] | None:
+    """Return per-class cell counts for each classifier column in the current well."""
+    if well_pos is None:
+        return None
+    try:
+        schema = omero_data.plate_data.collect_schema()
+        all_cols = schema.names()
+        classifier_cols = [c for c in all_cols if c.startswith("classifier_")]
+        if not classifier_cols:
+            return None
+        well_df = omero_data.plate_data.filter(
+            pl.col("well") == well_pos
+        ).collect()
+        result: dict[str, list[tuple[str, int]]] = {}
+        for col in classifier_cols:
+            counts = (
+                well_df.select(pl.col(col).drop_nulls())
+                .get_column(col)
+                .value_counts()
+                .sort("count", descending=True)
+            )
+            label = col.removeprefix("classifier_")
+            result[label] = [(str(r[0]), r[1]) for r in counts.iter_rows()]
+        return result if any(result.values()) else None
+    except Exception:
+        logger.warning(
+            "Could not extract classifier data for well %s", well_pos
+        )
+        return None
+
+
 def handle_metadata_widget(
     viewer: Viewer,
     slider_position: int,
@@ -932,11 +983,17 @@ def handle_metadata_widget(
 
     # Include well position in the displayed metadata
     well_metadata: dict[str, Any] = {}
-    if well_index < len(omero_data.well_pos_list):
-        well_metadata["Well"] = omero_data.well_pos_list[well_index]
+    well_pos = (
+        omero_data.well_pos_list[well_index]
+        if well_index < len(omero_data.well_pos_list)
+        else None
+    )
+    if well_pos:
+        well_metadata["Well"] = well_pos
     well_metadata.update(omero_data.well_metadata_list[well_index])
 
-    metadata_widget = MetadataWidget(well_metadata)
+    classifier_data = _extract_classifier_data(well_pos)
+    metadata_widget = MetadataWidget(well_metadata, classifier_data)
     viewer.window.add_dock_widget(metadata_widget)
 
 

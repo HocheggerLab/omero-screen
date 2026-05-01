@@ -16,6 +16,8 @@
 
 import argparse
 import os
+import pathlib
+import sys
 
 
 def file_path(path: str) -> str:
@@ -161,8 +163,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--cmd",
-        default="run_training.py",
-        help="Program (default: %(default)s)",
+        default=str(pathlib.Path(sys.executable).parent / "cellclass-train"),
+        help="Program (default: cellclass-train in the active Python environment)",
     )
 
     args = parser.parse_args()
