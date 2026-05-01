@@ -17,7 +17,6 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-import omero
 import pandas as pd
 import skimage.transform
 import torch
@@ -57,11 +56,11 @@ class ImageClassifier:
         self.gallery_dict: dict[str, list[Any]] = {}
 
         self.model, self.active_channels, self.class_options = (
-            self._load_model_from_omero(conn, "CNN_Models", model_name)
+            self._load_model_from_omero(conn, model_name)
         )
 
     def _load_model_from_omero(
-        self, conn: BlitzGateway, project_name: str, model_name: str
+        self, conn: BlitzGateway, model_name: str
     ) -> tuple[
         torch.jit.ScriptModule | None, list[str] | None, list[str] | None
     ]:
@@ -69,19 +68,14 @@ class ImageClassifier:
 
         Args:
             conn: Connection to OMERO
-            project_name: Name of project containing the models
             model_name: Name of classification model
         Returns:
             model: classification model; active_channels: list of channels used for the model; class_options: list of the classes assigned by the model
         """
-        model_filename = self._download_file(
-            conn, project_name, model_name, model_name + ".pt"
-        )
+        model_filename = self._download_file(conn, model_name + ".pt")
         if not model_filename:
             return None, None, None
-        meta_filename = self._download_file(
-            conn, project_name, model_name, model_name + ".json"
-        )
+        meta_filename = self._download_file(conn, model_name + ".json")
         if not meta_filename:
             return None, None, None
 
@@ -110,16 +104,12 @@ class ImageClassifier:
     def _download_file(
         self,
         conn: BlitzGateway,
-        project_name: str,
-        dataset_name: str,
         file_name: str,
     ) -> pathlib.Path | None:
         """Download the file attachment.
 
         Args:
             conn: Connection to OMERO
-            project_name: The name of the project in OMERO.
-            dataset_name: The name of the dataset in OMERO.
             file_name: The name of the file attachment in OMERO.
 
         Returns:
@@ -133,53 +123,26 @@ class ImageClassifier:
         if not local_path.exists():
             local_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Find the project in OMERO
-            project = conn.getObject(
-                "Project", attributes={"name": project_name}
+            files = list(
+                conn.getObjects("OriginalFile", attributes={"name": file_name})
             )
-            if project is None:
+            if not files:
+                logger.warning("File '%s' not found in OMERO.", file_name)
+                return None
+            if len(files) != 1:
                 logger.warning(
-                    "Project '%s' not found in OMERO.", project_name
+                    "Multiple files with name '%s' found in OMERO.", file_name
                 )
                 return None
 
-            # Find the dataset in OMERO
-            dataset = next(
-                (
-                    ds
-                    for ds in project.listChildren()
-                    if ds.getName() == dataset_name
-                ),
-                None,
-            )
-            if dataset is None:
-                logger.warning(
-                    "Dataset '%s' not found in project '%s'.",
-                    dataset_name,
-                    project_name,
-                )
-                return None
+            # Download the model file
+            attachment = files[0]
+            with open(local_path, "wb") as f:
+                for chunk in attachment.getFileInChunks():
+                    f.write(chunk)
+            logger.info("Downloaded model file to %s", local_path)
+            return local_path
 
-            # Check annotations in the dataset
-            for attachment in dataset.listAnnotations():
-                if (
-                    isinstance(attachment, omero.gateway.FileAnnotationWrapper)
-                    and attachment.getFileName() == file_name
-                ):
-                    # Download the model file
-                    with open(local_path, "wb") as f:
-                        for chunk in attachment.getFileInChunks():
-                            f.write(chunk)
-                    logger.info("Downloaded model file to %s", local_path)
-                    return local_path
-
-            logger.warning(
-                "File '%s' not found in dataset '%s' under project '%s'.",
-                file_name,
-                dataset_name,
-                project_name,
-            )
-            return None
         # Already cached
         return local_path
 
