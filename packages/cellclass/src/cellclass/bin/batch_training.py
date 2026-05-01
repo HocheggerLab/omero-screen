@@ -15,6 +15,8 @@
 """Generate and run batch training shell scripts from a training plan file."""
 
 import argparse
+import pathlib
+import sys
 
 from cellclass.bin_utils import file_path
 
@@ -144,8 +146,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--cmd",
-        default="run_training.py",
-        help="Program (default: %(default)s)",
+        default=str(pathlib.Path(sys.executable).parent / "cellclass-train"),
+        help="Program (default: cellclass-train in the active Python environment)",
     )
 
     args = parser.parse_args()

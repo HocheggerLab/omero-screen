@@ -140,6 +140,7 @@ class CroppedImageParser:
     def _prepare_data_for_cropping(self) -> None:
         """Prepare separate lists for each image with its associated centroids and ids."""
         df = self._select_cellcycledata(self._well_data)
+        df = self._select_classifierdata(df)
 
         # Filter: Only keep images that are actually loaded in omero_data
         loaded_ids = set(self._omero_data.image_ids)
@@ -232,6 +233,23 @@ class CroppedImageParser:
         raise ValueError(
             f"Invalid cell cycle phase: {cellcycle}. Available phases in this well: {unique_phases}"
         )
+
+    def _select_classifierdata(self, df: pl.DataFrame) -> pl.DataFrame:
+        value = self._user_data.classifier_filter.strip()
+        if not value:
+            return df
+        classifier_cols = [
+            c for c in df.columns if c.startswith("classifier_")
+        ]
+        for col in classifier_cols:
+            if value in df[col].unique().to_list():
+                return df.filter(pl.col(col) == value)
+        logger.warning(
+            "Classifier filter '%s' not found in any classifier column: %s",
+            value,
+            classifier_cols,
+        )
+        return df
 
     def _select_centroids(
         self, df: pl.DataFrame
@@ -804,8 +822,9 @@ class ParseGallery:
         channel_list = [
             channel for channel in self._user_data.channels if channel != ""
         ]
+        classifier_str = self._user_data.classifier_filter.strip() or "None"
         ax.set_title(
-            f"well: {self._user_data.well}\n{metadata_str}\nchannels: {', '.join(channel_list)}, cellcycle phase: {self._user_data.cellcycle}, timepoint: {self._user_data.timepoint}",
+            f"well: {self._user_data.well}\n{metadata_str}\nchannels: {', '.join(channel_list)}, cellcycle phase: {self._user_data.cellcycle}, classifier filter: {classifier_str}, timepoint: {self._user_data.timepoint}",
             fontsize=12,
             fontweight="bold",
         )
