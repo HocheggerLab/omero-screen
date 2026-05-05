@@ -20,7 +20,7 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
     """
     # Validate installation
     omero_screen = "omero-screen"
-    omero_screen_prog = "run_omero_screen.py"
+    omero_screen_prog = "run-omero-screen.py"
     send_mail = "send-mail.py"
     torch_test = "torch-test.py"
 

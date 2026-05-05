@@ -10,7 +10,7 @@ Aligns multiple repeat OMERO screen plate experiments. This is used to register 
 
 .. code-block:: bash
 
-    python bin/align_plates.py [ID [ID ...]] [options]
+    python bin/align-plates.py [ID [ID ...]] [options]
 
 **Arguments:**
 
@@ -20,7 +20,7 @@ Aligns multiple repeat OMERO screen plate experiments. This is used to register 
 
 *   ``--seed N``: Random seed for samples.
 *   ``--channel NAME``: Alignment channel (default: DAPI).
-*   ``-n, --number_of_alignments N``: Number of alignments used to create the average (default: 5).
+*   ``-n N``: Number of alignments used to create the average (default: 5).
 *   ``--sample-alignments``: Compute per-sample alignments; else the specified number of alignments.
 *   ``--threshold N``: Distance threshold for alignments (default: 100).
 *   ``--tolerance N``: Distance tolerance for alignments to their centroids (default: 10).
@@ -33,7 +33,7 @@ Combines multiple repeat OMERO screen experiments into a single dataset.
 
 .. code-block:: bash
 
-    python bin/aggregate_plates.py ID [options]
+    python bin/aggregate-plates.py ID [options]
 
 **Arguments:**
 
