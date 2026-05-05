@@ -34,26 +34,248 @@ OMERO Server (Plates)
     ↓ [Results attached back to OMERO]
 ```
 
-### Project Structure
+### Main Pipeline (`src/omero_screen/`)
+**Core functionality**: End-to-end high-content screening analysis pipeline
+
+**Key modules**:
+- `loops.py`: Main orchestration - `plate_loop()` coordinates the entire workflow
+- `config.py`: Environment management, logging setup, project root detection
+- `metadata_parser.py`: Extracts experimental metadata from Excel files or OMERO annotations
+- `flatfield_corr.py`: Generates/retrieves per-channel illumination correction masks
+- `image_analysis.py`: Cellpose segmentation (nucleus, cell, cytoplasm) + regionprops feature extraction
+- `cellcycle_analysis.py`: Multi-nucleate aggregation, normalization, and cell cycle phase assignment
+- `aggregator.py`: Image-level feature aggregation using median/mean/std
+- `quality_control.py`: Generates QC metrics and visualization figures
+- `image_classifier.py`: Optional ML-based image classification with gallery generation
+- `plate_dataset.py`: Manages OMERO dataset creation for segmentation masks
+- `general_functions.py`: Border filtering, image scaling utilities
+
+**Entry point**: `bin/run-omero-screen.py` provides CLI with arguments for plate IDs, environment selection, inference models, and segmentation-only mode
+
+### Package Structure
+
+#### 1. `omero-utils` (`packages/omero-utils/`)
+**Purpose**: Clean abstraction layer for OMERO server operations
+
+**Key modules**:
+- `omero_connect.py`: Decorator-based connection management with automatic cleanup
+- `attachments.py`: Upload/download CSV, Excel, PDF, and image files to/from OMERO objects
+- `map_anns.py`: Create, parse, and delete key-value pair annotations
+- `images.py`: Image download, MIP (maximum intensity projection) parsing, mask upload
+- `omero_plate.py`: Plate-specific operations and well iteration
+- `message.py`: Custom exception classes with rich formatting
+
+**Design pattern**: Functions accept `BlitzGateway` connections and OMERO wrapper objects
+
+#### 2. `cellview` (`packages/cellview/`)
+**Purpose**: Local DuckDB database for organizing and querying single-cell measurements
+
+**Database schema**:
 ```
-omero-screen/
-├── .env.development, .env.production, .env.e2etest
-├── pyproject.toml              # Root workspace config
-├── uv.lock
-├── src/omero_screen/           # Core pipeline
-├── packages/
-│   ├── omero-utils/
-│   ├── cellview/
-│   ├── omero-screen-plots/
-│   ├── omero-screen-napari/
-│   └── cellclass/
-├── tests/
-│   ├── unit_tests/             # pytest unit tests
-│   └── e2e_tests/              # integration tests
-├── bin/                        # CLI entry points
-├── scripts/                    # manage_test_server.sh, load_plates.sh
-└── .project_notes/             # bugs.md, decisions.md, key_facts.md, issues.md
+projects (project_id, name, description)
+    ↓
+experiments (experiment_id, project_id, name, description)
+    ↓
+plates (plate_id, experiment_id, omero_plate_id, name, date)
+    ↓
+conditions (condition_id, plate_id, name)
+    ↓
+repeats (repeat_id, condition_id, repeat_number)
+    ↓
+measurements (measurement columns, repeat_id foreign key)
 ```
+
+**Key modules**:
+- `api.py`: `cellview_load_data()` - Main API for loading plates or experiments into pandas DataFrames
+- `cli.py`: Rich-formatted CLI commands for display, import, export, cleanup
+- `db/db.py`: `CellViewDB` class - DuckDB connection and table management
+- `importers/`: CSV import, OMERO plate import with interactive project/experiment selection
+- `exporters/`: Export to pandas/polars DataFrames, CSV, Excel
+- `utils/state.py`: `CellViewState` dataclass for managing import workflows
+
+**Access patterns**:
+- CLI: `cellview display projects`, `cellview import-csv <file>`, `cellview export <plate_id>`
+- Python API: `from cellview.api import cellview_load_data; df, vars = cellview_load_data(plate_id)`
+
+#### 3. `omero-screen-plots` (`packages/omero-screen-plots/`)
+**Purpose**: Publication-ready statistical plots with consistent styling
+
+**Architecture** (v0.1.3+ refactored):
+- Factory pattern: `*_factory.py` modules contain plot generation logic
+- API modules: `*_api.py` provide clean public interfaces
+- Single-class design for better performance and maintainability
+- Comprehensive documentation at hocheggerlab.github.io/omero-screen/
+
+**Plot types**:
+- `combplot_api.py`: Multi-panel combined plots (`combplot_feature`, `combplot_cellcycle`)
+- `cellcycleplot_api.py`: Cell cycle phase quantification in 2×2 subplot grid
+- `cellcyclestacked_api.py`: Stacked barplots of cell cycle proportions
+- `featureplot_api.py`: Box/violin plots for feature comparison across conditions
+- `featureplot_norm_api.py`: Normalized feature plots with threshold analysis
+- `countplot_api.py`: Cell count analysis (normalized or absolute)
+- `histogramplot_api.py`: Distribution histograms with log scale and KDE overlays
+- `scatterplot_api.py`: Scatter plots with cell cycle coloring and thresholds
+- `classificationplot_api.py`: Categorical classification results visualization
+
+**Data normalization** (`normalise.py`):
+- `normalize_by_mode()`: Sets intensity peak (mode) to 1.0 using histogram analysis
+- `find_intensity_mode()`: Gaussian-smoothed histogram peak detection
+- Supports per-plate or per-condition normalization
+
+**Statistical analysis** (`stats.py`):
+- Plate-level aggregation with median/mean/std
+- Built-in statistical testing when ≥3 replicates
+- Significance marking on plots
+
+**Style**: Custom matplotlib style (`hhlab_style01.mplstyle`) for consistent publication figures
+
+#### 4. `omero-screen-napari` (`packages/omero-screen-napari/`)
+**Purpose**: Interactive Napari widgets for data exploration and ML training data generation
+
+**Key widgets**:
+- `_welldata_widget.py`: Browse and visualize well images from OMERO
+- `_gallery_widget.py`: Display cell galleries for classification
+- `_training_widget.py`: Generate training datasets by manually classifying cells
+- `_classifier_selector.py`: Select and apply trained classifiers
+- `_aligned_plate_widget.py`: View aligned plate layouts
+- `_setup_training_widget.py`: Configure training data generation workflows
+
+**Database** (`trainingdata_db/`):
+- SQLite database for storing user annotations and training labels
+- Schema migration support via `migrator.py`
+- CLI access via `cli.py` for database management
+
+**Data management**:
+- `omero_data.py` / `omero_data_singleton.py`: OMERO connection and image caching
+- `gallery_userdata.py` / `gallery_userdata_singleton.py`: User annotation persistence
+- `gallery_api.py`: Gallery image generation and selection logic
+- `welldata_api.py`: Well-level data retrieval and processing
+
+**Napari integration**: Registered via `napari.yaml` plugin manifest
+
+## Key Technical Details
+
+### Segmentation Strategy
+**Cellpose-based two-channel segmentation**:
+
+1. **Nucleus segmentation**:
+   - Model: Cellpose built-in `nuclei` model or custom nucleus model
+   - Input: Nuclear channel (typically DAPI/Hoechst)
+   - Output: Nucleus masks with unique labels
+
+2. **Cell segmentation**:
+   - Model: Cellpose `cyto2` or custom cell line-specific models
+   - Input: Cytoplasm channel (e.g., Tubulin) + nuclear channel
+   - Output: Cell masks with unique labels
+   - Border filtering: Removes cells touching image edges (configurable border width)
+
+3. **Cytoplasm masks**:
+   - Calculated as: `cytoplasm_mask = cell_mask - nucleus_mask`
+   - Handles multi-nucleate cells by aggregating measurements
+
+**Model selection logic** (`image_analysis.py`):
+- Cell line extracted from well annotations
+- Model mapping defined in `default_config.MODEL_DICT` (e.g., "RPE" → "RPE-1_Tub_Hoechst")
+- Configurable via `OMERO_SCREEN_CONFIG` environment variable pointing to JSON file
+- Example: `src/data/omero_screen_config.json`
+
+**GPU/CPU detection**: Automatic via `torch.py` module
+
+### Metadata Management
+**Two sources** (priority: Excel > Annotations):
+
+1. **Excel file attachment** (preferred):
+   - Uploaded to OMERO plate object
+   - Contains well layout, conditions, cell lines, timepoints
+   - Parsed by `metadata_parser.py`
+   - After parsing, converted to OMERO annotations and Excel deleted
+
+2. **OMERO annotations** (fallback):
+   - Key-value pairs on plate and well objects
+   - Channel metadata: `{"DAPI": "0", "EdU": "1", "H3P": "2", "Tub": "3"}`
+   - Well metadata: `{"cell_line": "RPE", "condition": "control", "timepoint": "24h"}`
+
+**Validation**:
+- Ensures required channels exist (nucleus channel mandatory)
+- Validates cell line has corresponding Cellpose model
+- Rich-formatted console tables for user verification
+
+### Flatfield Correction
+**Purpose**: Correct for uneven illumination across microscopy images
+
+**Process** (`flatfield_corr.py`):
+1. Check if correction masks already exist in dataset
+2. If not, randomly sample 100 images across all wells
+3. Aggregate samples per channel using median (robust to outliers)
+4. Generate correction mask = `median_image / median(median_image)`
+5. Upload as multi-channel TIFF to OMERO dataset
+6. Save example corrected images as PDF for QC
+
+**Application**: Each raw image divided by corresponding channel mask before segmentation
+
+### Feature Extraction
+**Per-region measurements** using `skimage.measure.regionprops_table`:
+
+Default features (configurable via `FEATURELIST`):
+- `label`: Unique object ID
+- `area`: Region area in pixels
+- `intensity_max`, `intensity_min`, `intensity_mean`: Intensity statistics per channel
+- `centroid`: Object center coordinates
+
+**Computed for**:
+- Nucleus mask + all channels → `*_nucleus` columns
+- Cell mask + all channels → `*_cell` columns
+- Cytoplasm mask + all channels → `*_cytoplasm` columns
+
+**Additional computed features**:
+- `integrated_int_DAPI`: Sum of DAPI intensity (proxy for DNA content)
+- Multi-nucleate aggregation: Cells sharing same cell_id get summed nucleus area and DAPI
+- Normalized intensities: Background-subtracted (`value - min + 1`)
+
+### Cell Cycle Analysis
+**Pipeline** (`cellcycle_analysis.py`):
+
+1. **Multi-nucleate aggregation**: Sum nucleus area and DAPI for cells with multiple nuclei
+2. **Duplicate filtering**: Remove duplicate nuclei within same cell
+3. **Per-cell-line normalization**: Normalize `integrated_int_DAPI` and `intensity_mean_EdU_nucleus` to mode
+4. **Phase assignment**:
+   - SubG1: DNA < 0.75
+   - G1: DNA < 1.5 and EdU < threshold
+   - S phase: EdU > threshold
+   - G2/M: DNA ≥ 1.5 and EdU < threshold
+   - Polyploid: DNA > 2.5
+
+**Optional markers**:
+- H3P (phospho-Histone H3): Identifies mitotic cells within G2/M
+- Cytoplasm: Required for multi-nucleate detection
+
+**Output**: New columns `cell_cycle` (G1/S/G2/Polyploid/SubG1) and `cell_cycle_detailed` (adds mitotic classification)
+
+### Quality Control
+**Metrics tracked** (`quality_control.py`):
+- Number of segmented nuclei and cells per image
+- Mean/median intensities per channel
+- Segmentation success rate
+- Well-level statistics
+
+**Outputs**:
+- `quality_ctr.csv`: Plate-level QC metrics
+- `quality_ctr.png`: Visualization figure attached to plate
+- Per-well CSV files during processing (deleted after plate completion)
+
+**Segmentation masks**:
+- Uploaded to dedicated OMERO dataset as multi-channel TIFFs
+- Naming: `{original_image_id}_segmentation`
+- Enables visual inspection in OMERO.web/OMERO.insight
+
+### Image Classification (Optional)
+**Trigger**: Set `OMERO_SCREEN_INFERENCE_MODEL` environment variable
+
+**Process** (`image_classifier.py`):
+- Batch classification using PyTorch models
+- Generates example galleries (N×N grid) for each predicted class
+- Configurable gallery size and batch size via environment variables
+- Galleries attached as PNG figures to OMERO plate
 
 ## Environment Configuration
 
