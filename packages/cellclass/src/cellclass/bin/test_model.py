@@ -188,6 +188,19 @@ def run(args: argparse.Namespace) -> None:
     t = time.time() - start_time
     logging.info(f"Done (in {t:.6g} seconds)")
 
+    if args.matrix_csv:
+        import csv
+
+        from sklearn.metrics import confusion_matrix
+
+        cm = confusion_matrix(y_true, y_pred, labels=list(range(len(labels))))
+        with open(args.matrix_csv, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([""] + list(labels))
+            for label, row in zip(labels, cm, strict=False):
+                writer.writerow([label] + list(row))
+        logging.info(f"Confusion matrix saved to {args.matrix_csv}")
+
     if args.plot_matrix or args.matrix_file:
         import matplotlib.pyplot as plt
         from sklearn.metrics import ConfusionMatrixDisplay
@@ -304,6 +317,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--matrix-file", help="Save the confusion matrix image to file"
+    )
+    parser.add_argument(
+        "--matrix-csv", help="Save the confusion matrix as a CSV file"
     )
 
     args = parser.parse_args()

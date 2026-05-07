@@ -1189,6 +1189,13 @@ class CellViewStateCore:
         float_cols = df_rounded.select_dtypes(include="float").columns
         df_rounded[float_cols] = df_rounded[float_cols].round(10)
 
+        # Normalise object columns to string so mixed-type reads (e.g. '0.2'
+        # and 0.2 in the same column from pandas chunk inference) don't create
+        # phantom within-image variation.  df_rounded is a transient copy so
+        # self.df is unaffected.
+        obj_cols = df_rounded.select_dtypes(include="object").columns
+        df_rounded[obj_cols] = df_rounded[obj_cols].astype(str)
+
         # Count unique values per image for each column
         nunique_per_image = df_rounded.groupby("image_id").nunique()
 
