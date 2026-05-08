@@ -88,6 +88,8 @@ def load_crops_from_omero(
     omero_data: "OmeroData",
     user_data: "UserData",
     cellcycle: str = "All",
+    classifier_column: str = "",
+    classifier_class: str = "",
     conn: BlitzGateway | None = None,
 ) -> tuple[bool, str]:
     """Load cell crops directly from OMERO for annotation.
@@ -102,6 +104,9 @@ def load_crops_from_omero(
         classifier_name: Name of classifier (for metadata)
         omero_data: OmeroData instance to populate
         user_data: UserData instance for settings
+        cellcycle: Cell cycle phase filter ("All", "G1", "S", "G2/M", etc.)
+        classifier_column: CellView column to filter on (e.g. "classifier_mitosis")
+        classifier_class: Class value to keep (e.g. "positive"); empty means no filter
         conn: OMERO connection (injected by decorator)
 
     Returns:
@@ -215,7 +220,13 @@ def load_crops_from_omero(
 
             # Load centroids
             success, centroids = _load_centroids_from_cellview(
-                plate_id, well_id, image_id, segmentation, cellcycle
+                plate_id,
+                well_id,
+                image_id,
+                segmentation,
+                cellcycle,
+                classifier_column,
+                classifier_class,
             )
             if not success:
                 logger.warning(
@@ -492,6 +503,8 @@ def _load_centroids_from_cellview(
     image_id: int,
     segmentation: str,
     cellcycle: str = "All",
+    classifier_column: str = "",
+    classifier_class: str = "",
 ) -> tuple[bool, Any]:
     """Load cell centroids from CellView database.
 
@@ -501,6 +514,8 @@ def _load_centroids_from_cellview(
         image_id: Image ID (actual OMERO image ID, not index)
         segmentation: "nucleus" or "cell"
         cellcycle: Cell cycle phase filter ("All", "G1", "S", "G2/M", etc.)
+        classifier_column: CellView column to filter on (e.g. "classifier_mitosis")
+        classifier_class: Class value to keep; empty string means no filter
 
     Returns:
         (success: bool, centroids_array or error_message)
@@ -522,6 +537,19 @@ def _load_centroids_from_cellview(
             filtered = filtered[filtered["cell_cycle"] == cellcycle]
             logger.info(
                 f"Cell cycle filter '{cellcycle}': {len(filtered)} cells remaining"
+            )
+
+        # Apply classifier filter
+        if (
+            classifier_column
+            and classifier_class
+            and classifier_column in filtered.columns
+        ):
+            filtered = filtered[
+                filtered[classifier_column] == classifier_class
+            ]
+            logger.info(
+                f"Classifier filter '{classifier_column}={classifier_class}': {len(filtered)} cells remaining"
             )
 
         if filtered.empty:

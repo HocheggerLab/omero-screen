@@ -28,6 +28,8 @@ from qtpy.QtWidgets import (
 from omero_screen_napari.direct_omero_loader import load_crops_from_omero
 
 if TYPE_CHECKING:
+    from typing import Any
+
     from omero_screen_napari.gallery_userdata import UserData
     from omero_screen_napari.omero_data import OmeroData
     from omero_screen_napari.trainingdata_db.database import TrainingDB
@@ -115,6 +117,22 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
             ["All", "G1", "S", "G2/M", "G2", "M", "Polyploid"]
         )
         form_layout.addRow("Cell Cycle Phase:", self.cellcycle_input)
+
+        # Classifier filter (populated after Validate)
+        self._classifier_col_combo = QComboBox()
+        self._classifier_col_combo.addItem("— validate first —")
+        self._classifier_col_combo.setEnabled(False)
+        self._classifier_col_combo.currentTextChanged.connect(
+            self._on_classifier_col_changed
+        )
+        form_layout.addRow("Classifier:", self._classifier_col_combo)
+
+        self._classifier_class_combo = QComboBox()
+        self._classifier_class_combo.addItem("All")
+        self._classifier_class_combo.setEnabled(False)
+        form_layout.addRow("Class:", self._classifier_class_combo)
+
+        self._plate_df: Any | None = None
 
         main_layout.addLayout(form_layout)
 
@@ -240,6 +258,78 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
         """.strip()
 
         self.preview_label.setText(preview_text)
+        self._populate_classifier_options(plate_id)
+
+    def _populate_classifier_options(self, plate_id: int) -> None:
+        """Query CellView for classifier columns available for this plate."""
+        try:
+            from cellview.api import cellview_load_data
+
+            df, _ = cellview_load_data(plate_id)
+            self._plate_df = df
+            classifier_cols = [
+                c for c in df.columns if c.startswith("classifier_")
+            ]
+        except Exception as e:
+            logger.warning(
+                f"Could not load CellView data for plate {plate_id}: {e}"
+            )
+            self._plate_df = None
+            classifier_cols = []
+
+        self._classifier_col_combo.blockSignals(True)
+        self._classifier_col_combo.clear()
+        if classifier_cols:
+            self._classifier_col_combo.addItem("None")
+            for col in classifier_cols:
+                self._classifier_col_combo.addItem(col)
+            self._classifier_col_combo.setEnabled(True)
+        else:
+            self._classifier_col_combo.addItem(
+                "(no classifiers in this plate)"
+            )
+            self._classifier_col_combo.setEnabled(False)
+        self._classifier_col_combo.blockSignals(False)
+
+        self._classifier_class_combo.clear()
+        self._classifier_class_combo.addItem("All")
+        self._classifier_class_combo.setEnabled(False)
+
+    def _on_classifier_col_changed(self, col_name: str) -> None:
+        """Populate the class dropdown when a classifier column is selected."""
+        self._classifier_class_combo.clear()
+        self._classifier_class_combo.addItem("All")
+
+        if (
+            not col_name
+            or col_name == "None"
+            or self._plate_df is None
+            or col_name not in self._plate_df.columns
+        ):
+            self._classifier_class_combo.setEnabled(False)
+            return
+
+        classes = sorted(
+            str(v) for v in self._plate_df[col_name].dropna().unique().tolist()
+        )
+        for cls in classes:
+            self._classifier_class_combo.addItem(cls)
+        self._classifier_class_combo.setEnabled(True)
+
+    def _selected_classifier_column(self) -> str:
+        col = str(self._classifier_col_combo.currentText())
+        if col in (
+            "None",
+            "— validate first —",
+            "(no classifiers in this plate)",
+            "",
+        ):
+            return ""
+        return col
+
+    def _selected_classifier_class(self) -> str:
+        cls = str(self._classifier_class_combo.currentText())
+        return "" if cls == "All" else cls
 
     def _on_load(self) -> None:
         """Load data from OMERO."""
@@ -273,6 +363,8 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
                 omero_data=self.omero_data,
                 user_data=self.user_data,
                 cellcycle=self.cellcycle_input.currentText(),
+                classifier_column=self._selected_classifier_column(),
+                classifier_class=self._selected_classifier_class(),
             )
 
             if success:
