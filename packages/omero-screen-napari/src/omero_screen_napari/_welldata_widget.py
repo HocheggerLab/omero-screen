@@ -228,18 +228,21 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
         self._delete_btn.setEnabled(True)
 
         if is_plate_cached(plate_id):
-            fully = False
+            fraction = 0.0
             # Well completeness summary
             well_status = get_well_cache_status(plate_id)
             if well_status:
                 complete = sum(1 for v in well_status.values() if v)
                 total = len(well_status)
-                fully = complete == total
+                fraction = complete / total
                 well_info = f" | {complete}/{total} wells complete"
             else:
                 well_info = ""
-            status_text = "Cached" if fully else "Partial"
-            self._cache_btn.setEnabled(not fully)
+            if fraction == 1:
+                status_text = "Cached"
+            else:
+                status_text = "Partial" if fraction > 0 else "Empty"
+            self._cache_btn.setEnabled(fraction < 1)
         else:
             status_text = "Removed"
             well_info = ""
