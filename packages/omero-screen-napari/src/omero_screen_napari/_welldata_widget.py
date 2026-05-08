@@ -15,6 +15,7 @@ import polars as pl
 from magicgui import magic_factory
 from napari.layers import Image
 from napari.qt.threading import GeneratorWorker, create_worker
+from napari.utils import notifications
 from napari.utils import progress as napari_progress
 from napari.viewer import Viewer
 from omero_screen.config import get_logger
@@ -718,10 +719,15 @@ def start_cache_worker(plate_id: int) -> None:
             # Stop the download. No lock required.
             stop_flag.set()
 
+        def on_returned(msg: str | None) -> None:
+            if msg:
+                notifications.show_warning(msg)
+
         worker.yielded.connect(on_progress)
         worker.finished.connect(on_finished)
         worker.errored.connect(on_error)
         worker.aborted.connect(on_aborted)
+        worker.returned.connect(on_returned)
         worker.start()
 
         # The download has started. Store objects to allow it to be cancelled.

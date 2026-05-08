@@ -567,7 +567,7 @@ def cache_plate(
     connection: OmeroConnection,
     stop_flag: threading.Event,
     max_workers: int = 3,
-) -> Generator[tuple[int, int], None, None]:
+) -> Generator[tuple[int, int], None, str | None]:
     """Cache entire plate: metadata + images + labels.
 
     Uses the provided OMERO connection to create connections.
@@ -589,6 +589,9 @@ def cache_plate(
 
     Yields:
         Tuple of (images_done, images_total).
+
+    Returns:
+        Warning message if the download is cancelled or exceeds the cache size.
     """
     # Use try-block to close the connection when no longer required
     try:
@@ -610,7 +613,7 @@ def cache_plate(
                 estimated_bytes / 2**30,
                 size_limit / 2**30,
             )
-            return
+            return f"Plate {plate_id}: estimated size {estimated_bytes / 2**30:.2f} GB exceeds cache size {size_limit / 2**30:.2f} GB"
 
         logger.info(
             "Plate %d: estimated size %.2f GB (cache volume %.1f / %.2f GB)",
@@ -670,7 +673,7 @@ def cache_plate(
 
         if n_wells == 0:
             logger.info("Plate %d: all images already cached", plate_id)
-            return
+            return None
 
         # Accurate download size (assuming all images the same)
         estimated_bytes = 0
@@ -695,7 +698,7 @@ def cache_plate(
                 estimated_bytes / 2**30,
                 size_limit / 2**30,
             )
-            return
+            return f"Plate {plate_id}: estimated size {estimated_bytes / 2**30:.2f} GB exceeds cache size {size_limit / 2**30:.2f} GB"
 
         logger.info(
             "Plate %d: estimated download size %.2f GB",
@@ -705,7 +708,7 @@ def cache_plate(
 
         if stop_flag.is_set():
             logger.warning("Plate %d: download cancelled", plate_id)
-            return
+            return f"Plate {plate_id}: download cancelled"
     finally:
         # No longer required
         connection.close()
@@ -794,6 +797,9 @@ def cache_plate(
         done,
         total,
     )
+    if stop_flag.is_set():
+        return f"Plate {plate_id}: download cancelled"
+    return None
 
 
 def _save_estimated_bytes(
