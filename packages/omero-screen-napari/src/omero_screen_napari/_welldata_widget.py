@@ -721,8 +721,6 @@ def start_cache_worker(plate_id: int) -> None:
         worker.yielded.connect(on_progress)
         worker.finished.connect(on_finished)
         worker.errored.connect(on_error)
-        # Note: This does not seem to be called when napari exits and aborts threads
-        # in the global pool. So we also check abort_requested in on_progress.
         worker.aborted.connect(on_aborted)
         worker.start()
 
