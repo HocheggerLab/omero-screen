@@ -83,6 +83,7 @@ _CACHE_VERSION = 1
 #     "ff_mask_id": 999,
 #     "cache_version": 1,
 #     "cache_date": 2026-03-01,
+#     "estimated_bytes": 0,
 # }
 #
 # Example plate well metadata:
@@ -221,7 +222,7 @@ def get_well_cache_status(
     if meta is None:
         return {}
     ff_mask_id = meta.get("ff_mask_id", 0)
-    if not is_cached(get_key(ff_mask_id, 0)):
+    if not is_cached(get_key(ff_mask_id, 0)) and early_exit:
         return {}
 
     status: dict[str, bool] = {}
@@ -600,6 +601,7 @@ def cache_plate(
         # Done after fetching the label map so the estimate includes labels.
         # Note: Size estimate does not account for the cache compression or pixels type.
         estimated_bytes = _estimate_plate_bytes(wells, label_map)
+        _save_estimated_bytes(meta, plate_id, estimated_bytes)
         size_limit = cache_size_limit()
         if estimated_bytes >= size_limit:
             logger.warning(
@@ -792,6 +794,17 @@ def cache_plate(
         done,
         total,
     )
+
+
+def _save_estimated_bytes(
+    meta: dict[str, Any], plate_id: int, estimated_bytes: int
+) -> None:
+    """Save the estimated bytes for the plate in the metadata cache."""
+    # Skip repeat estimates
+    if estimated_bytes == meta.get("estimated_bytes", 0):
+        return
+    meta["estimated_bytes"] = estimated_bytes
+    _cache.set(_get_meta_key(plate_id), meta, tag=plate_id)
 
 
 # --------------- Metadata Fetching ---------------

@@ -228,32 +228,33 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
         self._delete_btn.setEnabled(True)
 
         if is_plate_cached(plate_id):
-            fraction = 0.0
             # Well completeness summary
+            download = True
             well_status = get_well_cache_status(plate_id)
             if well_status:
                 complete = sum(1 for v in well_status.values() if v)
                 total = len(well_status)
-                fraction = complete / total
-                well_info = f" | {complete}/{total} wells complete"
+                download = complete < total
+                well_info = f"{complete}/{total}"
             else:
                 well_info = ""
-            if fraction == 1:
-                status_text = "Cached"
-            else:
-                status_text = "Partial" if fraction > 0 else "Empty"
-            self._cache_btn.setEnabled(fraction < 1)
+            self._cache_btn.setEnabled(download)
         else:
-            status_text = "Removed"
-            well_info = ""
+            well_info = "NA"
             self._cache_btn.setEnabled(True)
 
         # Get cache date from metadata
         meta = get_cached_plate_metadata(plate_id) or {}
         last_cached = meta.get("cache_date", "unknown")
+        estimated_bytes = meta.get("estimated_bytes", 0)
+
+        if estimated_bytes:
+            byte_info = f" | Download size ~ {estimated_bytes / 2**30:.2f} GB"
+        else:
+            byte_info = ""
 
         self._detail_label.setText(
-            f"Status: {status_text} | Last cached: {last_cached}{well_info}"
+            f"Wells: {well_info}{byte_info} | Cached: {last_cached}"
         )
 
     def _on_delete_clicked(self) -> None:
