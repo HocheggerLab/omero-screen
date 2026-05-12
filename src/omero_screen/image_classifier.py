@@ -24,9 +24,38 @@ from omero.gateway import BlitzGateway
 from skimage.measure import regionprops
 from tqdm import tqdm
 
+from omero_screen.metadata_parser import NUCLEI_ALIASES, ROLE_SUFFIXES
 from omero_screen.torch import get_device
 
 logger = logging.getLogger("omero-screen")
+
+
+def _resolve_nuclei_fallback(
+    requested_channel: str, image_data: dict[str, npt.NDArray[Any]]
+) -> npt.NDArray[Any] | None:
+    """Try to resolve a missing classifier channel via the nuclei-role mapping.
+
+    Returns the matching image array if ``requested_channel`` is a nuclei alias
+    (or has a ``_nuclei`` suffix) and any nuclei-role channel is present in
+    ``image_data``; otherwise None.
+    """
+    if not _is_nuclei_name(requested_channel):
+        return None
+    for name, arr in image_data.items():
+        if _is_nuclei_name(name):
+            return arr
+    return None
+
+
+def _is_nuclei_name(name: str) -> bool:
+    lowered = name.lower()
+    if any(
+        lowered.endswith(s)
+        for s in ROLE_SUFFIXES
+        if ROLE_SUFFIXES[s] == "nuclei"
+    ):
+        return True
+    return lowered in NUCLEI_ALIASES
 
 
 class ImageClassifier:
@@ -197,17 +226,19 @@ class ImageClassifier:
         """
         if self.active_channels:
             self.image_data = image_data
-            # Nuclei channel names are normalised to "DAPI" in MetadataParser;
-            # resolve classifier channel names through the same mapping.
-            nuclei_aliases = {"dapi", "hoechst", "dna", "rfp"}
             self.selected_channels = []
             for channel in self.active_channels:
                 if channel in image_data:
                     self.selected_channels.append(image_data[channel])
-                elif (
-                    channel.lower() in nuclei_aliases and "DAPI" in image_data
-                ):
-                    self.selected_channels.append(image_data["DAPI"])
+                    continue
+                # Classifier was trained on a different nuclei-channel name than
+                # the current plate uses: fall back to any nuclei-role channel
+                # present in image_data. This keeps models portable across plates
+                # with different nuclei stains (DAPI/Hoechst/H2B_RFP, or a
+                # ``_nuclei``-suffixed custom name).
+                resolved = _resolve_nuclei_fallback(channel, image_data)
+                if resolved is not None:
+                    self.selected_channels.append(resolved)
                 else:
                     logger.warning(
                         "Channel '%s' not found in image data", channel

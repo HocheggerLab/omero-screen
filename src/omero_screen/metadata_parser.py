@@ -11,6 +11,7 @@ from the Excel file; otherwise, it is extracted from existing plate annotations.
 If no valid metadata is found, the program exits with an error.
 """
 
+import warnings
 from collections import Counter
 from typing import Any
 
@@ -42,6 +43,93 @@ from omero_screen.constants import OmeroScreenNS
 logger = get_logger(__name__)
 
 SUCCESS_STYLE = "bold cyan"
+
+NUCLEI_ALIASES: frozenset[str] = frozenset(
+    {"dapi", "hoechst", "dna", "h2b_rfp"}
+)
+CELL_LEGACY_SUBSTRING: str = "Tub"
+ROLE_SUFFIXES: dict[str, str] = {"_nuclei": "nuclei", "_cell": "cell"}
+
+
+def strip_role_suffix(channel_name: str) -> str:
+    """Return the channel name with any trailing `_nuclei` / `_cell` role suffix removed.
+
+    Matching is case-insensitive; the rest of the name is preserved verbatim.
+    Used to build feature column names without introducing duplicated suffix tokens
+    (e.g. avoids ``intensity_mean_CellMask_cell_cell``).
+    """
+    lowered = channel_name.lower()
+    for suffix in ROLE_SUFFIXES:
+        if lowered.endswith(suffix):
+            return channel_name[: -len(suffix)]
+    return channel_name
+
+
+def resolve_channel_roles(channel_data: dict[str, int]) -> dict[str, str]:
+    """Resolve channel role assignments (``nuclei`` / ``cell``) from channel names.
+
+    Resolution rules, in priority order:
+
+    1. Suffix ``_nuclei`` (case-insensitive) → role ``nuclei``.
+    2. Suffix ``_cell`` (case-insensitive) → role ``cell``.
+    3. Name (lower-cased) in :data:`NUCLEI_ALIASES` → role ``nuclei``.
+    4. Name contains ``"Tub"`` (legacy) → role ``cell``.
+    5. Otherwise → no role (channel is a feature channel only).
+
+    Args:
+        channel_data: Mapping of channel name → channel index. Names are preserved
+            verbatim; this function does not mutate the input.
+
+    Returns:
+        Mapping ``{role: channel_name}`` containing at most one entry per role.
+        Keys are a subset of ``{"nuclei", "cell"}``.
+
+    Raises:
+        ChannelAnnotationError: If no nuclei role can be resolved, or if two
+            channels resolve to the same role.
+    """
+    roles: dict[str, str] = {}
+    conflicts: dict[str, list[str]] = {"nuclei": [], "cell": []}
+
+    for name in channel_data:
+        role = _classify_channel(name)
+        if role is None:
+            continue
+        conflicts[role].append(name)
+
+    for role, names in conflicts.items():
+        if len(names) > 1:
+            raise ChannelAnnotationError(
+                f"Multiple channels resolve to role '{role}': {names}. "
+                f"Only one channel per role is allowed. "
+                f"Rename channels or remove the conflicting suffix.",
+                logger,
+            )
+        if names:
+            roles[role] = names[0]
+
+    if "nuclei" not in roles:
+        raise ChannelAnnotationError(
+            f"No nuclei channel found in {list(channel_data)}. "
+            f"Expected a channel named {sorted(NUCLEI_ALIASES)} (case-insensitive), "
+            f"or any name with the suffix '_nuclei'.",
+            logger,
+        )
+
+    return roles
+
+
+def _classify_channel(name: str) -> str | None:
+    """Return the role of a single channel name, or None if it has no role."""
+    lowered = name.lower()
+    for suffix, role in ROLE_SUFFIXES.items():
+        if lowered.endswith(suffix):
+            return role
+    if lowered in NUCLEI_ALIASES:
+        return "nuclei"
+    if CELL_LEGACY_SUBSTRING in name:
+        return "cell"
+    return None
 
 
 def _normalize_cell_line_column(df: Any) -> Any:
@@ -101,6 +189,11 @@ class MetadataParser:
         plate_id (int): The ID of the plate to parse.
         excel_file (bool): Whether an Excel file was found and used for metadata.
         channel_data (dict[str, str]): Channel metadata, mapping channel names to indices.
+            Note: during the channel-role transition, the nuclei channel is still renamed
+            to ``"DAPI"`` regardless of the user-provided name. New code should look up
+            the nuclei channel via ``channel_data[channel_roles["nuclei"]]`` instead.
+        channel_roles (dict[str, str]): Mapping of role (``"nuclei"``, ``"cell"``) to the
+            channel name in :attr:`channel_data`. Populated by :func:`resolve_channel_roles`.
         well_data (dict[str, Any]): Well metadata, mapping annotation keys to lists of values.
         pixel_size (float): Pixel size in micrometers, determined from the first image.
     """
@@ -117,6 +210,7 @@ class MetadataParser:
         self._check_plate()
         self.excel_file: bool = False
         self.channel_data: dict[str, str] = {}
+        self.channel_roles: dict[str, str] = {}
         self.well_data: dict[str, Any] = {}
         self.pixel_size: float = 0
         self._empty_well_positions: list[str] = []
@@ -507,36 +601,76 @@ class MetadataParser:
         return errors
 
     def _validate_channel_data(self) -> list[str]:
-        """Validate and normalize channel metadata, ensuring a nuclei channel is present.
+        """Validate channel metadata and populate channel roles.
 
-        Checks that the channel data includes at least one nuclei channel (DAPI, Hoechst, DNA, or RFP),
-        and normalizes the channel name to 'DAPI' if found. Validates that channel indices are valid
-        integers forming a contiguous sequence starting from 0. Returns a list of error messages for
-        any issues.
+        Resolves channel roles (``nuclei`` / ``cell``) from the user-provided
+        channel names into :attr:`channel_roles`, using :func:`resolve_channel_roles`.
+
+        For backwards compatibility during the channel-role refactor, also applies
+        the legacy rename of any nuclei alias (Hoechst/DNA/RFP) to the canonical
+        ``"DAPI"`` key in :attr:`channel_data`, emitting a :class:`DeprecationWarning`
+        when the rename fires. Downstream consumers should migrate from
+        ``channel_data["DAPI"]`` to ``channel_data[channel_roles["nuclei"]]``.
+
+        Validates that channel indices are valid integers forming a contiguous
+        sequence starting from 0.
 
         Returns:
             list[str]: A list of error messages. The list is empty if no errors are found.
         """
         errors = []
+
+        # Resolve channel roles on the original, user-provided names (before any
+        # rename). This is the forward-compatible path; downstream code will
+        # migrate to consume `self.channel_roles` rather than the renamed
+        # `self.channel_data` over subsequent steps of the channel-role refactor.
+        try:
+            self.channel_roles = resolve_channel_roles(
+                dict.fromkeys(self.channel_data, 0)
+            )
+        except ChannelAnnotationError as exc:
+            errors.append(str(exc))
+            self.channel_roles = {}
+
+        # Legacy DAPI-rename path — preserved during the transition so that
+        # downstream consumers (cellcycle_analysis, napari widgets) that still
+        # look up `channel_data["DAPI"]` keep working until they are migrated.
         nuclei_channels = {"dapi", "hoechst", "dna", "rfp"}
         found_nuclei = False
+        renamed_from: str | None = None
         channel_data_normalized = {}
 
-        # First pass: normalize keys and check for nuclei channels
         for key, value in self.channel_data.items():
             normalized_key = key.lower()
             if normalized_key in nuclei_channels:
                 found_nuclei = True
+                if key != "DAPI":
+                    renamed_from = key
                 channel_data_normalized["DAPI"] = value
             else:
                 channel_data_normalized[key] = value
 
         if not found_nuclei:
-            errors.append(
-                "At least one nuclei channel (DAPI/Hoechst/DNA/RFP) is required"
-            )
+            if not errors:  # avoid duplicate "no nuclei" messages
+                errors.append(
+                    "At least one nuclei channel (DAPI/Hoechst/DNA/RFP) is required"
+                )
         else:
             self.channel_data = channel_data_normalized
+            if renamed_from is not None:
+                warnings.warn(
+                    f"Channel '{renamed_from}' was silently renamed to 'DAPI' in "
+                    f"channel_data. This rename is deprecated and will be removed "
+                    f"once all consumers migrate to MetadataParser.channel_roles. "
+                    f"Use channel_roles['nuclei'] to look up the nuclei channel by role.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+            # Keep channel_roles consistent with the post-rename channel_data so
+            # that channel_data[channel_roles["nuclei"]] resolves correctly during
+            # the transitional period.
+            if "nuclei" in self.channel_roles:
+                self.channel_roles["nuclei"] = "DAPI"
 
         # Validate channel indices are valid integers
         parsed_indices: list[int] = []

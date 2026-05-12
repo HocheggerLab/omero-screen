@@ -273,7 +273,7 @@ def align_plates(
     conn: BlitzGateway,
     plate_id: int,
     plate_ids: list[int],
-    align_ch: str = "DAPI",
+    align_ch: str | None = None,
     number_of_alignments: int = 5,
     sample_alignments: bool = False,
     threshold: float = 100,
@@ -294,7 +294,11 @@ def align_plates(
         conn: Connection to OMERO
         plate_id: ID of the master plate
         plate_ids: IDs of the plate repeat experiments
-        align_ch: Channel to use for alignment
+        align_ch: Channel to use for alignment. If None (default), each plate's
+            nuclei-role channel (resolved via :attr:`MetadataParser.channel_roles`)
+            is used; this allows mixing plates with different nuclei-channel names
+            (e.g. ``Hoechst``, ``DAPI``). If a name is given explicitly, it must
+            exist verbatim in every plate's ``channel_data``.
         number_of_alignments: Number of alignments used to create the average per well position
         sample_alignments: Set to true to compute alignments for all well samples (overrides number of alignments)
         threshold: Distance threshold for alignments
@@ -346,9 +350,11 @@ def align_plates(
     metadata[plate_id] = MetadataParser(conn, plate_id)
     for meta in metadata.values():
         meta.manage_metadata()
-        if align_ch not in meta.channel_data:
+        resolved_ch = align_ch or meta.channel_roles.get("nuclei")
+        if resolved_ch is None or resolved_ch not in meta.channel_data:
             raise PlateDataError(
-                f"Plate {meta.plate_id} is missing alignment channel: {align_ch}",
+                f"Plate {meta.plate_id} is missing alignment channel: "
+                f"{resolved_ch or '<nuclei role>'}",
                 logger,
             )
 
@@ -371,14 +377,20 @@ def align_plates(
     alignments = []  # list: plate,well,x,y (mean of samples)
     image_alignments = []  # list: plate,well,sample,image_id,x,y
     examples = []
-    ch1 = int(metadata[plate_id].channel_data[align_ch])
+
+    def _resolve_align_idx(plate: int) -> int:
+        meta = metadata[plate]
+        ch_name = align_ch or meta.channel_roles["nuclei"]
+        return int(meta.channel_data[ch_name])
+
+    ch1 = _resolve_align_idx(plate_id)
     # XYZCT order
     start_coords = [0, 0, 0, ch1, 0]
     axis_lengths = [plate_dim[0][-1], plate_dim[0][-2], 1, 1, 1]
     for plate_other in plate_ids:
         logger.info("Aligning plates: %d - %d", plate_id, plate_other)
         well_samples2 = _get_well_samples(conn, plate_other)
-        ch2 = int(metadata[plate_other].channel_data[align_ch])
+        ch2 = _resolve_align_idx(plate_other)
         start_coords2 = start_coords.copy()
         start_coords2[-2] = ch2
         shifted = []

@@ -65,7 +65,7 @@ def segmentation_samples(
     logger.debug("Channel Metadata: %s", metadata.channel_data)
     dataset_id = PlateDataset(conn, plate_id).dataset_id
 
-    channels = _get_segmentation_channels(metadata.channel_data)
+    channels = _get_segmentation_channels(metadata)
     logger.info("Segmentation channels: %s", channels)
 
     # Save flatfield correction
@@ -206,12 +206,18 @@ def _get_image_samples(
 
 
 def _get_segmentation_channels(
-    channel_data: dict[str, str],
+    metadata: MetadataParser,
 ) -> tuple[int, ...]:
-    """Get the channels used for segmentation."""
-    nuc_ch = int(channel_data["DAPI"])
-    if "Tub" in channel_data:
-        return (nuc_ch, int(channel_data["Tub"]))
+    """Get the image-channel indices used for segmentation.
+
+    Uses :attr:`MetadataParser.channel_roles` to resolve the nuclei channel
+    (required) and the cell channel (optional, for nucleus+cell segmentation).
+    """
+    nuclei_name = metadata.channel_roles["nuclei"]
+    nuc_ch = int(metadata.channel_data[nuclei_name])
+    cell_name = metadata.channel_roles.get("cell")
+    if cell_name is not None:
+        return (nuc_ch, int(metadata.channel_data[cell_name]))
     return (nuc_ch,)
 
 

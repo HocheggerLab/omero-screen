@@ -1036,6 +1036,30 @@ def add_label_layers(
         raise ValueError("Invalid segmentation label shape")
 
 
+_NUCLEI_ALIASES = frozenset({"dapi", "hoechst", "dna", "h2b_rfp"})
+_CELL_LEGACY_SUBSTRING = "Tub"
+
+
+def _role_based_color_map(channel_names: list[str]) -> dict[str, str]:
+    """Build name→colour map by resolving nuclei (blue) and cell (green) roles.
+
+    Mirrors the resolution rules in :func:`omero_screen.metadata_parser.resolve_channel_roles`
+    so napari display stays consistent with pipeline segmentation choices.
+    """
+    colors: dict[str, str] = {}
+    for name in channel_names:
+        lowered = name.lower()
+        if lowered.endswith("_nuclei"):
+            colors[name] = "blue"
+        elif lowered.endswith("_cell"):
+            colors[name] = "green"
+        elif lowered in _NUCLEI_ALIASES and "blue" not in colors.values():
+            colors[name] = "blue"
+        elif _CELL_LEGACY_SUBSTRING in name and "green" not in colors.values():
+            colors[name] = "green"
+    return colors
+
+
 def _generate_color_map(channel_names: list[str]) -> list[str | Colormap]:
     """
     Generate a list of color maps for the channels
@@ -1050,8 +1074,11 @@ def _generate_color_map(channel_names: list[str]) -> list[str | Colormap]:
     if num_channels == 1:
         return ["gray"]
 
-    # Default channel color assignments
-    special_channels = {"DAPI": "blue", "Tub": "green", "EdU": "gray"}
+    # Default channel color assignments. Colours are assigned by *role* not by
+    # literal name so plates using non-standard nuclei/cell stains (e.g. Hoechst,
+    # CellMask, H2B_RFP) still render with consistent blue/green channels.
+    special_channels = _role_based_color_map(channel_names)
+    special_channels.setdefault("EdU", "gray")
 
     # Other color assignments. This list is used in reverse order amd repeated as required.
     # Supports using a Colormap. This requires the RBG value of the final color.

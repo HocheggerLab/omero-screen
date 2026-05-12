@@ -137,7 +137,7 @@ def plate_loop(
         if "EdU" in keys:
             try:
                 H3 = "H3P" in keys
-                cyto = "Tub" in keys
+                cyto = "cell" in metadata.channel_roles
 
                 if H3 and cyto:
                     df_final_cc = cellcycle_analysis(

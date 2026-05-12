@@ -37,7 +37,7 @@ from omero_screen.benchmarking import get_benchmark
 from omero_screen.config import get_logger
 from omero_screen.general_functions import filter_segmentation, scale_img
 from omero_screen.image_classifier import ImageClassifier
-from omero_screen.metadata_parser import MetadataParser
+from omero_screen.metadata_parser import MetadataParser, strip_role_suffix
 from omero_screen.segmentation import SegmentationModel
 
 logger = get_logger(__name__)
@@ -109,6 +109,10 @@ class Image:
     def _get_metadata(self) -> None:
         """Extracts channel metadata, well position, and cell line information from the metadata parser."""
         self.channels = self._meta_data.channel_data
+        self._nuclei_channel: str = self._meta_data.channel_roles["nuclei"]
+        self._cell_channel: str | None = self._meta_data.channel_roles.get(
+            "cell"
+        )
         self.well_pos = self._well.getWellPos()
         self.cell_line = self._meta_data.well_conditions(self.well_pos)[
             "cell_line"
@@ -188,7 +192,7 @@ class Image:
         if n_mask is None:
             with self._bench.stage("nucleus_segmentation"):
                 n_mask = self._n_segmentation()
-            if "Tub" in self.channels:
+            if self._cell_channel is not None:
                 with self._bench.stage("cell_segmentation"):
                     c_mask = self._c_segmentation()
                 n_mask, c_mask = self._compact_mask(np.stack([n_mask, c_mask]))
@@ -245,15 +249,14 @@ class Image:
             )
 
         segmentation_model = _get_segmentation_model(model_name)
-        # Get the image array
-        if "DAPI" not in self.img_dict:
+        # Get the image array via the nuclei role (resolved by MetadataParser).
+        if self._nuclei_channel not in self.img_dict:
             raise KeyError(
-                f"DAPI channel not found in image data. "
+                f"Nuclei channel '{self._nuclei_channel}' not found in image data. "
                 f"Available channels: {list(self.img_dict.keys())}. "
-                f"Nucleus segmentation requires a DAPI/Hoechst/DNA channel "
-                f"(it should be normalised to 'DAPI' during metadata parsing)."
+                f"Nucleus segmentation requires the channel resolved to role 'nuclei'."
             )
-        img_array = self.img_dict["DAPI"]
+        img_array = self.img_dict[self._nuclei_channel]
 
         # Initialize an array to store the segmentation masks
         segmentation_masks = np.zeros_like(img_array, dtype=np.uint32)
@@ -309,25 +312,32 @@ class Image:
             )
         segmentation_model = _get_segmentation_model(model_name)
 
-        # Get the image arrays for DAPI and Tubulin channels
-        if "DAPI" not in self.img_dict:
-            raise KeyError(
-                f"DAPI channel not found in image data. "
-                f"Available channels: {list(self.img_dict.keys())}. "
-                f"Cell segmentation requires both DAPI and Tub channels."
+        # Get the image arrays for the nuclei and cell role channels.
+        if self._cell_channel is None:
+            raise RuntimeError(
+                "Cell segmentation called but no channel resolved to role 'cell'. "
+                "This is an internal error — _segmentation() should have skipped "
+                "the cell branch."
             )
-        if "Tub" not in self.img_dict:
+        if self._nuclei_channel not in self.img_dict:
             raise KeyError(
-                f"Tubulin ('Tub') channel not found in image data. "
+                f"Nuclei channel '{self._nuclei_channel}' not found in image data. "
                 f"Available channels: {list(self.img_dict.keys())}. "
-                f"Cell segmentation requires a 'Tub' channel in the metadata."
+                f"Cell segmentation requires both nuclei and cell role channels."
             )
-        dapi_array = self.img_dict["DAPI"]
-        tub_array = self.img_dict["Tub"]
+        if self._cell_channel not in self.img_dict:
+            raise KeyError(
+                f"Cell channel '{self._cell_channel}' not found in image data. "
+                f"Available channels: {list(self.img_dict.keys())}. "
+                f"Cell segmentation requires a channel resolved to role 'cell' "
+                f"(suffix '_cell' or legacy substring 'Tub')."
+            )
+        dapi_array = self.img_dict[self._nuclei_channel]
+        tub_array = self.img_dict[self._cell_channel]
 
         # Check if the time dimension matches
         assert dapi_array.shape[0] == tub_array.shape[0], (
-            "Time dimension mismatch between DAPI and Tubulin channels"
+            "Time dimension mismatch between nuclei and cell role channels"
         )
 
         # Initialize an array to store the segmentation masks
@@ -588,15 +598,19 @@ class ImageProperties:
         Returns:
             pd.DataFrame: DataFrame containing feature measurements for the given channel.
         """
+        channel_token = self._feature_channel_token(channel)
         nucleus_data = self._get_properties(
-            self._image.n_mask, channel, "nucleus", featurelist
+            self._image.n_mask, channel, channel_token, "nucleus", featurelist
         )
         # merge channel data, outer merge combines all area columns into 1
         if self._image.c_mask is not None:
             nucleus_data = self._outer_merge(
                 nucleus_data, self._overlay, "label"
             )
-        if channel == "DAPI":
+        if channel == self._image._nuclei_channel:
+            # ``integrated_int_DAPI`` is a fixed downstream contract consumed by
+            # cellcycle_analysis; the column name uses the canonical ``DAPI`` token
+            # regardless of the user's actual nuclei channel name.
             nucleus_data["integrated_int_DAPI"] = (
                 nucleus_data["intensity_mean_DAPI_nucleus"]
                 * nucleus_data["area_nucleus"]
@@ -607,10 +621,14 @@ class ImageProperties:
             and self._image.cyto_mask is not None
         ):
             cell_data = self._get_properties(
-                self._image.c_mask, channel, "cell", featurelist
+                self._image.c_mask, channel, channel_token, "cell", featurelist
             )
             cyto_data = self._get_properties(
-                self._image.cyto_mask, channel, "cyto", featurelist
+                self._image.cyto_mask,
+                channel,
+                channel_token,
+                "cyto",
+                featurelist,
             )
             merge_1 = self._outer_merge(
                 cell_data, cyto_data, ["label", "timepoint"]
@@ -626,12 +644,19 @@ class ImageProperties:
         self,
         segmentation_mask: npt.NDArray[Any],
         channel: str,
+        channel_token: str,
         segment: str,
         featurelist: list[str],
     ) -> pd.DataFrame:
         """Measure selected features for each segmented cell in given channel.
 
-        This method measures the selected features for each segmented cell in the given channel.
+        Args:
+            segmentation_mask: Mask array used as the region label image.
+            channel: Original channel name (used to index ``img_dict``).
+            channel_token: Token to embed in feature column names. ``"DAPI"`` for
+                the nuclei role (canonical), otherwise ``strip_role_suffix(channel)``.
+            segment: Segment label (``nucleus`` / ``cell`` / ``cyto``).
+            featurelist: List of regionprops features to extract.
 
         Returns:
             pd.DataFrame: DataFrame containing feature measurements for the given channel.
@@ -651,7 +676,7 @@ class ImageProperties:
                 )
                 data = pd.DataFrame(props)
                 feature_dict = self._edit_properties(
-                    channel, segment, featurelist
+                    channel_token, segment, featurelist
                 )
                 data = data.rename(columns=feature_dict)
                 data["timepoint"] = t  # Add timepoint for all channels
@@ -668,24 +693,43 @@ class ImageProperties:
                 properties=featurelist,
             )
             data = pd.DataFrame(props)
-            feature_dict = self._edit_properties(channel, segment, featurelist)
+            feature_dict = self._edit_properties(
+                channel_token, segment, featurelist
+            )
             data = data.rename(columns=feature_dict)
             data["timepoint"] = 0  # Add timepoint 0 for single timepoint data
             return data.sort_values(by=["label"]).reset_index(drop=True)
 
+    def _feature_channel_token(self, channel: str) -> str:
+        """Token used to name feature columns for a given channel.
+
+        Returns the canonical ``"DAPI"`` for the nuclei role channel (so downstream
+        column contracts like ``integrated_int_DAPI`` and ``intensity_mean_DAPI_nucleus``
+        remain stable), and the suffix-stripped channel name otherwise.
+        """
+        if channel == self._image._nuclei_channel:
+            return "DAPI"
+        return strip_role_suffix(channel)
+
     @staticmethod
     def _edit_properties(
-        channel: str, segment: str, featurelist: list[str]
+        channel_token: str, segment: str, featurelist: list[str]
     ) -> dict[str, str]:
-        """Edit the properties of the features.
+        """Build the rename map from regionprops column names to feature column names.
 
-        This method edits the properties of the features to be used in the DataFrame.
+        Args:
+            channel_token: Token used in the feature column name (canonical ``DAPI``
+                for the nuclei role; suffix-stripped channel name otherwise).
+            segment: Segment label (``nucleus`` / ``cell`` / ``cyto``).
+            featurelist: List of regionprops feature names; the first two
+                (``label``, ``area``) are handled specially.
 
         Returns:
-            dict[str, str]: Dictionary mapping feature names to their edited names.
+            dict[str, str]: Dictionary mapping regionprops column names to their
+            final feature column names.
         """
         feature_dict = {
-            feature: f"{feature}_{channel}_{segment}"
+            feature: f"{feature}_{channel_token}_{segment}"
             for feature in featurelist[2:]
         }
         feature_dict["area"] = (
