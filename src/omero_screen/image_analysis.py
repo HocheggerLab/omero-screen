@@ -109,7 +109,7 @@ class Image:
     def _get_metadata(self) -> None:
         """Extracts channel metadata, well position, and cell line information from the metadata parser."""
         self.channels = self._meta_data.channel_data
-        self._nuclei_channel: str = self._meta_data.channel_roles["nuclei"]
+        self._nucleus_channel: str = self._meta_data.channel_roles["nucleus"]
         self._cell_channel: str | None = self._meta_data.channel_roles.get(
             "cell"
         )
@@ -250,13 +250,13 @@ class Image:
 
         segmentation_model = _get_segmentation_model(model_name)
         # Get the image array via the nuclei role (resolved by MetadataParser).
-        if self._nuclei_channel not in self.img_dict:
+        if self._nucleus_channel not in self.img_dict:
             raise KeyError(
-                f"Nuclei channel '{self._nuclei_channel}' not found in image data. "
+                f"Nuclei channel '{self._nucleus_channel}' not found in image data. "
                 f"Available channels: {list(self.img_dict.keys())}. "
-                f"Nucleus segmentation requires the channel resolved to role 'nuclei'."
+                f"Nucleus segmentation requires the channel resolved to role 'nucleus'."
             )
-        img_array = self.img_dict[self._nuclei_channel]
+        img_array = self.img_dict[self._nucleus_channel]
 
         # Initialize an array to store the segmentation masks
         segmentation_masks = np.zeros_like(img_array, dtype=np.uint32)
@@ -319,9 +319,9 @@ class Image:
                 "This is an internal error — _segmentation() should have skipped "
                 "the cell branch."
             )
-        if self._nuclei_channel not in self.img_dict:
+        if self._nucleus_channel not in self.img_dict:
             raise KeyError(
-                f"Nuclei channel '{self._nuclei_channel}' not found in image data. "
+                f"Nuclei channel '{self._nucleus_channel}' not found in image data. "
                 f"Available channels: {list(self.img_dict.keys())}. "
                 f"Cell segmentation requires both nuclei and cell role channels."
             )
@@ -332,7 +332,7 @@ class Image:
                 f"Cell segmentation requires a channel resolved to role 'cell' "
                 f"(suffix '_cell' or legacy substring 'Tub')."
             )
-        dapi_array = self.img_dict[self._nuclei_channel]
+        dapi_array = self.img_dict[self._nucleus_channel]
         tub_array = self.img_dict[self._cell_channel]
 
         # Check if the time dimension matches
@@ -607,7 +607,7 @@ class ImageProperties:
             nucleus_data = self._outer_merge(
                 nucleus_data, self._overlay, "label"
             )
-        if channel == self._image._nuclei_channel:
+        if channel == self._image._nucleus_channel:
             # ``integrated_int_DAPI`` is a fixed downstream contract consumed by
             # cellcycle_analysis; the column name uses the canonical ``DAPI`` token
             # regardless of the user's actual nuclei channel name.
@@ -707,7 +707,7 @@ class ImageProperties:
         column contracts like ``integrated_int_DAPI`` and ``intensity_mean_DAPI_nucleus``
         remain stable), and the suffix-stripped channel name otherwise.
         """
-        if channel == self._image._nuclei_channel:
+        if channel == self._image._nucleus_channel:
             return "DAPI"
         return strip_role_suffix(channel)
 

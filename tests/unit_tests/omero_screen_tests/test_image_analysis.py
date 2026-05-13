@@ -110,7 +110,7 @@ class TestImageInitialization:
         """Create a mock metadata parser."""
         metadata = MagicMock()
         metadata.channel_data = {"DAPI": "0", "Tub": "1"}
-        metadata.channel_roles = {"nuclei": "DAPI", "cell": "Tub"}
+        metadata.channel_roles = {"nucleus": "DAPI", "cell": "Tub"}
         metadata.plate_id = 789
         metadata.well_conditions.return_value = {
             "cell_line": "RPE-1",
@@ -342,7 +342,7 @@ class TestImageSegmentation:
         # Mock metadata
         metadata = MagicMock()
         metadata.channel_data = {"DAPI": "0"}
-        metadata.channel_roles = {"nuclei": "DAPI"}
+        metadata.channel_roles = {"nucleus": "DAPI"}
         metadata.well_conditions.return_value = {
             "cell_line": "HeLa",
             "condition": "test",
@@ -422,7 +422,7 @@ class TestImageSegmentation:
         # Modify metadata to include Tub channel
         mock_setup["metadata"].channel_data = {"DAPI": "0", "Tub": "1"}
         mock_setup["metadata"].channel_roles = {
-            "nuclei": "DAPI",
+            "nucleus": "DAPI",
             "cell": "Tub",
         }
         mock_setup["flatfield_dict"]["Tub"] = np.ones((256, 256))
@@ -640,7 +640,7 @@ class TestMultiTimepoint:
 
         metadata = MagicMock()
         metadata.channel_data = {"DAPI": "0"}
-        metadata.channel_roles = {"nuclei": "DAPI"}
+        metadata.channel_roles = {"nucleus": "DAPI"}
         metadata.well_conditions.return_value = {
             "cell_line": "U2OS",
             "condition": "timelapse",

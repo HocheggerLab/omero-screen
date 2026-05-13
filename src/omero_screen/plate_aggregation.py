@@ -350,7 +350,7 @@ def align_plates(
     metadata[plate_id] = MetadataParser(conn, plate_id)
     for meta in metadata.values():
         meta.manage_metadata()
-        resolved_ch = align_ch or meta.channel_roles.get("nuclei")
+        resolved_ch = align_ch or meta.channel_roles.get("nucleus")
         if resolved_ch is None or resolved_ch not in meta.channel_data:
             raise PlateDataError(
                 f"Plate {meta.plate_id} is missing alignment channel: "
@@ -380,7 +380,7 @@ def align_plates(
 
     def _resolve_align_idx(plate: int) -> int:
         meta = metadata[plate]
-        ch_name = align_ch or meta.channel_roles["nuclei"]
+        ch_name = align_ch or meta.channel_roles["nucleus"]
         return int(meta.channel_data[ch_name])
 
     ch1 = _resolve_align_idx(plate_id)

@@ -1582,28 +1582,38 @@ class ChannelDataParser:
             )
 
         # Search for a map annotation with "dapi" or "hoechst" in its value (case-insensitive)
+        from omero_screen.metadata_parser import resolve_channel_roles
+        from omero_utils.message import ChannelAnnotationError
+
         for map_ann in map_annotations:
             ann_value = map_ann.getValue()
-            # Assuming the value is a list of tuples or similar structure
-            for key, _value in ann_value:
-                if key.lower() in ["dapi", "hoechst", "rfp"]:
-                    self._map_annotations = ann_value
-                    return  # Return the first matching map annotation's value
+            # Accept any map annotation whose keys contain a resolvable nucleus
+            # role (alias, ``_nucleus`` suffix, or legacy DAPI).
+            keys = {k.strip(): 0 for k, _ in ann_value}
+            try:
+                resolve_channel_roles(keys)
+            except ChannelAnnotationError:
+                continue
+            self._map_annotations = ann_value
+            return
 
-        # If no matching annotation is found, raise a specific exception
         logger.error(
-            "No DAPI or Hoechst channel information found for plate %s.",
+            "No nucleus channel information found for plate %s.",
             self._plate_id,
         )  # noqa: G004
         raise ValueError(
-            f"No DAPI or Hoechst channel information found for platplate {self._omero_data.plate_id}."
+            f"No nucleus channel information found for plate {self._omero_data.plate_id}."
         )
 
     def _tidy_up_channel_data(self) -> None:
         """
         Convert channel map annotation from list of tuples to dictionary.
-        Eliminate spaces and swap Hoechst to DAPI if necessary.
+        The nucleus-role channel is renamed to 'DAPI' so legacy display
+        widgets continue to work; the original name is preserved separately
+        for reference.
         """
+        from omero_screen.metadata_parser import resolve_channel_roles
+
         channel_data = dict(self._map_annotations)
         sorted_channel_data = dict(
             sorted(channel_data.items(), key=lambda item: item[1])
@@ -1611,11 +1621,10 @@ class ChannelDataParser:
         self._channel_data = {
             key.strip(): value for key, value in sorted_channel_data.items()
         }
-        if "Hoechst" in self._channel_data:
-            self._channel_data["DAPI"] = self._channel_data.pop("Hoechst")
-        if "RFP" in self._channel_data:
-            self._channel_data["DAPI"] = self._channel_data.pop("RFP")
-        # check if one of the channels is DAPI otherwise raise exception
+        roles = resolve_channel_roles(dict.fromkeys(self._channel_data, 0))
+        nucleus_name = roles["nucleus"]
+        if nucleus_name != "DAPI":
+            self._channel_data["DAPI"] = self._channel_data.pop(nucleus_name)
 
 
 # -----------------------------------------------FLATFIELD CORRECTION-----------------------------------------------------

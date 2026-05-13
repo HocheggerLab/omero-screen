@@ -325,15 +325,21 @@ def test_validate_channel_data_case_insensitive():
     assert parser.channel_data["GFP"] == 1
 
 
-def test_validate_channel_data_no_nuclei_channel():
-    """Test that validation fails when no nuclei channel is present."""
+def test_validate_channel_data_no_nucleus_channel():
+    """Test that validation fails when no nuclei channel is present.
+
+    Since the channel-role refactor, the resolver raises first with a more
+    informative message that names the channels seen and the available routes
+    (alias or ``_nucleus`` suffix).
+    """
     parser = MockParser({"GFP": "0", "YFP": "1"})
     errors = parser._validate_channel_data()
     assert len(errors) == 1
-    assert (
-        "At least one nuclei channel (DAPI/Hoechst/DNA/RFP) is required"
-        in errors[0]
-    )
+    # Resolver fires its own informative message first; legacy fallback is
+    # suppressed when the resolver itself failed. Either is acceptable.
+    assert "nucleus channel" in errors[0].lower()
+    assert "GFP" in errors[0] and "YFP" in errors[0]
+    assert "_nucleus" in errors[0]
 
 
 # --------------------TEST Validate Well Data--------------------

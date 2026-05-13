@@ -213,8 +213,8 @@ def _get_segmentation_channels(
     Uses :attr:`MetadataParser.channel_roles` to resolve the nuclei channel
     (required) and the cell channel (optional, for nucleus+cell segmentation).
     """
-    nuclei_name = metadata.channel_roles["nuclei"]
-    nuc_ch = int(metadata.channel_data[nuclei_name])
+    nucleus_name = metadata.channel_roles["nucleus"]
+    nuc_ch = int(metadata.channel_data[nucleus_name])
     cell_name = metadata.channel_roles.get("cell")
     if cell_name is not None:
         return (nuc_ch, int(metadata.channel_data[cell_name]))

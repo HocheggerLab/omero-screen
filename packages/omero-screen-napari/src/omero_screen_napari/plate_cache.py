@@ -871,23 +871,27 @@ def _parse_channel_data(plate: Any) -> dict[str, str]:
     if not map_annotations:
         raise ValueError(f"No MapAnnotations found for plate {plate.getId()}")
 
+    from omero_screen.metadata_parser import resolve_channel_roles
+    from omero_utils.message import ChannelAnnotationError
+
     for map_ann in map_annotations:
         ann_value = map_ann.getValue()
-        for key, _value in ann_value:
-            if key.lower() in ["dapi", "hoechst", "rfp"]:
-                channel_data = dict(ann_value)
-                sorted_data = dict(
-                    sorted(channel_data.items(), key=lambda item: item[1])
-                )
-                result = {k.strip(): v for k, v in sorted_data.items()}
-                if "Hoechst" in result:
-                    result["DAPI"] = result.pop("Hoechst")
-                if "RFP" in result:
-                    result["DAPI"] = result.pop("RFP")
-                return result
+        channel_data = dict(ann_value)
+        sorted_data = dict(
+            sorted(channel_data.items(), key=lambda item: item[1])
+        )
+        result = {k.strip(): v for k, v in sorted_data.items()}
+        try:
+            roles = resolve_channel_roles(dict.fromkeys(result, 0))
+        except ChannelAnnotationError:
+            continue
+        nucleus_name = roles["nucleus"]
+        if nucleus_name != "DAPI":
+            result["DAPI"] = result.pop(nucleus_name)
+        return result
 
     raise ValueError(
-        f"No DAPI or Hoechst channel information found for plate {plate.getId()}"
+        f"No nucleus channel information found for plate {plate.getId()}"
     )
 
 

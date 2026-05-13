@@ -35,53 +35,53 @@ def _filter_non_image_errors(errors: list[str]) -> list[str]:
 
 
 class TestResolveChannelRoles:
-    def test_suffix_nuclei_wins(self):
-        roles = resolve_channel_roles({"Hoechst_nuclei": 0, "Tub": 1})
-        assert roles == {"nuclei": "Hoechst_nuclei", "cell": "Tub"}
+    def test_suffix_nucleus_wins(self):
+        roles = resolve_channel_roles({"Hoechst_nucleus": 0, "Tub": 1})
+        assert roles == {"nucleus": "Hoechst_nucleus", "cell": "Tub"}
 
     def test_suffix_cell(self):
         roles = resolve_channel_roles({"DAPI": 0, "CellMask_cell": 1})
-        assert roles == {"nuclei": "DAPI", "cell": "CellMask_cell"}
+        assert roles == {"nucleus": "DAPI", "cell": "CellMask_cell"}
 
     def test_suffix_case_insensitive(self):
         roles = resolve_channel_roles(
-            {"Hoechst_NUCLEI": 0, "Phalloidin_Cell": 1}
+            {"Hoechst_NUCLEUS": 0, "Phalloidin_Cell": 1}
         )
         assert roles == {
-            "nuclei": "Hoechst_NUCLEI",
+            "nucleus": "Hoechst_NUCLEUS",
             "cell": "Phalloidin_Cell",
         }
 
-    def test_alias_nuclei(self):
+    def test_alias_nucleus(self):
         for alias in ("DAPI", "Hoechst", "DNA", "H2B_RFP"):
             roles = resolve_channel_roles({alias: 0})
-            assert roles == {"nuclei": alias}
+            assert roles == {"nucleus": alias}
 
     def test_legacy_tub_substring(self):
         roles = resolve_channel_roles({"DAPI": 0, "aTub": 1})
-        assert roles == {"nuclei": "DAPI", "cell": "aTub"}
+        assert roles == {"nucleus": "DAPI", "cell": "aTub"}
 
     def test_feature_channels_have_no_role(self):
         roles = resolve_channel_roles(
             {"Hoechst": 0, "Tub": 1, "p21": 2, "EdU": 3}
         )
-        assert roles == {"nuclei": "Hoechst", "cell": "Tub"}
+        assert roles == {"nucleus": "Hoechst", "cell": "Tub"}
 
-    def test_rfp_no_longer_nuclei_alias(self):
-        with pytest.raises(ChannelAnnotationError, match="No nuclei channel"):
+    def test_rfp_no_longer_nucleus_alias(self):
+        with pytest.raises(ChannelAnnotationError, match="No nucleus channel"):
             resolve_channel_roles({"RFP": 0, "GFP": 1})
 
-    def test_h2b_rfp_is_nuclei(self):
+    def test_h2b_rfp_is_nucleus(self):
         roles = resolve_channel_roles({"H2B_RFP": 0})
-        assert roles["nuclei"] == "H2B_RFP"
+        assert roles["nucleus"] == "H2B_RFP"
 
-    def test_missing_nuclei_raises(self):
-        with pytest.raises(ChannelAnnotationError, match="No nuclei channel"):
+    def test_missing_nucleus_raises(self):
+        with pytest.raises(ChannelAnnotationError, match="No nucleus channel"):
             resolve_channel_roles({"GFP": 0, "RFP": 1})
 
-    def test_duplicate_nuclei_raises(self):
+    def test_duplicate_nucleus_raises(self):
         with pytest.raises(
-            ChannelAnnotationError, match="Multiple channels resolve to role 'nuclei'"
+            ChannelAnnotationError, match="Multiple channels resolve to role 'nucleus'"
         ):
             resolve_channel_roles({"DAPI": 0, "Hoechst": 1})
 
@@ -95,13 +95,13 @@ class TestResolveChannelRoles:
 
     def test_suffix_overrides_alias_collision(self):
         roles = resolve_channel_roles(
-            {"DAPI_nuclei": 0, "Tub": 1}
+            {"DAPI_nucleus": 0, "Tub": 1}
         )
-        assert roles["nuclei"] == "DAPI_nuclei"
+        assert roles["nucleus"] == "DAPI_nucleus"
 
     def test_nucleus_only_segmentation(self):
         roles = resolve_channel_roles({"DAPI": 0, "EdU": 1})
-        assert roles == {"nuclei": "DAPI"}
+        assert roles == {"nucleus": "DAPI"}
         assert "cell" not in roles
 
     def test_does_not_mutate_input(self):
@@ -111,25 +111,25 @@ class TestResolveChannelRoles:
 
 
 class TestStripRoleSuffix:
-    def test_strips_nuclei(self):
-        assert strip_role_suffix("Hoechst_nuclei") == "Hoechst"
+    def test_strips_nucleus(self):
+        assert strip_role_suffix("Hoechst_nucleus") == "Hoechst"
 
     def test_strips_cell(self):
         assert strip_role_suffix("CellMask_cell") == "CellMask"
 
     def test_case_insensitive_match_preserves_case(self):
-        assert strip_role_suffix("Hoechst_NUCLEI") == "Hoechst"
+        assert strip_role_suffix("Hoechst_NUCLEUS") == "Hoechst"
 
     def test_no_suffix_returns_input(self):
         assert strip_role_suffix("DAPI") == "DAPI"
         assert strip_role_suffix("Tub") == "Tub"
 
     def test_only_strips_trailing_suffix(self):
-        assert strip_role_suffix("cellMask_nuclei") == "cellMask"
+        assert strip_role_suffix("cellMask_nucleus") == "cellMask"
         assert strip_role_suffix("nuclei_marker") == "nuclei_marker"
 
     def test_idempotent(self):
-        stripped = strip_role_suffix("Hoechst_nuclei")
+        stripped = strip_role_suffix("Hoechst_nucleus")
         assert strip_role_suffix(stripped) == stripped
 
 
@@ -143,7 +143,7 @@ class TestMetadataParserChannelRoles:
             errors = parser._validate_channel_data()
         assert _filter_non_image_errors(errors) == []
         assert parser.channel_data == {"DAPI": "0", "Tub": "1", "EdU": "2"}
-        assert parser.channel_roles == {"nuclei": "DAPI", "cell": "Tub"}
+        assert parser.channel_roles == {"nucleus": "DAPI", "cell": "Tub"}
 
     def test_dapi_user_name_no_rename_no_warning(self):
         parser = _make_parser({"DAPI": "0", "Tub": "1"})
@@ -152,7 +152,7 @@ class TestMetadataParserChannelRoles:
             parser._validate_channel_data()
         deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
         assert deprecations == []
-        assert parser.channel_roles == {"nuclei": "DAPI", "cell": "Tub"}
+        assert parser.channel_roles == {"nucleus": "DAPI", "cell": "Tub"}
 
     def test_hoechst_emits_deprecation_warning(self):
         parser = _make_parser({"Hoechst": "0", "Tub": "1"})
@@ -167,17 +167,17 @@ class TestMetadataParserChannelRoles:
         assert "channel_roles" in str(deprecations[0].message)
 
     def test_suffix_marked_channel_populates_role(self):
-        parser = _make_parser({"Hoechst_nuclei": "0", "CellMask_cell": "1"})
+        parser = _make_parser({"Hoechst_nucleus": "0", "CellMask_cell": "1"})
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
             errors = parser._validate_channel_data()
-        # The legacy rename does NOT fire on Hoechst_nuclei (it's not a literal alias).
-        assert "Hoechst_nuclei" in parser.channel_data
+        # The legacy rename does NOT fire on Hoechst_nucleus (it's not a literal alias).
+        assert "Hoechst_nucleus" in parser.channel_data
         assert parser.channel_roles["cell"] == "CellMask_cell"
         # No nuclei alias matched, so the legacy "no nuclei" error fires —
         # acceptable during the transition since channel_roles still resolves
         # the nuclei role from the suffix.
-        assert parser.channel_roles.get("nuclei") == "Hoechst_nuclei"
+        assert parser.channel_roles.get("nucleus") == "Hoechst_nucleus"
 
     def test_nucleus_only_segmentation_legacy(self):
         parser = _make_parser({"DAPI": "0", "EdU": "1"})
@@ -185,16 +185,16 @@ class TestMetadataParserChannelRoles:
             warnings.simplefilter("ignore", DeprecationWarning)
             errors = parser._validate_channel_data()
         assert _filter_non_image_errors(errors) == []
-        assert parser.channel_roles == {"nuclei": "DAPI"}
+        assert parser.channel_roles == {"nucleus": "DAPI"}
         assert "cell" not in parser.channel_roles
 
-    def test_missing_nuclei_reports_error_and_empty_roles(self):
+    def test_missing_nucleus_reports_error_and_empty_roles(self):
         parser = _make_parser({"GFP": "0", "RFP": "1"})
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
             errors = parser._validate_channel_data()
         non_image_errors = _filter_non_image_errors(errors)
-        assert any("nuclei" in e.lower() for e in non_image_errors)
+        assert any("nucleus" in e.lower() for e in non_image_errors)
         assert parser.channel_roles == {}
 
 
@@ -210,16 +210,16 @@ class TestFeatureChannelToken:
         from omero_screen.image_analysis import ImageProperties
 
         instance = object.__new__(ImageProperties)
-        instance._image = SimpleNamespace(_nuclei_channel=nuclei_channel)  # type: ignore[attr-defined]
+        instance._image = SimpleNamespace(_nucleus_channel=nuclei_channel)  # type: ignore[attr-defined]
         return instance
 
-    def test_nuclei_role_emits_canonical_dapi(self):
+    def test_nucleus_role_emits_canonical_dapi(self):
         # User's nuclei channel is "Hoechst" (legacy rename would force "DAPI"
         # during the transition; this still emits the canonical token).
         props = self._make_image_properties(nuclei_channel="Hoechst")
         assert props._feature_channel_token("Hoechst") == "DAPI"
 
-    def test_nuclei_role_emits_dapi_when_already_dapi(self):
+    def test_nucleus_role_emits_dapi_when_already_dapi(self):
         props = self._make_image_properties(nuclei_channel="DAPI")
         assert props._feature_channel_token("DAPI") == "DAPI"
 
@@ -244,10 +244,10 @@ class TestClassifierNucleiFallback:
     def test_dapi_classifier_resolves_against_hoechst_plate(self):
         import numpy as np
 
-        from omero_screen.image_classifier import _resolve_nuclei_fallback
+        from omero_screen.image_classifier import _resolve_nucleus_fallback
 
         image_data = {"Hoechst": np.zeros((1, 4, 4)), "EdU": np.ones((1, 4, 4))}
-        resolved = _resolve_nuclei_fallback("DAPI", image_data)
+        resolved = _resolve_nucleus_fallback("DAPI", image_data)
         assert resolved is not None
         assert resolved.shape == (1, 4, 4)
         assert resolved.sum() == 0  # picked Hoechst (zeros), not EdU (ones)
@@ -255,29 +255,29 @@ class TestClassifierNucleiFallback:
     def test_suffix_marked_classifier_channel_resolves(self):
         import numpy as np
 
-        from omero_screen.image_classifier import _resolve_nuclei_fallback
+        from omero_screen.image_classifier import _resolve_nucleus_fallback
 
         image_data = {"DAPI": np.zeros((1, 4, 4))}
-        resolved = _resolve_nuclei_fallback("MyMarker_nuclei", image_data)
+        resolved = _resolve_nucleus_fallback("MyMarker_nucleus", image_data)
         assert resolved is not None
 
-    def test_non_nuclei_channel_returns_none(self):
+    def test_non_nucleus_channel_returns_none(self):
         import numpy as np
 
-        from omero_screen.image_classifier import _resolve_nuclei_fallback
+        from omero_screen.image_classifier import _resolve_nucleus_fallback
 
         image_data = {"Hoechst": np.zeros((1, 4, 4))}
         # EdU is not a nuclei alias — no fallback
-        resolved = _resolve_nuclei_fallback("EdU", image_data)
+        resolved = _resolve_nucleus_fallback("EdU", image_data)
         assert resolved is None
 
-    def test_no_nuclei_in_image_data_returns_none(self):
+    def test_no_nucleus_in_image_data_returns_none(self):
         import numpy as np
 
-        from omero_screen.image_classifier import _resolve_nuclei_fallback
+        from omero_screen.image_classifier import _resolve_nucleus_fallback
 
         image_data = {"EdU": np.ones((1, 4, 4)), "p21": np.ones((1, 4, 4))}
-        resolved = _resolve_nuclei_fallback("DAPI", image_data)
+        resolved = _resolve_nucleus_fallback("DAPI", image_data)
         assert resolved is None
 
 
@@ -311,13 +311,13 @@ class TestNapariRoleBasedColors:
 
     def test_suffix_marked_plate(self):
         colors = self._color_map(
-            ["H2B_RFP_nuclei", "Phalloidin_cell", "p21"]
+            ["H2B_RFP_nucleus", "Phalloidin_cell", "p21"]
         )
-        assert colors["H2B_RFP_nuclei"] == "blue"
+        assert colors["H2B_RFP_nucleus"] == "blue"
         assert colors["Phalloidin_cell"] == "green"
         assert "p21" not in colors
 
-    def test_no_nuclei_or_cell_yields_empty_map(self):
+    def test_no_nucleus_or_cell_yields_empty_map(self):
         colors = self._color_map(["EdU", "p21", "GFP"])
         assert colors == {}
 
