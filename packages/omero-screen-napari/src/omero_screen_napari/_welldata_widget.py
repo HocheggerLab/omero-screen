@@ -19,6 +19,11 @@ from napari.utils import notifications
 from napari.utils import progress as napari_progress
 from napari.viewer import Viewer
 from omero_screen.config import get_logger
+from omero_utils.stitching import (
+    has_valid_positions,
+    stitch_from_positions,
+    stitch_labels_from_positions,
+)
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
     QComboBox,
@@ -46,11 +51,6 @@ from omero_screen_napari.plate_cache import (
     is_plate_cached,
     is_plate_fully_cached,
     load_from_cache,
-)
-from omero_screen_napari.position_stitching import (
-    has_valid_positions,
-    stitch_from_positions,
-    stitch_labels_from_positions,
 )
 
 # Logging

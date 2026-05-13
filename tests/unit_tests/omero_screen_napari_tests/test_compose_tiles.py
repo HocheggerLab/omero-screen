@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from omero_screen_napari.welldata_api import compose_labels, compose_tiles
+from omero_utils.stitching import compose_labels, compose_tiles
 
 
 # --------------- compose_tiles ---------------

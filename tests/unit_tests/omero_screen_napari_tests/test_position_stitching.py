@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from omero_screen_napari.position_stitching import (
+from omero_utils.stitching import (
     _adaptive_tolerance,
     _cluster_values,
     _compute_overlap,
