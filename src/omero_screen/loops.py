@@ -61,6 +61,7 @@ from omero_screen.constants import OmeroScreenNS
 from omero_screen.gallery_figure import create_gallery
 from omero_screen.image_analysis import Image, ImageProperties, get_cell_model
 from omero_screen.image_classifier import ImageClassifier
+from omero_screen.metadata_parser import strip_role_suffix
 from omero_screen.quality_control import quality_control_fig
 
 from .benchmarking import get_benchmark
@@ -138,17 +139,32 @@ def plate_loop(
             try:
                 H3 = "H3P" in keys
                 cyto = "cell" in metadata.channel_roles
+                # Token used in the feature column names for the segmented nucleus
+                # channel; matches the rule applied by image_analysis when building
+                # ``integrated_int_{token}`` / ``intensity_mean_{token}_nucleus``.
+                nucleus_channel = strip_role_suffix(
+                    metadata.channel_roles["nucleus"]
+                )
 
                 if H3 and cyto:
                     df_final_cc = cellcycle_analysis(
-                        df_final, H3=True, cyto=True
+                        df_final,
+                        H3=True,
+                        cyto=True,
+                        nucleus_channel=nucleus_channel,
                     )
                 elif H3:
-                    df_final_cc = cellcycle_analysis(df_final, H3=True)
+                    df_final_cc = cellcycle_analysis(
+                        df_final, H3=True, nucleus_channel=nucleus_channel
+                    )
                 elif not cyto:
-                    df_final_cc = cellcycle_analysis(df_final, cyto=False)
+                    df_final_cc = cellcycle_analysis(
+                        df_final, cyto=False, nucleus_channel=nucleus_channel
+                    )
                 else:
-                    df_final_cc = cellcycle_analysis(df_final)
+                    df_final_cc = cellcycle_analysis(
+                        df_final, nucleus_channel=nucleus_channel
+                    )
                 wells = list(
                     conn.getObject("Plate", metadata.plate_id).listChildren()
                 )

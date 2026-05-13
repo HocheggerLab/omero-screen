@@ -26,14 +26,11 @@ prop_cycle = plt.rcParams["axes.prop_cycle"]
 colors = prop_cycle.by_key()["color"]
 
 
-norm_colums = (
-    "integrated_int_DAPI",
-    "intensity_mean_EdU_nucleus",
-)  # Default columns for cell cycle normalisation
-
-
 def cellcycle_analysis(
-    df: pd.DataFrame, H3: bool = False, cyto: bool = True
+    df: pd.DataFrame,
+    H3: bool = False,
+    cyto: bool = True,
+    nucleus_channel: str = "DAPI",
 ) -> pd.DataFrame:
     """Function to normalise cell cycle data and assign cell cycle phase for each cell line.
 
@@ -41,15 +38,26 @@ def cellcycle_analysis(
         df: single cell data from omeroscreen
         H3: True if H3 data is present
         cyto: True if cytoplasmic data is present
+        nucleus_channel: Name of the segmented nucleus channel as it appears in
+            the feature column names (e.g. ``"DAPI"``, ``"Hoechst"``, ``"H2B_RFP"``).
+            Used to locate the integrated intensity column
+            ``integrated_int_{nucleus_channel}`` for DNA-content normalisation.
+            The normalised column is written as
+            ``integrated_int_{nucleus_channel}_norm``. Defaults to ``"DAPI"``
+            for backward compatibility with legacy plates.
+
     Returns:
         dataframe with cell cycle and cell cycle detailed columns
 
     Raises:
         KeyError: If required columns are missing from the input DataFrame.
     """
+    dna_col = f"integrated_int_{nucleus_channel}"
+    dna_norm_col = f"{dna_col}_norm"
+
     # Validate required columns before processing
     required_cols = [
-        "integrated_int_DAPI",
+        dna_col,
         "intensity_mean_EdU_nucleus",
         "intensity_min_EdU_nucleus",
         "cell_line",
@@ -76,7 +84,7 @@ def cellcycle_analysis(
     df1 = df.copy()
     if H3:
         values = [
-            "integrated_int_DAPI",
+            dna_col,
             "intensity_mean_EdU_nucleus",
             "intensity_mean_H3P_nucleus",
         ]
@@ -86,14 +94,14 @@ def cellcycle_analysis(
             + 1
         )
     else:
-        values = ["integrated_int_DAPI", "intensity_mean_EdU_nucleus"]
+        values = [dna_col, "intensity_mean_EdU_nucleus"]
     df1["intensity_mean_EdU_nucleus"] = (
         df1["intensity_mean_EdU_nucleus"]
         - df1["intensity_min_EdU_nucleus"]
         + 1
     )
     if cyto:
-        df_agg = _agg_multinucleates(df1)
+        df_agg = _agg_multinucleates(df1, dna_col=dna_col)
         df_agg_corr = _delete_duplicates(df_agg)
     else:
         df_agg_corr = df1.copy()
@@ -101,19 +109,21 @@ def cellcycle_analysis(
     for cell_line in df_agg_corr["cell_line"].unique():
         df1 = df_agg_corr.loc[df_agg_corr["cell_line"] == cell_line]
         df_norm = _normalise(df1, values)
-        df_norm["integrated_int_DAPI_norm"] = (
-            df_norm["integrated_int_DAPI_norm"] * 2
-        )
+        df_norm[dna_norm_col] = df_norm[dna_norm_col] * 2
         tempfile = pd.concat([tempfile, df_norm])
-    return _assign_ccphase(data=tempfile, H3=H3)
+    return _assign_ccphase(data=tempfile, H3=H3, dna_norm_col=dna_norm_col)
 
 
 # Helper Functions for cell cycle normalisation
-def _agg_multinucleates(df: pd.DataFrame) -> pd.DataFrame:
-    """Function to aggregate multinucleates by summing up the nucleus area and DAPI intensity.
+def _agg_multinucleates(
+    df: pd.DataFrame, dna_col: str = "integrated_int_DAPI"
+) -> pd.DataFrame:
+    """Function to aggregate multinucleates by summing up the nucleus area and DNA intensity.
 
     Args:
         df: single cell data from omeroscreen
+        dna_col: Name of the integrated nucleus DNA-intensity column to sum-aggregate.
+
     Returns:
         corrected df with aggregated multinucleates
     """
@@ -121,8 +131,9 @@ def _agg_multinucleates(df: pd.DataFrame) -> pd.DataFrame:
     str_cols = list(df.select_dtypes(include=["object"]).columns)
     # define the aggregation functions for each column
     agg_functions: dict[str, str | Callable[..., Any]] = {}
+    sum_cols = {dna_col, "area_nucleus"}
     for col in num_cols:
-        if col in ["integrated_int_DAPI", "area_nucleus"]:
+        if col in sum_cols:
             agg_functions[col] = "sum"
         elif "max" in col and "nucleus" in col:
             agg_functions[col] = "max"
@@ -176,12 +187,18 @@ def _normalise(df: pd.DataFrame, values: list[str]) -> pd.DataFrame:
     return norm_df
 
 
-def _assign_ccphase(data: pd.DataFrame, H3: bool) -> pd.DataFrame:
-    """Assigns a cell cycle phase to each cell based on normalised EdU and DAPI intensities.
+def _assign_ccphase(
+    data: pd.DataFrame,
+    H3: bool,
+    dna_norm_col: str = "integrated_int_DAPI_norm",
+) -> pd.DataFrame:
+    """Assigns a cell cycle phase to each cell based on normalised EdU and DNA intensities.
 
     Args:
         data: dataframe from normalise function
         H3: True if H3 data is present
+        dna_norm_col: Name of the normalised DNA-content column to threshold on.
+
     Returns:
         dataframe with cell cycle assignment
         (col: cellcycle (Sub-G1, G1, S, G2/M Polyploid)
@@ -189,9 +206,13 @@ def _assign_ccphase(data: pd.DataFrame, H3: bool) -> pd.DataFrame:
         Polyploid (replicating))
     """
     if H3:
-        data["cell_cycle_detailed"] = data.apply(_thresholdingH3, axis=1)
+        data["cell_cycle_detailed"] = data.apply(
+            _thresholdingH3, axis=1, DAPI_col=dna_norm_col
+        )
     else:
-        data["cell_cycle_detailed"] = data.apply(_thresholding, axis=1)
+        data["cell_cycle_detailed"] = data.apply(
+            _thresholding, axis=1, DAPI_col=dna_norm_col
+        )
     data["cell_cycle"] = data["cell_cycle_detailed"]
     data["cell_cycle"] = data["cell_cycle"].replace(["Early S", "Late S"], "S")
     data["cell_cycle"] = data["cell_cycle"].replace(

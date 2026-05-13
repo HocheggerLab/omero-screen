@@ -286,43 +286,36 @@ def test_validate_channel_data_with_dapi():
     assert parser.channel_data == {"DAPI": "0", "GFP": "1"}
 
 
-def test_validate_channel_data_normalize_hoechst():
-    """Test that Hoechst is normalized to DAPI."""
+def test_validate_channel_data_hoechst_preserved():
+    """Hoechst is preserved verbatim; role resolver tags it as nucleus."""
     parser = MockParser({"Hoechst": 0, "GFP": 1})
     parser._validate_channel_data()
-    assert "DAPI" in parser.channel_data
-    assert parser.channel_data["DAPI"] == 0
-    assert "Hoechst" not in parser.channel_data
-    assert parser.channel_data["GFP"] == 1
+    assert parser.channel_data == {"Hoechst": 0, "GFP": 1}
+    assert parser.channel_roles == {"nucleus": "Hoechst"}
 
 
-def test_validate_channel_data_normalize_dna():
-    """Test that DNA is normalized to DAPI."""
+def test_validate_channel_data_dna_preserved():
+    """DNA is preserved verbatim; role resolver tags it as nucleus."""
     parser = MockParser({"DNA": 0, "GFP": 1})
     parser._validate_channel_data()
-    assert "DAPI" in parser.channel_data
-    assert parser.channel_data["DAPI"] == 0
-    assert "DNA" not in parser.channel_data
-    assert parser.channel_data["GFP"] == 1
+    assert parser.channel_data == {"DNA": 0, "GFP": 1}
+    assert parser.channel_roles == {"nucleus": "DNA"}
 
 
-def test_validate_channel_data_normalize_rfp():
-    """Test that RFP is normalized to DAPI."""
-    parser = MockParser({"RFP": 0, "GFP": 1})
+def test_validate_channel_data_h2b_rfp_preserved():
+    """H2B_RFP is recognised as a nucleus alias and preserved verbatim."""
+    parser = MockParser({"H2B_RFP": 0, "GFP": 1})
     parser._validate_channel_data()
-    assert "DAPI" in parser.channel_data
-    assert parser.channel_data["DAPI"] == 0
-    assert "RFP" not in parser.channel_data
-    assert parser.channel_data["GFP"] == 1
+    assert parser.channel_data == {"H2B_RFP": 0, "GFP": 1}
+    assert parser.channel_roles == {"nucleus": "H2B_RFP"}
 
 
 def test_validate_channel_data_case_insensitive():
-    """Test that nuclei channel detection is case insensitive."""
+    """Nucleus channel detection is case-insensitive — name preserved verbatim."""
     parser = MockParser({"dapi": 0, "GFP": 1})
     parser._validate_channel_data()
-    assert "DAPI" in parser.channel_data
-    assert parser.channel_data["DAPI"] == 0
-    assert parser.channel_data["GFP"] == 1
+    assert parser.channel_data == {"dapi": 0, "GFP": 1}
+    assert parser.channel_roles == {"nucleus": "dapi"}
 
 
 def test_validate_channel_data_no_nucleus_channel():

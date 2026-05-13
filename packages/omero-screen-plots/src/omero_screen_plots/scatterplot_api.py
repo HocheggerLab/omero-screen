@@ -12,6 +12,7 @@ from omero_screen_plots.scatterplot_factory import (
     ScatterPlot,
     ScatterPlotConfig,
 )
+from omero_screen_plots.utils import find_dna_norm_column
 
 
 def scatter_plot(
@@ -21,7 +22,7 @@ def scatter_plot(
     selector_col: str | None = None,
     selector_val: str | None = None,
     # Plot features
-    x_feature: str = "integrated_int_DAPI_norm",
+    x_feature: str | None = None,
     y_feature: str = "intensity_mean_EdU_nucleus_norm",
     # Data sampling
     cell_number: int | None = 3000,
@@ -99,8 +100,11 @@ def scatter_plot(
 
     Plot Features
     ^^^^^^^^^^^^^
-    x_feature : str, default="integrated_int_DAPI_norm"
-        Column name for x-axis (default: DNA content).
+    x_feature : str | None, default=None
+        Column name for x-axis. When ``None`` (the default), resolves to the
+        normalised DNA-content column via :func:`find_dna_norm_column`
+        (e.g. ``integrated_int_DAPI_norm`` for legacy plates,
+        ``integrated_int_Hoechst_norm`` for new plates).
     y_feature : str, default="intensity_mean_EdU_nucleus_norm"
         Column name for y-axis (default: EdU intensity).
     cell_number : int | None, default=3000
@@ -222,6 +226,12 @@ def scatter_plot(
         ...     y_scale="log"
         ... )
     """
+    # Resolve the DNA-content column by inspection when x_feature is not
+    # explicitly given. Keeps the historical default (DNA content on x) without
+    # hardcoding the fluorophore name.
+    if x_feature is None:
+        x_feature = find_dna_norm_column(df)
+
     # Prepare KDE parameters dictionary
     kde_params = {
         "fill": True,

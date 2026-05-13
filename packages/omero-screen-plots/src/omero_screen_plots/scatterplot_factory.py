@@ -19,11 +19,28 @@ from omero_screen_plots.colors import COLOR
 from omero_screen_plots.utils import prepare_plot_data
 
 
+def _is_dna_content_column(col: str) -> bool:
+    """Return True if ``col`` looks like a normalised DNA-content column.
+
+    Matches ``integrated_int_{channel}_norm`` for any channel that is not
+    ``EdU``. Used to apply DNA-axis defaults (limits, ticks) regardless of the
+    actual fluorophore name.
+    """
+    return (
+        col.startswith("integrated_int_")
+        and col.endswith("_norm")
+        and not col.startswith("integrated_int_EdU")
+    )
+
+
 @dataclass
 class ScatterPlotConfig(XYPlotConfig):
     """Configuration for scatter plots."""
 
-    # Plot features (inherited from XYPlotConfig, but setting defaults)
+    # Plot features (inherited from XYPlotConfig, but setting defaults).
+    # ``x_feature`` is left as a literal "integrated_int_DAPI_norm" string for
+    # legacy direct-config callers; the public ``scatter_plot`` API resolves
+    # the actual DNA-content column from the DataFrame via find_dna_norm_column.
     x_feature: str = "integrated_int_DAPI_norm"
     y_feature: str = "intensity_mean_EdU_nucleus_norm"
 
@@ -405,7 +422,7 @@ class ScatterPlot(BasePlotBuilder):
                     ax.set_ylabel("")
 
                 # Ensure consistent axis formatting for DNA/EdU plots
-                is_dna_content = x_feature == "integrated_int_DAPI_norm"
+                is_dna_content = _is_dna_content_column(x_feature)
                 if is_dna_content:
                     ax.set_xlim(self.config.x_limits or (1, 16))
                     if self.config.x_scale == "log":
@@ -449,7 +466,7 @@ class ScatterPlot(BasePlotBuilder):
                 self.ax.xaxis.set_major_formatter(
                     FuncFormatter(lambda x, pos: str(int(x)))
                 )
-            elif x_feature == "integrated_int_DAPI_norm":
+            elif _is_dna_content_column(x_feature):
                 # Default DNA content ticks - only set if within limits
                 if self.config.x_limits:
                     # Only include ticks that are within the limits
@@ -650,7 +667,7 @@ def create_scatter_plot(
                 ax.set_ylabel("")
 
             # Ensure consistent axis formatting for DNA/EdU plots
-            is_dna_content = x_feature == "integrated_int_DAPI_norm"
+            is_dna_content = _is_dna_content_column(x_feature)
             if is_dna_content:
                 ax.set_xlim(config.x_limits or (1, 16))
                 if config.x_scale == "log":

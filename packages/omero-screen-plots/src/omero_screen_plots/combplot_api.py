@@ -11,7 +11,11 @@ from matplotlib.gridspec import GridSpec
 
 from omero_screen_plots.cellcycleplot_api import cellcycle_stacked
 from omero_screen_plots.scatterplot_api import scatter_plot
-from omero_screen_plots.utils import save_fig, selector_val_filter
+from omero_screen_plots.utils import (
+    find_dna_norm_column,
+    save_fig,
+    selector_val_filter,
+)
 
 
 def combplot_feature(
@@ -109,6 +113,10 @@ def combplot_feature(
     if df_filtered is None:
         raise ValueError("No data remaining after filtering")
 
+    # Resolve the actual DNA-content column for this DataFrame (legacy plates:
+    # integrated_int_DAPI_norm; new plates: integrated_int_{fluorophore}_norm).
+    dna_col = find_dna_norm_column(df)
+
     # Create figure with GridSpec layout
     n_conditions = len(conditions)
     fig = plt.figure(figsize=fig_size)
@@ -131,7 +139,7 @@ def combplot_feature(
         # Use seaborn histplot directly, then set log scale after
         sns.histplot(
             data=condition_data,
-            x="integrated_int_DAPI_norm",
+            x=dna_col,
             ax=ax_hist,
             color="steelblue",
         )
@@ -161,7 +169,7 @@ def combplot_feature(
             df=condition_data_sampled,
             conditions=condition,
             condition_col=condition_col,
-            x_feature="integrated_int_DAPI_norm",
+            x_feature=dna_col,
             y_feature="intensity_mean_EdU_nucleus_norm",
             hue="cell_cycle",
             size=2,
@@ -190,7 +198,7 @@ def combplot_feature(
             df=condition_data_sampled,
             conditions=condition,
             condition_col=condition_col,
-            x_feature="integrated_int_DAPI_norm",
+            x_feature=dna_col,
             y_feature=feature,
             threshold=threshold,
             size=2,
@@ -322,6 +330,9 @@ def combplot_cellcycle(
     if df_filtered is None:
         raise ValueError("No data remaining after filtering")
 
+    # Resolve the actual DNA-content column for this DataFrame.
+    dna_col = find_dna_norm_column(df)
+
     # Create figure with GridSpec layout
     n_conditions = len(conditions)
     fig = plt.figure(figsize=fig_size)
@@ -349,7 +360,7 @@ def combplot_cellcycle(
         # Use seaborn histplot directly, then set log scale after
         sns.histplot(
             data=condition_data,
-            x="integrated_int_DAPI_norm",
+            x=dna_col,
             ax=ax_hist,
             color="steelblue",
         )
@@ -379,7 +390,7 @@ def combplot_cellcycle(
             df=condition_data_sampled,
             conditions=condition,
             condition_col=condition_col,
-            x_feature="integrated_int_DAPI_norm",
+            x_feature=dna_col,
             y_feature="intensity_mean_EdU_nucleus_norm",
             hue="cell_cycle",
             size=2,

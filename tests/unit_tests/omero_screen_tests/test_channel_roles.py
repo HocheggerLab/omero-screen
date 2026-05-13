@@ -4,8 +4,6 @@ These tests cover :func:`resolve_channel_roles` and :func:`strip_role_suffix` in
 isolation — no OMERO connection or fixtures required.
 """
 
-import warnings
-
 import pytest
 
 from omero_utils.message import ChannelAnnotationError
@@ -134,73 +132,65 @@ class TestStripRoleSuffix:
 
 
 class TestMetadataParserChannelRoles:
-    """Integration of resolve_channel_roles into MetadataParser._validate_channel_data."""
+    """Integration of resolve_channel_roles into MetadataParser._validate_channel_data.
 
-    def test_roles_populated_alongside_legacy_rename(self):
+    Post-refactor: channel_data is preserved verbatim — no DAPI rename. The actual
+    fluorophore name flows through to feature columns; channel_roles records which
+    name plays which role.
+    """
+
+    def test_hoechst_preserved_with_nucleus_role(self):
         parser = _make_parser({"Hoechst": "0", "Tub": "1", "EdU": "2"})
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            errors = parser._validate_channel_data()
+        errors = parser._validate_channel_data()
         assert _filter_non_image_errors(errors) == []
-        assert parser.channel_data == {"DAPI": "0", "Tub": "1", "EdU": "2"}
-        assert parser.channel_roles == {"nucleus": "DAPI", "cell": "Tub"}
+        assert parser.channel_data == {"Hoechst": "0", "Tub": "1", "EdU": "2"}
+        assert parser.channel_roles == {"nucleus": "Hoechst", "cell": "Tub"}
 
-    def test_dapi_user_name_no_rename_no_warning(self):
+    def test_dapi_user_name_preserved(self):
         parser = _make_parser({"DAPI": "0", "Tub": "1"})
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            parser._validate_channel_data()
-        deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
-        assert deprecations == []
+        errors = parser._validate_channel_data()
+        assert _filter_non_image_errors(errors) == []
+        assert parser.channel_data == {"DAPI": "0", "Tub": "1"}
         assert parser.channel_roles == {"nucleus": "DAPI", "cell": "Tub"}
 
-    def test_hoechst_emits_deprecation_warning(self):
-        parser = _make_parser({"Hoechst": "0", "Tub": "1"})
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            parser._validate_channel_data()
-        deprecations = [
-            w for w in caught if issubclass(w.category, DeprecationWarning)
-        ]
-        assert len(deprecations) == 1
-        assert "Hoechst" in str(deprecations[0].message)
-        assert "channel_roles" in str(deprecations[0].message)
+    def test_h2b_rfp_preserved(self):
+        parser = _make_parser({"H2B_RFP": "0", "Tub": "1"})
+        errors = parser._validate_channel_data()
+        assert _filter_non_image_errors(errors) == []
+        assert parser.channel_data == {"H2B_RFP": "0", "Tub": "1"}
+        assert parser.channel_roles == {"nucleus": "H2B_RFP", "cell": "Tub"}
 
     def test_suffix_marked_channel_populates_role(self):
         parser = _make_parser({"Hoechst_nucleus": "0", "CellMask_cell": "1"})
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            errors = parser._validate_channel_data()
-        # The legacy rename does NOT fire on Hoechst_nucleus (it's not a literal alias).
+        errors = parser._validate_channel_data()
+        assert _filter_non_image_errors(errors) == []
         assert "Hoechst_nucleus" in parser.channel_data
-        assert parser.channel_roles["cell"] == "CellMask_cell"
-        # No nuclei alias matched, so the legacy "no nuclei" error fires —
-        # acceptable during the transition since channel_roles still resolves
-        # the nuclei role from the suffix.
-        assert parser.channel_roles.get("nucleus") == "Hoechst_nucleus"
+        assert parser.channel_roles == {
+            "nucleus": "Hoechst_nucleus",
+            "cell": "CellMask_cell",
+        }
 
-    def test_nucleus_only_segmentation_legacy(self):
+    def test_nucleus_only_segmentation(self):
         parser = _make_parser({"DAPI": "0", "EdU": "1"})
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            errors = parser._validate_channel_data()
+        errors = parser._validate_channel_data()
         assert _filter_non_image_errors(errors) == []
         assert parser.channel_roles == {"nucleus": "DAPI"}
         assert "cell" not in parser.channel_roles
 
     def test_missing_nucleus_reports_error_and_empty_roles(self):
         parser = _make_parser({"GFP": "0", "RFP": "1"})
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            errors = parser._validate_channel_data()
+        errors = parser._validate_channel_data()
         non_image_errors = _filter_non_image_errors(errors)
         assert any("nucleus" in e.lower() for e in non_image_errors)
         assert parser.channel_roles == {}
 
 
 class TestFeatureChannelToken:
-    """The nuclei role always emits a canonical 'DAPI' token in feature columns
-    (required by cellcycle_analysis); other roles use the suffix-stripped name.
+    """Feature column tokens preserve the actual channel name (suffix-stripped).
+
+    The nucleus channel is no longer renamed to "DAPI"; cellcycle_analysis
+    receives the actual nucleus channel name and constructs column names
+    dynamically.
     """
 
     def _make_image_properties(self, nuclei_channel: str):
@@ -213,15 +203,17 @@ class TestFeatureChannelToken:
         instance._image = SimpleNamespace(_nucleus_channel=nuclei_channel)  # type: ignore[attr-defined]
         return instance
 
-    def test_nucleus_role_emits_canonical_dapi(self):
-        # User's nuclei channel is "Hoechst" (legacy rename would force "DAPI"
-        # during the transition; this still emits the canonical token).
+    def test_nucleus_role_preserves_hoechst(self):
         props = self._make_image_properties(nuclei_channel="Hoechst")
-        assert props._feature_channel_token("Hoechst") == "DAPI"
+        assert props._feature_channel_token("Hoechst") == "Hoechst"
 
-    def test_nucleus_role_emits_dapi_when_already_dapi(self):
+    def test_nucleus_role_emits_dapi_when_dapi(self):
         props = self._make_image_properties(nuclei_channel="DAPI")
         assert props._feature_channel_token("DAPI") == "DAPI"
+
+    def test_nucleus_role_strips_suffix(self):
+        props = self._make_image_properties(nuclei_channel="H2B_RFP_nucleus")
+        assert props._feature_channel_token("H2B_RFP_nucleus") == "H2B_RFP"
 
     def test_cell_role_strips_suffix(self):
         props = self._make_image_properties(nuclei_channel="DAPI")

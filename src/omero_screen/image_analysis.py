@@ -608,11 +608,13 @@ class ImageProperties:
                 nucleus_data, self._overlay, "label"
             )
         if channel == self._image._nucleus_channel:
-            # ``integrated_int_DAPI`` is a fixed downstream contract consumed by
-            # cellcycle_analysis; the column name uses the canonical ``DAPI`` token
-            # regardless of the user's actual nuclei channel name.
-            nucleus_data["integrated_int_DAPI"] = (
-                nucleus_data["intensity_mean_DAPI_nucleus"]
+            # Build the integrated-intensity column using the actual nucleus
+            # channel token, so cellcycle_analysis (parameterised by
+            # ``nucleus_channel``) can find it for DNA-content normalisation.
+            # Legacy DAPI plates keep the historical ``integrated_int_DAPI``
+            # column name; non-DAPI plates get ``integrated_int_{channel}``.
+            nucleus_data[f"integrated_int_{channel_token}"] = (
+                nucleus_data[f"intensity_mean_{channel_token}_nucleus"]
                 * nucleus_data["area_nucleus"]
             )
 
@@ -703,12 +705,12 @@ class ImageProperties:
     def _feature_channel_token(self, channel: str) -> str:
         """Token used to name feature columns for a given channel.
 
-        Returns the canonical ``"DAPI"`` for the nuclei role channel (so downstream
-        column contracts like ``integrated_int_DAPI`` and ``intensity_mean_DAPI_nucleus``
-        remain stable), and the suffix-stripped channel name otherwise.
+        Returns the suffix-stripped channel name for every channel, including
+        the nucleus role. Legacy plates whose nucleus channel is named ``DAPI``
+        therefore continue to produce ``intensity_mean_DAPI_nucleus`` /
+        ``integrated_int_DAPI``; non-DAPI plates produce columns named after
+        the actual fluorophore (e.g. ``intensity_mean_H2B_RFP_nucleus``).
         """
-        if channel == self._image._nucleus_channel:
-            return "DAPI"
         return strip_role_suffix(channel)
 
     @staticmethod

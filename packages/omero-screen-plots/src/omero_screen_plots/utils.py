@@ -485,3 +485,48 @@ def finalize_plot_with_title(
         fig.suptitle(title, fontsize=7, weight="bold", x=0, y=1.05, ha="left")
 
     return title.replace(" ", "_") if title else "plot"
+
+
+def find_dna_norm_column(df: pd.DataFrame) -> str:
+    """Locate the normalised DNA-content column in a single-cell DataFrame.
+
+    Post-channel-roles refactor, the nucleus channel is no longer renamed to
+    ``DAPI``; the integrated intensity column is named after the actual
+    fluorophore (e.g. ``integrated_int_Hoechst_norm``, ``integrated_int_H2B_RFP_norm``).
+    Legacy plates still produce ``integrated_int_DAPI_norm``.
+
+    This helper picks the column matching ``integrated_int_{X}_norm`` where ``X``
+    is not ``EdU``. ``EdU`` is excluded because, although it has an
+    ``integrated_int_*`` column upstream, it is a cell-cycle marker, not the
+    DNA-content channel.
+
+    Args:
+        df: Single-cell DataFrame produced by the omero-screen pipeline.
+
+    Returns:
+        The name of the normalised DNA-content column.
+
+    Raises:
+        KeyError: If no candidate column is found, or if more than one
+            non-EdU ``integrated_int_*_norm`` column is present (which would
+            mean the DNA channel is ambiguous).
+    """
+    candidates = [
+        col
+        for col in df.columns
+        if col.startswith("integrated_int_")
+        and col.endswith("_norm")
+        and not col.startswith("integrated_int_EdU")
+    ]
+    if not candidates:
+        raise KeyError(
+            "No normalised DNA-content column found. Expected a column matching "
+            "'integrated_int_{channel}_norm' (e.g. 'integrated_int_DAPI_norm', "
+            "'integrated_int_Hoechst_norm'). Has cellcycle_analysis run on this data?"
+        )
+    if len(candidates) > 1:
+        raise KeyError(
+            f"Ambiguous DNA-content column — multiple candidates found: {candidates}. "
+            f"Pass the desired column name explicitly to the plot function."
+        )
+    return str(candidates[0])
