@@ -135,6 +135,44 @@ def sample_data_multiple_plates(tmp_path_factory) -> Path:
     return csv_path
 
 
+@pytest.fixture(scope="session")
+def sample_data_hoechst_path(tmp_path_factory) -> Path:
+    """Sample CSV using ``Hoechst`` as the nucleus channel (post-refactor plate).
+
+    Identical shape to ``sample_data_path`` but with the nucleus channel
+    columns named after ``Hoechst`` instead of ``DAPI`` — exercises the
+    rename-to-DAPI step on import.
+    """
+    tmp_dir = tmp_path_factory.mktemp("test_data_hoechst")
+    csv_path = tmp_dir / "240326_test_data_hoechst_cc.csv"
+
+    num_rows = 20
+    data: dict = {
+        "experiment": ["test_exp"] * num_rows,
+        "well": ["A01", "A02"] * 10,
+        "cell_line": ["MCF10A"] * num_rows,
+        "clone": ["WT"] * num_rows,
+        "classifier_nuclei4": ["class_a", "class_b"] * 10,
+        "label": ["cell_" + str(i) for i in range(1, num_rows + 1)],
+        "area_nucleus": np.random.uniform(100, 200, num_rows),
+        "plate_id": [1] * num_rows,
+        "well_id": [1, 2] * 10,
+        "image_id": [1] * num_rows,
+    }
+    channels = ["Hoechst", "Tub", "p21", "EdU"]
+    regions = ["nucleus", "cell", "cyto"]
+    stats = ["max", "min", "mean"]
+    for channel in channels:
+        for region in regions:
+            for stat in stats:
+                data[f"intensity_{stat}_{channel}_{region}"] = (
+                    np.random.uniform(100, 1000, num_rows)
+                )
+
+    pd.DataFrame(data).to_csv(csv_path, index=False)
+    return csv_path
+
+
 @pytest.fixture(scope="function")
 def test_projects(db):
     """Adds test projects to the database and returns their IDs and names."""

@@ -74,7 +74,9 @@ def clean_agg_data(df: pd.DataFrame) -> pd.DataFrame:
         r"^area_nucleus\.\d+$",
         r"^centroid-0\.\d+$",
         r"^centroid-1\.\d+$",
-        r"^integrated_int_DAPI\.\d+$",
+        # Match any-fluorophore raw integrated-intensity duplicates, e.g.
+        # ``integrated_int_DAPI.0``, ``integrated_int_Hoechst.1``.
+        r"^integrated_int_[A-Za-z0-9_]+\.\d+$",
     ]
 
     for pattern in metadata_patterns:
@@ -110,12 +112,23 @@ def clean_agg_data(df: pd.DataFrame) -> pd.DataFrame:
         df = df.rename(columns=rename_map)
         logger.info(f"Renamed {len(rename_map)} unique suffixed columns")
 
-    # 5. Rename columns to match DB schema
+    # 5. Rename columns to match DB schema.
     column_mapping = {
         "centroid-0": "centroid-0-nuc",
         "centroid-1": "centroid-1-nuc",
-        "integrated_int_DAPI": "integrated_int_DAPI_norm",
     }
+    # When ``agg_data.csv`` carries the raw integrated-intensity column (no
+    # ``_norm`` suffix because the source has no cell-cycle analysis), rename
+    # it into the normalised slot expected by the schema. Match any
+    # fluorophore so post-refactor plates (Hoechst, H2B_RFP, …) work the
+    # same as legacy DAPI plates. Only fires when the ``_norm`` counterpart
+    # is absent — protects against clobbering the real normalised column.
+    int_pattern = re.compile(r"^integrated_int_([A-Za-z0-9_]+)$")
+    for col in list(df.columns):
+        if int_pattern.match(col):
+            norm_col = f"{col}_norm"
+            if norm_col not in df.columns:
+                column_mapping[col] = norm_col
     df = df.rename(columns=column_mapping)
 
     # 6. Drop columns that are not in the measurements table schema
@@ -191,6 +204,11 @@ class CellViewStateCore:
     channel_1: Optional[str] = None
     channel_2: Optional[str] = None
     channel_3: Optional[str] = None
+    # The actual fluorophore name annotated on the plate for the nucleus role
+    # (e.g. ``"DAPI"``, ``"Hoechst"``, ``"H2B_RFP"``). Recorded on
+    # ``repeats.nucleus_channel`` and used by the exporter to rehydrate the
+    # canonical ``*_DAPI_*`` measurement columns back to their real names.
+    nucleus_channel: Optional[str] = None
     db_conn: Optional[duckdb.DuckDBPyConnection] = None
     console: Console = Console()
     logger: Any = None
@@ -218,12 +236,26 @@ class CellViewStateCore:
         """
         instance = cls(ui=CellViewUI(), console=Console(), logger=logger)
 
+        # CLI override — when ``--nucleus-channel CH`` is given, it wins over
+        # any plate annotation or interactive prompt.
+        nucleus_flag = getattr(args, "nucleus_channel", None) if args else None
+
         # Initialize from args if provided
         if args and args.csv:
             instance.csv_path = args.csv
             instance.df = pd.read_csv(args.csv)
             instance.date = instance.extract_date_from_filename(args.csv.name)
             instance.plate_id = instance.get_plate_id()
+            # Resolve the nucleus channel from the CLI flag or interactive prompt.
+            from cellview.utils.nucleus_channel import (
+                detect_nucleus_candidates,
+                prompt_nucleus_channel,
+            )
+
+            candidates = detect_nucleus_candidates(instance.df)
+            instance.nucleus_channel = prompt_nucleus_channel(
+                candidates, cli_flag=nucleus_flag, ui=instance.ui
+            )
         elif args and args.plate_id:
             # Handle list input (from nargs='+')
             if isinstance(args.plate_id, list):
@@ -248,12 +280,22 @@ class CellViewStateCore:
                 instance.experiment_name,
                 instance.date,
                 instance.lab_member,
+                instance.nucleus_channel,
             ) = instance.parse_omero_data(instance.plate_id)
+
+            # CLI override takes precedence over plate annotation.
+            if nucleus_flag is not None:
+                instance.nucleus_channel = nucleus_flag
 
             # For OMERO imports, we always want to show confirmation dialog
             # The --interactive flag is maintained for backward compatibility but OMERO imports are now always interactive
             instance.ui.info(
                 "OMERO import detected - will show interactive confirmation for project/experiment metadata"
+            )
+
+        if instance.nucleus_channel is not None:
+            instance.ui.info(
+                f"Detected nucleus channel: {instance.nucleus_channel}"
             )
 
         # Set up channels if we have data
@@ -305,17 +347,30 @@ class CellViewStateCore:
         self,
         plate_id: int,
         conn: Optional[BlitzGateway] = None,
-    ) -> tuple[pd.DataFrame, Any, Any, Any, Any]:
+    ) -> tuple[pd.DataFrame, Any, Any, Any, Any, str]:
         """Parse the Omero data for the given plate ID.
+
+        Reads the plate's channel map annotation and resolves the nucleus
+        channel role (E1: hard fails if no annotation present, E2: fails if no
+        channel resolves to the nucleus role).
 
         Args:
             plate_id: The omero screen plate ID.
             conn: The omero connection.
 
         Returns:
-            A tuple containing the dataframe, project name, experiment name, and date.
+            A tuple of (dataframe, project name, experiment name, date,
+            owner full name, nucleus_channel). The nucleus_channel is the
+            actual fluorophore name annotated on the plate.
 
+        Raises:
+            DataError: If the plate is not found, has no channel annotations,
+                or no channel resolves to the nucleus role.
         """
+        from cellview.utils.nucleus_channel import (
+            resolve_nucleus_channel_from_plate,
+        )
+
         if conn is None:
             raise StateError(
                 "No database connection available",
@@ -331,7 +386,8 @@ class CellViewStateCore:
         project, experiment, date, owner_fullname = self._get_project_info(
             plate
         )
-        return df, project, experiment, date, owner_fullname
+        nucleus_channel = resolve_nucleus_channel_from_plate(plate)
+        return df, project, experiment, date, owner_fullname, nucleus_channel
 
     @omero_connect
     def get_plates_from_screen(
@@ -1164,6 +1220,10 @@ class CellViewStateCore:
         self._validate_channels(channels)
         # Skip channel renaming - keep original antibody names for flexibility
         # self._rename_channel_columns(channels)  # REMOVED
+        # Rename the resolved nucleus channel's columns into the canonical
+        # DAPI slot so the schema stays stable; the actual fluorophore name
+        # remains recorded on repeats.nucleus_channel for export-time rehydration.
+        self._apply_nucleus_rename()
         self._rename_centroid_cols()
         self._set_classifier()
         self._optimize_measurement_types()
@@ -1254,11 +1314,19 @@ class CellViewStateCore:
                     context={"available_columns": self.df.columns.tolist()},
                 )
 
-        # Explicitly exclude plate_id
+        # Exclude plate_id (recorded on repeats, not measurements) and the
+        # raw integrated-intensity column for the nucleus channel — only the
+        # normalised ``_norm`` version is stored in the measurements table.
+        # The exclusion is channel-aware (e.g. ``integrated_int_Hoechst``)
+        # because the rename to the canonical DAPI slot happens later in
+        # ``_apply_nucleus_rename``.
+        raw_int_excludes = {"integrated_int_DAPI"}
+        if self.nucleus_channel:
+            raw_int_excludes.add(f"integrated_int_{self.nucleus_channel}")
         cols_to_keep = [
             col
             for col in cols_to_keep
-            if col not in ["plate_id", "integrated_int_DAPI"]
+            if col != "plate_id" and col not in raw_int_excludes
         ]
 
         # Return trimmed dataframe with only needed columns
@@ -1295,26 +1363,56 @@ class CellViewStateCore:
         return channels
 
     def _validate_channels(self, channels: list[str]) -> None:
-        """Validate that DAPI channel exists and log discovered channels.
+        """Record discovered channels on the state.
+
+        Channel identity is preserved verbatim (e.g. ``"Hoechst"``,
+        ``"H2B_RFP"``); the canonical DAPI slot in the measurements table is
+        populated by :meth:`_apply_nucleus_rename` after this method.
 
         Raises:
-            StateError: If DAPI channel is missing.
+            StateError: If no channels were discovered.
         """
-        # DAPI is required
-        if "DAPI" not in channels:
+        if not channels:
             raise StateError(
-                "DAPI channel is required but not found in data",
+                "No measurement channels discovered in the data. "
+                "Expected columns of the form intensity_*_<channel>_<segment>.",
                 context={"channels": channels},
             )
 
         # Log discovered channels for info
         self.logger.info("Discovered channels: %s", channels)
 
-        # Update state channels dynamically based on discovered channels
+        # Update state channels dynamically based on discovered channels.
+        # These columns record the *actual* fluorophore names on the
+        # ``repeats`` table — used by the exporter to rehydrate column names.
         self.channel_0 = channels[0] if len(channels) > 0 else None
         self.channel_1 = channels[1] if len(channels) > 1 else None
         self.channel_2 = channels[2] if len(channels) > 2 else None
         self.channel_3 = channels[3] if len(channels) > 3 else None
+
+    def _apply_nucleus_rename(self) -> None:
+        """Validate and rename the nucleus channel columns into the DAPI slot.
+
+        After this step the measurements DataFrame uses ``*_DAPI_*`` column
+        names regardless of the actual fluorophore. The real channel name
+        remains recorded on :attr:`nucleus_channel` and (via
+        :meth:`_validate_channels`) on :attr:`channel_0..3`.
+
+        Raises:
+            DataError: If :attr:`nucleus_channel` is set but its corresponding
+                ``intensity_mean_{channel}_nucleus`` column is missing from
+                the DataFrame, or if renaming would clobber an existing
+                ``*_DAPI_*`` column.
+        """
+        from cellview.utils.nucleus_channel import (
+            rename_nucleus_to_dapi,
+            validate_nucleus_channel_in_df,
+        )
+
+        if self.df is None or self.nucleus_channel is None:
+            return
+        validate_nucleus_channel_in_df(self.nucleus_channel, self.df)
+        self.df = rename_nucleus_to_dapi(self.df, self.nucleus_channel)
 
     def _rename_channel_columns(self, channels: list[str]) -> None:
         """Renames non-DAPI channel names in DataFrame columns to ch1, ch2, etc.

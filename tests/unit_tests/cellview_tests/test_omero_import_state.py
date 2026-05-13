@@ -634,7 +634,14 @@ class TestOMEROImportIntegration:
         args.plate_id = 12345
 
         with patch.object(CellViewStateCore, 'parse_omero_data') as mock_parse_omero:
-            mock_parse_omero.return_value = (mock_csv_data, "Test Project", "Test Experiment", "2024-03-26", "Test Owner")
+            mock_parse_omero.return_value = (
+                mock_csv_data,
+                "Test Project",
+                "Test Experiment",
+                "2024-03-26",
+                "Test Owner",
+                "DAPI",  # nucleus_channel returned from plate annotation
+            )
 
             state = create_cellview_state(args)
 
@@ -644,6 +651,7 @@ class TestOMEROImportIntegration:
             assert state.experiment_name == "Test Experiment"
             assert state.date == "2024-03-26"
             assert state.lab_member == "Test Owner"
+            assert state.nucleus_channel == "DAPI"
             assert state.df is not None
 
     def test_omero_import_mode_flag(self):
@@ -653,7 +661,14 @@ class TestOMEROImportIntegration:
         args.plate_id = 12345
 
         with patch.object(CellViewStateCore, 'parse_omero_data') as mock_parse:
-            mock_parse.return_value = (pd.DataFrame(), "Project", "Experiment", "2024-01-01", "Owner")
+            mock_parse.return_value = (
+                pd.DataFrame(),
+                "Project",
+                "Experiment",
+                "2024-01-01",
+                "Owner",
+                "DAPI",
+            )
 
             state = create_cellview_state(args)
 

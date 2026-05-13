@@ -132,6 +132,7 @@ class PlateParserPolars:
             "r.channel_1",
             "r.channel_2",
             "r.channel_3",
+            "r.nucleus_channel",
             "e.experiment_name",
         ]
 
@@ -206,10 +207,44 @@ class PlateParserPolars:
         return df, variable_names
 
 
+def _build_polars_rehydrate_map(
+    columns: list[str], channel: str
+) -> dict[str, str]:
+    """Build the ``DAPI`` → ``{channel}`` rename map for a Polars DataFrame.
+
+    Mirrors :func:`cellview.utils.nucleus_channel.rehydrate_dapi_to_nucleus`
+    but operates on Polars' column-list interface so we can keep the
+    Polars exporter free of pandas. No-op when ``channel == "DAPI"``.
+    """
+    if channel == "DAPI":
+        return {}
+    rename_map: dict[str, str] = {}
+    for col in columns:
+        new_col: str | None = None
+        for stat in ("min", "mean", "max"):
+            for segment in ("nucleus", "cell", "cyto"):
+                if col == f"intensity_{stat}_DAPI_{segment}":
+                    new_col = f"intensity_{stat}_{channel}_{segment}"
+                    break
+            if new_col is not None:
+                break
+        if new_col is None and col == "integrated_int_DAPI":
+            new_col = f"integrated_int_{channel}"
+        if new_col is None and col == "integrated_int_DAPI_norm":
+            new_col = f"integrated_int_{channel}_norm"
+        if new_col is not None and new_col not in columns:
+            rename_map[col] = new_col
+    return rename_map
+
+
 def export_polars_lf(
     plate_id: int, conn: duckdb.DuckDBPyConnection
 ) -> tuple[pl.LazyFrame, list[str]]:
     """Export a plate as a Polars LazyFrame.
+
+    The canonical ``*_DAPI_*`` measurement columns in the DB are rehydrated
+    to use the actual nucleus fluorophore name (e.g. ``Hoechst``,
+    ``H2B_RFP``) as recorded on ``repeats.nucleus_channel`` for this plate.
 
     Args:
         plate_id: The ID of the plate to export.
@@ -226,6 +261,15 @@ def export_polars_lf(
 
     if "experiment_name" in df.columns:
         df = df.rename({"experiment_name": "experiment"})
+
+    # All rows in a single-plate export share the same nucleus_channel.
+    if not df.is_empty() and "nucleus_channel" in df.columns:
+        nucleus_channel = df["nucleus_channel"][0] or "DAPI"
+        rename_map = _build_polars_rehydrate_map(
+            df.columns, str(nucleus_channel)
+        )
+        if rename_map:
+            df = df.rename(rename_map)
 
     # Return as LazyFrame
     return df.lazy(), variable_names

@@ -27,6 +27,7 @@ from omero_screen_plots.scatterplot_api import scatter_plot
 from omero_screen_plots.utils import (
     save_fig,
 )
+from omero_screen_plots.well_qc_api import well_qc_plot
 
 __all__ = [
     "cellcycle_plot",
@@ -41,4 +42,5 @@ __all__ = [
     "PlotType",
     "save_fig",
     "scatter_plot",
+    "well_qc_plot",
 ]

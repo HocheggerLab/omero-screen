@@ -296,7 +296,8 @@ class TestOMEROImportIntegration:
                 "OMERO Project",
                 "OMERO Experiment",
                 "2024-03-26",
-                "OMERO Owner"
+                "OMERO Owner",
+                "DAPI",
             )
 
             state = create_cellview_state(args)

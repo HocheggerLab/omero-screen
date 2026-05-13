@@ -132,6 +132,7 @@ def test_select_or_create_project_no_projects(db, sample_data_path):
     # Create args with required fields
     args = argparse.Namespace()
     args.csv = sample_data_path  # Use the sample data path
+    args.nucleus_channel = "DAPI"
 
     # Create state using dependency injection
     state = create_cellview_state(args)

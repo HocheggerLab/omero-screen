@@ -34,14 +34,24 @@ def _handle_import(args: argparse.Namespace, db: CellViewDB) -> None:
         args: Parsed CLI arguments.
         db: CellView database instance.
     """
+    # --nucleus-channel flag (None means: auto-detect from plate annotation
+    # for OMERO routes, or interactive prompt for CSV).
+    nucleus_flag = getattr(args, "nucleus_channel", None)
+
     if args.import_command == "csv":
-        state_args = argparse.Namespace(csv=args.path, plate_id=None)
+        state_args = argparse.Namespace(
+            csv=args.path, plate_id=None, nucleus_channel=nucleus_flag
+        )
         state = create_cellview_state(state_args)
         import_data(db, state)
 
     elif args.import_command == "plate":
         if len(args.ids) > 1:
-            state_args = argparse.Namespace(csv=None, plate_id=args.ids[0])
+            state_args = argparse.Namespace(
+                csv=None,
+                plate_id=args.ids[0],
+                nucleus_channel=nucleus_flag,
+            )
             temp_state = create_cellview_state(state_args)
             temp_state.validate_plates_same_screen(args.ids)
             temp_state.console.print(
@@ -51,16 +61,24 @@ def _handle_import(args: argparse.Namespace, db: CellViewDB) -> None:
                 temp_state.console.print(
                     f"\n[bold green]Importing plate {pid}...[/bold green]"
                 )
-                plate_args = argparse.Namespace(csv=None, plate_id=pid)
+                plate_args = argparse.Namespace(
+                    csv=None, plate_id=pid, nucleus_channel=nucleus_flag
+                )
                 state = create_cellview_state(plate_args)
                 import_data(db, state)
         else:
-            state_args = argparse.Namespace(csv=None, plate_id=args.ids[0])
+            state_args = argparse.Namespace(
+                csv=None,
+                plate_id=args.ids[0],
+                nucleus_channel=nucleus_flag,
+            )
             state = create_cellview_state(state_args)
             import_data(db, state)
 
     elif args.import_command == "screen":
-        state_args = argparse.Namespace(csv=None, plate_id=None)
+        state_args = argparse.Namespace(
+            csv=None, plate_id=None, nucleus_channel=nucleus_flag
+        )
         temp_state = create_cellview_state(state_args)
         plate_ids = temp_state.get_plates_from_screen(args.id)
         temp_state.console.print(
@@ -71,7 +89,9 @@ def _handle_import(args: argparse.Namespace, db: CellViewDB) -> None:
             temp_state.console.print(
                 f"\n[bold green]Importing plate {plate_id}...[/bold green]"
             )
-            plate_args = argparse.Namespace(csv=None, plate_id=plate_id)
+            plate_args = argparse.Namespace(
+                csv=None, plate_id=plate_id, nucleus_channel=nucleus_flag
+            )
             state = create_cellview_state(plate_args)
             import_data(db, state)
 

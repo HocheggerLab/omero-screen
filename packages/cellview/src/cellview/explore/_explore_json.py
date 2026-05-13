@@ -12,7 +12,7 @@ Emitted structure::
           "plate_id": 123,
           "date": "2025-03-01",
           "lab_member": "Alice",
-          "channels": ["DAPI", "EdU", "Tub", null],
+          "channels": ["DAPI", "EdU", "Tub", null],     // or "Hoechst", "H2B_RFP", …
           "classifier": null
         }
       ],
@@ -20,6 +20,8 @@ Emitted structure::
       "project":    {"project_id": 1,    "name": "BRCA2"},
       "schema": {
         "numeric":   ["area_nucleus", "intensity_mean_DAPI_nucleus", ...],
+                      // nucleus columns use the actual fluorophore — e.g.
+                      // intensity_mean_Hoechst_nucleus for a Hoechst plate.
         "text":      ["cell_cycle", "cell_cycle_detailed", "label"],
         "condition": ["cell_line", "well", "antibody", "siRNA", "drug"]
       },

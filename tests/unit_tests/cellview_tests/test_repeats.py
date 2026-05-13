@@ -84,7 +84,8 @@ def test_fetch_existing_repeats(repeats_manager, mock_db):
 
     # Verify SQL query
     expected_sql = """
-        SELECT repeat_id, experiment_id, plate_id, date, lab_member, channel_0, channel_1, channel_2, channel_3
+        SELECT repeat_id, experiment_id, plate_id, date, lab_member,
+               channel_0, channel_1, channel_2, channel_3, nucleus_channel
         FROM repeats
         WHERE experiment_id = ?
         ORDER BY repeat_id
@@ -189,8 +190,10 @@ def test_create_new_repeat_success(repeats_manager, mock_db):
 
     # Verify SQL queries
     expected_insert_sql = """
-        INSERT INTO repeats (experiment_id, plate_id, date, lab_member, channel_0, channel_1, channel_2, channel_3)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO repeats (experiment_id, plate_id, date, lab_member,
+                             channel_0, channel_1, channel_2, channel_3,
+                             nucleus_channel)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     calls = mock_db.execute.call_args_list
     assert_sql_equal(
@@ -206,6 +209,7 @@ def test_create_new_repeat_success(repeats_manager, mock_db):
         "Tub",
         "p21",
         "EdU",
+        "DAPI",
     )
     assert calls[1] == call("SELECT currval('repeat_id_seq')")
 

@@ -88,6 +88,7 @@ class CellViewDB:
                 self.ui.success("Database schema initialized successfully")
             else:
                 self.ensure_templates_table()
+                self.ensure_nucleus_channel_column()
 
             return self.conn
         except duckdb.Error as err:
@@ -137,6 +138,38 @@ class CellViewDB:
             )
         except duckdb.Error as err:
             self.logger.warning(f"Could not ensure templates table: {err}")
+
+    def ensure_nucleus_channel_column(self) -> None:
+        """Add ``nucleus_channel`` to ``repeats`` if absent (legacy DBs).
+
+        Pre-refactor DBs had no concept of nucleus_channel — every plate was
+        assumed to be DAPI because the upstream pipeline renamed the nucleus
+        channel before export. Defaulting legacy rows to ``'DAPI'`` therefore
+        preserves correct semantics for existing data. Safe to call repeatedly.
+        """
+        conn = self.conn
+        if conn is None:
+            return
+        try:
+            cols = conn.execute("PRAGMA table_info(repeats)").fetchall()
+            if any(row[1] == "nucleus_channel" for row in cols):
+                return  # already migrated
+            # DuckDB does not support adding NOT NULL columns via ALTER —
+            # use the DEFAULT to backfill every existing row with 'DAPI',
+            # then enforce non-null at the application layer (the importer
+            # always supplies a value).
+            conn.execute(
+                "ALTER TABLE repeats ADD COLUMN nucleus_channel TEXT "
+                "DEFAULT 'DAPI'"
+            )
+            self.logger.info(
+                "Migrated: added nucleus_channel column to repeats "
+                "(legacy rows default to 'DAPI')"
+            )
+        except duckdb.Error as err:
+            self.logger.warning(
+                f"Could not ensure nucleus_channel column: {err}"
+            )
 
     def create_tables(self) -> None:
         """Create the database schema.
@@ -200,7 +233,8 @@ class CellViewDB:
                 channel_1 TEXT,
                 channel_2 TEXT,
                 channel_3 TEXT,
-                classifier TEXT
+                classifier TEXT,
+                nucleus_channel TEXT NOT NULL DEFAULT 'DAPI'
             );
 
             CREATE TABLE conditions (

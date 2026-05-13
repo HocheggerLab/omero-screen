@@ -55,7 +55,7 @@ from omero_utils.attachments import (
 from omero_utils.map_anns import parse_annotations
 from omero_utils.message import WellAnnotationError
 
-from omero_screen.cellcycle_analysis import cellcycle_analysis, combplot
+from omero_screen.cellcycle_analysis import cellcycle_analysis
 from omero_screen.config import get_logger
 from omero_screen.constants import OmeroScreenNS
 from omero_screen.gallery_figure import create_gallery
@@ -491,14 +491,93 @@ def _add_welldata(
         wells: Plate wells
         df_final: DataFrame containing the final data
     """
+    # Import here to avoid pulling matplotlib/seaborn at module import time
+    # when only running segmentation-mode pipelines.
+    from omero_screen_plots import well_qc_plot
+
+    logger.debug(
+        "Attaching per-well QC figures: %d wells, df has %d rows",
+        len(wells),
+        len(df_final),
+    )
+    attached = 0
     for well in wells:
         well_pos = well.getWellPos()
-        if len(df_final[df_final["well"] == well_pos]) > 100:
-            fig = combplot(df_final, well_pos)
+        well_df = df_final[df_final["well"] == well_pos]
+        n_cells = len(well_df)
+        if n_cells > 100:
+            try:
+                fig = well_qc_plot(
+                    df=well_df,
+                    title=_well_qc_title(well_pos, well_df),
+                    save=False,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "Failed to render combplot for well %s (%d cells): %s",
+                    well_pos,
+                    n_cells,
+                    exc,
+                )
+                logger.debug("combplot traceback:", exc_info=True)
+                continue
             delete_file_attachment(conn, well, ends_with=f"{well_pos}.png")
             attach_figure(conn, fig, well, well_pos)
+            attached += 1
         else:
-            logger.warning("Insufficient data for %s", well_pos)
+            logger.warning(
+                "Insufficient data for %s (%d cells)", well_pos, n_cells
+            )
+    logger.debug("Attached %d/%d well QC figures", attached, len(wells))
+
+
+# Columns that are not biologically interesting for the per-well QC title —
+# IDs, measurements, intensities, background corrections, etc.
+_WELL_TITLE_EXCLUDE = {
+    "label",
+    "Cyto_ID",
+    "centroid-0",
+    "centroid-1",
+    "centroid-0_x",
+    "centroid-1_x",
+    "centroid-0_y",
+    "centroid-1_y",
+    "timepoint",
+    "experiment",
+    "plate_id",
+    "well",
+    "well_id",
+    "image_id",
+    "cell_cycle",
+    "cell_cycle_detailed",
+}
+
+
+def _well_qc_title(well_pos: str, well_df: pd.DataFrame) -> str:
+    """Build a descriptive title for the per-well QC combplot.
+
+    Pulls categorical metadata from ``well_df`` (cell_line, drug, siRNA, …)
+    and appends the cell count. Numeric and measurement columns are skipped,
+    as are columns that vary cell-to-cell within a well.
+    """
+    bits: list[str] = []
+    for col in well_df.columns:
+        if col in _WELL_TITLE_EXCLUDE:
+            continue
+        if col.startswith(("intensity_", "area_", "integrated_int_")):
+            continue
+        if col.endswith(("_background", "_norm")):
+            continue
+        # Only include columns that are uniform across the well (true
+        # per-well metadata, not per-cell measurements).
+        values = well_df[col].dropna().unique()
+        if len(values) != 1:
+            continue
+        bits.append(f"{col}={values[0]}")
+    suffix = f" — {len(well_df)} cells"
+    if bits:
+        return f"{well_pos} ({' | '.join(bits)}){suffix}"
+    return f"{well_pos}{suffix}"
 
 
 def _save_results(

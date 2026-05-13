@@ -59,11 +59,27 @@ def get_parser() -> argparse.ArgumentParser:
     )
     import_sub = p_import.add_subparsers(dest="import_command")
 
+    # Common help text for --nucleus-channel
+    nucleus_help = (
+        "Name of the nucleus (DNA-segmentation) channel as it appears in the "
+        "input data, e.g. 'DAPI', 'Hoechst', 'H2B_RFP'. "
+        "Plate/screen routes default to the plate's channel annotation. "
+        "CSV route prompts interactively when omitted. Use this flag to "
+        "override the default or to run non-interactively."
+    )
+
     p_import_csv = import_sub.add_parser(
         "csv",
         help="Import from a CSV file.",
     )
     p_import_csv.add_argument("path", type=Path, help="Path to the CSV file.")
+    p_import_csv.add_argument(
+        "--nucleus-channel",
+        type=str,
+        default=None,
+        metavar="CH",
+        help=nucleus_help,
+    )
 
     p_import_plate = import_sub.add_parser(
         "plate",
@@ -77,6 +93,13 @@ def get_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Force interactive project/experiment selection.",
     )
+    p_import_plate.add_argument(
+        "--nucleus-channel",
+        type=str,
+        default=None,
+        metavar="CH",
+        help=nucleus_help,
+    )
 
     p_import_screen = import_sub.add_parser(
         "screen",
@@ -87,6 +110,13 @@ def get_parser() -> argparse.ArgumentParser:
         "--interactive",
         action="store_true",
         help="Force interactive project/experiment selection.",
+    )
+    p_import_screen.add_argument(
+        "--nucleus-channel",
+        type=str,
+        default=None,
+        metavar="CH",
+        help=nucleus_help,
     )
 
     # --- Edit commands ---

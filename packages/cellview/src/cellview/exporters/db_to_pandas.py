@@ -125,6 +125,7 @@ class PlateParser:
             "r.channel_1",
             "r.channel_2",
             "r.channel_3",
+            "r.nucleus_channel",
             "e.experiment_name",
         ]
 
@@ -190,6 +191,11 @@ def export_pandas_df(
 ) -> tuple[pd.DataFrame, list[str]]:
     """Export a plate as a DataFrame.
 
+    The canonical ``*_DAPI_*`` measurement columns in the DB are rehydrated
+    to use the actual nucleus fluorophore name (e.g. ``Hoechst``,
+    ``H2B_RFP``) as recorded on ``repeats.nucleus_channel`` for this plate.
+    Legacy plates (``nucleus_channel == 'DAPI'``) emerge unchanged.
+
     Args:
         plate_id: The ID of the plate to export.
         conn: The active DuckDB connection.
@@ -200,8 +206,17 @@ def export_pandas_df(
             - A list of unique variable names.
 
     """
+    from cellview.utils.nucleus_channel import rehydrate_dapi_to_nucleus
+
     parser = PlateParser(conn)
     df, variable_names = parser.build_df(plate_id)
     df.rename(columns={"experiment_name": "experiment"}, inplace=True)
     df = df.dropna(axis=1, how="all")
+
+    # All rows in a single-plate export share the same nucleus_channel.
+    # Defensive fallback to 'DAPI' if the column is absent or empty.
+    if "nucleus_channel" in df.columns and not df["nucleus_channel"].empty:
+        nucleus_channel = df["nucleus_channel"].iloc[0] or "DAPI"
+        df = rehydrate_dapi_to_nucleus(df, str(nucleus_channel))
+
     return df, variable_names

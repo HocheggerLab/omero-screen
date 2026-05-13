@@ -11,9 +11,13 @@ from cellview.utils.state import CellViewState, create_cellview_state
 
 def test_state_initialization_with_dependency_injection(sample_data_path):
     """Test that CellViewState is properly initialized with dependency injection."""
-    # Create args with sample data path
+    # Create args with sample data path. Pass the nucleus channel explicitly
+    # — the test sample is a DAPI plate, and we run non-interactively under
+    # pytest so the prompt would otherwise fire E9 (non-interactive without
+    # --nucleus-channel).
     args = argparse.Namespace()
     args.csv = sample_data_path
+    args.nucleus_channel = "DAPI"
 
     # Create state using dependency injection
     state = create_cellview_state(args)
@@ -788,63 +792,68 @@ def test_validate_channels_extra_extracted():
 
 
 def test_validate_channels_empty_state():
-    """Test that _validate_channels handles empty channels but requires DAPI."""
+    """An empty channel list raises StateError (no measurement channels)."""
     state = create_cellview_state()
 
-    # Empty channels should raise error (no DAPI)
-    with pytest.raises(StateError, match="DAPI channel is required but not found in data"):
+    with pytest.raises(
+        StateError, match="No measurement channels discovered"
+    ):
         state._validate_channels([])
 
-    # Should pass if DAPI is present
-    state._validate_channels(["DAPI"])
-    assert state.channel_0 == "DAPI"
+    # Any non-empty list is accepted post-refactor — DAPI-specific check now
+    # lives on _apply_nucleus_rename via nucleus_channel.
+    state._validate_channels(["Hoechst"])
+    assert state.channel_0 == "Hoechst"
     assert state.channel_1 is None
 
 
 def test_validate_channels_empty_extracted():
-    """Test that _validate_channels requires DAPI even if state has channels."""
+    """Empty channel list still raises (renamed assertion target)."""
     state = create_cellview_state()
 
-    # Should raise error even if state has channels set (no DAPI in input)
-    with pytest.raises(StateError, match="DAPI channel is required but not found in data"):
+    with pytest.raises(
+        StateError, match="No measurement channels discovered"
+    ):
         state._validate_channels([])
 
 
 @pytest.mark.parametrize(
     "state_channels, extracted_channels, should_raise",
     [
-        # Case 1: Has DAPI - should pass
+        # Case 1: legacy DAPI plate
         (["DAPI", "GFP", "RFP", None], ["DAPI", "GFP", "RFP"], False),
-        # Case 2: Has DAPI, different order - should pass (flexible now)
+        # Case 2: DAPI in a different order
         (["DAPI", "GFP", "RFP", None], ["DAPI", "RFP", "GFP"], False),
-        # Case 3: Has DAPI, fewer channels - should pass
+        # Case 3: fewer channels
         (["DAPI", "GFP", "RFP", None], ["DAPI", "GFP"], False),
-        # Case 4: Has DAPI, more channels - should pass (flexible now)
+        # Case 4: more channels
         (["DAPI", "GFP", None, None], ["DAPI", "GFP", "RFP"], False),
-        # Case 5: No DAPI, empty - should raise
+        # Case 5: empty → raises (no measurement channels)
         ([None, None, None, None], [], True),
-        # Case 6: Has DAPI - should pass
-        ([None, None, None, None], ["DAPI"], False),
-        # Case 7: No DAPI - should raise
+        # Case 6: single channel (any name) accepted
+        ([None, None, None, None], ["Hoechst"], False),
+        # Case 7: empty → raises
         (["DAPI", None, None, None], [], True),
-        # Case 8: Has DAPI, different names - should pass (flexible now)
-        (["DAPI", "GFP", "RFP", None], ["DAPI", "GFP", "mCherry"], False),
+        # Case 8: non-DAPI plate (Hoechst) now also passes — actual fluorophore
+        # is recorded in channel_0..3; DAPI-slot rename happens later.
+        (["DAPI", "GFP", "RFP", None], ["Hoechst", "GFP", "mCherry"], False),
     ],
 )
 def test_validate_channels_parametrized(
     state_channels, extracted_channels, should_raise
 ):
-    """Test _validate_channels with various inputs - now flexible validation."""
+    """_validate_channels accepts any non-empty list of channels post-refactor."""
     state = create_cellview_state()
 
     if should_raise:
-        with pytest.raises(StateError, match="DAPI channel is required"):
+        with pytest.raises(
+            StateError, match="No measurement channels discovered"
+        ):
             state._validate_channels(extracted_channels)
     else:
         # Should not raise an exception
         state._validate_channels(extracted_channels)
-        # Check that state was updated dynamically if DAPI present
-        if extracted_channels and "DAPI" in extracted_channels:
+        if extracted_channels:
             assert state.channel_0 == (extracted_channels[0] if len(extracted_channels) > 0 else None)
             assert state.channel_1 == (extracted_channels[1] if len(extracted_channels) > 1 else None)
             assert state.channel_2 == (extracted_channels[2] if len(extracted_channels) > 2 else None)

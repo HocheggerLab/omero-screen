@@ -47,7 +47,7 @@ class RepeatsManager:
 
     def _fetch_existing_repeats(
         self,
-    ) -> list[tuple[int, int, int, str, str, str, str, str, str]]:
+    ) -> list[tuple[int, int, int, str, str, str, str, str, str, str]]:
         """Fetch all existing repeats for the current experiment from the database."""
         if not self.state.experiment_id:
             raise StateError(
@@ -58,7 +58,8 @@ class RepeatsManager:
         try:
             result = self.db_conn.execute(
                 """
-                SELECT repeat_id, experiment_id, plate_id, date, lab_member, channel_0, channel_1, channel_2, channel_3
+                SELECT repeat_id, experiment_id, plate_id, date, lab_member,
+                       channel_0, channel_1, channel_2, channel_3, nucleus_channel
                 FROM repeats
                 WHERE experiment_id = ?
                 ORDER BY repeat_id
@@ -66,7 +67,7 @@ class RepeatsManager:
                 [self.state.experiment_id],
             ).fetchall()
             return cast(
-                list[tuple[int, int, int, str, str, str, str, str, str]],
+                list[tuple[int, int, int, str, str, str, str, str, str, str]],
                 result,
             )
         except duckdb.Error as err:
@@ -80,12 +81,13 @@ class RepeatsManager:
 
     def _check_plate_duplicate(
         self,
-        repeats: list[tuple[int, int, int, str, str, str, str, str, str]],
+        repeats: list[tuple[int, int, int, str, str, str, str, str, str, str]],
     ) -> None:
         """Check if the current plate_id already exists in the database and raise an error if it does.
 
         Args:
-            repeats: A list of tuples containing the repeat ID, experiment ID, plate ID, date, lab member, channel 0, channel 1, channel 2, and channel 3.
+            repeats: A list of tuples containing the repeat ID, experiment ID,
+                plate ID, date, lab member, channel 0–3, and nucleus_channel.
         """
         for (
             _,
@@ -151,10 +153,20 @@ class RepeatsManager:
             )
 
         try:
+            # ``nucleus_channel`` records the actual fluorophore name so the
+            # exporter can rehydrate the DAPI-canonical column names back to
+            # the real channel on the way out. The schema defaults to ``'DAPI'``
+            # if the state hasn't been populated (legacy code paths and
+            # pre-refactor CSVs).
+            nucleus_channel = (
+                getattr(self.state, "nucleus_channel", None) or "DAPI"
+            )
             self.db_conn.execute(
                 """
-                INSERT INTO repeats (experiment_id, plate_id, date, lab_member, channel_0, channel_1, channel_2, channel_3)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO repeats (experiment_id, plate_id, date, lab_member,
+                                     channel_0, channel_1, channel_2, channel_3,
+                                     nucleus_channel)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     self.state.experiment_id,
@@ -165,6 +177,7 @@ class RepeatsManager:
                     self.state.channel_1,
                     self.state.channel_2,
                     self.state.channel_3,
+                    nucleus_channel,
                 ),
             )
             result = self.db_conn.execute(

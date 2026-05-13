@@ -1,29 +1,19 @@
-"""This module provides functions for processing and analyzing cell cycle data from OMERO screen experiments.
+"""Normalisation and cell-cycle phase assignment for OMERO-Screen data.
 
-It includes functions for normalizing cell cycle data, assigning cell cycle phases, and creating visualizations of cell cycle proportions.
+This module is data-only: it parameterises the nucleus channel, normalises
+DNA and EdU intensities, and assigns each cell to a phase. Plotting lives
+in ``omero_screen_plots`` (in particular ``combplot_cellcycle``).
 
 Typical usage example:
     import pandas as pd
     from omero_screen.cellcycle_analysis import cellcycle_analysis
 """
 
-import pathlib
 from collections.abc import Callable
 from typing import Any
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
-from matplotlib import ticker
-from matplotlib.axes import Axes
-from matplotlib.figure import Figure
-from matplotlib.gridspec import GridSpec
-
-STYLE = pathlib.Path(__file__).parent / "../data/Style_01.mplstyle"
-plt.style.use(STYLE)
-prop_cycle = plt.rcParams["axes.prop_cycle"]
-colors = prop_cycle.by_key()["color"]
 
 
 def cellcycle_analysis(
@@ -302,193 +292,3 @@ def _thresholding(
 
     else:
         return "Unassigned"
-
-
-# Cell Cycle Proportion Analysis
-def combplot(
-    df: pd.DataFrame,
-    well: str,
-    H3: bool = False,
-) -> Figure:
-    """Create a combined figure of the well cell cycle data.
-
-    Args:
-        df: Data from cellcycle_analysis
-        well: Well position (e.g. A1)
-        H3: True if H3 data is present
-    Returns:
-        Combined figure
-    """
-    df1 = df[df.well == well]
-    fig = plt.figure(figsize=(5, 5))
-    gs = GridSpec(2, 2, height_ratios=[1, 3], width_ratios=[3, 1])
-    y_max = df["intensity_mean_EdU_nucleus_norm"].quantile(0.99) * 1.5
-    y_min = df["intensity_mean_EdU_nucleus_norm"].quantile(0.01) * 0.8
-
-    ax = fig.add_subplot(gs[0, 0])
-    _plot_histogram(ax, df1)
-    ax.set_title(f"{well}, {len(df1)} cells", size=12, weight="bold")
-    ax = fig.add_subplot(gs[1, 0])
-    _plot_scatter(ax, df1, H3)
-    ax.set_ylim((y_min, y_max))
-    ax.grid(visible=False)
-    # Add the subplot spanning both rows
-    ax_last = fig.add_subplot(gs[:, -1])
-    ax_last.grid(visible=False)
-    # Add the barplot to the subplot
-    _cellcycle_barplot(ax_last, df1, well, H3)
-    fig.patch.set_facecolor("white")
-    fig.tight_layout()
-    return fig
-
-
-def _plot_histogram(ax: Axes, data: pd.DataFrame) -> None:
-    """Plot a histogram of the DAPI intensity.
-
-    Args:
-        ax: Axes object
-        data: Data from cellcycle_analysis
-    """
-    sns.histplot(data=data, x="integrated_int_DAPI_norm", ax=ax)
-    ax.set_xlabel("")
-    ax.set_xscale("log", base=2)
-    ax.set_xlim((1, 16))
-    ax.xaxis.set_visible(False)
-    ax.set_ylabel("Frequency")
-
-
-def _plot_scatter(ax: Axes, data: pd.DataFrame, H3: bool) -> None:
-    """Plot a scatter plot of the EdU intensity vs. the DAPI intensity.
-
-    Args:
-        ax: Axes object
-        data: Data from cellcycle_analysis
-        H3: True if H3 data is present
-    """
-    if H3:
-        phases = ["Sub-G1", "G1", "S", "G2", "M", "Polyploid"]
-    else:
-        phases = ["Sub-G1", "G1", "S", "G2/M", "Polyploid"]
-    sns.scatterplot(
-        data=data,
-        x="integrated_int_DAPI_norm",
-        y="intensity_mean_EdU_nucleus_norm",
-        hue="cell_cycle",
-        hue_order=phases,
-        s=5,
-        alpha=0.8,
-        ax=ax,
-    )
-    ax.set_xscale("log")
-    ax.set_yscale("log", base=2)
-    ax.grid(False)
-    ax.xaxis.set_major_formatter(
-        ticker.FuncFormatter(lambda x, pos: str(int(x)))
-    )
-    ax.set_xticks([1, 2, 4, 8])
-    ax.set_xlim((1, 16))
-    ax.set_xlabel("norm. DNA content")
-    ax.set_ylabel("norm. EdU intesity")
-    ax.yaxis.set_major_formatter(
-        ticker.FuncFormatter(lambda x, pos: str(int(x)))
-    )
-    ax.legend().remove()
-    ax.axvline(x=3, color="black", linestyle="--")
-    ax.axhline(y=3, color="black", linestyle="--")
-    sns.kdeplot(
-        data=data,
-        x="integrated_int_DAPI_norm",
-        y="intensity_mean_EdU_nucleus_norm",
-        fill=True,
-        cmap="rocket_r",
-        alpha=0.3,
-        ax=ax,
-    )
-
-
-def _cellcycle_barplot(
-    ax: Axes, df: pd.DataFrame, well: str, H3: bool
-) -> None:
-    """Plot a barplot of the cell cycle proportions.
-
-    Args:
-        ax: Axes object
-        df: Data from cellcycle_analysis
-        well: Well position (e.g. A1)
-        H3: True if H3 data is present
-    """
-    df_mean = _prop_pivot(df, well, H3)
-    df_mean.plot(kind="bar", stacked=True, width=0.75, ax=ax)
-    ax.set_ylim(0, 110)
-    ax.set_xlabel("")  # Remove the x-axis label)
-    if H3:
-        legend = ax.legend(
-            ["Sub-G1", "G1", "S", "G2", "M", "Polyploid"],
-            title="CellCyclePhase",
-        )
-        ax.set_ylabel("% of population")
-    else:
-        legend = ax.legend(
-            ["Sub-G1", "G1", "S", "G2/M", "Polyploid"], title="CellCyclePhase"
-        )
-    # Get current handles and labels
-    handles, labels = ax.get_legend_handles_labels()
-    handles, labels = handles[::-1], labels[::-1]
-    # Clear the current legend
-    legend.remove()
-    # Create a new legend with the reversed handles and labels
-    legend = ax.legend(handles, labels, title="CellCyclePhase")
-    frame = legend.get_frame()
-    frame.set_alpha(0.5)
-    ax.set_ylabel("% of population")
-    ax.grid(False)
-
-
-def _prop_pivot(df: pd.DataFrame, well: str, H3: bool) -> pd.DataFrame:
-    """Function to pivot the cell cycle proportion dataframe and get the mean and std of each cell cycle phase.
-
-    This will be the input to plot the stacked barplots with errorbars.
-
-    Args:
-        df: Data from cellcycle_analysis
-        well: Well position (e.g. A1)
-        H3: True if H3 data is present
-    Returns:
-        dataframe to submit to the barplot function
-    """
-    df_prop = _cellcycle_prop(df)
-    if H3:
-        cc_phases = ["Sub-G1", "G1", "S", "G2", "M", "Polyploid"]
-    else:
-        cc_phases = ["Sub-G1", "G1", "S", "G2/M", "Polyploid"]
-
-    df_prop1 = df_prop.loc[
-        df_prop["well"] == well, ["well", "cell_cycle", "percent"]
-    ].pivot_table(columns=["cell_cycle"], index=["well"])
-    df_prop1.columns = df_prop1.columns.droplevel(0)
-
-    # Reindex the DataFrame to include all cell cycle phases and fill missing values with 0
-    df_prop1 = df_prop1.reindex(columns=cc_phases, fill_value=0)
-
-    return df_prop1
-
-
-def _cellcycle_prop(
-    df: pd.DataFrame, cell_cycle: str = "cell_cycle"
-) -> pd.DataFrame:
-    """Function to calculate the proportion of cells in each cell cycle phase.
-
-    Args:
-        df: Data from cellcycle_analysis
-        cell_cycle: choose column cell_cycle or cell_cycle_detailed, default 'cell_cycle'
-    Returns:
-        grouped dataframe with cell cycle proportions
-    """
-    df_ccphase = (
-        df.groupby(["plate_id", "well", "cell_line", cell_cycle])[
-            "experiment"
-        ].count()
-        / df.groupby(["plate_id", "well", "cell_line"])["experiment"].count()
-        * 100
-    )
-    return df_ccphase.reset_index().rename(columns={"experiment": "percent"})

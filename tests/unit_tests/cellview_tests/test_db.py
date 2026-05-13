@@ -300,6 +300,97 @@ class TestCellViewDBSchema:
             """)
 
 
+class TestNucleusChannelMigration:
+    """Tests for the nucleus_channel column migration on legacy DBs."""
+
+    def test_fresh_db_has_nucleus_channel_column(self, db):
+        """A freshly created DB should include the column from create_tables."""
+        conn = db.connect()
+        cols = {row[1] for row in conn.execute(
+            "PRAGMA table_info(repeats)"
+        ).fetchall()}
+        assert "nucleus_channel" in cols
+
+    def test_fresh_db_default_value_is_dapi(self, db):
+        """The default value for nucleus_channel is 'DAPI' (legacy safe)."""
+        conn = db.connect()
+        conn.execute(
+            "INSERT INTO experiments (experiment_name) VALUES ('exp')"
+        )
+        exp_id = conn.execute(
+            "SELECT currval('experiment_id_seq')"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO repeats (experiment_id, plate_id, date, channel_0) "
+            "VALUES (?, 1, '2026-01-01', 'DAPI')",
+            [exp_id],
+        )
+        nucleus = conn.execute(
+            "SELECT nucleus_channel FROM repeats LIMIT 1"
+        ).fetchone()[0]
+        assert nucleus == "DAPI"
+
+    def test_migration_adds_column_to_legacy_db(self, tmp_path, mock_console):
+        """A legacy DB without nucleus_channel gets the column added on connect."""
+        # Simulate a legacy DB: build the minimum schema CellViewDB expects,
+        # without the nucleus_channel column. DuckDB won't let us drop the
+        # column from a fully-wired schema (FKs from conditions), so we
+        # construct the legacy shape from scratch.
+        db_path = tmp_path / "legacy.duckdb"
+        raw = duckdb.connect(str(db_path))
+        raw.execute("CREATE SEQUENCE repeat_id_seq START 1")
+        raw.execute("CREATE SEQUENCE experiment_id_seq START 1")
+        raw.execute("CREATE SEQUENCE project_id_seq START 1")
+        raw.execute(
+            "CREATE TABLE projects ("
+            "project_id INTEGER PRIMARY KEY DEFAULT nextval('project_id_seq'), "
+            "project_name TEXT NOT NULL UNIQUE)"
+        )
+        raw.execute(
+            "CREATE TABLE experiments ("
+            "experiment_id INTEGER PRIMARY KEY DEFAULT nextval('experiment_id_seq'), "
+            "experiment_name TEXT NOT NULL)"
+        )
+        # Legacy repeats — no nucleus_channel column.
+        raw.execute(
+            "CREATE TABLE repeats ("
+            "repeat_id INTEGER PRIMARY KEY DEFAULT nextval('repeat_id_seq'), "
+            "experiment_id INTEGER REFERENCES experiments(experiment_id), "
+            "plate_id INTEGER, date DATE NOT NULL, lab_member TEXT, "
+            "channel_0 TEXT NOT NULL)"
+        )
+        raw.execute(
+            "INSERT INTO experiments (experiment_name) VALUES ('legacy_exp')"
+        )
+        raw.execute(
+            "INSERT INTO repeats (experiment_id, plate_id, date, channel_0) "
+            "VALUES (1, 99, '2024-01-01', 'DAPI')"
+        )
+        raw.close()
+
+        # Reconnect via CellViewDB — should trigger the migration.
+        db = CellViewDB(db_path=db_path)
+        db.console = mock_console
+        conn = db.connect()
+        cols = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(repeats)").fetchall()
+        }
+        assert "nucleus_channel" in cols
+        # Legacy row defaults to 'DAPI'.
+        nucleus = conn.execute(
+            "SELECT nucleus_channel FROM repeats WHERE plate_id = 99"
+        ).fetchone()[0]
+        assert nucleus == "DAPI"
+
+    def test_migration_is_idempotent(self, db):
+        """Running ensure_nucleus_channel_column twice is a no-op."""
+        db.connect()
+        # Column already present from create_tables; second call should not raise.
+        db.ensure_nucleus_channel_column()
+        db.ensure_nucleus_channel_column()
+
+
 class TestCellViewDBErrorHandling:
     """Tests for error handling and edge cases."""
 
