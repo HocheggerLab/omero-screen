@@ -33,6 +33,20 @@ from skimage.util import map_array
 logger = get_logger(__name__)
 
 
+# Operetta stitching calibration constants. These are microscope-level
+# values (not per-plate or per-well) and have been stable for the lab's
+# Operetta acquisitions. Used by both the analysis pipeline (stitched
+# segmentation) and the napari widget; the widget's _STITCH_DEFAULTS
+# allows interactive override but defaults to these.
+OPERETTA_STITCH_DEFAULTS: dict[str, int] = {
+    "overlap_x": 7,
+    "overlap_y": 7,
+    "translate_x": -3,
+    "translate_y": 3,
+    "edge": 7,
+}
+
+
 # --------------------------------------------------------------------------
 # Position → grid
 # --------------------------------------------------------------------------
@@ -678,6 +692,126 @@ def stitch_from_positions(
             ty=translate_y,
             edge=edge,
         )
+
+
+def split_stitched_mask_to_fields(
+    stitched_mask: NDArray[Any],
+    positions: list[tuple[float, float]],
+    tile_h: int,
+    tile_w: int,
+    overlap_x: int = 0,
+    overlap_y: int = 0,
+    translate_x: int = 0,
+    translate_y: int = 0,
+) -> list[NDArray[Any]]:
+    """Inverse of ``stitch_labels_from_positions`` for storage round-trip.
+
+    Slices the stitched mask back into per-field tiles. Each label is
+    assigned to exactly one field — the one whose tile region contains
+    its centroid — so the resulting per-field masks have **non-overlapping
+    label IDs**. This preserves measurement→mask continuity through the
+    round trip: when the cache layer restitches via ``compose_labels``,
+    no ID remapping occurs because there are no overlapping labels.
+
+    Args:
+        stitched_mask: Stitched label canvas of shape (T, Y, X).
+        positions: Stage positions per field, length N — same order as
+            the original input to ``stitch_from_positions``.
+        tile_h: Original per-field height in pixels.
+        tile_w: Original per-field width in pixels.
+        overlap_x: Overlap in x-dimension (matches stitching params).
+        overlap_y: Overlap in y-dimension (matches stitching params).
+        translate_x: Row translation in x (matches stitching params).
+        translate_y: Column translation in y (matches stitching params).
+
+    Returns:
+        List of (T, tile_h, tile_w) mask arrays, one per field, in the
+        same order as ``positions``.
+    """
+    if stitched_mask.ndim != 3:
+        raise ValueError(
+            f"stitched_mask must be (T, Y, X), got {stitched_mask.shape}"
+        )
+
+    n_fields = len(positions)
+    grid_map = positions_to_grid(positions)
+    ox = -overlap_x
+    oy = -overlap_y
+    tx = translate_x
+    ty = translate_y
+
+    # Replicate compose_tiles' position math
+    maxx = max(grid_map.keys())
+    maxy = 0
+    for d in grid_map.values():
+        maxy = max(maxy, max(d.keys()))
+    pos = np.zeros((maxx + 1, maxy + 1, 2), dtype=int)
+    valid = np.zeros((maxx + 1, maxy + 1), dtype=bool)
+    for x, d in grid_map.items():
+        for y in d:
+            pos[x, y] = (
+                x * (tile_w + ox) + y * tx,
+                y * (tile_h + oy) + x * ty,
+            )
+            valid[x, y] = True
+    min_pos = pos[valid].min(axis=0)
+    pos -= min_pos
+
+    # (col, row) → field index in `positions`
+    field_idx_by_grid: dict[tuple[int, int], int] = {}
+    for col, row_map in grid_map.items():
+        for row, idx in row_map.items():
+            field_idx_by_grid[(col, row)] = idx
+
+    n_t = stitched_mask.shape[0]
+    out: list[NDArray[Any]] = [
+        np.zeros((n_t, tile_h, tile_w), dtype=stitched_mask.dtype)
+        for _ in range(n_fields)
+    ]
+
+    # Per-timepoint label→field assignment by centroid
+    for t in range(n_t):
+        plane = stitched_mask[t]
+        unique_labels = np.unique(plane)
+        unique_labels = unique_labels[unique_labels > 0]
+        if len(unique_labels) == 0:
+            continue
+
+        # Vectorised centroids: regionprops gives (centroid-y, centroid-x)
+        centroids = scipy.ndimage.center_of_mass(
+            plane > 0, plane, list(unique_labels)
+        )
+
+        # Map each label to its owning field (centroid-containment).
+        # First-match wins in overlap regions — deterministic by
+        # iteration order of (col, row).
+        label_to_field: dict[int, int] = {}
+        for label, (cy, cx) in zip(unique_labels, centroids, strict=True):
+            for (col, row), idx in field_idx_by_grid.items():
+                xp, yp = pos[col, row]
+                if (xp <= cx < xp + tile_w) and (yp <= cy < yp + tile_h):
+                    label_to_field[int(label)] = idx
+                    break
+
+        # For each field, slice its region from the canvas and zero out
+        # labels owned by other fields.
+        for (col, row), idx in field_idx_by_grid.items():
+            xp, yp = pos[col, row]
+            tile = plane[yp : yp + tile_h, xp : xp + tile_w].copy()
+            # Build mask of "owned by this field" labels
+            owned_labels = [
+                label
+                for label, owner in label_to_field.items()
+                if owner == idx
+            ]
+            if owned_labels:
+                keep = np.isin(tile, owned_labels)
+                tile = np.where(keep, tile, 0).astype(stitched_mask.dtype)
+            else:
+                tile[:] = 0
+            out[idx][t] = tile
+
+    return out
 
 
 def stitch_labels_from_positions(

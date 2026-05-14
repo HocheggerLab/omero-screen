@@ -41,8 +41,10 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 
+import numpy as np
 import numpy.typing as npt
 import pandas as pd
+from ezomero import get_image
 from matplotlib.figure import Figure
 from omero.gateway import BlitzGateway, WellWrapper
 from omero_utils.attachments import (
@@ -52,17 +54,31 @@ from omero_utils.attachments import (
     get_file_attachments,
     parse_csv_data,
 )
+from omero_utils.images import upload_masks
 from omero_utils.map_anns import parse_annotations
 from omero_utils.message import WellAnnotationError
+from omero_utils.stitching import (
+    OPERETTA_STITCH_DEFAULTS,
+    split_stitched_mask_to_fields,
+    stitch_from_positions,
+)
 
+from omero_screen import default_config
 from omero_screen.cellcycle_analysis import cellcycle_analysis
 from omero_screen.config import get_logger
 from omero_screen.constants import OmeroScreenNS
 from omero_screen.gallery_figure import create_gallery
-from omero_screen.image_analysis import Image, ImageProperties, get_cell_model
+from omero_screen.general_functions import filter_segmentation, scale_img
+from omero_screen.image_analysis import (
+    Image,
+    ImageProperties,
+    StitchedWellImage,
+    get_cell_model,
+)
 from omero_screen.image_classifier import ImageClassifier
 from omero_screen.metadata_parser import strip_role_suffix
 from omero_screen.quality_control import quality_control_fig
+from omero_screen.segmentation import SegmentationModel
 
 from .benchmarking import get_benchmark
 from .flatfield_corr import flatfieldcorr
@@ -80,7 +96,10 @@ def _nullctx() -> Generator[None, None, None]:
 
 
 def plate_loop(
-    conn: BlitzGateway, plate_id: int, segmentation_mode: bool = False
+    conn: BlitzGateway,
+    plate_id: int,
+    segmentation_mode: bool = False,
+    stitch_mode: bool = False,
 ) -> tuple[
     pd.DataFrame, pd.DataFrame | None, pd.DataFrame, dict[str, Figure] | None
 ]:
@@ -90,6 +109,7 @@ def plate_loop(
         conn: Connection to OMERO
         plate_id: ID of the plate
         segmentation_mode: Only perform image segmentation
+        stitch_mode: Run stitched-well segmentation instead of per-field
     Returns:
         Tuple[DataFrame, DataFrame, DataFrame, Dict]: Three DataFrames containing the final data and quality control data;
         dictionary of matplotlib figures of the inference gallery keyed by class (can be None)
@@ -117,7 +137,12 @@ def plate_loop(
     _print_device_info()
 
     df_final, df_quality_control, dict_gallery = process_wells(
-        conn, metadata, dataset_id, flatfield_dict, segmentation_mode
+        conn,
+        metadata,
+        dataset_id,
+        flatfield_dict,
+        segmentation_mode,
+        stitch_mode=stitch_mode,
     )
     if segmentation_mode:
         logger.info("Segmentation complete")
@@ -219,6 +244,7 @@ def process_wells(
     dataset_id: int,
     flatfield_dict: dict[str, npt.NDArray[Any]],
     segmentation_mode: bool = False,
+    stitch_mode: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Figure] | None]:
     """Process the wells of the plate.
 
@@ -228,6 +254,7 @@ def process_wells(
         dataset_id: Dataset associated with the plate
         flatfield_dict: Dictionary containing flatfield correction data
         segmentation_mode: Only perform image segmentation
+        stitch_mode: Run stitched-well segmentation instead of per-field
     Returns:
         Two DataFrames containing the final data and quality control data; dictionary of
         matplotlib figures of the inference gallery keyed by class (can be None)
@@ -307,6 +334,7 @@ def process_wells(
                     segmentation_mode=segmentation_mode,
                     border=border,
                     prog=prog,
+                    stitch_mode=stitch_mode,
                 )
                 if not segmentation_mode:
                     _save_well_results(conn, well, well_data, well_quality)
@@ -395,6 +423,429 @@ def _remove_intermediate_well_results(
         delete_file_attachment(conn, well, ends_with="quality.csv")
 
 
+def _load_well_fields(
+    conn: BlitzGateway,
+    well: WellWrapper,
+    metadata: MetadataParser,
+    dataset_id: int,
+    flatfield_dict: dict[str, npt.NDArray[Any]],
+) -> tuple[
+    dict[str, npt.NDArray[Any]],
+    list[tuple[float, float]],
+    list[int],
+]:
+    """Fetch all fields of a well, flatfield-correct, and return per-channel stacks.
+
+    Returns:
+        per_channel: dict mapping channel name to an array of shape (N, T, Y, X)
+            where N is the number of fields in the well.
+        positions: list of (pos_x, pos_y) per field, in the same order as N.
+        image_ids: OMERO image IDs per field, in the same order as N.
+    """
+    channels = metadata.channel_data
+    n_fields = len(list(well.listChildren()))
+
+    # Collect raw per-field arrays per channel, plus stage positions and image ids
+    per_channel: dict[str, list[npt.NDArray[Any]]] = {
+        ch: [] for ch in channels
+    }
+    positions: list[tuple[float, float]] = []
+    image_ids: list[int] = []
+
+    for n in range(n_fields):
+        ws = well.getWellSample(n)
+        image_obj = ws.getImage()
+        image_ids.append(image_obj.getId())
+        # Stage position via WellSample (microscope reference frame)
+        px = ws.getPosX()
+        py = ws.getPosY()
+        positions.append(
+            (
+                px.getValue() if px is not None else 0.0,
+                py.getValue() if py is not None else 0.0,
+            )
+        )
+
+        _, array = get_image(conn, image_obj.getId())
+        for ch, idx in channels.items():
+            ch_idx = int(idx)
+            if ch not in flatfield_dict:
+                raise KeyError(
+                    f"Channel '{ch}' not found in flatfield correction masks. "
+                    f"Available channels: {list(flatfield_dict.keys())}."
+                )
+            img = array[..., ch_idx] / flatfield_dict[ch]
+            # Reduce (tzyx) → (tyx)
+            img = np.squeeze(img, axis=1)
+            per_channel[ch].append(img)
+
+    # Stack each channel's fields → (N, T, Y, X)
+    stacked: dict[str, npt.NDArray[Any]] = {
+        ch: np.stack(arrs) for ch, arrs in per_channel.items()
+    }
+    return stacked, positions, image_ids
+
+
+def _nuc_diameter_for_cell_line(cell_line: str) -> int:
+    """Match the diameter heuristic used by Image._n_segmentation."""
+    if "40X" in cell_line.upper():
+        return 100
+    if "20X" in cell_line.upper():
+        return 25
+    return 10
+
+
+def _segment_stitched_nuclei(
+    stitched_img: npt.NDArray[Any],
+    nucleus_channel_index: int,
+    cell_line: str,
+    border: int,
+) -> npt.NDArray[Any]:
+    """Segment the nucleus channel of a stitched (T, Y, X, C) canvas.
+
+    Cellpose's internal tiling handles the large canvas. ``border``
+    applies only at the *outer* edge of the canvas; internal field
+    seams have been stitched away and no longer exist as boundary
+    pixels, so no objects are excluded at seams. This is the bias fix.
+
+    Args:
+        stitched_img: Stitched canvas of shape (T, Y, X, C).
+        nucleus_channel_index: Channel-axis index of the nucleus channel.
+        cell_line: Cell line name (used for diameter heuristic).
+        border: Width of the outer-edge border (negative to disable).
+
+    Returns:
+        Mask array of shape (T, Y, X) with uint32 labels.
+    """
+    model_name = default_config.MODEL_DICT.get("nuclei")
+    if model_name is None:
+        raise RuntimeError(
+            "No nuclei segmentation model configured. "
+            "Add a 'nuclei' entry to MODEL_DICT in your config."
+        )
+    segmentation_model = SegmentationModel(model_name)
+
+    if segmentation_model.get_type() == "cellpose3":
+        diameter: int | None = _nuc_diameter_for_cell_line(cell_line)
+        logger.info("Segmenting stitched nuclei with diameter %s", diameter)
+    else:
+        diameter = None  # cellpose 4 is scale-independent
+
+    n_t = stitched_img.shape[0]
+    masks = np.zeros(stitched_img.shape[:3], dtype=np.uint32)
+    for t in range(n_t):
+        # (Y, X) → cellpose-ready (1, Y, X) single-channel stack
+        img_t = stitched_img[t, ..., nucleus_channel_index]
+        scaled = np.stack([scale_img(img_t)])
+        try:
+            mask = segmentation_model.eval(
+                scaled,
+                diameter=diameter,
+                normalize=False,
+            )
+        except IndexError:
+            logger.warning(
+                "Stitched nucleus segmentation failed (t=%d) — "
+                "returning empty mask.",
+                t,
+            )
+            mask = np.zeros(img_t.shape, dtype=np.uint32)
+        # Outer-edge border filter only. clear_border treats the array
+        # edge as the boundary; since this is the full stitched canvas,
+        # only true outer-edge objects are removed.
+        masks[t] = filter_segmentation(mask, border=border)
+
+    return masks
+
+
+def _segment_stitched_cells(
+    stitched_img: npt.NDArray[Any],
+    cell_channel_index: int,
+    nucleus_channel_index: int,
+    cell_line: str,
+    border: int,
+) -> npt.NDArray[Any]:
+    """Segment cells on the stitched canvas using the cell-line cellpose model.
+
+    Mirrors ``Image._c_segmentation``: the cell channel and nucleus channel
+    are scaled and stacked as a 2-channel cellpose input. Outer-border
+    objects are removed; internal seams have been stitched away.
+
+    Args:
+        stitched_img: Stitched canvas of shape (T, Y, X, C).
+        cell_channel_index: Channel-axis index of the cell channel.
+        nucleus_channel_index: Channel-axis index of the nucleus channel.
+        cell_line: Cell line name (used to select the cellpose model).
+        border: Width of the outer-edge border (negative to disable).
+
+    Returns:
+        Cell mask array of shape (T, Y, X) with uint32 labels.
+    """
+    model_name = get_cell_model(cell_line)
+    if model_name is None:
+        raise RuntimeError(
+            f"Unknown cell-segmentation model for cell line: {cell_line}"
+        )
+    segmentation_model = SegmentationModel(model_name)
+    logger.info("Segmenting stitched cells with model %s", model_name)
+
+    n_t = stitched_img.shape[0]
+    masks = np.zeros(stitched_img.shape[:3], dtype=np.uint32)
+    for t in range(n_t):
+        cell_t = stitched_img[t, ..., cell_channel_index]
+        nuc_t = stitched_img[t, ..., nucleus_channel_index]
+        comb = np.stack([scale_img(cell_t), scale_img(nuc_t)])
+        try:
+            mask = segmentation_model.eval(
+                comb,
+                normalize=False,
+            )
+        except IndexError:
+            logger.warning(
+                "Stitched cell segmentation failed (t=%d) — "
+                "returning empty mask.",
+                t,
+            )
+            mask = np.zeros(cell_t.shape, dtype=np.uint32)
+        masks[t] = filter_segmentation(mask, border=border)
+    return masks
+
+
+def _stitched_cyto(
+    n_mask: npt.NDArray[Any], c_mask: npt.NDArray[Any]
+) -> npt.NDArray[Any]:
+    """Derive the cytoplasm mask = cell - nucleus, mirroring Image._get_cyto."""
+    overlap = (c_mask != 0) * (n_mask != 0)
+    cyto_binary = (c_mask != 0) * (overlap == 0)
+    result: npt.NDArray[Any] = (c_mask * cyto_binary).astype(c_mask.dtype)
+    return result
+
+
+def _stitch_well(
+    per_channel: dict[str, npt.NDArray[Any]],
+    positions: list[tuple[float, float]],
+) -> npt.NDArray[Any]:
+    """Stitch per-channel field stacks into a single (T, Y, X, C) canvas.
+
+    Channels are stitched independently and stacked along the channel
+    axis so the result matches the layout downstream code expects.
+    """
+    ch_names = list(per_channel.keys())
+    channel_canvases: list[npt.NDArray[Any]] = []
+    for ch in ch_names:
+        # per_channel[ch] is (N, T, Y, X). stitch_from_positions expects
+        # (N, T, Y, X, C); we treat each channel as a 1-channel volume.
+        stack = per_channel[ch][..., np.newaxis]
+        stitched = stitch_from_positions(
+            stack,
+            positions,
+            **OPERETTA_STITCH_DEFAULTS,
+        )
+        # Result shape (T, Y, X, 1) → squeeze the channel axis
+        channel_canvases.append(np.squeeze(stitched, axis=-1))
+
+    # Stack channels along the last axis → (T, Y, X, C)
+    return np.stack(channel_canvases, axis=-1)
+
+
+def _stitched_well_loop(
+    conn: BlitzGateway,
+    well: WellWrapper,
+    metadata: MetadataParser,
+    dataset_id: int,
+    flatfield_dict: dict[str, npt.NDArray[Any]],
+    image_classifier: None | list[ImageClassifier],
+    segmentation_mode: bool = False,
+    border: int = 5,
+    prog: ScreenProgress | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Process a well as a single stitched canvas.
+
+    Loads all fields, applies flatfield correction, stitches them into one
+    (T, Y, X, C) canvas using the Operetta calibration constants, then (in
+    later stages) segments the canvas and runs ImageProperties on it.
+
+    For Stage 1 skeleton: only the stitch is implemented; segmentation,
+    measurement, and mask upload are stubs handled by subsequent tasks.
+
+    Returns empty DataFrames for now so the surrounding pipeline runs end
+    to end without crashing.
+    """
+    well_pos = well.getWellPos()
+    n_fields = len(list(well.listChildren()))
+    logger.info(
+        "Stitched analysis: well %s with %d fields", well_pos, n_fields
+    )
+
+    bench = get_benchmark()
+    if prog:
+        prog.set_stage("stitching")
+    with bench.stage("stitched_download"):
+        per_channel, positions, image_ids = _load_well_fields(
+            conn, well, metadata, dataset_id, flatfield_dict
+        )
+    # Preserve channel order — _stitch_well builds the canvas in this order
+    channel_order = list(per_channel.keys())
+    # Per-field (T, Y, X) shape — needed later to split the stitched
+    # mask back into per-field tiles for OMERO upload.
+    sample_channel = next(iter(per_channel.values()))
+    tile_h = sample_channel.shape[2]
+    tile_w = sample_channel.shape[3]
+    with bench.stage("stitched_compose"):
+        stitched_img = _stitch_well(per_channel, positions)
+    # The synthetic per-well image_id is the first OMERO image id in the
+    # well — keeps measurement rows joinable with existing OMERO queries.
+    synthetic_image_id = image_ids[0]
+    logger.info(
+        "Stitched canvas for %s: shape %s, dtype %s, synthetic image_id %d",
+        well_pos,
+        stitched_img.shape,
+        stitched_img.dtype,
+        synthetic_image_id,
+    )
+
+    # Free per-field memory before segmentation — the stitched canvas
+    # holds all the pixels we need from here on.
+    del per_channel
+
+    nucleus_channel = metadata.channel_roles["nucleus"]
+    if nucleus_channel not in channel_order:
+        raise KeyError(
+            f"Nucleus channel '{nucleus_channel}' missing from channel data; "
+            f"available: {channel_order}"
+        )
+    nucleus_idx = channel_order.index(nucleus_channel)
+    cell_channel = metadata.channel_roles.get("cell")
+    cell_idx = channel_order.index(cell_channel) if cell_channel else None
+    cell_line = metadata.well_conditions(well_pos)["cell_line"]
+
+    if prog:
+        prog.set_stage("segmentation")
+    with bench.stage("stitched_nucleus_segmentation"):
+        stitched_n_mask = _segment_stitched_nuclei(
+            stitched_img,
+            nucleus_channel_index=nucleus_idx,
+            cell_line=cell_line,
+            border=border,
+        )
+    logger.info(
+        "Stitched nucleus mask for %s: %d nuclei (border=%d)",
+        well_pos,
+        int(stitched_n_mask.max()),
+        border,
+    )
+
+    stitched_c_mask: npt.NDArray[Any] | None = None
+    stitched_cyto_mask: npt.NDArray[Any] | None = None
+    if cell_channel is not None and cell_idx is not None:
+        with bench.stage("stitched_cell_segmentation"):
+            stitched_c_mask = _segment_stitched_cells(
+                stitched_img,
+                cell_channel_index=cell_idx,
+                nucleus_channel_index=nucleus_idx,
+                cell_line=cell_line,
+                border=border,
+            )
+        logger.info(
+            "Stitched cell mask for %s: %d cells (channel=%s)",
+            well_pos,
+            int(stitched_c_mask.max()),
+            cell_channel,
+        )
+        # Cytoplasm = cell ∖ nucleus (matches Image._get_cyto)
+        stitched_cyto_mask = _stitched_cyto(stitched_n_mask, stitched_c_mask)
+
+    # Split the stitched masks back into per-field tiles and upload each
+    # as a sibling Image in the dataset, named
+    # "<field_id>_stitched_segmentation". This avoids the OMERO pyramid
+    # threshold (no individual upload exceeds tile_h × tile_w) and
+    # round-trips the bytes through standard per-field segmentation
+    # artefacts. Each label belongs to exactly one field by centroid,
+    # so the cache layer can restitch with ``compose_labels`` without
+    # ID remapping (Stage 2 concern).
+    split_kwargs = {
+        "positions": positions,
+        "tile_h": tile_h,
+        "tile_w": tile_w,
+        "overlap_x": OPERETTA_STITCH_DEFAULTS["overlap_x"],
+        "overlap_y": OPERETTA_STITCH_DEFAULTS["overlap_y"],
+        "translate_x": OPERETTA_STITCH_DEFAULTS["translate_x"],
+        "translate_y": OPERETTA_STITCH_DEFAULTS["translate_y"],
+    }
+    with bench.stage("stitched_mask_split"):
+        per_field_n_masks = split_stitched_mask_to_fields(
+            stitched_n_mask, **split_kwargs
+        )
+        per_field_c_masks: list[npt.NDArray[Any]] | None = (
+            split_stitched_mask_to_fields(stitched_c_mask, **split_kwargs)
+            if stitched_c_mask is not None
+            else None
+        )
+    with bench.stage("stitched_mask_upload"):
+        for n in range(n_fields):
+            field_img = well.getWellSample(n).getImage()
+            field_n = per_field_n_masks[n]
+            field_c = (
+                per_field_c_masks[n] if per_field_c_masks is not None else None
+            )
+            upload_masks(
+                conn,
+                dataset_id,
+                field_img,
+                field_n,
+                c_mask=field_c,
+                name_suffix="_stitched_segmentation",
+                annotation_key="Stitched_Segmentation_Mask",
+            )
+
+    if segmentation_mode:
+        if prog:
+            for _ in range(n_fields):
+                prog.image_done()
+        return pd.DataFrame(), pd.DataFrame()
+
+    if prog:
+        prog.set_stage("feature extraction")
+    with bench.stage("stitched_feature_extraction"):
+        stitched_image = StitchedWellImage(
+            stitched_img=stitched_img,
+            stitched_mask=stitched_n_mask,
+            channels={ch: idx for idx, ch in enumerate(channel_order)},
+            nucleus_channel=nucleus_channel,
+            well_pos=well_pos,
+            synthetic_image_id=synthetic_image_id,
+            c_mask=stitched_c_mask,
+            cyto_mask=stitched_cyto_mask,
+            cell_channel=cell_channel,
+        )
+        image_props = ImageProperties(
+            well,
+            stitched_image,  # type: ignore[arg-type]  # StitchedWellImage duck-types Image
+            metadata,
+            image_classifier=image_classifier,
+        )
+    df_well = image_props.image_df
+    df_well_quality = image_props.quality_df
+    # Mark every measurement row so the cellview importer can populate
+    # repeats.stitch_mode on the way in. Constant column — wasteful by
+    # row but a single source-of-truth check at import time.
+    df_well["stitch_mode"] = True
+    logger.info(
+        "Stitched features for %s: %d rows, %d columns",
+        well_pos,
+        len(df_well),
+        len(df_well.columns),
+    )
+
+    if prog:
+        # Tick once per field so the bar advances at the same rate
+        # as the per-field path.
+        for _ in range(n_fields):
+            prog.image_done()
+
+    return df_well, df_well_quality
+
+
 def _well_loop(
     conn: BlitzGateway,
     well: WellWrapper,
@@ -405,6 +856,7 @@ def _well_loop(
     segmentation_mode: bool = False,
     border: int = 5,
     prog: ScreenProgress | None = None,
+    stitch_mode: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Process all images in a well.
 
@@ -418,10 +870,24 @@ def _well_loop(
         segmentation_mode: Only perform image segmentation
         border: Width of the border examined when filtering segmented objects (negative to disable)
         prog: Live progress display (optional)
+        stitch_mode: Run stitched-well segmentation instead of per-field
 
     Returns:
         Tuple[pd.DataFrame, pd.DataFrame]: DataFrames containing the final data and quality control data
     """
+    if stitch_mode:
+        return _stitched_well_loop(
+            conn,
+            well,
+            metadata,
+            dataset_id,
+            flatfield_dict,
+            image_classifier=image_classifier,
+            segmentation_mode=segmentation_mode,
+            border=border,
+            prog=prog,
+        )
+
     logger.info(
         "Segmenting images"
         if segmentation_mode

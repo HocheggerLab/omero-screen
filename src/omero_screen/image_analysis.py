@@ -397,6 +397,75 @@ def _get_segmentation_model(model_name: str) -> SegmentationModel:
     return SegmentationModel(model_name)
 
 
+class _SyntheticOmeroImage:
+    """Minimal stand-in for omero.gateway.ImageWrapper.
+
+    ImageProperties only calls ``.getId()`` on the wrapper, so this
+    suffices for the stitched-mode path where the well is treated as a
+    single synthetic image (id = first OMERO image id in the well).
+    """
+
+    def __init__(self, image_id: int):
+        self._id = image_id
+
+    def getId(self) -> int:  # noqa: N802 — mirrors OMERO API
+        return self._id
+
+
+class StitchedWellImage:
+    """Adapter exposing the Image surface that ImageProperties consumes.
+
+    Built from a pre-stitched canvas + nucleus mask rather than from
+    OMERO field reads. Stage 1 is nucleus-only, so ``c_mask`` and
+    ``cyto_mask`` are always ``None``.
+
+    Attributes mirror ``Image``:
+        img_dict: channel name → (T, Y, X) array
+        n_mask: (T, Y, X) nucleus labels
+        c_mask: None
+        cyto_mask: None
+        omero_image: synthetic wrapper with ``getId()``
+        well_pos: well position string
+    """
+
+    def __init__(
+        self,
+        stitched_img: npt.NDArray[Any],
+        stitched_mask: npt.NDArray[Any],
+        channels: dict[str, int],
+        nucleus_channel: str,
+        well_pos: str,
+        synthetic_image_id: int,
+        c_mask: npt.NDArray[Any] | None = None,
+        cyto_mask: npt.NDArray[Any] | None = None,
+        cell_channel: str | None = None,
+    ):
+        """Initialise the stitched-well image adapter.
+
+        Args:
+            stitched_img: Stitched canvas of shape (T, Y, X, C).
+            stitched_mask: Nucleus label mask of shape (T, Y, X).
+            channels: Channel name → channel-axis index in stitched_img.
+            nucleus_channel: Name of the nucleus channel.
+            well_pos: Well position (e.g. "A1").
+            synthetic_image_id: Synthetic OMERO image id for the well.
+            c_mask: Optional cell mask of shape (T, Y, X).
+            cyto_mask: Optional cytoplasm mask of shape (T, Y, X).
+            cell_channel: Name of the cell channel (if cell segmentation
+                was performed).
+        """
+        self.img_dict: dict[str, npt.NDArray[Any]] = {
+            ch: stitched_img[..., idx] for ch, idx in channels.items()
+        }
+        self.n_mask = stitched_mask
+        self.c_mask: npt.NDArray[Any] | None = c_mask
+        self.cyto_mask: npt.NDArray[Any] | None = cyto_mask
+        self._nucleus_channel = nucleus_channel
+        self._cell_channel: str | None = cell_channel
+        self.well_pos = well_pos
+        self.omero_image = _SyntheticOmeroImage(synthetic_image_id)
+
+
 def get_cell_model(
     cell_line: str,
     default_model: str | None = default_config.MODEL_DICT["U2OS"],

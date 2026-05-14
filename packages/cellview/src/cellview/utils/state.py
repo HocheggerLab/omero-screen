@@ -209,6 +209,11 @@ class CellViewStateCore:
     # ``repeats.nucleus_channel`` and used by the exporter to rehydrate the
     # canonical ``*_DAPI_*`` measurement columns back to their real names.
     nucleus_channel: Optional[str] = None
+    # Whether the upstream analysis used stitched-well mode (one stitched
+    # canvas per well, segmented as a unit). Recorded on
+    # ``repeats.stitch_mode`` for downstream consumers (cache layer,
+    # resolver) to know which analysis path produced the measurements.
+    stitch_mode: bool = False
     db_conn: Optional[duckdb.DuckDBPyConnection] = None
     console: Console = Console()
     logger: Any = None
@@ -256,6 +261,11 @@ class CellViewStateCore:
             instance.nucleus_channel = prompt_nucleus_channel(
                 candidates, cli_flag=nucleus_flag, ui=instance.ui
             )
+            # A `stitch_mode` column is written by the stitched analysis path
+            # (one constant value per row). Any True row marks the whole
+            # import as stitched.
+            if "stitch_mode" in instance.df.columns:
+                instance.stitch_mode = bool(instance.df["stitch_mode"].any())
         elif args and args.plate_id:
             # Handle list input (from nargs='+')
             if isinstance(args.plate_id, list):
@@ -287,6 +297,13 @@ class CellViewStateCore:
             if nucleus_flag is not None:
                 instance.nucleus_channel = nucleus_flag
 
+            # OMERO-import branch also picks up the stitch_mode marker.
+            if (
+                instance.df is not None
+                and "stitch_mode" in instance.df.columns
+            ):
+                instance.stitch_mode = bool(instance.df["stitch_mode"].any())
+
             # For OMERO imports, we always want to show confirmation dialog
             # The --interactive flag is maintained for backward compatibility but OMERO imports are now always interactive
             instance.ui.info(
@@ -297,6 +314,8 @@ class CellViewStateCore:
             instance.ui.info(
                 f"Detected nucleus channel: {instance.nucleus_channel}"
             )
+        if instance.stitch_mode:
+            instance.ui.info("Stitched-well analysis detected")
 
         # Set up channels if we have data
         if instance.df is not None:

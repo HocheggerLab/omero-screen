@@ -89,6 +89,7 @@ class CellViewDB:
             else:
                 self.ensure_templates_table()
                 self.ensure_nucleus_channel_column()
+                self.ensure_stitch_mode_column()
 
             return self.conn
         except duckdb.Error as err:
@@ -138,6 +139,32 @@ class CellViewDB:
             )
         except duckdb.Error as err:
             self.logger.warning(f"Could not ensure templates table: {err}")
+
+    def ensure_stitch_mode_column(self) -> None:
+        """Add ``stitch_mode`` to ``repeats`` if absent (legacy DBs).
+
+        Marks whether a repeat was analysed in stitched-well mode
+        (one stitched canvas per well, segmented as a unit) vs the
+        legacy per-field mode. Legacy rows default to ``false``.
+        Safe to call repeatedly.
+        """
+        conn = self.conn
+        if conn is None:
+            return
+        try:
+            cols = conn.execute("PRAGMA table_info(repeats)").fetchall()
+            if any(row[1] == "stitch_mode" for row in cols):
+                return  # already migrated
+            conn.execute(
+                "ALTER TABLE repeats ADD COLUMN stitch_mode BOOLEAN "
+                "DEFAULT false"
+            )
+            self.logger.info(
+                "Migrated: added stitch_mode column to repeats "
+                "(legacy rows default to false)"
+            )
+        except duckdb.Error as err:
+            self.logger.warning(f"Could not ensure stitch_mode column: {err}")
 
     def ensure_nucleus_channel_column(self) -> None:
         """Add ``nucleus_channel`` to ``repeats`` if absent (legacy DBs).
@@ -234,7 +261,8 @@ class CellViewDB:
                 channel_2 TEXT,
                 channel_3 TEXT,
                 classifier TEXT,
-                nucleus_channel TEXT NOT NULL DEFAULT 'DAPI'
+                nucleus_channel TEXT NOT NULL DEFAULT 'DAPI',
+                stitch_mode BOOLEAN NOT NULL DEFAULT false
             );
 
             CREATE TABLE conditions (

@@ -39,10 +39,15 @@ def upload_masks(
     image: ImageWrapper,
     n_mask: npt.NDArray[Any],
     c_mask: npt.NDArray[Any] | None = None,
+    name_suffix: str = "_segmentation",
+    annotation_key: str = "Segmentation_Mask",
 ) -> None:
     """Uploads segmentation masks to OMERO server and links them to the specified dataset.
 
     The id of the mask is stored as an annotation on the original screen image.
+    For stitched-mode masks pass ``name_suffix="_stitched_segmentation"`` and
+    ``annotation_key="Stitched_Segmentation_Mask"`` so the per-field and
+    per-well masks coexist without overwriting each other.
 
     Args:
         conn: OMERO connection
@@ -50,9 +55,13 @@ def upload_masks(
         image: Image object
         n_mask: Nuclei segmentation mask (TYX)
         c_mask: Cell segmentation mask (TYX)
+        name_suffix: Suffix appended to ``image.getId()`` to form the
+            OMERO image name for the uploaded mask.
+        annotation_key: Map-annotation key on the source image that
+            records the uploaded mask's id.
 
     """
-    image_name = f"{image.getId()}_segmentation"
+    image_name = f"{image.getId()}{name_suffix}"
     dataset = conn.getObject("Dataset", dataset_id)
 
     def plane_gen() -> Generator[npt.NDArray[Any]]:
@@ -79,14 +88,156 @@ def upload_masks(
 
     # Create a map annotation to store the segmentation mask ID
     delete_map_annotation(
-        conn, image, "Segmentation_Mask", ns=OmeroScreenNS.METADATA
+        conn, image, annotation_key, ns=OmeroScreenNS.METADATA
     )
     add_map_annotations(
         conn,
         image,
-        {"Segmentation_Mask": mask.getId()},
+        {annotation_key: mask.getId()},
         ns=OmeroScreenNS.METADATA,
     )
+
+
+def upload_masks_tiled(
+    conn: BlitzGateway,
+    dataset_id: int,
+    image: ImageWrapper,
+    n_mask: npt.NDArray[Any],
+    c_mask: npt.NDArray[Any] | None = None,
+    name_suffix: str = "_segmentation",
+    annotation_key: str = "Segmentation_Mask",
+    tile_size: int = 1024,
+) -> None:
+    """Tile-aware mask upload for canvases larger than OMERO's pyramid threshold.
+
+    OMERO classifies images above ~3000-4000 px per side as pyramidal and
+    rejects whole-plane writes (``setPlane``) — they must use ``setTile``
+    instead. ``upload_masks`` uses ``setPlane`` via
+    ``createImageFromNumpySeq`` and fails for stitched-well canvases.
+    This function creates the image at the right dimensions and writes
+    it tile-by-tile using the lower-level OMERO API.
+
+    Args:
+        conn: OMERO connection
+        dataset_id: ID of the dataset to link the masks to
+        image: Source image (annotated with the new mask's id)
+        n_mask: Nuclei mask of shape (T, Y, X)
+        c_mask: Optional cell mask of shape (T, Y, X)
+        name_suffix: Appended to ``image.getId()`` to form the new image name.
+        annotation_key: Map-annotation key on the source image recording the
+            uploaded mask's id.
+        tile_size: Square tile edge in pixels (default 1024).
+    """
+    if n_mask.ndim != 3:
+        raise ValueError(f"n_mask must be (T, Y, X), got shape {n_mask.shape}")
+
+    size_t, size_y, size_x = n_mask.shape
+    size_c = 2 if c_mask is not None else 1
+    size_z = 1
+
+    # Stack channels along axis 1 for upload: (T, C, Y, X)
+    if c_mask is not None:
+        if c_mask.shape != n_mask.shape:
+            raise ValueError(
+                f"c_mask shape {c_mask.shape} != n_mask shape {n_mask.shape}"
+            )
+        data = np.stack([n_mask, c_mask], axis=1)
+    else:
+        data = n_mask[:, np.newaxis, :, :]
+
+    image_name = f"{image.getId()}{name_suffix}"
+    pixel_dtype = _omero_pixel_type_string(n_mask.dtype)
+
+    pixels_service = conn.c.sf.getPixelsService()
+    query_service = conn.c.sf.getQueryService()
+    pixels_type = query_service.findByQuery(
+        f"from PixelsType as p where p.value='{pixel_dtype}'",
+        None,
+    )
+    if pixels_type is None:
+        raise RuntimeError(
+            f"OMERO server does not know pixel type '{pixel_dtype}'"
+        )
+
+    new_image_id = pixels_service.createImage(
+        size_x,
+        size_y,
+        size_z,
+        size_t,
+        list(range(size_c)),
+        pixels_type,
+        image_name,
+        f"Tiled upload of {n_mask.dtype} mask",
+        conn.SERVICE_OPTS,
+    )
+
+    new_image = conn.getObject("Image", new_image_id.getValue())
+    pixels_id = new_image.getPixelsId()
+    raw = conn.c.sf.createRawPixelsStore()
+    try:
+        raw.setPixelsId(pixels_id, False, conn.SERVICE_OPTS)
+        for t in range(size_t):
+            for c in range(size_c):
+                plane = data[t, c]
+                for y in range(0, size_y, tile_size):
+                    h = min(tile_size, size_y - y)
+                    for x in range(0, size_x, tile_size):
+                        w = min(tile_size, size_x - x)
+                        tile = np.ascontiguousarray(
+                            plane[y : y + h, x : x + w]
+                        )
+                        raw.setTile(
+                            tile.tobytes(),
+                            0,  # z
+                            c,
+                            t,
+                            x,
+                            y,
+                            w,
+                            h,
+                            conn.SERVICE_OPTS,
+                        )
+        raw.save(conn.SERVICE_OPTS)
+    finally:
+        raw.close(conn.SERVICE_OPTS)
+
+    # Link the new image to the dataset
+    dataset = conn.getObject("Dataset", dataset_id)
+    link = dataset._obj.linkImage(new_image._obj)  # noqa: SLF001
+    conn.getUpdateService().saveObject(link, conn.SERVICE_OPTS)
+
+    # Annotate the source image with the new mask's id
+    delete_map_annotation(
+        conn, image, annotation_key, ns=OmeroScreenNS.METADATA
+    )
+    add_map_annotations(
+        conn,
+        image,
+        {annotation_key: new_image.getId()},
+        ns=OmeroScreenNS.METADATA,
+    )
+
+
+def _omero_pixel_type_string(dtype: np.dtype[Any]) -> str:
+    """Map a numpy dtype to OMERO's PixelType.value string."""
+    kind = dtype.kind
+    size = dtype.itemsize
+    mapping: dict[tuple[str, int], str] = {
+        ("u", 1): "uint8",
+        ("u", 2): "uint16",
+        ("u", 4): "uint32",
+        ("i", 1): "int8",
+        ("i", 2): "int16",
+        ("i", 4): "int32",
+        ("f", 4): "float",
+        ("f", 8): "double",
+    }
+    try:
+        return mapping[(kind, size)]
+    except KeyError as e:
+        raise ValueError(
+            f"Unsupported numpy dtype for OMERO upload: {dtype}"
+        ) from e
 
 
 def delete_masks(conn: BlitzGateway, dataset_id: int) -> None:

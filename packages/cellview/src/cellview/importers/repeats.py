@@ -161,12 +161,16 @@ class RepeatsManager:
             nucleus_channel = (
                 getattr(self.state, "nucleus_channel", None) or "DAPI"
             )
+            # ``stitch_mode`` records whether the upstream analysis used the
+            # stitched-well path. Defaults to ``False`` for backward
+            # compatibility with the per-field pipeline.
+            stitch_mode = bool(getattr(self.state, "stitch_mode", False))
             self.db_conn.execute(
                 """
                 INSERT INTO repeats (experiment_id, plate_id, date, lab_member,
                                      channel_0, channel_1, channel_2, channel_3,
-                                     nucleus_channel)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     nucleus_channel, stitch_mode)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     self.state.experiment_id,
@@ -178,6 +182,7 @@ class RepeatsManager:
                     self.state.channel_2,
                     self.state.channel_3,
                     nucleus_channel,
+                    stitch_mode,
                 ),
             )
             result = self.db_conn.execute(

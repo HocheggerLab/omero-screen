@@ -1,124 +1,92 @@
-"""Scratch file to test plate_cache functions against real OMERO server.
+"""Scratch script for ad-hoc OMERO inspection."""
 
-Usage:
-    python scratch.py
-
-Requires .env.development (or set ENV=development) with valid
-OMERO credentials. Update PLATE_ID below.
-"""
-
+# import time
+# from omero.gateway import BlitzGateway
+# from omero_screen_napari.omero_image import (
+#     get_omero_image_wrapper, initialise_download, get_omero_image_timepoint
+# )
+# conn = BlitzGateway("helfrid", "Omero_21", host="ome2.hpc.sussex.ac.uk", port=4064)
+# conn.connect()
+# # Server version — go through the underlying client
+# try:
+#     print("Server version:", conn.c.getProperty("omero.version"))
+# except Exception:
+#     pass
+# # Config properties
+# config = conn.getConfigService()
+# for p in [
+#     "omero.threads.max_threads",
+#     "omero.threads.min_threads",
+#     "omero.jvmcfg.heap.server",
+#     "omero.jvmcfg.system_memory",
+#     "omero.data.dir",
+# ]:
+#     try:
+#         val = config.getConfigValue(p)
+#         if val:
+#             print(f"{p} = {val}")
+#     except Exception:
+#         pass
+# # ---- Bandwidth test ----
+# image_id = 13259  # put a real image id here
+# wrapper = get_omero_image_wrapper(conn, image_id)
+# store, shape, dt_be = initialise_download(conn, wrapper)
+# # Warmup call — first RPC is always slower
+# _ = get_omero_image_timepoint(store, 0, shape, dt_be)
+# # 5 timed runs
+# times = []
+# for _ in range(5):
+#     t0 = time.perf_counter()
+#     arr = get_omero_image_timepoint(store, 0, shape, dt_be)
+#     times.append(time.perf_counter() - t0)
+# store.close()
+# conn.close()
+# mb = arr.nbytes / 1e6
+# avg = sum(times) / len(times)
+# print(f"\nImage shape: {arr.shape}")
+# print(f"Uncompressed size: {mb:.1f} MB")
+# print(f"Transfer times: {[f'{t:.3f}s' for t in times]}")
+# print(f"Average: {avg:.3f}s  →  {mb/avg:.1f} MB/s")
 import os
-import time
+from typing import Any
 
-from omero.gateway import BlitzGateway
-from omero_screen_napari.plate_cache import (
-    download_flatfield,
-    download_plate_metadata,
-    download_segmentation_masks,
-    download_well_fields,
-    download_well_metadata,
-)
+os.environ["ENV"] = "production"
 
-from omero_screen.config import get_logger
+from omero.gateway import MapAnnotationWrapper
+from omero_utils.omero_connect import omero_connect
 
-logger = get_logger(__name__)
-
-# ---------- CONFIGURE THESE ----------
-HOST = "ome2.hpc.sussex.ac.uk"
-PORT = 4064
-USERNAME = "helfrid"
-PASSWORD = "Omero_21"
-PLATE_ID = 1237
-# --------------------------------------
-
-# Set env vars so @omero_connect can create per-thread connections
-os.environ["HOST"] = HOST
-os.environ["USERNAME"] = USERNAME
-os.environ["PASSWORD"] = PASSWORD
+from omero_screen.constants import OmeroScreenNS
 
 
-def main() -> None:
-    """Test all plate_cache download functions on real data."""
-    conn = BlitzGateway(USERNAME, PASSWORD, host=HOST, port=PORT)
-    try:
-        if not conn.connect():
-            print("ERROR: Could not connect to OMERO")
-            return
-        print(f"Connected to {HOST}:{PORT} as {USERNAME}")
+@omero_connect
+def go(plate_id: int, conn: Any = None) -> None:
+    """Inspect map annotations on a plate and clean up duplicates."""
+    plate = conn.getObject("Plate", plate_id)
+    me = conn.getUser().getName()
+    print(f"You: {me}")
+    print(
+        f"Group permissions: {plate.getDetails().getGroup().getDetails().permissions}"
+    )
 
-        # === 1. Plate metadata ===
-        print("\n=== Plate metadata ===")
-        meta = download_plate_metadata(conn, PLATE_ID)
-        print(f"  Name: {meta.name}")
-        print(f"  Channels: {meta.channel_data}")
-
-        # === 2. Flatfield correction ===
-        print("\n=== Flatfield correction ===")
-        ff = download_flatfield(conn, PLATE_ID)
-        if ff is not None:
-            print(f"  Shape: {ff.shape}, dtype: {ff.dtype}")
+    ann_ids = []
+    for ann in plate.listAnnotations(ns=OmeroScreenNS.DATASET):
+        if isinstance(ann, MapAnnotationWrapper):
+            owner = ann.getDetails().getOwner().getOmeName()
             print(
-                f"  Min: {ff.min():.4f}, Max: {ff.max():.4f}, Mean: {ff.mean():.4f}"
+                f"  ann {ann.getId()}  owner={owner}  value={dict(ann.getValue())}"
             )
-        else:
-            print("  Not available (None)")
+            ann_ids.append(ann.getId())
 
-        # === 3. Well metadata ===
-        print("\n=== Well metadata ===")
-        plate = conn.getObject("Plate", PLATE_ID)
-        wells = list(plate.listChildren())
-        if not wells:
-            print("  ERROR: Plate has no wells")
-            return
+    if not ann_ids:
+        print("Nothing to delete")
+        return
 
-        well = wells[0]
-        row_label = chr(ord("A") + well.row)
-        col_label = well.column + 1
-        print(f"  Well: {row_label}{col_label}")
-        well_meta = download_well_metadata(well)
-        for k, v in well_meta.items():
-            print(f"    {k}: {v}")
-        if not well_meta:
-            print("  (no annotations)")
-
-        # === 4. Field download (sequential) ===
-        print("\n=== Field download (sequential) ===")
-        t0 = time.perf_counter()
-        fields = download_well_fields(well, max_workers=6)
-        elapsed = time.perf_counter() - t0
-        print(f"  Downloaded {len(fields)} fields in {elapsed:.2f}s")
-        for f in fields:
-            print(
-                f"  Field {f.index}: shape={f.image.shape}, "
-                f"dtype={f.image.dtype}, "
-                f"pos=({f.pos_x:.6f}, {f.pos_y:.6f}) m"
-            )
-
-        # === 5. Segmentation masks ===
-        print("\n=== Segmentation masks ===")
-        # Collect image IDs from the fields we just downloaded
-        # We need the actual OMERO image IDs (not field indices)
-        well_samples = list(well.listChildren())
-        image_ids = [ws.getImage().getId() for ws in well_samples]
-        print(f"  Looking up masks for image IDs: {image_ids}")
-
-        masks = download_segmentation_masks(conn, PLATE_ID, image_ids)
-        print(f"  Found {len(masks)}/{len(image_ids)} masks")
-        for img_id, mask in masks.items():
-            print(
-                f"  Image {img_id}: shape={mask.shape}, "
-                f"dtype={mask.dtype}, "
-                f"labels={mask.max()}"
-            )
-        if not masks:
-            print("  (none available — segmentation may not have been run)")
-
-        print("\nDone!")
-
-    finally:
-        conn.close()
-        print("Connection closed.")
+    # Synchronous delete, raises if it actually fails
+    handle = conn.deleteObjects(
+        "MapAnnotation", ann_ids, deleteAnns=True, wait=True
+    )
+    err = handle.errors if hasattr(handle, "errors") else None
+    print(f"Delete result: errors={err}")
 
 
-if __name__ == "__main__":
-    main()
+go(1237)

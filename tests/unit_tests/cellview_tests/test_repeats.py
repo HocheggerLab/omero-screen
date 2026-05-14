@@ -192,8 +192,8 @@ def test_create_new_repeat_success(repeats_manager, mock_db):
     expected_insert_sql = """
         INSERT INTO repeats (experiment_id, plate_id, date, lab_member,
                              channel_0, channel_1, channel_2, channel_3,
-                             nucleus_channel)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             nucleus_channel, stitch_mode)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     calls = mock_db.execute.call_args_list
     assert_sql_equal(
@@ -210,6 +210,7 @@ def test_create_new_repeat_success(repeats_manager, mock_db):
         "p21",
         "EdU",
         "DAPI",
+        False,
     )
     assert calls[1] == call("SELECT currval('repeat_id_seq')")
 

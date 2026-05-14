@@ -1349,6 +1349,9 @@ class CellViewParser:
                 channel_1=channels["channel_1"],
                 channel_2=channels["channel_2"],
                 channel_3=channels["channel_3"],
+                stitch_mode=bool(
+                    "stitch_mode" in df.columns and df["stitch_mode"].any()
+                ),
                 db_conn=self._conn,
             )
 

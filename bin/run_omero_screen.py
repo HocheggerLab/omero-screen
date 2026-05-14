@@ -81,6 +81,12 @@ def main() -> None:
         action=argparse.BooleanOptionalAction,
         help="Record per-image timing data and write a JSON benchmark report (default: %(default)s)",
     )
+    group.add_argument(
+        "--stitch",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="Run stitched-well segmentation: assemble all fields per well into one canvas, segment that canvas, and exclude border objects only at the outer edge (default: %(default)s)",
+    )
     args = parser.parse_args()
 
     # Note: Lazy import to speed up parsing errors
@@ -118,7 +124,12 @@ def main() -> None:
         for plate_id in plate_ids:
             init_benchmark(enabled=args.benchmark, plate_id=plate_id)
             timer = get_benchmark()
-            plate_loop(conn, plate_id, segmentation_mode=args.segmentation)
+            plate_loop(
+                conn,
+                plate_id,
+                segmentation_mode=args.segmentation,
+                stitch_mode=args.stitch,
+            )
             report_path = timer.save_report()
             if args.benchmark:
                 print(f"Benchmark report saved to {report_path}")
