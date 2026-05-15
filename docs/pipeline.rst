@@ -144,14 +144,14 @@ The main entry point for running the analysis pipeline against one or more plate
     omero-screen 12345 --benchmark
 
 
-sbatch-omero-screen
+sbatch_omero_screen
 ~~~~~~~~~~~~~~~~~~~
 
 *(Sussex HPC specific)* Submits ``omero-screen`` jobs to a SLURM cluster.
 
 .. code-block:: bash
 
-    python bin/sbatch-omero-screen.py ID [ID ...] [options]
+    python bin/sbatch_omero_screen.py ID [ID ...] [options]
 
 **Job submission options**
 

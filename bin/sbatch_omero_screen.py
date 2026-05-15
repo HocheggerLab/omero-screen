@@ -20,9 +20,9 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
     """
     # Validate installation
     omero_screen = "omero-screen"
-    omero_screen_prog = "run-omero-screen.py"
-    send_mail = "send-mail.py"
-    torch_test = "torch-test.py"
+    omero_screen_prog = "run_omero_screen.py"
+    send_mail = "send_mail.py"
+    torch_test = "torch_test.py"
 
     if not os.path.isfile(omero_screen_prog):
         raise Exception(f"Missing program: {omero_screen_prog}")

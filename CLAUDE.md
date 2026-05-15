@@ -50,7 +50,7 @@ OMERO Server (Plates)
 - `plate_dataset.py`: Manages OMERO dataset creation for segmentation masks
 - `general_functions.py`: Border filtering, image scaling utilities
 
-**Entry point**: `bin/run-omero-screen.py` provides CLI with arguments for plate IDs, environment selection, inference models, and segmentation-only mode
+**Entry point**: `bin/run_omero_screen.py` provides CLI with arguments for plate IDs, environment selection, inference models, and segmentation-only mode
 
 ### Package Structure
 

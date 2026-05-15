@@ -10,7 +10,7 @@ Aligns multiple repeat OMERO screen plate experiments. This is used to register 
 
 .. code-block:: bash
 
-    python bin/align-plates.py [ID [ID ...]] [options]
+    python bin/align_plates.py [ID [ID ...]] [options]
 
 **Arguments:**
 
@@ -33,7 +33,7 @@ Combines multiple repeat OMERO screen experiments into a single dataset.
 
 .. code-block:: bash
 
-    python bin/aggregate-plates.py ID [options]
+    python bin/aggregate_plates.py ID [options]
 
 **Arguments:**
 
