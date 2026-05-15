@@ -2,17 +2,17 @@
 
 import numpy as np
 import pytest
-
 from omero_utils.stitching import (
     _adaptive_tolerance,
     _cluster_values,
     _compute_overlap,
     has_valid_positions,
     positions_to_grid,
+    recompose_split_labels,
+    split_stitched_mask_to_fields,
     stitch_from_positions,
     stitch_labels_from_positions,
 )
-
 
 # --------------- has_valid_positions ---------------
 
@@ -490,3 +490,248 @@ class TestStitchLabelsFromPositions:
         assert result[0, -1, 0] == top_right
         assert result[-1, 0, 0] == bottom_left
         assert result[-1, -1, 0] == bottom_right
+
+
+# --------------- split_stitched_mask_to_fields / recompose_split_labels ---------------
+
+
+def _make_2x2_canvas_and_positions(
+    tile_h: int = 32,
+    tile_w: int = 32,
+    overlap_x: int = 0,
+    overlap_y: int = 0,
+    n_t: int = 1,
+    dtype: np.dtype = np.uint16,
+) -> tuple[np.ndarray, list[tuple[float, float]]]:
+    """Build a (T, Y, X) canvas matching a 2x2 grid with given tile size and overlap."""
+    spacing_x = tile_w - overlap_x
+    spacing_y = tile_h - overlap_y
+    positions = [
+        (0.0, 0.0),
+        (float(spacing_x), 0.0),
+        (0.0, float(spacing_y)),
+        (float(spacing_x), float(spacing_y)),
+    ]
+    canvas_w = 2 * tile_w - overlap_x
+    canvas_h = 2 * tile_h - overlap_y
+    canvas = np.zeros((n_t, canvas_h, canvas_w), dtype=dtype)
+    return canvas, positions
+
+
+class TestSplitRecomposeLossless:
+    """Round-trip: split(canvas) → recompose == canvas, pixel-for-pixel.
+
+    Inputs come from a canvas-wide segmentation, so label IDs are globally
+    unique. recompose_split_labels must preserve label IDs and reassemble
+    boundary cells losslessly.
+    """
+
+    def test_label_fully_inside_one_tile(self):
+        canvas, positions = _make_2x2_canvas_and_positions(
+            tile_h=32, tile_w=32, overlap_x=4, overlap_y=4
+        )
+        canvas[0, 5:10, 5:10] = 5
+
+        tiles = split_stitched_mask_to_fields(
+            canvas, positions, tile_h=32, tile_w=32,
+            overlap_x=4, overlap_y=4,
+        )
+        recomposed = recompose_split_labels(
+            tiles, positions, tile_h=32, tile_w=32,
+            overlap_x=4, overlap_y=4,
+        )
+        np.testing.assert_array_equal(recomposed, canvas)
+
+    def test_label_straddling_horizontal_boundary(self):
+        canvas, positions = _make_2x2_canvas_and_positions(
+            tile_h=32, tile_w=32, overlap_x=4, overlap_y=4
+        )
+        # Boundary at canvas x = 28. Label spans 26..34 → crosses past overlap.
+        canvas[0, 10:14, 26:34] = 7
+
+        tiles = split_stitched_mask_to_fields(
+            canvas, positions, tile_h=32, tile_w=32,
+            overlap_x=4, overlap_y=4,
+        )
+        recomposed = recompose_split_labels(
+            tiles, positions, tile_h=32, tile_w=32,
+            overlap_x=4, overlap_y=4,
+        )
+        np.testing.assert_array_equal(recomposed, canvas)
+
+    def test_label_straddling_vertical_boundary(self):
+        canvas, positions = _make_2x2_canvas_and_positions(
+            tile_h=32, tile_w=32, overlap_x=4, overlap_y=4
+        )
+        canvas[0, 26:34, 10:14] = 11
+
+        tiles = split_stitched_mask_to_fields(
+            canvas, positions, tile_h=32, tile_w=32,
+            overlap_x=4, overlap_y=4,
+        )
+        recomposed = recompose_split_labels(
+            tiles, positions, tile_h=32, tile_w=32,
+            overlap_x=4, overlap_y=4,
+        )
+        np.testing.assert_array_equal(recomposed, canvas)
+
+    def test_label_crossing_four_corner_overlap(self):
+        canvas, positions = _make_2x2_canvas_and_positions(
+            tile_h=32, tile_w=32, overlap_x=4, overlap_y=4
+        )
+        canvas[0, 26:34, 26:34] = 13
+
+        tiles = split_stitched_mask_to_fields(
+            canvas, positions, tile_h=32, tile_w=32,
+            overlap_x=4, overlap_y=4,
+        )
+        recomposed = recompose_split_labels(
+            tiles, positions, tile_h=32, tile_w=32,
+            overlap_x=4, overlap_y=4,
+        )
+        np.testing.assert_array_equal(recomposed, canvas)
+
+    def test_multiple_labels_mixed_positions(self):
+        canvas, positions = _make_2x2_canvas_and_positions(
+            tile_h=32, tile_w=32, overlap_x=4, overlap_y=4
+        )
+        canvas[0, 2:6, 2:6] = 1
+        canvas[0, 20:25, 30:34] = 2
+        canvas[0, 30:34, 20:25] = 3
+        canvas[0, 28:32, 28:32] = 4
+        canvas[0, 50:54, 50:54] = 5
+
+        tiles = split_stitched_mask_to_fields(
+            canvas, positions, tile_h=32, tile_w=32,
+            overlap_x=4, overlap_y=4,
+        )
+        recomposed = recompose_split_labels(
+            tiles, positions, tile_h=32, tile_w=32,
+            overlap_x=4, overlap_y=4,
+        )
+        np.testing.assert_array_equal(recomposed, canvas)
+
+    def test_multiple_timepoints(self):
+        """T>1 round-trip preserves per-frame labels."""
+        canvas, positions = _make_2x2_canvas_and_positions(
+            tile_h=16, tile_w=16, overlap_x=2, overlap_y=2, n_t=3
+        )
+        canvas[0, 13:17, 13:17] = 1
+        canvas[1, 5:9, 5:9] = 2
+        canvas[2, 13:17, 5:9] = 3
+
+        tiles = split_stitched_mask_to_fields(
+            canvas, positions, tile_h=16, tile_w=16,
+            overlap_x=2, overlap_y=2,
+        )
+        recomposed = recompose_split_labels(
+            tiles, positions, tile_h=16, tile_w=16,
+            overlap_x=2, overlap_y=2,
+        )
+        np.testing.assert_array_equal(recomposed, canvas)
+
+    def test_zero_overlap(self):
+        canvas, positions = _make_2x2_canvas_and_positions(
+            tile_h=32, tile_w=32, overlap_x=0, overlap_y=0
+        )
+        canvas[0, 10:14, 10:14] = 1
+        canvas[0, 10:14, 40:44] = 2
+        canvas[0, 40:44, 10:14] = 3
+        canvas[0, 40:44, 40:44] = 4
+
+        tiles = split_stitched_mask_to_fields(
+            canvas, positions, tile_h=32, tile_w=32,
+        )
+        recomposed = recompose_split_labels(
+            tiles, positions, tile_h=32, tile_w=32,
+        )
+        np.testing.assert_array_equal(recomposed, canvas)
+
+    def test_empty_canvas(self):
+        canvas, positions = _make_2x2_canvas_and_positions(
+            tile_h=16, tile_w=16, overlap_x=2, overlap_y=2
+        )
+        tiles = split_stitched_mask_to_fields(
+            canvas, positions, tile_h=16, tile_w=16,
+            overlap_x=2, overlap_y=2,
+        )
+        recomposed = recompose_split_labels(
+            tiles, positions, tile_h=16, tile_w=16,
+            overlap_x=2, overlap_y=2,
+        )
+        np.testing.assert_array_equal(recomposed, canvas)
+
+
+class TestRecomposeSplitLabelsNapariShapes:
+    """Recompose round-trip via the (N, [T,] H, W, C) array shape used by napari."""
+
+    def test_4d_nhwc(self):
+        """(N, H, W, C) input: fixed-cell labels with channel axis."""
+        canvas, positions = _make_2x2_canvas_and_positions(
+            tile_h=32, tile_w=32, overlap_x=4, overlap_y=4
+        )
+        canvas[0, 20:25, 30:34] = 7  # crosses TL/TR boundary
+        # Build a 2-channel (N, H, W, 2) input by sliding 2D split outputs
+        # into channel 0 and zeros into channel 1.
+        tiles_t = split_stitched_mask_to_fields(
+            canvas, positions, tile_h=32, tile_w=32, overlap_x=4, overlap_y=4,
+        )  # list of (T=1, H, W)
+        n = len(tiles_t)
+        nhwc = np.zeros((n, 32, 32, 2), dtype=canvas.dtype)
+        for i, tile in enumerate(tiles_t):
+            nhwc[i, :, :, 0] = tile[0]
+
+        recomposed = recompose_split_labels(
+            nhwc, positions, tile_h=32, tile_w=32,
+            overlap_x=4, overlap_y=4,
+        )
+        # Output should be (Y, X, C). Channel 0 matches canvas[0]; channel 1 is zero.
+        assert recomposed.shape == (canvas.shape[1], canvas.shape[2], 2)
+        np.testing.assert_array_equal(recomposed[..., 0], canvas[0])
+        np.testing.assert_array_equal(recomposed[..., 1], np.zeros_like(canvas[0]))
+
+    def test_5d_ntyxc(self):
+        """(N, T, H, W, C) input: live-cell labels with channel axis."""
+        canvas, positions = _make_2x2_canvas_and_positions(
+            tile_h=16, tile_w=16, overlap_x=2, overlap_y=2, n_t=2
+        )
+        canvas[0, 13:17, 5:9] = 1
+        canvas[1, 5:9, 13:17] = 2
+
+        tiles_t = split_stitched_mask_to_fields(
+            canvas, positions, tile_h=16, tile_w=16, overlap_x=2, overlap_y=2,
+        )  # list of (T=2, H, W)
+        n = len(tiles_t)
+        nthwc = np.zeros((n, 2, 16, 16, 1), dtype=canvas.dtype)
+        for i, tile in enumerate(tiles_t):
+            nthwc[i, :, :, :, 0] = tile
+
+        recomposed = recompose_split_labels(
+            nthwc, positions, tile_h=16, tile_w=16,
+            overlap_x=2, overlap_y=2,
+        )
+        # Output should be (T, Y, X, C=1).
+        assert recomposed.shape == (
+            canvas.shape[0], canvas.shape[1], canvas.shape[2], 1
+        )
+        np.testing.assert_array_equal(recomposed[..., 0], canvas)
+
+
+class TestRecomposeSplitLabelsValidation:
+    def test_empty_tiles_raises(self):
+        with pytest.raises(ValueError, match="must not be empty"):
+            recompose_split_labels([], [], tile_h=16, tile_w=16)
+
+    def test_length_mismatch_raises(self):
+        tile = np.zeros((1, 16, 16), dtype=np.uint16)
+        with pytest.raises(ValueError, match="must match"):
+            recompose_split_labels(
+                [tile, tile], [(0.0, 0.0)], tile_h=16, tile_w=16
+            )
+
+    def test_wrong_ndim_raises(self):
+        tile = np.zeros((16, 16), dtype=np.uint16)
+        with pytest.raises(ValueError, match=r"\(T, tile_h, tile_w\)"):
+            recompose_split_labels(
+                [tile], [(0.0, 0.0)], tile_h=16, tile_w=16
+            )

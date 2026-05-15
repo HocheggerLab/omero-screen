@@ -1,9 +1,17 @@
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import numpy as np
 import polars as pl
-from omero_screen_napari.welldata_api import UserInput, ScaleIntensityParser, PixelSizeParser
+import pytest
 from omero_screen_napari.omero_data import OmeroData
+from omero_screen_napari.welldata_api import (
+    ImageParser,
+    PixelSizeParser,
+    ScaleIntensityParser,
+    UserInput,
+)
+
 
 @pytest.fixture
 def mock_omero_data():
@@ -208,3 +216,87 @@ class TestPixelSizeParser:
 
         with pytest.raises(ValueError, match="One of the pixel sizes is 0"):
             parser._check_pixel_values()
+
+
+def _make_mask_child(name: str, image_id: int = 999):
+    """Build a mock OMERO mask image with a given name and ID."""
+    m = MagicMock()
+    m.getName.return_value = name
+    m.getId.return_value = image_id
+    return m
+
+
+def _make_image_parser_with_dataset(
+    omero_data: OmeroData,
+    dataset_children: list,
+    image_ids: list[int],
+) -> ImageParser:
+    """Construct an ImageParser wired to a mocked screen_dataset."""
+    omero_data.screen_dataset = MagicMock()
+    omero_data.screen_dataset.listChildren.return_value = iter(dataset_children)
+    omero_data.crop_start = ()
+    omero_data.crop_length = ()
+    omero_data.plate_id = 0
+    parser = ImageParser.__new__(ImageParser)
+    parser._omero_data = omero_data
+    parser._image_ids = image_ids
+    parser._label_arrays = []
+    return parser
+
+
+class TestCollectLabelsStitchedDetection:
+    """``_collect_labels`` sets ``omero_data.label_stitched_mode`` from mask names."""
+
+    def test_sets_flag_true_for_stitched_masks(self):
+        omero = OmeroData()
+        children = [_make_mask_child(f"{img_id}_stitched_segmentation")
+                    for img_id in (10, 11)]
+        parser = _make_image_parser_with_dataset(
+            omero, dataset_children=children, image_ids=[10, 11]
+        )
+
+        with patch(
+            "omero_screen_napari.welldata_api.get_image",
+            return_value=np.zeros((1, 1, 16, 16, 1), dtype=np.uint16),
+        ):
+            parser._collect_labels()
+
+        assert omero.label_stitched_mode is True
+
+    def test_sets_flag_false_for_legacy_masks(self):
+        omero = OmeroData()
+        # Pre-set to True to make sure _collect_labels resets it.
+        omero.label_stitched_mode = True
+        children = [_make_mask_child(f"{img_id}_segmentation")
+                    for img_id in (10, 11)]
+        parser = _make_image_parser_with_dataset(
+            omero, dataset_children=children, image_ids=[10, 11]
+        )
+
+        with patch(
+            "omero_screen_napari.welldata_api.get_image",
+            return_value=np.zeros((1, 1, 16, 16, 1), dtype=np.uint16),
+        ):
+            parser._collect_labels()
+
+        assert omero.label_stitched_mode is False
+
+    def test_mixed_masks_prefer_stitched(self):
+        """If a plate somehow has both, stitched wins and the flag is True."""
+        omero = OmeroData()
+        children = [
+            _make_mask_child("10_segmentation"),
+            _make_mask_child("10_stitched_segmentation"),
+            _make_mask_child("11_stitched_segmentation"),
+        ]
+        parser = _make_image_parser_with_dataset(
+            omero, dataset_children=children, image_ids=[10, 11]
+        )
+
+        with patch(
+            "omero_screen_napari.welldata_api.get_image",
+            return_value=np.zeros((1, 1, 16, 16, 1), dtype=np.uint16),
+        ):
+            parser._collect_labels()
+
+        assert omero.label_stitched_mode is True

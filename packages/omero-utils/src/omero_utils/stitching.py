@@ -12,6 +12,13 @@ Combines two responsibilities:
   into a tile grid (``positions_to_grid``) and delegate to the
   composition functions.
 
+* **Canvas-wide segmentation round-trip** — ``split_stitched_mask_to_fields``
+  and ``recompose_split_labels`` are a paired split/recompose for masks
+  produced by canvas-wide segmentation (Phase-1 stitched analysis). They
+  preserve original label IDs and boundary-cell pixels losslessly, and
+  bypass ``merge_labels`` entirely — required because label IDs are
+  globally unique by construction.
+
 The clustering tolerance used to derive the grid is computed
 adaptively from the gap distribution so positions in µm, mm, or
 reference-frame units all work.
@@ -704,14 +711,14 @@ def split_stitched_mask_to_fields(
     translate_x: int = 0,
     translate_y: int = 0,
 ) -> list[NDArray[Any]]:
-    """Inverse of ``stitch_labels_from_positions`` for storage round-trip.
+    """Inverse of ``recompose_split_labels`` for storage round-trip.
 
-    Slices the stitched mask back into per-field tiles. Each label is
-    assigned to exactly one field — the one whose tile region contains
-    its centroid — so the resulting per-field masks have **non-overlapping
-    label IDs**. This preserves measurement→mask continuity through the
-    round trip: when the cache layer restitches via ``compose_labels``,
-    no ID remapping occurs because there are no overlapping labels.
+    Slices the stitched mask back into per-field tiles at each field's
+    placement position. Labels in the overlap zone between adjacent tiles
+    are shared with their neighbours by canvas-original ID (because the
+    canvas-wide segmentation assigns globally unique IDs). ``recompose_split_labels``
+    reassembles them losslessly via a non-zero copy, preserving the
+    original label IDs and boundary-cell pixels.
 
     Args:
         stitched_mask: Stitched label canvas of shape (T, Y, X).
@@ -734,13 +741,57 @@ def split_stitched_mask_to_fields(
         )
 
     n_fields = len(positions)
+    pos, _ = _field_placements(
+        positions,
+        tile_h,
+        tile_w,
+        overlap_x,
+        overlap_y,
+        translate_x,
+        translate_y,
+    )
+    grid_map = positions_to_grid(positions)
+
+    n_t = stitched_mask.shape[0]
+    out: list[NDArray[Any]] = [
+        np.zeros((n_t, tile_h, tile_w), dtype=stitched_mask.dtype)
+        for _ in range(n_fields)
+    ]
+
+    for col, row_map in grid_map.items():
+        for row, idx in row_map.items():
+            xp, yp = pos[col, row]
+            out[idx] = stitched_mask[
+                :, yp : yp + tile_h, xp : xp + tile_w
+            ].copy()
+
+    return out
+
+
+def _field_placements(
+    positions: list[tuple[float, float]],
+    tile_h: int,
+    tile_w: int,
+    overlap_x: int,
+    overlap_y: int,
+    translate_x: int,
+    translate_y: int,
+) -> tuple[NDArray[np.int_], NDArray[np.bool_]]:
+    """Compute per-field (xp, yp) canvas positions from stage positions.
+
+    Shared helper for ``split_stitched_mask_to_fields`` and
+    ``recompose_split_labels`` — both need the same grid-to-canvas math.
+
+    Returns:
+        pos: (maxx+1, maxy+1, 2) array of (xp, yp) canvas positions.
+        valid: (maxx+1, maxy+1) bool mask of which grid cells are occupied.
+    """
     grid_map = positions_to_grid(positions)
     ox = -overlap_x
     oy = -overlap_y
     tx = translate_x
     ty = translate_y
 
-    # Replicate compose_tiles' position math
     maxx = max(grid_map.keys())
     maxy = 0
     for d in grid_map.values():
@@ -756,62 +807,132 @@ def split_stitched_mask_to_fields(
             valid[x, y] = True
     min_pos = pos[valid].min(axis=0)
     pos -= min_pos
+    return pos, valid
 
-    # (col, row) → field index in `positions`
-    field_idx_by_grid: dict[tuple[int, int], int] = {}
-    for col, row_map in grid_map.items():
-        for row, idx in row_map.items():
-            field_idx_by_grid[(col, row)] = idx
 
-    n_t = stitched_mask.shape[0]
-    out: list[NDArray[Any]] = [
-        np.zeros((n_t, tile_h, tile_w), dtype=stitched_mask.dtype)
-        for _ in range(n_fields)
-    ]
+def recompose_split_labels(
+    per_field_tiles: NDArray[Any] | list[NDArray[Any]],
+    positions: list[tuple[float, float]],
+    tile_h: int,
+    tile_w: int,
+    overlap_x: int = 0,
+    overlap_y: int = 0,
+    translate_x: int = 0,
+    translate_y: int = 0,
+) -> NDArray[Any]:
+    """Inverse of ``split_stitched_mask_to_fields``.
 
-    # Per-timepoint label→field assignment by centroid
-    for t in range(n_t):
-        plane = stitched_mask[t]
-        unique_labels = np.unique(plane)
-        unique_labels = unique_labels[unique_labels > 0]
-        if len(unique_labels) == 0:
-            continue
+    Reassembles per-field label tiles into a single stitched canvas.
 
-        # Vectorised centroids: regionprops gives (centroid-y, centroid-x)
-        centroids = scipy.ndimage.center_of_mass(
-            plane > 0, plane, list(unique_labels)
+    **Invariant required**: the per-field tiles must come from a single
+    canvas-wide segmentation, so label IDs are globally unique. Where the
+    same label appears in two adjacent tiles (a cell straddling a tile
+    boundary), the pixels are co-located by construction — a simple
+    non-zero copy reassembles the canvas without renumbering or overlap
+    logic. This function is **not** a general-purpose label merger; for
+    independently-segmented tiles with name collisions, use
+    ``stitch_labels_from_positions`` (which goes through ``merge_labels``).
+
+    Accepts two input shapes:
+
+    * ``list[NDArray]`` of ``(T, tile_h, tile_w)`` — the direct output of
+      ``split_stitched_mask_to_fields``. Returns ``(T, Y, X)``.
+    * ``NDArray`` of ``(N, tile_h, tile_w, C)`` or ``(N, T, tile_h, tile_w, C)``
+      — matches the napari label-stack shape. Channels and timepoints are
+      handled internally. Returns ``(Y, X, C)`` or ``(T, Y, X, C)``.
+
+    Args:
+        per_field_tiles: Per-field tiles (see input shapes above).
+        positions: Stage positions per field, length N.
+        tile_h: Per-field height in pixels (matches split inputs).
+        tile_w: Per-field width in pixels (matches split inputs).
+        overlap_x: Overlap in x-dimension (matches stitching params).
+        overlap_y: Overlap in y-dimension (matches stitching params).
+        translate_x: Row translation in x (matches stitching params).
+        translate_y: Column translation in y (matches stitching params).
+
+    Returns:
+        Stitched canvas. Shape depends on input — see above.
+    """
+    # Normalise to a (N, T, tile_h, tile_w, C) array internally; track which
+    # dims were synthetic so we can squeeze them back out for the caller.
+    if isinstance(per_field_tiles, list):
+        if not per_field_tiles:
+            raise ValueError("per_field_tiles must not be empty")
+        first = per_field_tiles[0]
+        if first.ndim != 3:
+            raise ValueError(
+                f"list tiles must be (T, tile_h, tile_w), got {first.shape}"
+            )
+        # Stack as (N, T, H, W) then add C=1
+        stacked = np.stack(per_field_tiles, axis=0)[..., np.newaxis]
+        squeeze_c = True
+        squeeze_t = False
+    else:
+        arr = per_field_tiles
+        if arr.ndim == 4:
+            # (N, H, W, C) → add T axis
+            stacked = arr[:, np.newaxis, ...]
+            squeeze_c = False
+            squeeze_t = True
+        elif arr.ndim == 5:
+            # (N, T, H, W, C)
+            stacked = arr
+            squeeze_c = False
+            squeeze_t = False
+        else:
+            raise ValueError(
+                f"array tiles must be (N,H,W,C) or (N,T,H,W,C), got {arr.shape}"
+            )
+
+    if stacked.shape[0] != len(positions):
+        raise ValueError(
+            f"tile count ({stacked.shape[0]}) and positions "
+            f"({len(positions)}) must match"
         )
 
-        # Map each label to its owning field (centroid-containment).
-        # First-match wins in overlap regions — deterministic by
-        # iteration order of (col, row).
-        label_to_field: dict[int, int] = {}
-        for label, (cy, cx) in zip(unique_labels, centroids, strict=True):
-            for (col, row), idx in field_idx_by_grid.items():
-                xp, yp = pos[col, row]
-                if (xp <= cx < xp + tile_w) and (yp <= cy < yp + tile_h):
-                    label_to_field[int(label)] = idx
-                    break
+    n_t = stacked.shape[1]
+    n_c = stacked.shape[4]
+    dtype = stacked.dtype
 
-        # For each field, slice its region from the canvas and zero out
-        # labels owned by other fields.
-        for (col, row), idx in field_idx_by_grid.items():
+    pos, _ = _field_placements(
+        positions,
+        tile_h,
+        tile_w,
+        overlap_x,
+        overlap_y,
+        translate_x,
+        translate_y,
+    )
+    grid_map = positions_to_grid(positions)
+
+    # Canvas extent = furthest tile's far corner.
+    max_xp = 0
+    max_yp = 0
+    for col, row_map in grid_map.items():
+        for row in row_map:
             xp, yp = pos[col, row]
-            tile = plane[yp : yp + tile_h, xp : xp + tile_w].copy()
-            # Build mask of "owned by this field" labels
-            owned_labels = [
-                label
-                for label, owner in label_to_field.items()
-                if owner == idx
-            ]
-            if owned_labels:
-                keep = np.isin(tile, owned_labels)
-                tile = np.where(keep, tile, 0).astype(stitched_mask.dtype)
-            else:
-                tile[:] = 0
-            out[idx][t] = tile
+            max_xp = max(max_xp, xp + tile_w)
+            max_yp = max(max_yp, yp + tile_h)
 
-    return out
+    canvas = np.zeros((n_t, max_yp, max_xp, n_c), dtype=dtype)
+
+    for col, row_map in grid_map.items():
+        for row, idx in row_map.items():
+            xp, yp = pos[col, row]
+            tile = stacked[idx]  # (T, H, W, C)
+            for t in range(n_t):
+                for c in range(n_c):
+                    target = canvas[t, yp : yp + tile_h, xp : xp + tile_w, c]
+                    src = tile[t, :, :, c]
+                    np.copyto(target, src, where=src != 0)
+
+    # Squeeze synthetic axes back out to match caller's input shape.
+    if squeeze_c:
+        canvas = canvas[..., 0]  # drop C → (T, Y, X)
+    if squeeze_t:
+        canvas = canvas[0]  # drop T → (Y, X, C) or (Y, X)
+    return canvas
 
 
 def stitch_labels_from_positions(

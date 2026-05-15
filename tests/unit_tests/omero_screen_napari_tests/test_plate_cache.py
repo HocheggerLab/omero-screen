@@ -2,16 +2,10 @@
 
 import queue
 import threading
-from datetime import date
 from unittest.mock import MagicMock, patch
 
-from PIL.TiffTags import TAGS
-from mpmath import im
 import numpy as np
-from omero.gateway import BlitzGateway
 import pytest
-import omero
-import Ice
 from omero_screen_napari.omero_data import OmeroData
 
 # Duplicate cache key methods.
@@ -23,7 +17,8 @@ _HISTORY_KEY = b"history"
 def _get_bytes(plate_id: int) -> bytes:
     """Get the plate id encode as bytes
 
-    Decode using int.from_bytes()."""
+    Decode using int.from_bytes().
+    """
     # ceil(bit_length / 8)
     size = (plate_id.bit_length() + 7) >> 3
     return plate_id.to_bytes(size)
@@ -61,7 +56,8 @@ def exhaust(generator):
 def mock_cache():
     """Provide a dict-like mock for the diskcache.Cache.
 
-    Provides mocks for the plate cache and the image cache."""
+    Provides mocks for the plate cache and the image cache.
+    """
     class FakeCache:
         def __init__(self, size_limit: int) -> None:
             self.size_limit = size_limit
@@ -116,13 +112,15 @@ def mock_cache():
 
 @pytest.fixture
 def sample_meta() -> dict:
+    from omero_screen_napari.plate_cache import _CACHE_VERSION
     return {
         "channel_data": {"DAPI": "0", "Tub": "1"},
         "pixel_size": (0.3, 0.3),
         "intensities": {0: (100, 5000), 1: (50, 3000)},
         "plate_name": "TestPlate",
         "ff_mask_id": 999,
-        "cache_version": 1,
+        "label_stitched_mode": False,
+        "cache_version": _CACHE_VERSION,
     }
 
 
@@ -432,6 +430,78 @@ class TestLoadFromCache:
             assert od.images.shape[0] == 2  # 2 images
             assert len(od.well_metadata_list) == 1
             assert od.well_metadata_list[0]["cell_line"] == "RPE"
+
+    def test_load_restores_stitched_flag_true(
+        self, mock_cache, sample_meta, sample_wells, sample_label_map
+    ):
+        """When metadata carries label_stitched_mode=True, restore it onto OmeroData."""
+        fake_cache, fake_image_cache = mock_cache
+        plate_id = 42
+        meta_with_flag = {**sample_meta, "label_stitched_mode": True}
+        fake_cache[_get_meta_key(plate_id)] = meta_with_flag
+        fake_cache[_get_well_key(plate_id)] = sample_wells
+        fake_cache[_get_label_key(plate_id)] = sample_label_map
+
+        img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
+        fake_image_cache[get_key(100, 0)] = img_array
+        fake_image_cache[get_key(101, 0)] = img_array
+        label_array = np.ones((1, 100, 100, 1), dtype=np.int32)
+        fake_image_cache[get_key(500, 0)] = label_array
+        fake_image_cache[get_key(501, 0)] = label_array
+        fake_image_cache[get_key(999, 0)] = label_array
+
+        with (
+            patch("omero_screen_napari.plate_cache._cache", fake_cache),
+            patch("omero_screen_napari.omero_image._cache", fake_image_cache),
+        ):
+            from omero_screen_napari.plate_cache import load_from_cache
+
+            od = OmeroData()
+            exhaust(load_from_cache(MagicMock(), od, plate_id, "A1", "All", threading.Event()))
+
+            assert od.label_stitched_mode is True
+
+    def test_load_defaults_stitched_flag_false_when_missing(
+        self, mock_cache, sample_wells, sample_label_map
+    ):
+        """Legacy caches without the key restore as False (legacy behaviour)."""
+        from omero_screen_napari.plate_cache import _CACHE_VERSION
+
+        fake_cache, fake_image_cache = mock_cache
+        plate_id = 42
+        # Build metadata without the label_stitched_mode key
+        legacy_meta = {
+            "channel_data": {"DAPI": "0", "Tub": "1"},
+            "pixel_size": (0.3, 0.3),
+            "intensities": {0: (100, 5000), 1: (50, 3000)},
+            "plate_name": "TestPlate",
+            "ff_mask_id": 999,
+            "cache_version": _CACHE_VERSION,
+        }
+        fake_cache[_get_meta_key(plate_id)] = legacy_meta
+        fake_cache[_get_well_key(plate_id)] = sample_wells
+        fake_cache[_get_label_key(plate_id)] = sample_label_map
+
+        img_array = np.random.rand(1, 100, 100, 2).astype(np.float32)
+        fake_image_cache[get_key(100, 0)] = img_array
+        fake_image_cache[get_key(101, 0)] = img_array
+        label_array = np.ones((1, 100, 100, 1), dtype=np.int32)
+        fake_image_cache[get_key(500, 0)] = label_array
+        fake_image_cache[get_key(501, 0)] = label_array
+        fake_image_cache[get_key(999, 0)] = label_array
+
+        with (
+            patch("omero_screen_napari.plate_cache._cache", fake_cache),
+            patch("omero_screen_napari.omero_image._cache", fake_image_cache),
+        ):
+            from omero_screen_napari.plate_cache import load_from_cache
+
+            od = OmeroData()
+            # Pre-set to True to confirm load_from_cache resets it
+            od.label_stitched_mode = True
+            exhaust(load_from_cache(MagicMock(), od, plate_id, "A1", "All", threading.Event()))
+
+            assert od.label_stitched_mode is False
 
     def test_load_uses_connection_when_not_cached(self, mock_cache):
         fake_cache, fake_image_cache = mock_cache
@@ -1788,3 +1858,54 @@ class TestCacheVersionInvalidation:
             assert _get_well_key(plate_id) in fake_cache
             # Images remain
             assert get_key(100, 0) in fake_image_cache
+
+
+class TestDetectLabelStitchedMode:
+    """``_detect_label_stitched_mode`` scans the segmentation dataset names."""
+
+    def test_true_when_stitched_mask_present(self):
+        from omero_screen_napari.plate_cache import _detect_label_stitched_mode
+
+        child_a = MagicMock()
+        child_a.getName.return_value = "10_segmentation"
+        child_b = MagicMock()
+        child_b.getName.return_value = "11_stitched_segmentation"
+
+        mock_dataset = MagicMock()
+        mock_dataset.listChildren.return_value = iter([child_a, child_b])
+
+        mock_conn = MagicMock()
+        mock_conn.getObject.return_value = mock_dataset
+
+        with patch(
+            "omero_screen_napari.plate_cache.get_dataset_id", return_value=999
+        ):
+            assert _detect_label_stitched_mode(mock_conn, plate_id=42) is True
+
+    def test_false_when_only_legacy_masks(self):
+        from omero_screen_napari.plate_cache import _detect_label_stitched_mode
+
+        child_a = MagicMock()
+        child_a.getName.return_value = "10_segmentation"
+        child_b = MagicMock()
+        child_b.getName.return_value = "11_segmentation"
+
+        mock_dataset = MagicMock()
+        mock_dataset.listChildren.return_value = iter([child_a, child_b])
+
+        mock_conn = MagicMock()
+        mock_conn.getObject.return_value = mock_dataset
+
+        with patch(
+            "omero_screen_napari.plate_cache.get_dataset_id", return_value=999
+        ):
+            assert _detect_label_stitched_mode(mock_conn, plate_id=42) is False
+
+    def test_false_when_dataset_missing(self):
+        from omero_screen_napari.plate_cache import _detect_label_stitched_mode
+
+        mock_conn = MagicMock()
+        with patch(
+            "omero_screen_napari.plate_cache.get_dataset_id", return_value=None
+        ):
+            assert _detect_label_stitched_mode(mock_conn, plate_id=42) is False

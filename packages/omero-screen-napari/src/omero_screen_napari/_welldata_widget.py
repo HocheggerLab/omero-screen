@@ -21,6 +21,7 @@ from napari.viewer import Viewer
 from omero_screen.config import get_logger
 from omero_utils.stitching import (
     has_valid_positions,
+    recompose_split_labels,
     stitch_from_positions,
     stitch_labels_from_positions,
 )
@@ -566,16 +567,37 @@ def _display_plate(viewer: Viewer) -> None:
 
             if omero_data.labels.size > 0:
                 well_labels = omero_data.labels[start:end]
-                stitched_lbls.append(
-                    stitch_labels_from_positions(
-                        well_labels,
-                        well_positions,  # type: ignore[arg-type]
-                        overlap_x=sp["overlap_x"],
-                        overlap_y=sp["overlap_y"],
-                        translate_x=sp["translate_x"],
-                        translate_y=sp["translate_y"],
+                if omero_data.label_stitched_mode:
+                    # Phase-1 stitched-canvas masks: globally-unique IDs,
+                    # lossless reassembly via non-zero copy. Tile size is
+                    # the spatial extent of each per-field mask.
+                    tile_h = int(well_labels.shape[-3])
+                    tile_w = int(well_labels.shape[-2])
+                    stitched_lbls.append(
+                        recompose_split_labels(
+                            well_labels,
+                            well_positions,  # type: ignore[arg-type]
+                            tile_h=tile_h,
+                            tile_w=tile_w,
+                            overlap_x=sp["overlap_x"],
+                            overlap_y=sp["overlap_y"],
+                            translate_x=sp["translate_x"],
+                            translate_y=sp["translate_y"],
+                        )
                     )
-                )
+                else:
+                    # Legacy per-field-segmentation masks: independent label
+                    # spaces, merged via merge_labels overlap fusion.
+                    stitched_lbls.append(
+                        stitch_labels_from_positions(
+                            well_labels,
+                            well_positions,  # type: ignore[arg-type]
+                            overlap_x=sp["overlap_x"],
+                            overlap_y=sp["overlap_y"],
+                            translate_x=sp["translate_x"],
+                            translate_y=sp["translate_y"],
+                        )
+                    )
 
         if n_wells == 1:
             result_img = stitched_imgs[0]

@@ -2301,36 +2301,41 @@ class ImageParser:
 
         dataset_children = list(self._omero_data.screen_dataset.listChildren())
 
-        for img_id in self._image_ids:
-            expected_name = f"{img_id}_segmentation"
+        # Reset the discriminator before re-scanning the dataset; set to True
+        # below when any stitched-canvas mask is found for this batch.
+        self._omero_data.label_stitched_mode = False
 
-            # 1. Try to find an exact match first (avoids ambiguity with suffixes like 'segmentation1')
-            exact_matches = [
-                child
-                for child in dataset_children
-                if child.getName() == expected_name
+        for img_id in self._image_ids:
+            stitched_name = f"{img_id}_stitched_segmentation"
+            legacy_name = f"{img_id}_segmentation"
+
+            # Prefer stitched-canvas masks (Phase-1 stitched mode) — exact match.
+            # Falls back to legacy per-field masks, then substring fuzzy match.
+            stitched_matches = [
+                c for c in dataset_children if c.getName() == stitched_name
+            ]
+            legacy_matches = [
+                c for c in dataset_children if c.getName() == legacy_name
             ]
 
-            if exact_matches:
-                # Found exact match, use it silently
-                label_data = exact_matches[0]
+            if stitched_matches:
+                label_data = stitched_matches[0]
+                self._omero_data.label_stitched_mode = True
+            elif legacy_matches:
+                label_data = legacy_matches[0]
             else:
-                # 2. Fallback: Find matching label by substring
+                # Fallback: substring match against the legacy name only.
+                # Stitched masks have a clean exact name and don't need this.
                 candidates = [
                     child
                     for child in dataset_children
-                    if expected_name in child.getName()
+                    if legacy_name in child.getName()
                 ]
 
                 if not candidates:
                     logger.warning(f"No label found for image {img_id}")
-                    # Skip to next image (stack logic is per-image anyway in this loop structure?
-                    # Wait, _label_arrays is just a list. If we skip, it will be shorter.
-                    # As noted before, we should really insert a blank, but let's stick to current behavior
-                    # which works for the user (just avoiding the warning).
                     continue
 
-                # If multiple candidates, pick the first one and warn
                 if len(candidates) > 1:
                     logger.warning(
                         f"Multiple labels found for image {img_id}: {[c.getName() for c in candidates]}. Using {candidates[0].getName()}"

@@ -85,6 +85,11 @@ class OmeroData:
         default_factory=list
     )
     labels: NDArray[Any] = field(default_factory=lambda: np.empty((0,)))
+    # True when the cached per-field labels came from a canvas-wide stitched
+    # segmentation (Phase-1 mode, mask names containing _stitched_segmentation).
+    # Drives the recompose path in _display_plate: stitched → recompose_split_labels
+    # (lossless non-zero copy), legacy → stitch_labels_from_positions (merge_labels).
+    label_stitched_mode: bool = False
 
     # Stitched images
     stitched_images: NDArray[Any] = field(
@@ -127,6 +132,7 @@ class OmeroData:
         self.image_ids = []
         self.image_positions = []
         self.labels = np.empty((0,))
+        self.label_stitched_mode = False
         self.stitched_images = np.empty((0,))
         self.cropped_images = []
         self.cropped_labels = []
@@ -151,6 +157,7 @@ class OmeroData:
         self.image_ids = []
         self.image_positions = []
         self.labels = np.empty((0,))
+        self.label_stitched_mode = False
 
 
 class OmeroConnection:

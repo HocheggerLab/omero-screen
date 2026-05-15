@@ -515,7 +515,8 @@ def _segment_stitched_nuclei(
         border: Width of the outer-edge border (negative to disable).
 
     Returns:
-        Mask array of shape (T, Y, X) with uint32 labels.
+        Mask array of shape (T, Y, X) with uint16 labels (max 65535 cells/well —
+        well above realistic crowding for a 1080×1080 × N grid).
     """
     model_name = default_config.MODEL_DICT.get("nuclei")
     if model_name is None:
@@ -532,7 +533,7 @@ def _segment_stitched_nuclei(
         diameter = None  # cellpose 4 is scale-independent
 
     n_t = stitched_img.shape[0]
-    masks = np.zeros(stitched_img.shape[:3], dtype=np.uint32)
+    masks = np.zeros(stitched_img.shape[:3], dtype=np.uint16)
     for t in range(n_t):
         # (Y, X) → cellpose-ready (1, Y, X) single-channel stack
         img_t = stitched_img[t, ..., nucleus_channel_index]
@@ -549,7 +550,7 @@ def _segment_stitched_nuclei(
                 "returning empty mask.",
                 t,
             )
-            mask = np.zeros(img_t.shape, dtype=np.uint32)
+            mask = np.zeros(img_t.shape, dtype=np.uint16)
         # Outer-edge border filter only. clear_border treats the array
         # edge as the boundary; since this is the full stitched canvas,
         # only true outer-edge objects are removed.
@@ -579,7 +580,7 @@ def _segment_stitched_cells(
         border: Width of the outer-edge border (negative to disable).
 
     Returns:
-        Cell mask array of shape (T, Y, X) with uint32 labels.
+        Cell mask array of shape (T, Y, X) with uint16 labels.
     """
     model_name = get_cell_model(cell_line)
     if model_name is None:
@@ -590,7 +591,7 @@ def _segment_stitched_cells(
     logger.info("Segmenting stitched cells with model %s", model_name)
 
     n_t = stitched_img.shape[0]
-    masks = np.zeros(stitched_img.shape[:3], dtype=np.uint32)
+    masks = np.zeros(stitched_img.shape[:3], dtype=np.uint16)
     for t in range(n_t):
         cell_t = stitched_img[t, ..., cell_channel_index]
         nuc_t = stitched_img[t, ..., nucleus_channel_index]
@@ -606,7 +607,7 @@ def _segment_stitched_cells(
                 "returning empty mask.",
                 t,
             )
-            mask = np.zeros(cell_t.shape, dtype=np.uint32)
+            mask = np.zeros(cell_t.shape, dtype=np.uint16)
         masks[t] = filter_segmentation(mask, border=border)
     return masks
 

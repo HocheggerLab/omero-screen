@@ -67,7 +67,7 @@ logger = get_logger(__name__)
 
 # Bump this when the on-disk metadata format changes.
 # Caching will delete and re-download plates cached with an older version.
-_CACHE_VERSION = 1
+_CACHE_VERSION = 2
 
 # Configure cache path using environment.
 # Uses the default size limit. The cache is not expected to grow very large
@@ -846,15 +846,43 @@ def _fetch_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
     # Flat-field correction image
     ff_mask_id = _fetch_flatfield_mask_id(conn, plate_id)
 
+    # Detect whether the segmentation dataset holds Phase-1 stitched masks
+    # (names like ``{img_id}_stitched_segmentation``). This drives the
+    # napari display-time recompose: stitched plates use
+    # ``recompose_split_labels`` (lossless), legacy plates use
+    # ``stitch_labels_from_positions``.
+    label_stitched_mode = _detect_label_stitched_mode(conn, plate_id)
+
     return {
         "channel_data": channel_data,
         "pixel_size": pixel_size,
         "intensities": intensities,
         "plate_name": plate_name,
         "ff_mask_id": ff_mask_id,
+        "label_stitched_mode": label_stitched_mode,
         "cache_version": _CACHE_VERSION,
         "cache_date": str(date.today()),
     }
+
+
+def _detect_label_stitched_mode(conn: BlitzGateway, plate_id: int) -> bool:
+    """Return True if the plate's segmentation dataset holds stitched masks.
+
+    Stitched-mode masks (Phase 1) are uploaded with names like
+    ``{img_id}_stitched_segmentation``. Legacy per-field masks are
+    ``{img_id}_segmentation``. The flag is persisted in plate metadata so
+    cache-hit loads can restore it without re-querying OMERO.
+    """
+    dataset_id = get_dataset_id(conn, plate_id)
+    if not dataset_id:
+        return False
+    dataset = conn.getObject("Dataset", dataset_id)
+    if dataset is None:
+        return False
+    return any(
+        "_stitched_segmentation" in child.getName()
+        for child in dataset.listChildren()
+    )
 
 
 def _parse_channel_data(plate: Any) -> dict[str, str]:
@@ -1200,16 +1228,25 @@ def _fetch_label_map(
     if dataset is None:
         return {}
 
-    # Build lookup: image_id -> label_image_id from dataset children
-    label_lookup: dict[int, int] = {}
+    # Build lookup: image_id -> label_image_id from dataset children.
+    # Prefer Phase-1 stitched masks ({src}_stitched_segmentation) over legacy
+    # per-field masks ({src}_segmentation) when both coexist for the same
+    # source image. Matches the dispatch in _collect_labels.
+    legacy_lookup: dict[int, int] = {}
+    stitched_lookup: dict[int, int] = {}
     for child in dataset.listChildren():
         name = child.getName()
-        if "_segmentation" in name:
-            try:
-                source_id = int(name.split("_")[0])
-                label_lookup[source_id] = child.getId()
-            except (ValueError, IndexError):
-                continue
+        if "_segmentation" not in name:
+            continue
+        try:
+            source_id = int(name.split("_")[0])
+        except (ValueError, IndexError):
+            continue
+        if "_stitched_segmentation" in name:
+            stitched_lookup[source_id] = child.getId()
+        else:
+            legacy_lookup[source_id] = child.getId()
+    label_lookup: dict[int, int] = {**legacy_lookup, **stitched_lookup}
 
     if not label_lookup:
         return {}
@@ -1326,7 +1363,19 @@ def _download_batch(
                 if store is not None:
                     with contextlib.suppress(Exception):
                         store.close()
-                wrapper = get_omero_image_wrapper(conn, image_id)
+                    store = None
+                try:
+                    wrapper = get_omero_image_wrapper(conn, image_id)
+                except RuntimeError:
+                    # Image deleted/inaccessible since the cache was built —
+                    # log and skip rather than aborting the whole worker.
+                    logger.warning(
+                        "Skipping missing image %d (not found on OMERO; "
+                        "rebuild plate cache to refresh stale label IDs)",
+                        image_id,
+                    )
+                    last_image_id = image_id  # don't retry this id in batch
+                    continue
                 store, shape, dt_be = initialise_download(conn, wrapper)
                 last_image_id = image_id
                 if profiling:
@@ -1583,6 +1632,11 @@ def load_from_cache(
         omero_data.image_positions = image_positions
         omero_data.images = _squeeze_stack(image_arrays, "images")
         omero_data.labels = _squeeze_stack(label_arrays, "labels")
+        # Restore stitched-mode flag from plate metadata. Missing in caches
+        # written before cache_version 2 — defaults to False (legacy).
+        omero_data.label_stitched_mode = bool(
+            meta.get("label_stitched_mode", False)
+        )
         omero_data.plate_data = _load_plate_data_from_cellview(plate_id)
 
         logger.info(
