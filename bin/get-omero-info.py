@@ -45,6 +45,8 @@ def _main() -> None:
         ids: list[str], parents: bool, conn: BlitzGateway | None = None
     ) -> None:
         assert conn is not None
+        # Set group to -1 for all groups
+        conn.SERVICE_OPTS.setOmeroGroup(-1)
         for object_id in ids:
             obj_type, oid = object_id.split(":")
             obj = conn.getObject(obj_type, oid)
