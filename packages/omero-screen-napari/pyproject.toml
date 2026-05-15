@@ -11,6 +11,7 @@ dependencies = [
     "cellclass",
     "ome-zarr>=0.9,<1.0",
     "zarr>=2.17,<3.0",
+    "napari-ome-zarr>=0.6",
 ]
 
 [project.entry-points."napari.manifest"]
@@ -53,10 +54,17 @@ ignore_missing_imports = false
 pretty = true
 warn_unused_configs = true
 
-["tool.mypy.some_untyped_package.*"]
-ignore_missing_imports = true
-
-["tool.mypy.another_untyped_package.*"]
+[[tool.mypy.overrides]]
+module = [
+    "zarr",
+    "zarr.*",
+    "ome_zarr",
+    "ome_zarr.*",
+    "omero",
+    "omero.*",
+    "dask",
+    "dask.*",
+]
 ignore_missing_imports = true
 
 

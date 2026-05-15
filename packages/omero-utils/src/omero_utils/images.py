@@ -20,6 +20,7 @@ from omero.gateway import (
     BlitzGateway,
     ImageWrapper,
     MapAnnotationWrapper,
+    WellWrapper,
 )
 from omero_screen.config import get_logger
 from omero_screen.constants import OmeroScreenNS
@@ -28,6 +29,7 @@ from typing_extensions import Generator
 from omero_utils.map_anns import (
     add_map_annotations,
     delete_map_annotation,
+    parse_annotations,
 )
 
 logger = get_logger(__name__)
@@ -383,3 +385,95 @@ def delete_mip(conn: BlitzGateway, image_id: int) -> None:
         delete_map_annotation(conn, image, "MIP", ns=OmeroScreenNS.METADATA)
         mip = conn.getObject("Image", mip_id)
         conn.deleteObject(mip._obj)
+
+
+STITCHED_MASK_ANNOTATION_KEY = "Stitched_Segmentation_Mask"
+
+
+def fetch_stitched_field_masks(
+    conn: BlitzGateway,
+    well: WellWrapper,
+) -> tuple[
+    list[npt.NDArray[Any]],
+    list[npt.NDArray[Any] | None],
+    list[int],
+]:
+    """Fetch per-field stitched-mode segmentation masks for one well.
+
+    Stitched-mode masks are uploaded by the omero-screen pipeline via
+    :func:`upload_masks` with ``name_suffix="_stitched_segmentation"`` and
+    annotation key ``Stitched_Segmentation_Mask``. The annotation lives on
+    the original field image and points to the mask image's id.
+
+    For each field (well sample) in ``well`` this function:
+
+    1. Reads the ``Stitched_Segmentation_Mask`` map annotation on the
+       field's source image.
+    2. Downloads the corresponding mask image. The mask has shape
+       ``(T, Z=1, Y, X, C)`` where ``C=1`` for nucleus-only or ``C=2``
+       for nucleus + cell (channel 0 = nuclei, channel 1 = cells).
+    3. Squeezes Z and splits channels into separate ``(T, Y, X)`` arrays.
+
+    Args:
+        conn: OMERO connection.
+        well: Well object whose fields will be queried.
+
+    Returns:
+        Tuple ``(nuclei_per_field, cells_per_field, source_image_ids)``:
+
+        * ``nuclei_per_field``: list of ``(T, Y, X)`` ``uint16`` nucleus
+          masks, one per field, in well-sample order.
+        * ``cells_per_field``: list of ``(T, Y, X)`` cell masks (same
+          ordering) or ``None`` for fields that have nucleus-only masks.
+        * ``source_image_ids``: list of original field image IDs in the
+          same order — useful for downstream operations that need to
+          re-link results to the source image.
+
+    Raises:
+        KeyError: If any field is missing a ``Stitched_Segmentation_Mask``
+            annotation. This indicates the well was not processed in
+            stitched mode and the caller should fall back to per-field
+            masks.
+    """
+    n_fields = len(list(well.listChildren()))
+    nuclei: list[npt.NDArray[Any]] = []
+    cells: list[npt.NDArray[Any] | None] = []
+    source_ids: list[int] = []
+
+    for n in range(n_fields):
+        ws = well.getWellSample(n)
+        field_image = ws.getImage()
+        field_id = field_image.getId()
+        source_ids.append(field_id)
+
+        anns = parse_annotations(field_image, ns=OmeroScreenNS.METADATA)
+        if STITCHED_MASK_ANNOTATION_KEY not in anns:
+            raise KeyError(
+                f"Field image {field_id} has no "
+                f"{STITCHED_MASK_ANNOTATION_KEY!r} annotation. "
+                f"Was this well processed in stitched mode?"
+            )
+        mask_id = int(anns[STITCHED_MASK_ANNOTATION_KEY])
+
+        # ezomero.get_image returns (image_wrapper, (T,Z,Y,X,C) array).
+        _, mask_array = get_image(conn, mask_id)
+        # Squeeze Z (always 1 for masks) → (T, Y, X, C)
+        if mask_array.shape[1] != 1:
+            raise ValueError(
+                f"Stitched mask image {mask_id} has Z={mask_array.shape[1]}; "
+                f"expected Z=1"
+            )
+        squeezed = np.squeeze(mask_array, axis=1)  # (T, Y, X, C)
+        n_channels = squeezed.shape[-1]
+        if n_channels not in (1, 2):
+            raise ValueError(
+                f"Stitched mask image {mask_id} has C={n_channels}; "
+                f"expected 1 (nuclei only) or 2 (nuclei + cells)"
+            )
+
+        nuclei.append(np.ascontiguousarray(squeezed[..., 0]))
+        cells.append(
+            np.ascontiguousarray(squeezed[..., 1]) if n_channels == 2 else None
+        )
+
+    return nuclei, cells, source_ids

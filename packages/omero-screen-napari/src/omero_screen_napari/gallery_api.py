@@ -19,6 +19,11 @@ from omero_screen_napari.gallery_userdata import UserData
 from omero_screen_napari.omero_data import OmeroData, get_dataset_id
 from omero_screen_napari.utils import save_fig
 from omero_screen_napari.welldata_api import well_image_parser
+from omero_screen_napari.zarr_cache import (
+    fetch_crop,
+    fetch_label_crop,
+    resolve_to_zarr,
+)
 
 logger = get_logger(__name__)
 
@@ -302,10 +307,112 @@ class CroppedImageParser:
             self._current_image_id = image_id
             self._process_image_for_cropping(image_id)
 
+    def _try_zarr_crop_path(self, image_id: int) -> bool:
+        """Crop directly from the plate.zarr store if available.
+
+        Returns ``True`` when crops were produced (the caller skips the
+        legacy in-memory path). Returns ``False`` to fall back when:
+
+        * the plate has no zarr cache;
+        * ``omero_data.intensities`` is empty — the per-channel contrast
+          window needed to reproduce ``_scale_full_image``'s output is
+          missing, so falling back keeps gallery contrast consistent;
+        * a crop fetch raises mid-iteration (rare; store evicted).
+        """
+        plate_id = self._omero_data.plate_id
+        if resolve_to_zarr(plate_id) is None:
+            return False
+        intensities = self._omero_data.intensities
+        if not intensities:
+            return False
+
+        well = self._user_data.well
+        crop_size = self._user_data.crop_size
+        timepoint = self._user_data.timepoint
+        mask_name = (
+            "nuclei" if self._user_data.segmentation == "nucleus" else "cells"
+        )
+
+        crops_before = len(self._cropped_images)
+
+        for row, col, obj_id in zip(
+            self._centroids_row,
+            self._centroids_col,
+            self._ids,
+            strict=False,
+        ):
+            try:
+                crop_cyx = fetch_crop(
+                    plate_id,
+                    well,
+                    label=int(obj_id) if isinstance(obj_id, int) else 0,
+                    centroid=(float(row), float(col)),
+                    size=crop_size,
+                    t=timepoint,
+                )
+                label_crop = fetch_label_crop(
+                    plate_id,
+                    well,
+                    centroid=(float(row), float(col)),
+                    size=crop_size,
+                    t=timepoint,
+                    mask_name=mask_name,
+                )
+            except (FileNotFoundError, KeyError) as e:
+                logger.warning(
+                    "Zarr crop fetch failed for image %s well %s "
+                    "(falling back to in-memory path): %s",
+                    image_id,
+                    well,
+                    e,
+                )
+                return False
+
+            # (C, Y, X) → (Y, X, C) and scale to float32 [0, 1] using
+            # per-channel intensities (matches _scale_full_image output).
+            crop_yxc = np.transpose(crop_cyx, (1, 2, 0)).astype(
+                np.float32, copy=False
+            )
+            scaled = np.zeros_like(crop_yxc, dtype=np.float32)
+            for c in range(crop_yxc.shape[-1]):
+                min_i, max_i = intensities.get(c, (0, 1))
+                range_i = max(max_i - min_i, 1)
+                scaled[..., c] = np.clip(
+                    (crop_yxc[..., c] - min_i) / range_i, 0, 1
+                )
+
+            for corrected_label in erase_masks(label_crop.copy(), obj_id):
+                if np.any(corrected_label):
+                    self._cropped_images.append(scaled)
+                    self._cropped_labels.append(corrected_label)
+                    self._cell_meta.append(
+                        {
+                            "centroid_row": int(row),
+                            "centroid_col": int(col),
+                            "image_id": image_id,
+                        }
+                    )
+
+        added = len(self._cropped_images) - crops_before
+        logger.info(
+            "Generated %d zarr crops for image %s (well %s)",
+            added,
+            image_id,
+            well,
+        )
+        return True
+
     def _process_image_for_cropping(self, image_id: int) -> None:
         """Checks if image and lable data are available and applies cropping and processing
         via _crop_and_process_image function
         """
+        # Zarr fast path: fetch each crop lazily from the stitched plate
+        # store rather than materialising the full well image in memory.
+        # Falls through silently to the legacy per-field path when the
+        # plate has no zarr cache.
+        if self._try_zarr_crop_path(image_id):
+            return
+
         self._select_image_data(image_id)
 
         if self._images is None or self._labels is None:

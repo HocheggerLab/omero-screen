@@ -7,7 +7,7 @@ The plugin can be run from napari as Welldata Widget under Plugins.
 import contextlib
 import os
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from typing import Any, Optional
 
 import numpy as np
@@ -52,6 +52,13 @@ from omero_screen_napari.plate_cache import (
     is_plate_cached,
     is_plate_fully_cached,
     load_from_cache,
+)
+from omero_screen_napari.zarr_cache import (
+    ZarrCacheTooSmall,
+    build_plate_zarr,
+    is_stitched_plate,
+    load_plate_to_viewer,
+    plate_zarr_path,
 )
 
 # Logging
@@ -183,7 +190,9 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
         prev_plate_id = self._selected_plate_id()
         self._combo.clear()
         for plate_id, name, cache_date in get_all_cached_plates():
-            display_text = f"{plate_id} - {name} [{cache_date}]"
+            tag = _cache_status_tag(plate_id)
+            tag_str = f"  [{tag}]" if tag else ""
+            display_text = f"{plate_id} - {name} [{cache_date}]{tag_str}"
             self._combo.addItem(display_text, userData=plate_id)
 
         # Restore previous selection if still present
@@ -277,11 +286,32 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
             self.refresh()
 
     def _on_cache_clicked(self) -> None:
-        """Start or resume caching for the selected plate."""
+        """Start or resume caching for the selected plate.
+
+        Dispatches to the zarr writer for plates that were processed in
+        stitched mode (per the segmentation dataset), otherwise to the
+        existing per-field diskcache worker. The decision is made by
+        checking OMERO once via a short-lived connection.
+        """
         plate_id = self._selected_plate_id()
-        if plate_id is not None:
-            start_cache_worker(plate_id)
-            self.enable_cancel_button()
+        if plate_id is None:
+            return
+
+        try:
+            if _plate_is_stitched(plate_id):
+                start_zarr_build_worker(plate_id, self)
+                self.enable_cancel_button()
+                return
+        except Exception as e:  # noqa: BLE001 — surface the failure, then fall back
+            logger.warning(
+                "Could not determine stitched-mode for plate %d "
+                "(falling back to diskcache): %s",
+                plate_id,
+                e,
+            )
+
+        start_cache_worker(plate_id)
+        self.enable_cancel_button()
 
     def enable_cancel_button(self) -> None:
         """Enable the cancel button to stop the active download."""
@@ -495,6 +525,31 @@ def welldata_widget(
     plate_num = int(plate_id)
 
     try:
+        # Zarr cache overrides the per-field diskcache when present.
+        # Data is already stitched on disk so we hand zarr arrays to
+        # napari directly — no background worker, lazy chunk loads.
+        if plate_zarr_path(plate_num).exists():
+            logger.info(
+                "Loading plate %d from zarr cache (wells=%s)",
+                plate_num,
+                well_pos_list,
+            )
+            loaded = load_plate_to_viewer(
+                viewer, plate_num, well_pos_input=well_pos_list
+            )
+            if not loaded:
+                notifications.show_warning(
+                    f"No wells matched '{well_pos_list}' in the zarr "
+                    f"cache for plate {plate_num}."
+                )
+            elif well_pos_list.strip().lower() == "all":
+                notifications.show_info(
+                    f"Loaded {len(loaded)} cached well(s) from zarr: "
+                    f"{', '.join(loaded)}. To add more, rebuild via the "
+                    f"Cache button."
+                )
+            return
+
         if _is_already_loaded(omero_data, plate_num, well_pos_list, images):
             logger.info(
                 "Plate %d already in memory, skipping reload", plate_num
@@ -631,6 +686,137 @@ def _display_plate(viewer: Viewer) -> None:
 _active_lock = threading.Lock()
 _active_cache_plate_id = 0
 _active_cache_stop_flag = threading.Event()
+
+
+# --------------------------------------------------------------------------- #
+# Backend dispatch                                                            #
+# --------------------------------------------------------------------------- #
+
+
+def _cache_status_tag(plate_id: int) -> str:
+    """Return a short tag describing which backend will serve a load.
+
+    Returns ``"zarr"`` when a zarr cache exists for the plate — the zarr
+    path overrides the diskcache on load, so we report the *active*
+    backend rather than every store that happens to exist. Falls back
+    to ``"disk"`` when only the legacy per-field cache is present.
+    """
+    if plate_zarr_path(plate_id).exists():
+        return "zarr"
+    if is_plate_cached(plate_id):
+        return "disk"
+    return ""
+
+
+def _plate_is_stitched(plate_id: int) -> bool:
+    """One-shot OMERO check: does this plate carry stitched-mode masks?
+
+    Opens and closes its own short-lived connection so the call is safe
+    to make from the Qt thread before deciding which worker to spawn.
+    """
+    omero_conn = OmeroConnection()
+    try:
+        conn = omero_conn.get_conn()
+        return is_stitched_plate(conn, plate_id)
+    finally:
+        omero_conn.close(hard=False)
+
+
+def start_zarr_build_worker(plate_id: int, parent: QWidget) -> None:
+    """Start a background zarr build for ``plate_id``.
+
+    Mirrors the structure of :func:`start_cache_worker` so the rest of
+    the widget (cancel button, completion refresh) keeps working. The
+    worker yields well IDs as each one is written, which the progress
+    bar uses for incremental updates.
+    """
+    global _active_lock, _active_cache_plate_id, _active_cache_stop_flag
+
+    with _active_lock:
+        if not _active_cache_stop_flag.is_set():
+            if _active_cache_plate_id == plate_id:
+                logger.info(
+                    "Zarr build already running for plate %d — skipping",
+                    plate_id,
+                )
+                return
+            if _active_cache_plate_id != 0:
+                logger.info(
+                    "Cancelling cache worker for plate %d",
+                    _active_cache_plate_id,
+                )
+                _active_cache_stop_flag.set()
+
+        omero_conn = OmeroConnection()
+        stop_flag = threading.Event()
+        pbr: list[Any] = []
+        completed: list[str] = []
+
+        def _generator() -> Generator[str, None, str | None]:
+            """Wrap the builder so we can close the OMERO connection on exit."""
+            try:
+                conn = omero_conn.get_conn()
+                for well_id in build_plate_zarr(plate_id, conn):
+                    if stop_flag.is_set():
+                        return "Cancelled by user"
+                    yield well_id
+            except ZarrCacheTooSmall as e:
+                return f"Cache too small: {e}"
+            finally:
+                omero_conn.close(hard=False)
+            return None
+
+        worker = create_worker(_generator, _worker_class=GeneratorWorker)
+        worker.stop_flag = stop_flag
+
+        def on_yield(well_id: str) -> None:
+            completed.append(well_id)
+            if not pbr:
+                # Unknown total at this point; show indeterminate bar.
+                pbr.append(
+                    napari_progress(desc=f"Building zarr plate {plate_id}")
+                )
+            pbr[0].set_description(
+                f"Zarr plate {plate_id}: wrote {well_id} ({len(completed)})"
+            )
+
+        def on_finished() -> None:
+            logger.info(
+                "Zarr build finished for plate %d (%d wells)",
+                plate_id,
+                len(completed),
+            )
+            stop_flag.set()
+            if pbr:
+                pbr[0].set_description(
+                    f"Plate {plate_id}: {len(completed)} wells [zarr]"
+                )
+                pbr[0].close()
+            if _cached_plates_selector_ref is not None:
+                _cached_plates_selector_ref.refresh()
+
+        def on_error(exc: BaseException) -> None:
+            logger.error("Zarr build error for plate %d: %s", plate_id, exc)
+            stop_flag.set()
+            if pbr:
+                pbr[0].set_description(f"Zarr build error: {exc}")
+                pbr[0].close()
+            notifications.show_error(f"Zarr build failed: {exc}")
+
+        def on_returned(msg: str | None) -> None:
+            if msg:
+                notifications.show_warning(msg)
+
+        worker.yielded.connect(on_yield)
+        worker.finished.connect(on_finished)
+        worker.errored.connect(on_error)
+        worker.returned.connect(on_returned)
+        worker.start()
+
+        _active_cache_plate_id = plate_id
+        _active_cache_stop_flag = stop_flag
+
+    logger.info("Started zarr build worker for plate %d", plate_id)
 
 
 def start_cache_worker(plate_id: int) -> None:

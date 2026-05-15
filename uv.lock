@@ -1859,6 +1859,21 @@ wheels = [
 ]
 
 [[package]]
+name = "napari-ome-zarr"
+version = "0.6.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "napari" },
+    { name = "numpy" },
+    { name = "ome-zarr" },
+    { name = "vispy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/67/50/630bff98a60e71fad6a1e9a5cee3df7a043c88668ff752dacedbf0d987d1/napari_ome_zarr-0.6.1.tar.gz", hash = "sha256:3d3054823c2adaa4d2bf370c46adcc4a54192cfec3bbbe98d144e50b95bd6f89", size = 21099, upload-time = "2024-07-15T10:15:07.706Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0d/81/8088d4d695ff7b93af4b1224448ec3270990c37d4e77bdb454c0078384e7/napari_ome_zarr-0.6.1-py3-none-any.whl", hash = "sha256:5b8ff2ef448c179a63261e240b8a1dcc92f79afe67aea4d9ecd14f8bccff7585", size = 9021, upload-time = "2024-07-15T10:15:06.384Z" },
+]
+
+[[package]]
 name = "napari-plugin-engine"
 version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2446,6 +2461,7 @@ version = "0.3.4"
 source = { editable = "packages/omero-screen-napari" }
 dependencies = [
     { name = "cellclass" },
+    { name = "napari-ome-zarr" },
     { name = "ome-zarr" },
     { name = "zarr" },
 ]
@@ -2453,6 +2469,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "cellclass", editable = "packages/cellclass" },
+    { name = "napari-ome-zarr", specifier = ">=0.6" },
     { name = "ome-zarr", specifier = ">=0.9,<1.0" },
     { name = "zarr", specifier = ">=2.17,<3.0" },
 ]

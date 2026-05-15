@@ -790,14 +790,18 @@ def cache_plate(
         # In the event of exceptions cancel the download and unblock any waiting workers
         stop_flag.set()
 
+    # ``stop_flag`` is set unconditionally in ``finally`` above (so that
+    # any waiting worker thread is released on success too) — it does
+    # not by itself indicate cancellation. Use item progress instead.
+    cancelled = done < total
     logger.info(
         "Plate %d: caching %s (%d/%d items)",
         plate_id,
-        "cancelled" if stop_flag.is_set() else "complete",
+        "cancelled" if cancelled else "complete",
         done,
         total,
     )
-    if stop_flag.is_set():
+    if cancelled:
         return f"Plate {plate_id}: download cancelled"
     return None
 

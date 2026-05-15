@@ -245,3 +245,94 @@ class TestRandomImageParser:
 
         with pytest.raises(ValueError, match="identical arrays"):
             parser._check_identical_arrays()
+
+
+class TestZarrCropDispatch:
+    """The _try_zarr_crop_path short-circuit: falls back cleanly when zarr
+    is unavailable, and consumes fetch_crop / fetch_label_crop when it is.
+    """
+
+    def _make_parser(self, plate_id=1, well="A1", n_channels=2):
+        omero_data = MagicMock(spec=OmeroData)
+        omero_data.plate_id = plate_id
+        omero_data.intensities = {i: (0, 1000) for i in range(n_channels)}
+        omero_data.image_ids = [555]
+        omero_data.images = []
+        omero_data.labels = []
+        omero_data.cropped_images = []
+        omero_data.cropped_labels = []
+        ud = UserData()
+        ud.well = well
+        ud.crop_size = 32
+        ud.timepoint = 0
+        ud.segmentation = "nucleus"
+        parser = CroppedImageParser(omero_data, ud)
+        parser._centroids_row = [100]
+        parser._centroids_col = [100]
+        parser._ids = [7]
+        return parser
+
+    def test_falls_back_when_no_zarr(self, monkeypatch):
+        parser = self._make_parser()
+        monkeypatch.setattr(
+            "omero_screen_napari.gallery_api.resolve_to_zarr", lambda _p: None
+        )
+        assert parser._try_zarr_crop_path(555) is False
+
+    def test_falls_back_when_intensities_empty(self, monkeypatch):
+        parser = self._make_parser()
+        parser._omero_data.intensities = {}
+        monkeypatch.setattr(
+            "omero_screen_napari.gallery_api.resolve_to_zarr",
+            lambda _p: MagicMock(),
+        )
+        assert parser._try_zarr_crop_path(555) is False
+
+    def test_zarr_path_produces_crops(self, monkeypatch):
+        parser = self._make_parser(n_channels=2)
+        # Fake crops: (C, Y, X) image, (Y, X) labels containing target id 7.
+        fake_image = np.full((2, 32, 32), 500, dtype=np.uint16)
+        fake_label = np.zeros((32, 32), dtype=np.uint32)
+        fake_label[10:20, 10:20] = 7
+
+        monkeypatch.setattr(
+            "omero_screen_napari.gallery_api.resolve_to_zarr",
+            lambda _p: MagicMock(),
+        )
+        monkeypatch.setattr(
+            "omero_screen_napari.gallery_api.fetch_crop",
+            lambda *a, **k: fake_image,
+        )
+        monkeypatch.setattr(
+            "omero_screen_napari.gallery_api.fetch_label_crop",
+            lambda *a, **k: fake_label,
+        )
+
+        assert parser._try_zarr_crop_path(555) is True
+        assert len(parser._cropped_images) == 1
+        img = parser._cropped_images[0]
+        # Y, X, C output, scaled to float32 [0, 1].
+        assert img.shape == (32, 32, 2)
+        assert img.dtype == np.float32
+        # 500 / max(1000-0, 1) = 0.5
+        assert abs(float(img.mean()) - 0.5) < 1e-3
+        # Label crop isolated to id 7.
+        lbl = parser._cropped_labels[0]
+        assert int(lbl[15, 15]) == 7
+        assert int(lbl[0, 0]) == 0
+
+    def test_zarr_path_falls_back_when_fetch_raises(self, monkeypatch):
+        parser = self._make_parser()
+        monkeypatch.setattr(
+            "omero_screen_napari.gallery_api.resolve_to_zarr",
+            lambda _p: MagicMock(),
+        )
+
+        def boom(*a, **k):
+            raise FileNotFoundError("store evicted")
+
+        monkeypatch.setattr(
+            "omero_screen_napari.gallery_api.fetch_crop", boom
+        )
+        assert parser._try_zarr_crop_path(555) is False
+        assert parser._cropped_images == []
