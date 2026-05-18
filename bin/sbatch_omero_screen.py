@@ -53,6 +53,8 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
         prog_options += f" --model {args.model}"
     elif args.cp4:
         prog_options += " --cp4"
+    if args.stitch:
+        prog_options += " --stitch"
 
     # Create the job file
     script = f"{name}.sh"
@@ -259,6 +261,12 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         metavar="MODEL",
         help="Override all segmentation models with a single model name (e.g. 'cp4:cpsam'). Overrides --cp4.",
+    )
+    group.add_argument(
+        "--stitch",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="Run stitched-well segmentation: assemble all fields per well into one canvas, segment that canvas, and exclude border objects only at the outer edge (default: %(default)s)",
     )
 
     return parser.parse_args()
