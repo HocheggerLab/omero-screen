@@ -694,15 +694,15 @@ def _stitched_well_loop(
     tile_w = sample_channel.shape[3]
     with bench.stage("stitched_compose"):
         stitched_img = _stitch_well(per_channel, positions)
-    # The synthetic per-well image_id is the first OMERO image id in the
-    # well — keeps measurement rows joinable with existing OMERO queries.
+    # Fallback id used only if tile geometry is unavailable; per-row
+    # image_id resolution by centroid is performed in ImageProperties.
     synthetic_image_id = image_ids[0]
     logger.info(
-        "Stitched canvas for %s: shape %s, dtype %s, synthetic image_id %d",
+        "Stitched canvas for %s: shape %s, dtype %s, %d fields",
         well_pos,
         stitched_img.shape,
         stitched_img.dtype,
-        synthetic_image_id,
+        n_fields,
     )
 
     # Free per-field memory before segmentation — the stitched canvas
@@ -818,6 +818,16 @@ def _stitched_well_loop(
             c_mask=stitched_c_mask,
             cyto_mask=stitched_cyto_mask,
             cell_channel=cell_channel,
+            field_image_ids=image_ids,
+            field_positions=positions,
+            tile_h=tile_h,
+            tile_w=tile_w,
+            stitch_params={
+                "overlap_x": OPERETTA_STITCH_DEFAULTS["overlap_x"],
+                "overlap_y": OPERETTA_STITCH_DEFAULTS["overlap_y"],
+                "translate_x": OPERETTA_STITCH_DEFAULTS["translate_x"],
+                "translate_y": OPERETTA_STITCH_DEFAULTS["translate_y"],
+            },
         )
         image_props = ImageProperties(
             well,

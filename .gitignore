@@ -275,6 +275,12 @@ scratch/
 !**/test_plate_cache.py
 !**/plate_cache.py
 !**/cache-phase**
+# zarr_cache is a source sub-package — runtime data lives in
+# ~/.cache/omero_screen/zarr/, outside the repo.
+!**/zarr_cache/
+!**/zarr_cache/**
+!**/zarr_cache_tests/
+!**/zarr_cache_tests/**
 
 # =========================
 # Ignore large image files

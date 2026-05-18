@@ -810,6 +810,103 @@ def _field_placements(
     return pos, valid
 
 
+def assign_field_by_centroid(
+    centroids_yx: NDArray[np.floating[Any]],
+    positions: list[tuple[float, float]],
+    tile_h: int,
+    tile_w: int,
+    *,
+    overlap_x: int = 0,
+    overlap_y: int = 0,
+    translate_x: int = 0,
+    translate_y: int = 0,
+) -> NDArray[np.intp]:
+    """Assign each centroid to the field whose tile owns it.
+
+    Used by canvas-wide stitched segmentation to tag each measurement
+    row with the OMERO image id of the field that owns the cell's
+    centroid. Mirrors the (xp, yp) placements computed by
+    ``_field_placements`` / ``split_stitched_mask_to_fields`` so that
+    measurements and per-field masks agree on field ownership.
+
+    For centroids that fall inside the overlap region of multiple
+    tiles, the tile whose centre is nearest (Euclidean) is chosen --
+    deterministic and intuitive. Centroids outside every tile rect
+    (defensive: should not occur for cells discovered inside the
+    canvas) fall back to the globally nearest tile centre.
+
+    Args:
+        centroids_yx: ``(N, 2)`` array of (y, x) centroid coordinates
+            in canvas pixel space (matches regionprops ``centroid-0``,
+            ``centroid-1``).
+        positions: Stage positions per field, same ordering as the
+            input to ``stitch_from_positions``.
+        tile_h: Per-field tile height in pixels.
+        tile_w: Per-field tile width in pixels.
+        overlap_x: Stitch overlap in x (must match stitching params).
+        overlap_y: Stitch overlap in y (must match stitching params).
+        translate_x: Row translation in x (must match stitching params).
+        translate_y: Column translation in y (must match stitching
+            params).
+
+    Returns:
+        ``(N,)`` array of field indices into ``positions``.
+    """
+    centroids = np.asarray(centroids_yx, dtype=float)
+    if centroids.ndim != 2 or centroids.shape[1] != 2:
+        raise ValueError(f"centroids_yx must be (N, 2), got {centroids.shape}")
+
+    pos, valid = _field_placements(
+        positions,
+        tile_h,
+        tile_w,
+        overlap_x,
+        overlap_y,
+        translate_x,
+        translate_y,
+    )
+    grid_map = positions_to_grid(positions)
+
+    # Flatten valid grid cells into per-field (idx, xp, yp) records, in
+    # the same ordering as ``positions``.
+    n_fields = len(positions)
+    xps = np.zeros(n_fields, dtype=int)
+    yps = np.zeros(n_fields, dtype=int)
+    for col, row_map in grid_map.items():
+        for row, idx in row_map.items():
+            xp, yp = pos[col, row]
+            xps[idx] = xp
+            yps[idx] = yp
+
+    cy = centroids[:, 0:1]  # (N, 1)
+    cx = centroids[:, 1:2]
+    # Tile centres for distance tie-break.
+    centre_y = yps + tile_h / 2.0  # (K,)
+    centre_x = xps + tile_w / 2.0
+    dy = cy - centre_y[np.newaxis, :]  # (N, K)
+    dx = cx - centre_x[np.newaxis, :]
+    dist2 = dy * dy + dx * dx
+
+    # Inside-rect mask: centroid in [xp, xp+tile_w) × [yp, yp+tile_h).
+    inside = (
+        (cx >= xps[np.newaxis, :])
+        & (cx < (xps + tile_w)[np.newaxis, :])
+        & (cy >= yps[np.newaxis, :])
+        & (cy < (yps + tile_h)[np.newaxis, :])
+    )
+
+    # Among containing tiles, pick the nearest centre. Centroids inside
+    # no rect (defensive) fall back to the globally nearest centre.
+    masked = np.where(inside, dist2, np.inf)
+    any_inside = inside.any(axis=1)
+    chosen = np.where(
+        any_inside,
+        np.argmin(masked, axis=1),
+        np.argmin(dist2, axis=1),
+    )
+    return chosen.astype(np.intp)
+
+
 def recompose_split_labels(
     per_field_tiles: NDArray[Any] | list[NDArray[Any]],
     positions: list[tuple[float, float]],
