@@ -460,10 +460,12 @@ class MetadataParser:
             well_annotation = parse_annotations(
                 well, ns=OmeroScreenNS.METADATA
             )
+            # Wells marked Empty in the original Excel have no annotations
+            # written (see _add_well_annotations) — treat absent annotations
+            # as Empty wells and skip them.
             if not well_annotation:
-                raise WellAnnotationError(
-                    f"No well annotations found for well {well_pos}", logger
-                )
+                self._empty_well_positions.append(well_pos)
+                continue
 
             # Normalize cell_line key (case-insensitive)
             well_annotation = _normalize_cell_line_key(well_annotation)
