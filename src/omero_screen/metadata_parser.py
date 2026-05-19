@@ -126,7 +126,7 @@ def _classify_channel(name: str) -> str | None:
             return role
     if lowered in NUCLEUS_ALIASES:
         return "nucleus"
-    if CELL_LEGACY_SUBSTRING in name:
+    if CELL_LEGACY_SUBSTRING.lower() in lowered:
         return "cell"
     return None
 
