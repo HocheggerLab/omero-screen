@@ -1,5 +1,6 @@
 import io
 import os
+import pathlib
 import sqlite3
 import struct
 from typing import Any
@@ -150,9 +151,10 @@ def get_cache_path(subdir: str) -> str:
     """
     path = os.getenv("OMERO_SCREEN_CACHE_PATH")
     if path is None:
-        import pathlib
-
         path = str(pathlib.Path.home() / ".cache" / "omero_screen")
+    # Support use of ~ prefix
+    elif path.startswith("~"):
+        path = str(pathlib.Path(path).expanduser())
     return os.path.join(path, subdir)
 
 
