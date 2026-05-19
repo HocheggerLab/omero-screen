@@ -28,7 +28,7 @@ Version: ![version](https://img.shields.io/badge/version-0.3.4-blue)
 # Install uv
 # On macOS/Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
-# On Windows (not tested!)
+# On Windows
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 # Clone the repository
@@ -36,9 +36,11 @@ git clone https://github.com/Helfrid/omero-screen.git
 # Change into the project directory
 cd omero-screen
 # Create and activate virtual environment
-uv sync --dev
+uv sync
+# On macOS/Linux
 source .venv/bin/activate
-
+# On Windows
+.venv\Scripts\activate
 ```
 
 
@@ -66,10 +68,10 @@ LOG_BACKUP_COUNT=5
 
 # CellView Database Configuration
 TEST_DATABASE=false
-DATABASE_PATH=~/cellview_date/cellview.db
+DATABASE_PATH=~/cellview_data/cellview.db
 
 # Image cache options (optional)
-OMERO_SCREEN_CACHE_PATH=/path/to/home/.cache/omero_screen
+OMERO_SCREEN_CACHE_PATH=~/.cache/omero_screen
 OMERO_SCREEN_IMAGE_CACHE_SIZE_LIMIT=4294967296
 OMERO_SCREEN_IMAGE_CACHE_WORKERS=3
 ```
