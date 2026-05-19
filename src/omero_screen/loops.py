@@ -286,15 +286,12 @@ def process_wells(
             ).items()
         }
         cell_line = ann_lower.get("cell_line")
-        if cell_line is None:
-            raise WellAnnotationError(
-                f"Well {well.getWellPos()} is missing a 'cell_line' annotation. "
-                f"Available annotations: {list(ann_lower.keys())}. "
-                f"Check your metadata — each well needs a 'cell_line' entry.",
-                logger,
-            )
-        if cell_line != "Empty":
-            non_empty_wells.append(well)
+        # Wells marked "Empty" in the metadata have no annotations written
+        # (see metadata_parser._add_well_annotations) — treat absent annotations
+        # as Empty and skip rather than erroring.
+        if cell_line is None or cell_line == "Empty":
+            continue
+        non_empty_wells.append(well)
 
     with ScreenProgress(metadata.plate_id, len(non_empty_wells)) as prog:
         for count, well in enumerate(non_empty_wells):
