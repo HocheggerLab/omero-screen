@@ -78,7 +78,11 @@ from omero_screen.image_analysis import (
 from omero_screen.image_classifier import ImageClassifier
 from omero_screen.metadata_parser import strip_role_suffix
 from omero_screen.quality_control import quality_control_fig
-from omero_screen.segmentation import SegmentationModel
+from omero_screen.segmentation import (
+    SegmentationModel,
+    apply_gamma,
+    apply_seg_profile,
+)
 
 from .benchmarking import get_benchmark
 from .flatfield_corr import flatfieldcorr
@@ -497,6 +501,7 @@ def _segment_stitched_nuclei(
     nucleus_channel_index: int,
     cell_line: str,
     border: int,
+    channel_name: str = "",
 ) -> npt.NDArray[Any]:
     """Segment the nucleus channel of a stitched (T, Y, X, C) canvas.
 
@@ -510,6 +515,9 @@ def _segment_stitched_nuclei(
         nucleus_channel_index: Channel-axis index of the nucleus channel.
         cell_line: Cell line name (used for diameter heuristic).
         border: Width of the outer-edge border (negative to disable).
+        channel_name: Nucleus channel name; used to look up a
+            ``CHANNEL_SEG_PROFILES`` entry (gamma / cellprob_threshold /
+            flow_threshold). Empty string disables the lookup.
 
     Returns:
         Mask array of shape (T, Y, X) with uint16 labels (max 65535 cells/well —
@@ -529,17 +537,36 @@ def _segment_stitched_nuclei(
     else:
         diameter = None  # cellpose 4 is scale-independent
 
+    profile = apply_seg_profile(channel_name)
+    gamma = profile.get("gamma")
+    eval_kwargs: dict[str, Any] = {
+        k: v
+        for k, v in profile.items()
+        if k in ("cellprob_threshold", "flow_threshold")
+    }
+    if profile:
+        logger.info(
+            "Channel '%s' segmentation profile: gamma=%s, eval kwargs=%s",
+            channel_name,
+            gamma,
+            eval_kwargs,
+        )
+
     n_t = stitched_img.shape[0]
     masks = np.zeros(stitched_img.shape[:3], dtype=np.uint16)
     for t in range(n_t):
         # (Y, X) → cellpose-ready (1, Y, X) single-channel stack
         img_t = stitched_img[t, ..., nucleus_channel_index]
-        scaled = np.stack([scale_img(img_t)])
+        scaled_t = scale_img(img_t)
+        if gamma is not None:
+            scaled_t = apply_gamma(scaled_t, gamma)
+        scaled = np.stack([scaled_t])
         try:
             mask = segmentation_model.eval(
                 scaled,
                 diameter=diameter,
                 normalize=False,
+                **eval_kwargs,
             )
         except IndexError:
             logger.warning(
@@ -562,6 +589,7 @@ def _segment_stitched_cells(
     nucleus_channel_index: int,
     cell_line: str,
     border: int,
+    channel_name: str = "",
 ) -> npt.NDArray[Any]:
     """Segment cells on the stitched canvas using the cell-line cellpose model.
 
@@ -575,6 +603,9 @@ def _segment_stitched_cells(
         nucleus_channel_index: Channel-axis index of the nucleus channel.
         cell_line: Cell line name (used to select the cellpose model).
         border: Width of the outer-edge border (negative to disable).
+        channel_name: Cell channel name; used to look up a
+            ``CHANNEL_SEG_PROFILES`` entry (gamma / cellprob_threshold /
+            flow_threshold). Empty string disables the lookup.
 
     Returns:
         Cell mask array of shape (T, Y, X) with uint16 labels.
@@ -587,16 +618,35 @@ def _segment_stitched_cells(
     segmentation_model = SegmentationModel(model_name)
     logger.info("Segmenting stitched cells with model %s", model_name)
 
+    profile = apply_seg_profile(channel_name)
+    gamma = profile.get("gamma")
+    eval_kwargs: dict[str, Any] = {
+        k: v
+        for k, v in profile.items()
+        if k in ("cellprob_threshold", "flow_threshold")
+    }
+    if profile:
+        logger.info(
+            "Channel '%s' segmentation profile: gamma=%s, eval kwargs=%s",
+            channel_name,
+            gamma,
+            eval_kwargs,
+        )
+
     n_t = stitched_img.shape[0]
     masks = np.zeros(stitched_img.shape[:3], dtype=np.uint16)
     for t in range(n_t):
         cell_t = stitched_img[t, ..., cell_channel_index]
         nuc_t = stitched_img[t, ..., nucleus_channel_index]
-        comb = np.stack([scale_img(cell_t), scale_img(nuc_t)])
+        cell_scaled = scale_img(cell_t)
+        if gamma is not None:
+            cell_scaled = apply_gamma(cell_scaled, gamma)
+        comb = np.stack([cell_scaled, scale_img(nuc_t)])
         try:
             mask = segmentation_model.eval(
                 comb,
                 normalize=False,
+                **eval_kwargs,
             )
         except IndexError:
             logger.warning(
@@ -725,6 +775,7 @@ def _stitched_well_loop(
             nucleus_channel_index=nucleus_idx,
             cell_line=cell_line,
             border=border,
+            channel_name=nucleus_channel,
         )
     logger.info(
         "Stitched nucleus mask for %s: %d nuclei (border=%d)",
@@ -743,6 +794,7 @@ def _stitched_well_loop(
                 nucleus_channel_index=nucleus_idx,
                 cell_line=cell_line,
                 border=border,
+                channel_name=cell_channel,
             )
         logger.info(
             "Stitched cell mask for %s: %d cells (channel=%s)",

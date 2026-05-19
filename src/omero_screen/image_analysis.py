@@ -39,7 +39,11 @@ from omero_screen.config import get_logger
 from omero_screen.general_functions import filter_segmentation, scale_img
 from omero_screen.image_classifier import ImageClassifier
 from omero_screen.metadata_parser import MetadataParser, strip_role_suffix
-from omero_screen.segmentation import SegmentationModel
+from omero_screen.segmentation import (
+    SegmentationModel,
+    apply_gamma,
+    apply_seg_profile,
+)
 
 logger = get_logger(__name__)
 
@@ -269,12 +273,23 @@ class Image:
         else:
             diameter = None
 
+        profile = apply_seg_profile(self._nucleus_channel)
+        gamma = profile.get("gamma")
+        eval_kwargs: dict[str, Any] = {
+            k: v
+            for k, v in profile.items()
+            if k in ("cellprob_threshold", "flow_threshold")
+        }
+
         for t in range(img_array.shape[0]):
             # Select the image at the current timepoint
             img_t = img_array[t]
 
             # Prepare the image for segmentation
-            scaled_img_t = np.stack([scale_img(img_t)])
+            scaled_t = scale_img(img_t)
+            if gamma is not None:
+                scaled_t = apply_gamma(scaled_t, gamma)
+            scaled_img_t = np.stack([scaled_t])
 
             # Perform segmentation
             try:
@@ -282,6 +297,7 @@ class Image:
                     scaled_img_t,
                     diameter=diameter,
                     normalize=False,
+                    **eval_kwargs,
                 )
             except IndexError:
                 logger.warning(
@@ -344,6 +360,14 @@ class Image:
         # Initialize an array to store the segmentation masks
         segmentation_masks = np.zeros_like(dapi_array, dtype=np.uint32)
 
+        profile = apply_seg_profile(self._cell_channel)
+        gamma = profile.get("gamma")
+        eval_kwargs: dict[str, Any] = {
+            k: v
+            for k, v in profile.items()
+            if k in ("cellprob_threshold", "flow_threshold")
+        }
+
         # Process each timepoint
         for t in range(dapi_array.shape[0]):
             # Select the images at the current timepoint
@@ -351,12 +375,15 @@ class Image:
             tub_t = tub_array[t]
 
             # Combine the 2 channel numpy array for cell segmentation with the nuclei channel
-            comb_image_t = np.stack([scale_img(tub_t), scale_img(dapi_t)])
+            tub_scaled = scale_img(tub_t)
+            if gamma is not None:
+                tub_scaled = apply_gamma(tub_scaled, gamma)
+            comb_image_t = np.stack([tub_scaled, scale_img(dapi_t)])
 
             # Perform segmentation
             try:
                 c_masks_array = segmentation_model.eval(
-                    comb_image_t, normalize=False
+                    comb_image_t, normalize=False, **eval_kwargs
                 )
             except IndexError:
                 logger.warning(

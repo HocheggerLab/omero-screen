@@ -36,6 +36,21 @@ class DefaultConfig:
         ]
     )
 
+    # Channel-name → segmentation-profile overrides.
+    # Lookup is case-insensitive. Keys: gamma (dynamic-range compression
+    # applied before Cellpose, <1 lifts dim cells), cellprob_threshold and
+    # flow_threshold (forwarded to cellpose .eval()).
+    CHANNEL_SEG_PROFILES: dict[str, dict[str, float]] = field(
+        default_factory=lambda: {
+            "h2b_rfp": {"gamma": 0.5, "cellprob_threshold": -2.0},
+            "tub_gfp": {
+                "gamma": 0.5,
+                "cellprob_threshold": -2.0,
+                "flow_threshold": 0.6,
+            },
+        }
+    )
+
 
 # Create a singleton instance of DefaultConfig
 default_config = DefaultConfig()
@@ -54,6 +69,16 @@ if path is not None and os.path.exists(path):
             features = data.get("FEATURELIST", None)
             if isinstance(features, list):
                 default_config.FEATURELIST = features
+            profiles = data.get("CHANNEL_SEG_PROFILES", None)
+            if isinstance(profiles, dict):
+                merged = {
+                    k.lower(): v
+                    for k, v in default_config.CHANNEL_SEG_PROFILES.items()
+                }
+                for name, prof in profiles.items():
+                    if isinstance(prof, dict):
+                        merged[name.lower()] = prof
+                default_config.CHANNEL_SEG_PROFILES = merged
     except Exception as e:  # noqa: BLE001
         get_logger(__name__).error(
             "Failed to load configuration '%s': %s", path, e

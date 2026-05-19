@@ -3,6 +3,7 @@
 import os
 from typing import Any
 
+import numpy as np
 import numpy.typing as npt
 import torch
 from cellpose.models import CellposeModel as CM4
@@ -10,6 +11,33 @@ from cellpose.models import CellposeModel as CM4
 from omero_screen.cellpose3.models import MODEL_DIR as CP3_DIR
 from omero_screen.cellpose3.models import CellposeModel as CM3
 from omero_screen.torch import get_device
+
+
+def apply_seg_profile(channel_name: str) -> dict[str, float]:
+    """Return the segmentation profile for ``channel_name`` (case-insensitive).
+
+    Looks up ``CHANNEL_SEG_PROFILES`` on the singleton ``default_config``.
+    Returns an empty dict when no profile matches — callers should treat
+    that as "use current defaults".
+    """
+    from omero_screen import default_config
+
+    profiles = getattr(default_config, "CHANNEL_SEG_PROFILES", None) or {}
+    profile: dict[str, float] = profiles.get(channel_name.lower(), {})
+    return profile
+
+
+def apply_gamma(img: npt.NDArray[Any], gamma: float) -> npt.NDArray[Any]:
+    """Apply gamma compression to an image expected in [0, 1].
+
+    ``gamma`` < 1 compresses the bright end and lifts dim values, making
+    Cellpose more likely to detect dim objects in a frame with mixed
+    expression levels (e.g. live-cell H2B-RFP).
+    """
+    result: npt.NDArray[Any] = np.power(np.clip(img, 0.0, 1.0), gamma).astype(
+        img.dtype, copy=False
+    )
+    return result
 
 
 class SegmentationModel:
