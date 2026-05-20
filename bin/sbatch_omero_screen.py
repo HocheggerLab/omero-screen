@@ -33,7 +33,7 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
         raise Exception(f"Not within an '{omero_screen}' installation")
 
     # Check for an environment file
-    env_file = "../.env." + (args.env if args.env else "development")
+    env_file = f"../.env.{args.env}" if args.env else "../.env"
     if not os.path.exists(env_file):
         raise Exception(f"Missing env file: {env_file}")
 
