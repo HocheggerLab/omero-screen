@@ -84,13 +84,14 @@ def _load_flatfield_dict(
     conn: BlitzGateway,
     ff_mask_id: int,
     channel_data: dict[str, str],
+    plate_id: int | None = None,
 ) -> dict[str, npt.NDArray[Any]]:
     """Download the flatfield correction mask and split into per-channel arrays.
 
     The flatfield image has shape ``(T=1, Z=1, Y, X, C)`` with one C per
     plate channel. Returns ``{channel_name: (Y, X) float array}``.
     """
-    ff_array = get_image(conn, ff_mask_id)
+    ff_array = get_image(conn, ff_mask_id, tag=plate_id)
     # (T, Z, Y, X, C) → squeeze T and Z
     if ff_array.shape[0] != 1 or ff_array.shape[1] != 1:
         raise ValueError(
@@ -111,6 +112,7 @@ def _load_well_fields(
     flatfield_dict: dict[str, npt.NDArray[Any]],
     omero_conn: Any | None = None,
     max_workers: int = 3,
+    plate_id: int | None = None,
 ) -> tuple[
     npt.NDArray[Any],
     list[tuple[float, float]],
@@ -161,7 +163,15 @@ def _load_well_fields(
         else:
             worker_conn = conn
         try:
-            arr = get_image(worker_conn, image_id, tag=image_id)
+            # Tag with ``plate_id`` so ``evict_images(plate_id)`` can
+            # find these entries when the user deletes the plate.
+            # Falling back to ``image_id`` keeps the legacy single-shot
+            # caller behaviour for headless tests.
+            arr = get_image(
+                worker_conn,
+                image_id,
+                tag=plate_id if plate_id is not None else image_id,
+            )
         finally:
             if omero_conn is not None and worker_conn is not conn:
                 with contextlib.suppress(Exception):
@@ -267,6 +277,46 @@ def _dir_size(path: Path) -> int:
 # ----------------------------------------------------------------------
 
 
+def resolve_target_wells(
+    plate_id: int,
+    conn: BlitzGateway,
+    *,
+    wells: Iterable[str] | None = None,
+) -> list[str]:
+    """Return the wells that :func:`build_plate_zarr` would build.
+
+    Performs the same empty-well and already-cached filtering as
+    :func:`build_plate_zarr` but without any pixel I/O — only the
+    OMERO well-map HQL query. Intended for the napari widget so it
+    can plan the build (e.g. size a determinate progress bar) on the
+    main thread before spawning the worker that does the heavy lifting.
+
+    Args:
+        plate_id: OMERO plate ID.
+        conn: Live OMERO connection.
+        wells: Optional subset of well labels; default is every well on
+            the plate.
+
+    Returns:
+        Ordered list of well positions that would be built. Empty when
+        nothing is left to do (all wells empty or already cached).
+    """
+    from omero_screen_napari.zarr_cache.reader import cached_wells
+
+    well_map = _fetch_well_map(conn, plate_id)
+    non_empty = {
+        pos: info
+        for pos, info in well_map.items()
+        if not is_empty_well(info.get("metadata", {}))
+    }
+    if wells is not None:
+        candidates = [w for w in sorted(wells) if w in non_empty]
+    else:
+        candidates = sorted(non_empty.keys())
+    already_built = set(cached_wells(plate_id))
+    return [w for w in candidates if w not in already_built]
+
+
 def build_plate_zarr(
     plate_id: int,
     conn: BlitzGateway,
@@ -290,6 +340,10 @@ def build_plate_zarr(
         progress_cb: Optional callback invoked with the well ID after
             each successful write — same value the generator yields.
             Lets non-iterator callers (UI thread) react.
+        omero_conn: Optional ``OmeroConnection`` used to spawn per-thread
+            BlitzGateway connections for the parallel download path.
+            When ``None``, downloads run sequentially on ``conn``.
+        max_workers: Concurrency for the parallel download path.
     """
     metadata = _fetch_plate_metadata(conn, plate_id)
     channel_data: dict[str, str] = metadata["channel_data"]
@@ -392,7 +446,9 @@ def build_plate_zarr(
             "Evicted %d plates to make room: %s", len(evicted), evicted
         )
 
-    flatfield_dict = _load_flatfield_dict(conn, ff_mask_id, channel_data)
+    flatfield_dict = _load_flatfield_dict(
+        conn, ff_mask_id, channel_data, plate_id=plate_id
+    )
 
     # Need the live Plate object to iterate fields. _fetch_well_map only
     # returns ids + positions; per-field pixel download still wants the
@@ -450,6 +506,7 @@ def build_plate_zarr(
                 flatfield_dict,
                 omero_conn=omero_conn,
                 max_workers=max_workers,
+                plate_id=plate_id,
             )
             image_tcyx = _stitch_image(images_ntyxc, positions)
 

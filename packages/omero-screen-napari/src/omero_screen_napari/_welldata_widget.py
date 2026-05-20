@@ -60,6 +60,7 @@ from omero_screen_napari.zarr_cache import (
     is_stitched_plate,
     load_plate_to_viewer,
     plate_zarr_path,
+    resolve_target_wells,
 )
 
 # Logging
@@ -811,6 +812,42 @@ def start_zarr_build_worker(plate_id: int, parent: QWidget) -> None:
         pbr: list[Any] = []
         completed: list[str] = []
 
+        # Resolve the work *synchronously* on the main thread so we can
+        # build the determinate progress bar before spawning the worker.
+        # ``napari_progress`` creates a QObject and must run on the GUI
+        # thread (otherwise Qt prints ``setParent: Cannot set parent,
+        # new parent is in a different thread`` and the bar never
+        # appears). One small HQL query — typically <1s.
+        try:
+            main_conn = omero_conn.get_conn()
+            target_wells = resolve_target_wells(plate_id, main_conn)
+        except Exception as exc:  # noqa: BLE001 — surface and bail
+            logger.error(
+                "Failed to plan zarr build for plate %d: %s", plate_id, exc
+            )
+            notifications.show_error(f"Zarr build planning failed: {exc}")
+            omero_conn.close(hard=False)
+            return
+
+        total_wells = len(target_wells)
+        first_well = target_wells[0] if target_wells else None
+        initial_desc = (
+            f"Zarr plate {plate_id}: building {first_well} (0/{total_wells})"
+            if first_well is not None
+            else f"Zarr plate {plate_id}: nothing to build"
+        )
+        pbr.append(napari_progress(total=total_wells, desc=initial_desc))
+
+        if total_wells == 0:
+            # Everything already cached / no non-empty wells. Close the
+            # bar cleanly and skip spawning the worker.
+            pbr[0].close()
+            omero_conn.close(hard=False)
+            notifications.show_info(
+                f"Plate {plate_id}: zarr cache already complete"
+            )
+            return
+
         def _generator() -> Generator[str, None, str | None]:
             """Wrap the builder so we can close the OMERO connection on exit."""
             try:
@@ -818,9 +855,12 @@ def start_zarr_build_worker(plate_id: int, parent: QWidget) -> None:
                 # Passing ``omero_conn`` enables parallel per-field
                 # downloads inside the builder (one BlitzGateway per
                 # worker thread). Matches the diskcache's ``max_workers=3``.
+                # Pre-resolved ``wells`` keeps the builder's internal
+                # filter consistent with what we sized the bar for.
                 for well_id in build_plate_zarr(
                     plate_id,
                     conn,
+                    wells=target_wells,
                     omero_conn=omero_conn,
                     # 3 OMERO connections in flight. Empirically the
                     # sweet spot for the Sussex OMERO link — higher
@@ -840,20 +880,24 @@ def start_zarr_build_worker(plate_id: int, parent: QWidget) -> None:
         worker = create_worker(_generator, _worker_class=GeneratorWorker)
         worker.stop_flag = stop_flag
 
-        # Show the activity bar immediately — the first well takes
-        # several minutes (per-field downloads + stitching) and users
-        # would otherwise see no feedback at all.
-        pbr.append(
-            napari_progress(
-                desc=f"Building zarr plate {plate_id}: downloading…"
-            )
-        )
-
         def on_yield(well_id: str) -> None:
+            """Runs on the main thread (Qt marshals via QueuedConnection)."""
             completed.append(well_id)
-            pbr[0].set_description(
-                f"Zarr plate {plate_id}: wrote {well_id} ({len(completed)})"
-            )
+            pbr[0].update(1)
+            done = len(completed)
+            # Preview the next well so the bar reads as "now building Y"
+            # rather than only the last completed well.
+            if done < total_wells:
+                next_well = target_wells[done]
+                pbr[0].set_description(
+                    f"Zarr plate {plate_id}: wrote {well_id} "
+                    f"({done}/{total_wells}), building {next_well}"
+                )
+            else:
+                pbr[0].set_description(
+                    f"Zarr plate {plate_id}: wrote {well_id} "
+                    f"({done}/{total_wells})"
+                )
 
         def on_finished() -> None:
             logger.info(

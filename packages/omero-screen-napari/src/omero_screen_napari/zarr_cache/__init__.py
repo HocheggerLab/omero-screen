@@ -17,6 +17,7 @@ Design notes:
 from omero_screen_napari.zarr_cache.builder import (
     build_plate_zarr,
     is_stitched_plate,
+    resolve_target_wells,
 )
 from omero_screen_napari.zarr_cache.crop import (
     DEFAULT_CROP_SIZE,
@@ -77,6 +78,7 @@ __all__ = [
     "list_plates",
     "load_plate_to_viewer",
     "load_registry",
+    "resolve_target_wells",
     "open_plate",
     "pin_plate",
     "plate_info",
