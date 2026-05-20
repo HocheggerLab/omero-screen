@@ -1370,8 +1370,11 @@ class CellViewStateCore:
         channels = []
 
         for col in self.df.columns:
+            # Channel names may contain underscores (e.g. ``h2b_rfp``,
+            # ``tub_gfp``); use greedy ``[A-Za-z0-9_]+`` plus an anchored
+            # segment suffix so the regex correctly splits the column.
             if match := re.match(
-                r"intensity_(?:max|min|mean)_([A-Za-z0-9]+)_(?:nucleus|cell|cyto)",
+                r"intensity_(?:max|min|mean)_([A-Za-z0-9_]+)_(?:nucleus|cell|cyto)$",
                 col,
             ):
                 channel = match[1]

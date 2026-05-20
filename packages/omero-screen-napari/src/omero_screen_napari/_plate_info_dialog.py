@@ -24,6 +24,7 @@ from qtpy.QtWidgets import (
 )
 
 from omero_screen_napari.plate_cache import (
+    filter_empty_wells,
     get_cached_label_map,
     get_cached_plate_metadata,
     get_cached_well_data,
@@ -168,6 +169,7 @@ def _build_from_cache(
     if meta is None or wells is None or label_map is None:
         raise ValueError(f"Plate {plate_id} cache incomplete")
 
+    wells = filter_empty_wells(wells)
     header_info = _build_header_info(meta, wells)
     metadata_keys = _collect_metadata_keys(wells)
     rows = _build_rows(wells, label_map)
@@ -194,6 +196,7 @@ def _build_from_omero(
     finally:
         connection.close(hard=True)
 
+    wells = filter_empty_wells(wells)
     header_info = _build_header_info(meta, wells)
     metadata_keys = _collect_metadata_keys(wells)
     rows = _build_rows(wells, label_map=labels)

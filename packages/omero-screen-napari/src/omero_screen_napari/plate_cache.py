@@ -260,6 +260,41 @@ def get_well_cache_status(
     return status
 
 
+def is_empty_well(metadata: dict[str, Any]) -> bool:
+    """Return True if a well should be treated as Empty (no experimental data).
+
+    Mirrors the filter in ``omero_screen.loops.process_wells``: a well is
+    Empty when its metadata is missing, has no ``cell_line`` entry
+    (case-insensitive), or has ``cell_line == "Empty"``. The metadata
+    parser deliberately writes no annotations to Empty wells, so the
+    no-metadata case is the most common.
+
+    Used by the zarr cache builder and the plate-info dialog to keep
+    Empty wells out of both the cached zarr and the UI table.
+    """
+    if not metadata:
+        return True
+    cell_line = next(
+        (v for k, v in metadata.items() if k.lower() == "cell_line"),
+        None,
+    )
+    return cell_line is None or cell_line == "Empty"
+
+
+def filter_empty_wells(
+    wells: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Return ``wells`` with Empty positions removed.
+
+    See :func:`is_empty_well` for the classification rule.
+    """
+    return {
+        pos: info
+        for pos, info in wells.items()
+        if not is_empty_well(info.get("metadata", {}))
+    }
+
+
 def is_plate_cached(plate_id: int) -> bool:
     """Check if plate metadata and well data exist in cache."""
     return (
@@ -600,6 +635,21 @@ def cache_plate(
         wells = get_well_data(connection, plate_id)
         label_map = get_label_map(connection, plate_id)
 
+        # Drop wells marked Empty (cell_line absent or == "Empty"); we
+        # never analyse them, so caching their pixels just bloats the
+        # size estimate and the download queue.
+        wells_filtered = filter_empty_wells(wells)
+        skipped = sorted(set(wells) - set(wells_filtered))
+        if skipped:
+            logger.info(
+                "Plate %d: skipping %d empty well(s) for cache: %s",
+                plate_id,
+                len(skipped),
+                skipped,
+            )
+        wells = wells_filtered
+        label_map = {k: v for k, v in label_map.items() if k in wells}
+
         # Quick check to determine if the plate will fit in the cache.
         # Done after fetching the label map so the estimate includes labels.
         # Note: Size estimate does not account for the cache compression or pixels type.
@@ -675,19 +725,24 @@ def cache_plate(
             logger.info("Plate %d: all images already cached", plate_id)
             return None
 
-        # Accurate download size (assuming all images the same)
+        # Accurate download size (assuming all images the same).
+        # ``get_bytes_size`` returns the full TCZYX byte size per Image;
+        # ``n_images`` / ``n_labels`` count *per-timepoint* cache keys, so
+        # we divide by sizeT to get the bytes-per-plane and avoid an
+        # ``sizeT``-fold over-estimate (live-cell plates were reporting
+        # ~thousands of GB for plates that fit easily in a few tens).
         estimated_bytes = 0
-        if image_id:
-            estimated_bytes += (
-                get_bytes_size(connection.get_conn(), image_id) * n_images
+        if image_id and image_t:
+            image_bytes_per_t = (
+                get_bytes_size(connection.get_conn(), image_id) // image_t
             )
-        if label_id:
-            estimated_bytes += get_bytes_size(
-                connection.get_conn(), label_id
-            ) * (
-                # number of labels
-                len(keys) - n_images
+            estimated_bytes += image_bytes_per_t * n_images
+        n_labels = len(keys) - n_images
+        if label_id and label_t and n_labels > 0:
+            label_bytes_per_t = (
+                get_bytes_size(connection.get_conn(), label_id) // label_t
             )
+            estimated_bytes += label_bytes_per_t * n_labels
 
         # Repeat check to determine if the plate will fit in the cache.
         # This may can fail if the pixels type from previous estimate was wrong.

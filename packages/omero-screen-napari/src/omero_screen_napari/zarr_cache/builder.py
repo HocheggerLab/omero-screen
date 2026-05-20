@@ -45,6 +45,7 @@ from omero_screen_napari.plate_cache import (
     _detect_label_stitched_mode,
     _fetch_plate_metadata,
     _fetch_well_map,
+    is_empty_well,
 )
 from omero_screen_napari.zarr_cache.eviction import (
     enforce_size_cap,
@@ -249,10 +250,44 @@ def build_plate_zarr(
     ff_mask_id = metadata["ff_mask_id"]
 
     well_map = _fetch_well_map(conn, plate_id)
+    # Mirror omero-screen's empty-well filter (loops.py): wells with no
+    # metadata, no cell_line, or cell_line == "Empty" are excluded from
+    # both segmentation and the zarr cache.
+    empty_wells = sorted(
+        pos
+        for pos, info in well_map.items()
+        if is_empty_well(info.get("metadata", {}))
+    )
+    for pos in empty_wells:
+        well_map.pop(pos, None)
+    if empty_wells:
+        logger.info(
+            "Plate %s: skipping %d empty well(s): %s",
+            plate_id,
+            len(empty_wells),
+            empty_wells,
+        )
     all_wells = sorted(well_map.keys())
     if not all_wells:
-        raise ValueError(f"Plate {plate_id} has no wells")
-    target_wells = sorted(wells) if wells is not None else all_wells
+        raise ValueError(
+            f"Plate {plate_id} has no non-empty wells "
+            f"(skipped {len(empty_wells)} empty)"
+        )
+    if wells is not None:
+        # Drop any caller-requested wells that are empty so we don't try
+        # to build them. The warning later (well_pos not in well_objs) is
+        # not the right channel for this — empty wells exist on the plate.
+        requested = sorted(wells)
+        target_wells = [w for w in requested if w in well_map]
+        dropped = [w for w in requested if w in empty_wells]
+        if dropped:
+            logger.info(
+                "Plate %s: requested wells dropped as empty: %s",
+                plate_id,
+                dropped,
+            )
+    else:
+        target_wells = all_wells
 
     # n_timepoints from the first image of any well. Plates are
     # homogeneous in T.
