@@ -24,8 +24,10 @@ the UI.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections.abc import Callable, Iterable, Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -107,6 +109,8 @@ def _load_well_fields(
     well: WellWrapper,
     channel_data: dict[str, str],
     flatfield_dict: dict[str, npt.NDArray[Any]],
+    omero_conn: Any | None = None,
+    max_workers: int = 3,
 ) -> tuple[
     npt.NDArray[Any],
     list[tuple[float, float]],
@@ -115,6 +119,12 @@ def _load_well_fields(
 ]:
     """Load one well's fields, flatfield-correct, and return as a stack.
 
+    When ``omero_conn`` (an ``OmeroConnection``) is provided, field
+    downloads run in parallel with one BlitzGateway per worker thread —
+    BlitzGateway isn't safe to share across threads, mirroring the
+    ``cache_plate`` pattern. Falls back to the sequential path when
+    ``omero_conn`` is absent.
+
     Returns:
         images: ``(N_fields, T, Y, X, C)`` float32 array.
         positions: list of stage (px, py) per field.
@@ -122,29 +132,65 @@ def _load_well_fields(
     """
     n_fields = len(list(well.listChildren()))
     channels = list(channel_data.keys())
-    per_channel_fields: dict[str, list[npt.NDArray[Any]]] = {
-        ch: [] for ch in channels
-    }
-    positions: list[tuple[float, float]] = []
-    tile_h = tile_w = 0
+    positions: list[tuple[float, float]] = [(0.0, 0.0)] * n_fields
+    field_arrays: list[npt.NDArray[Any] | None] = [None] * n_fields
+    image_ids: list[int] = [0] * n_fields
 
+    # Collect per-field metadata up front (cheap; no pixel I/O).
     for n in range(n_fields):
         ws = well.getWellSample(n)
         image_obj = ws.getImage()
         px = ws.getPosX()
         py = ws.getPosY()
-        positions.append(
-            (
-                px.getValue() if px is not None else 0.0,
-                py.getValue() if py is not None else 0.0,
-            )
+        positions[n] = (
+            px.getValue() if px is not None else 0.0,
+            py.getValue() if py is not None else 0.0,
         )
+        image_ids[n] = int(image_obj.getId())
 
-        # napari's cached get_image returns (T, Z, Y, X, C).
-        array = get_image(conn, image_obj.getId(), tag=image_obj.getId())
+    def _download_one(idx: int, image_id: int) -> tuple[int, npt.NDArray[Any]]:
+        """Worker: download one field with a thread-local connection.
+
+        Each thread gets its own BlitzGateway (mirroring
+        ``plate_cache._download_batch``) since BlitzGateway is not
+        thread-safe and concurrent calls on the same conn serialise on
+        the Ice transport anyway.
+        """
+        if omero_conn is not None:
+            worker_conn = omero_conn.create_conn()
+        else:
+            worker_conn = conn
+        try:
+            arr = get_image(worker_conn, image_id, tag=image_id)
+        finally:
+            if omero_conn is not None and worker_conn is not conn:
+                with contextlib.suppress(Exception):
+                    worker_conn.close()
+        return idx, arr
+
+    if omero_conn is not None and n_fields > 1:
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            for fut in as_completed(
+                ex.submit(_download_one, i, image_ids[i])
+                for i in range(n_fields)
+            ):
+                idx, arr = fut.result()
+                field_arrays[idx] = arr
+    else:
+        for i in range(n_fields):
+            _, field_arrays[i] = _download_one(i, image_ids[i])
+
+    # Flatfield-correct on the main thread (CPU-bound, fast vs network).
+    per_channel_fields: dict[str, list[npt.NDArray[Any]]] = {
+        ch: [] for ch in channels
+    }
+    tile_h = tile_w = 0
+    for n, array in enumerate(field_arrays):
+        if array is None:
+            raise RuntimeError(f"Field {n} of well failed to download")
         if array.shape[1] != 1:
             raise ValueError(
-                f"Field image {image_obj.getId()} has Z={array.shape[1]}; "
+                f"Field image {image_ids[n]} has Z={array.shape[1]}; "
                 f"expected Z=1"
             )
         tile_h = array.shape[2]
@@ -227,6 +273,8 @@ def build_plate_zarr(
     *,
     wells: Iterable[str] | None = None,
     progress_cb: Callable[[str], None] | None = None,
+    omero_conn: Any | None = None,
+    max_workers: int = 3,
 ) -> Iterator[str]:
     """Build (or extend) the plate.zarr cache for ``plate_id``.
 
@@ -377,14 +425,26 @@ def build_plate_zarr(
 
             # --- Image branch -------------------------------------------------
             images_ntyxc, positions, tile_h, tile_w = _load_well_fields(
-                conn, well_obj, channel_data, flatfield_dict
+                conn,
+                well_obj,
+                channel_data,
+                flatfield_dict,
+                omero_conn=omero_conn,
+                max_workers=max_workers,
             )
             image_tcyx = _stitch_image(images_ntyxc, positions)
 
             # --- Label branch -------------------------------------------------
             try:
                 nuc_per_field, cell_per_field, _ = fetch_stitched_field_masks(
-                    conn, well_obj
+                    conn,
+                    well_obj,
+                    conn_factory=(
+                        omero_conn.create_conn
+                        if omero_conn is not None
+                        else None
+                    ),
+                    max_workers=max_workers,
                 )
             except KeyError as e:
                 # Well wasn't processed in stitched mode (no

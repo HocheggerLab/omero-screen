@@ -393,6 +393,9 @@ STITCHED_MASK_ANNOTATION_KEY = "Stitched_Segmentation_Mask"
 def fetch_stitched_field_masks(
     conn: BlitzGateway,
     well: WellWrapper,
+    *,
+    conn_factory: Any | None = None,
+    max_workers: int = 3,
 ) -> tuple[
     list[npt.NDArray[Any]],
     list[npt.NDArray[Any] | None],
@@ -417,6 +420,12 @@ def fetch_stitched_field_masks(
     Args:
         conn: OMERO connection.
         well: Well object whose fields will be queried.
+        conn_factory: Optional zero-arg callable returning a fresh
+            ``BlitzGateway``. When provided, mask downloads run in
+            parallel, one connection per worker thread (BlitzGateway
+            is not thread-safe).
+        max_workers: Concurrency for the parallel download path.
+            Ignored when ``conn_factory`` is ``None``.
 
     Returns:
         Tuple ``(nuclei_per_field, cells_per_field, source_image_ids)``:
@@ -436,15 +445,15 @@ def fetch_stitched_field_masks(
             masks.
     """
     n_fields = len(list(well.listChildren()))
-    nuclei: list[npt.NDArray[Any]] = []
-    cells: list[npt.NDArray[Any] | None] = []
-    source_ids: list[int] = []
+    source_ids: list[int] = [0] * n_fields
+    mask_ids: list[int] = [0] * n_fields
 
+    # Phase 1 — collect (field_id, mask_id) per field. Cheap, sequential.
     for n in range(n_fields):
         ws = well.getWellSample(n)
         field_image = ws.getImage()
         field_id = field_image.getId()
-        source_ids.append(field_id)
+        source_ids[n] = field_id
 
         anns = parse_annotations(field_image, ns=OmeroScreenNS.METADATA)
         if STITCHED_MASK_ANNOTATION_KEY not in anns:
@@ -453,24 +462,59 @@ def fetch_stitched_field_masks(
                 f"{STITCHED_MASK_ANNOTATION_KEY!r} annotation. "
                 f"Was this well processed in stitched mode?"
             )
-        mask_id = int(anns[STITCHED_MASK_ANNOTATION_KEY])
+        mask_ids[n] = int(anns[STITCHED_MASK_ANNOTATION_KEY])
 
-        # ezomero.get_image returns (image_wrapper, (T,Z,Y,X,C) array).
-        _, mask_array = get_image(conn, mask_id)
-        # Squeeze Z (always 1 for masks) → (T, Y, X, C)
+    # Phase 2 — download mask pixels. Run in parallel when a
+    # ``conn_factory`` callable is supplied (BlitzGateway is not
+    # thread-safe; each worker needs its own).
+    raw_masks: list[npt.NDArray[Any] | None] = [None] * n_fields
+
+    def _download_one(idx: int, mask_id: int) -> tuple[int, npt.NDArray[Any]]:
+        worker_conn = conn_factory() if conn_factory is not None else conn
+        try:
+            _, mask_array = get_image(worker_conn, mask_id)
+        finally:
+            if conn_factory is not None and worker_conn is not conn:
+                import contextlib
+
+                with contextlib.suppress(Exception):
+                    worker_conn.close()
+        return idx, mask_array
+
+    if conn_factory is not None and n_fields > 1:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            for fut in as_completed(
+                ex.submit(_download_one, i, mask_ids[i])
+                for i in range(n_fields)
+            ):
+                idx, arr = fut.result()
+                raw_masks[idx] = arr
+    else:
+        for i in range(n_fields):
+            _, raw_masks[i] = _download_one(i, mask_ids[i])
+
+    # Phase 3 — squeeze and split channels. CPU-bound, sequential.
+    nuclei: list[npt.NDArray[Any]] = []
+    cells: list[npt.NDArray[Any] | None] = []
+    for n, mask_array in enumerate(raw_masks):
+        if mask_array is None:
+            raise RuntimeError(
+                f"Stitched mask for field {source_ids[n]} failed to download"
+            )
         if mask_array.shape[1] != 1:
             raise ValueError(
-                f"Stitched mask image {mask_id} has Z={mask_array.shape[1]}; "
+                f"Stitched mask image {mask_ids[n]} has Z={mask_array.shape[1]}; "
                 f"expected Z=1"
             )
         squeezed = np.squeeze(mask_array, axis=1)  # (T, Y, X, C)
         n_channels = squeezed.shape[-1]
         if n_channels not in (1, 2):
             raise ValueError(
-                f"Stitched mask image {mask_id} has C={n_channels}; "
+                f"Stitched mask image {mask_ids[n]} has C={n_channels}; "
                 f"expected 1 (nuclei only) or 2 (nuclei + cells)"
             )
-
         nuclei.append(np.ascontiguousarray(squeezed[..., 0]))
         cells.append(
             np.ascontiguousarray(squeezed[..., 1]) if n_channels == 2 else None

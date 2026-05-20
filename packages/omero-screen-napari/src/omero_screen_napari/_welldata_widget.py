@@ -284,6 +284,21 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
         )
         if reply == QMessageBox.Yes:
             delete_plate_from_cache(plate_id)
+            # Also evict the zarr-cache copy (separate store, separate
+            # eviction path). Without this, orphan zarr directories
+            # accumulate on disk indefinitely.
+            try:
+                from omero_screen_napari.zarr_cache.eviction import (
+                    evict_plate as evict_zarr_plate,
+                )
+
+                evict_zarr_plate(plate_id)
+            except Exception as exc:  # noqa: BLE001 — best-effort cleanup
+                logger.warning(
+                    "Failed to evict zarr cache for plate %d: %s",
+                    plate_id,
+                    exc,
+                )
             self.refresh()
 
     def _on_cache_clicked(self) -> None:
@@ -443,6 +458,22 @@ def _open_plate_info(
         welldata_instance()
 
     def cache_callback(plate_id: int) -> None:
+        # Stitched-mode plates use the OME-Zarr cache (lazy chunk loads,
+        # bounded memory). Per-field plates use the legacy diskcache.
+        # Mirrors the dispatch in CachedPlatesSelector._on_cache_clicked.
+        try:
+            if _plate_is_stitched(plate_id):
+                start_zarr_build_worker(plate_id, parent)
+                if _cached_plates_selector_ref is not None:
+                    _cached_plates_selector_ref.enable_cancel_button()
+                return
+        except Exception as exc:  # noqa: BLE001 — fall back, never block
+            logger.warning(
+                "Could not determine stitched-mode for plate %d "
+                "(falling back to diskcache): %s",
+                plate_id,
+                exc,
+            )
         start_cache_worker(plate_id)
         if _cached_plates_selector_ref is not None:
             _cached_plates_selector_ref.enable_cancel_button()
@@ -550,6 +581,33 @@ def welldata_widget(
                     f"Cache button."
                 )
             return
+
+        # Safety net: a stitched-mode plate loaded via the per-field path
+        # has to re-stitch in Python at view time, which blows up RAM
+        # (9 fields × N timepoints × C channels × Y × X in float). Warn
+        # the user and steer them to "Cache Plate" → zarr build first.
+        try:
+            if _plate_is_stitched(plate_num):
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Warning)
+                msg.setWindowTitle("Stitched plate — build zarr cache first")
+                msg.setText(
+                    f"Plate {plate_num} was processed in stitched mode but "
+                    f"has no OME-Zarr cache yet.\n\n"
+                    f"Loading via the per-field path will re-stitch in "
+                    f"memory and can exhaust RAM for time-lapse data.\n\n"
+                    f"Open the Plate Info dialog and click 'Cache Plate' "
+                    f"to build the zarr cache once, then loading is "
+                    f"fast and bounded-memory."
+                )
+                msg.exec_()
+                return
+        except Exception as exc:  # noqa: BLE001 — safety net only
+            logger.debug(
+                "Stitched-mode probe failed for plate %d (ignored): %s",
+                plate_num,
+                exc,
+            )
 
         if _is_already_loaded(omero_data, plate_num, well_pos_list, images):
             logger.info(
@@ -757,7 +815,15 @@ def start_zarr_build_worker(plate_id: int, parent: QWidget) -> None:
             """Wrap the builder so we can close the OMERO connection on exit."""
             try:
                 conn = omero_conn.get_conn()
-                for well_id in build_plate_zarr(plate_id, conn):
+                # Passing ``omero_conn`` enables parallel per-field
+                # downloads inside the builder (one BlitzGateway per
+                # worker thread). Matches the diskcache's ``max_workers=3``.
+                for well_id in build_plate_zarr(
+                    plate_id,
+                    conn,
+                    omero_conn=omero_conn,
+                    max_workers=3,
+                ):
                     if stop_flag.is_set():
                         return "Cancelled by user"
                     yield well_id
@@ -770,13 +836,17 @@ def start_zarr_build_worker(plate_id: int, parent: QWidget) -> None:
         worker = create_worker(_generator, _worker_class=GeneratorWorker)
         worker.stop_flag = stop_flag
 
+        # Show the activity bar immediately — the first well takes
+        # several minutes (per-field downloads + stitching) and users
+        # would otherwise see no feedback at all.
+        pbr.append(
+            napari_progress(
+                desc=f"Building zarr plate {plate_id}: downloading…"
+            )
+        )
+
         def on_yield(well_id: str) -> None:
             completed.append(well_id)
-            if not pbr:
-                # Unknown total at this point; show indeterminate bar.
-                pbr.append(
-                    napari_progress(desc=f"Building zarr plate {plate_id}")
-                )
             pbr[0].set_description(
                 f"Zarr plate {plate_id}: wrote {well_id} ({len(completed)})"
             )
