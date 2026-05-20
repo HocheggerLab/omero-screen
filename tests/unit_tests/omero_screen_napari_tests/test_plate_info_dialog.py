@@ -283,14 +283,26 @@ class TestBuildTableData:
 
 
 class TestMissingMetadata:
-    def test_empty_metadata_dict(self, sample_meta):
-        """Wells with empty metadata dicts produce rows with empty metadata."""
+    def test_empty_metadata_dict_filtered_out(self, sample_meta):
+        """Wells with empty metadata dicts are treated as Empty wells.
+
+        Mirrors omero-screen's loops.process_wells filter: a missing
+        cell_line annotation means the well is Empty, so the plate-info
+        dialog should not display it at all.
+        """
         wells = {
             "A1": {
                 "well_id": 10,
                 "metadata": {},
                 "images": [
-                    {"image_id": 100, "dims": (1,2,3,4,5), "index": 0, "pos_x": 0.0, "pos_y": 0.0},
+                    {"image_id": 100, "dims": (1, 2, 3, 4, 5), "index": 0, "pos_x": 0.0, "pos_y": 0.0},
+                ],
+            },
+            "B1": {
+                "well_id": 11,
+                "metadata": {"cell_line": "RPE"},
+                "images": [
+                    {"image_id": 101, "dims": (1, 2, 3, 4, 5), "index": 0, "pos_x": 0.0, "pos_y": 0.0},
                 ],
             },
         }
@@ -300,8 +312,10 @@ class TestMissingMetadata:
 
             _header, keys, rows, _ = _build_from_cache(42)
 
-            assert keys == []
-            assert rows[0]["metadata"] == {}
+            # A1 (empty metadata) filtered out; B1 (real well) kept
+            assert len(rows) == 1
+            assert rows[0]["well"] == "B1"
+            assert rows[0]["metadata"] == {"cell_line": "RPE"}
 
     def test_mixed_metadata_keys(self, sample_meta):
         """Wells with different metadata keys still display all columns."""

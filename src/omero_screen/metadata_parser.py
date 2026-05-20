@@ -11,6 +11,7 @@ from the Excel file; otherwise, it is extracted from existing plate annotations.
 If no valid metadata is found, the program exits with an error.
 """
 
+import re
 from collections import Counter
 from typing import Any
 
@@ -46,7 +47,11 @@ SUCCESS_STYLE = "bold cyan"
 NUCLEUS_ALIASES: frozenset[str] = frozenset(
     {"dapi", "hoechst", "dna", "h2b_rfp"}
 )
-CELL_LEGACY_SUBSTRING: str = "Tub"
+# A channel name is classified as ``cell`` when any of its tokens
+# (split on ``_`` / ``-``) equals one of these aliases, case-insensitive.
+# Token-based matching avoids false positives like ``stub`` / ``tube`` /
+# ``tubular`` that a naive substring match would catch.
+CELL_ALIASES: frozenset[str] = frozenset({"tub"})
 ROLE_SUFFIXES: dict[str, str] = {"_nucleus": "nucleus", "_cell": "cell"}
 
 
@@ -126,7 +131,11 @@ def _classify_channel(name: str) -> str | None:
             return role
     if lowered in NUCLEUS_ALIASES:
         return "nucleus"
-    if CELL_LEGACY_SUBSTRING.lower() in lowered:
+    # Token-based cell match: any of the underscore/hyphen-separated
+    # tokens equal to a CELL_ALIASES entry. Catches ``Tub``, ``Tub_GFP``,
+    # ``tub_gfp``, ``cell_tub`` — but not ``stub`` / ``tube`` / ``tubular``.
+    tokens = {tok for tok in re.split(r"[_-]", lowered) if tok}
+    if tokens & CELL_ALIASES:
         return "cell"
     return None
 

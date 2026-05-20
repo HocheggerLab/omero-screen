@@ -155,8 +155,15 @@ def test_parse_well_annotations_success(base_plate_with_annotations):
     assert sorted_well_data["condition"] == ["Ctr", "Cdk4"]
 
 
-def test_parse_well_annotations_failure(base_plate):
-    """Test that appropriate error is raised when no well annotations exist."""
+def test_parse_well_annotations_all_empty(base_plate):
+    """Wells with no annotations are treated as Empty wells (skipped),
+    matching the parser's behaviour for ``cell_line == 'Empty'``.
+
+    Previously this raised ``WellAnnotationError``; the parser now
+    silently records the positions in ``_empty_well_positions`` because
+    Empty wells deliberately have no annotations written
+    (see ``_add_well_annotations``).
+    """
     for well in base_plate.listChildren():
         for ann in well.listAnnotations():
             base_plate._conn.deleteObject(ann._obj)
@@ -167,11 +174,11 @@ def test_parse_well_annotations_failure(base_plate):
     conn = base_plate._conn
     parser = MetadataParser(conn, plate_id)
 
-    with pytest.raises(WellAnnotationError) as exc_info:
-        parser._parse_well_annotations()
-    error_message = str(exc_info.value)
-    assert error_message.startswith("No well annotations found for well")
-    assert any(well_id in error_message for well_id in ["C2", "C5"])
+    well_data = parser._parse_well_annotations()
+    # All wells classified Empty → no non-empty wells contributed
+    assert well_data == {"Well": []}
+    # The positions land in the parser's empty-well list
+    assert {"C2", "C5"}.issubset(set(parser._empty_well_positions))
 
 
 # --------------------Validation Checks--------------------

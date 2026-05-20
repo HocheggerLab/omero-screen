@@ -441,8 +441,14 @@ class TestLoopsWellAnnotationErrors:
     """Tests for well annotation error handling in loops.py."""
 
     @patch("omero_screen.loops.parse_annotations")
-    def test_missing_cell_line_annotation(self, mock_parse):
-        """Test that missing cell_line annotation gives clear error."""
+    def test_missing_cell_line_annotation_treated_as_empty(self, mock_parse):
+        """Wells missing the cell_line annotation are skipped as Empty.
+
+        Previously this raised ``WellAnnotationError``; the loop now
+        treats absent ``cell_line`` the same as ``cell_line == "Empty"``
+        because the metadata parser deliberately writes no annotations
+        to Empty wells.
+        """
         from omero_screen.loops import process_wells
 
         mock_parse.return_value = {"condition": "ctrl"}  # No cell_line
@@ -457,10 +463,8 @@ class TestLoopsWellAnnotationErrors:
         mock_metadata = MagicMock()
         mock_metadata.plate_id = 1
 
-        from omero_utils.message import WellAnnotationError
-
-        with pytest.raises(WellAnnotationError, match="missing a 'cell_line'"):
-            process_wells(mock_conn, mock_metadata, 1, {})
+        df, qc, gallery = process_wells(mock_conn, mock_metadata, 1, {})
+        assert df.empty
 
     @patch("omero_screen.loops.parse_annotations")
     def test_case_insensitive_cell_line(self, mock_parse):
@@ -484,10 +488,14 @@ class TestLoopsWellAnnotationErrors:
         assert df.empty
 
     @patch("omero_screen.loops.parse_annotations")
-    def test_error_lists_available_annotations(self, mock_parse):
-        """Test that the error message lists available annotations."""
-        from omero_utils.message import WellAnnotationError
+    def test_wells_with_other_annotations_but_no_cell_line_are_skipped(
+        self, mock_parse
+    ):
+        """Wells that have unrelated annotations but no cell_line are skipped.
 
+        Mirrors the "Empty well" path: annotations exist but the
+        ``cell_line`` key is missing, so the well contributes nothing.
+        """
         from omero_screen.loops import process_wells
 
         mock_parse.return_value = {"condition": "ctrl", "timepoint": "24h"}
@@ -502,5 +510,5 @@ class TestLoopsWellAnnotationErrors:
         mock_metadata = MagicMock()
         mock_metadata.plate_id = 1
 
-        with pytest.raises(WellAnnotationError, match="Available annotations"):
-            process_wells(mock_conn, mock_metadata, 1, {})
+        df, qc, gallery = process_wells(mock_conn, mock_metadata, 1, {})
+        assert df.empty

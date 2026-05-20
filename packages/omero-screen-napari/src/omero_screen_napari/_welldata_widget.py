@@ -6,6 +6,7 @@ The plugin can be run from napari as Welldata Widget under Plugins.
 
 import contextlib
 import os
+import re
 import threading
 from collections.abc import Callable, Generator
 from typing import Any, Optional
@@ -1245,7 +1246,7 @@ def add_label_layers(
 
 
 _NUCLEUS_ALIASES = frozenset({"dapi", "hoechst", "dna", "h2b_rfp"})
-_CELL_LEGACY_SUBSTRING = "Tub"
+_CELL_ALIASES = frozenset({"tub"})
 
 
 def _role_based_color_map(channel_names: list[str]) -> dict[str, str]:
@@ -1257,13 +1258,14 @@ def _role_based_color_map(channel_names: list[str]) -> dict[str, str]:
     colors: dict[str, str] = {}
     for name in channel_names:
         lowered = name.lower()
+        tokens = {tok for tok in re.split(r"[_-]", lowered) if tok}
         if lowered.endswith("_nucleus"):
             colors[name] = "blue"
         elif lowered.endswith("_cell"):
             colors[name] = "green"
         elif lowered in _NUCLEUS_ALIASES and "blue" not in colors.values():
             colors[name] = "blue"
-        elif _CELL_LEGACY_SUBSTRING in name and "green" not in colors.values():
+        elif tokens & _CELL_ALIASES and "green" not in colors.values():
             colors[name] = "green"
     return colors
 

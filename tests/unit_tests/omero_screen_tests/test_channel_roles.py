@@ -55,9 +55,27 @@ class TestResolveChannelRoles:
             roles = resolve_channel_roles({alias: 0})
             assert roles == {"nucleus": alias}
 
-    def test_legacy_tub_substring(self):
-        roles = resolve_channel_roles({"DAPI": 0, "aTub": 1})
-        assert roles == {"nucleus": "DAPI", "cell": "aTub"}
+    def test_tub_only_as_separate_token(self):
+        """Cell-role auto-detection requires ``tub`` as a separate token.
+
+        Older naive substring matching also classified things like
+        ``aTub``, ``Tubulin``, ``stub`` as cell. The new rule splits on
+        ``_`` / ``-`` and requires an exact token match — so ``Tub_GFP``
+        works but ``aTub`` does not. Users with such legacy names can
+        either rename (``a_Tub``) or use the explicit ``_cell`` suffix.
+        """
+        # Recognised: token "tub" present after splitting
+        for name in ("Tub", "tub", "Tub_GFP", "tub_gfp", "a_Tub", "Tub-AF488"):
+            roles = resolve_channel_roles({"DAPI": 0, name: 1})
+            assert roles == {"nucleus": "DAPI", "cell": name}, name
+
+        # Not recognised: "tub" only appears as part of another token
+        for name in ("aTub", "Tubulin", "stub", "tube"):
+            roles = resolve_channel_roles(
+                {"DAPI": 0, name: 1, f"{name}_cell": 2}
+            )
+            # Only the explicit suffix wins; the bare name has no role
+            assert roles == {"nucleus": "DAPI", "cell": f"{name}_cell"}, name
 
     def test_feature_channels_have_no_role(self):
         roles = resolve_channel_roles(
