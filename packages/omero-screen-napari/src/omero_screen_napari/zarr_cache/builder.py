@@ -337,6 +337,25 @@ def build_plate_zarr(
     else:
         target_wells = all_wells
 
+    # Resumability: skip wells already on disk so a cancelled build
+    # picks up where it left off rather than re-downloading completed
+    # wells. ``cached_wells`` reads per-well directory existence under
+    # the plate zarr root.
+    from omero_screen_napari.zarr_cache.reader import cached_wells
+
+    already_built = set(cached_wells(plate_id))
+    if already_built:
+        remaining = [w for w in target_wells if w not in already_built]
+        skipped = [w for w in target_wells if w in already_built]
+        if skipped:
+            logger.info(
+                "Plate %s: %d well(s) already in zarr cache, skipping: %s",
+                plate_id,
+                len(skipped),
+                skipped,
+            )
+        target_wells = remaining
+
     # n_timepoints from the first image of any well. Plates are
     # homogeneous in T.
     first_well = well_map[all_wells[0]]

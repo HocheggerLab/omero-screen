@@ -822,6 +822,10 @@ def start_zarr_build_worker(plate_id: int, parent: QWidget) -> None:
                     plate_id,
                     conn,
                     omero_conn=omero_conn,
+                    # 3 OMERO connections in flight. Empirically the
+                    # sweet spot for the Sussex OMERO link — higher
+                    # values don't help because the bottleneck is
+                    # client-side bandwidth, not server concurrency.
                     max_workers=3,
                 ):
                     if stop_flag.is_set():

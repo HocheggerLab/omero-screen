@@ -487,10 +487,21 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
             self._cache_timer.start(1000)
 
     def _poll_cache_status(self) -> None:
-        """Check for newly cached wells and update the table."""
-        from omero_screen_napari._welldata_widget import get_active_download
+        """Check for newly cached wells and update the table.
 
-        status = get_well_cache_status(self.plate_id)
+        Looks at both backends:
+        * Diskcache (legacy per-field cache) — via
+          :func:`get_well_cache_status`.
+        * OME-Zarr cache — via
+          :func:`omero_screen_napari.zarr_cache.reader.cached_wells`,
+          which checks per-well directory existence under the plate
+          zarr root and is updated incrementally by the builder.
+        """
+        from omero_screen_napari._welldata_widget import get_active_download
+        from omero_screen_napari.zarr_cache.reader import cached_wells
+
+        disk_status = get_well_cache_status(self.plate_id)
+        zarr_built = set(cached_wells(self.plate_id))
         cached_col = self._cached_col_idx
 
         for row_idx in range(self.table.rowCount()):
@@ -500,7 +511,7 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
             well_pos = well_item.text()
             if well_pos in self._cached_wells:
                 continue  # already marked
-            if status.get(well_pos):
+            if disk_status.get(well_pos) or well_pos in zarr_built:
                 cached_item = self.table.item(row_idx, cached_col)
                 if cached_item is not None:
                     cached_item.setText("Yes")
