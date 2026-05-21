@@ -250,8 +250,18 @@ class MetaDataSaver:
         rows/columns so the session contains the same number of crops the
         user chose for the gallery display.
         """
-        if self.omero_data.images.size == 0:
-            logger.info("No images in memory — skipping initial session save.")
+        # Allow zarr-loaded plates through: in zarr mode we deliberately
+        # leave ``omero_data.images`` empty and rely on the gallery's
+        # zarr fast path to fetch crops. The presence of ``image_ids``
+        # (populated for both backends) is the right "do we have data?"
+        # signal.
+        has_in_memory = self.omero_data.images.size > 0
+        has_zarr_loadable = bool(self.omero_data.image_ids)
+        if not has_in_memory and not has_zarr_loadable:
+            logger.info(
+                "No images in memory and no zarr-loadable IDs — "
+                "skipping initial session save."
+            )
             return
         if not self.user_data:
             logger.info("No user_data — skipping initial session save.")

@@ -22,6 +22,12 @@ from omero_screen_napari.gallery_api import (
 )
 from omero_screen_napari.omero_image import get_image_timepoint
 from omero_screen_napari.session_utils import apply_masks_to_crops
+from omero_screen_napari.zarr_cache import (
+    cached_wells,
+    fetch_crop,
+    fetch_label_crop,
+    resolve_to_zarr,
+)
 
 if TYPE_CHECKING:
     from omero_screen_napari.gallery_userdata import UserData
@@ -164,85 +170,53 @@ def load_crops_from_omero(
         crop_size = user_data_dict["crop_size"]
         segmentation = user_data_dict.get("segmentation", "nucleus")
 
-        # Step 3b: Load flatfield correction (once per plate)
-        logger.info(f"Loading flatfield correction for plate {plate_id}")
-        ff_success, flatfield = _load_flatfield_correction(conn, plate_id)
-
-        # Step 4: Loop over images, accumulate crops
-        all_crops: list[np.ndarray[Any, Any]] = []
-        all_crop_labels: list[np.ndarray[Any, Any]] = []
-        all_image_ids: list[int] = []
-
+        # Resolve indices → real OMERO image IDs (needed by both the zarr
+        # fast path and the legacy per-image loop below).
+        image_id_by_index: dict[int, int] = {}
         for img_idx in image_indices:
-            image = well.getImage(img_idx)
-            if not image:
-                logger.warning(f"Image at index {img_idx} not found, skipping")
-                continue
+            img_obj = well.getImage(img_idx)
+            if img_obj is not None:
+                image_id_by_index[img_idx] = img_obj.getId()
+        wanted_image_ids = list(image_id_by_index.values())
 
-            image_id = image.getId()
+        # Zarr fast path: if a stitched zarr cache exists for this well,
+        # fetch crops directly from the canvas instead of downloading each
+        # field from OMERO + diskcache. Falls through silently to the
+        # legacy path when no zarr is available.
+        zarr_result = _try_zarr_direct_load(
+            plate_id=plate_id,
+            well_id=well_id,
+            wanted_image_ids=wanted_image_ids,
+            segmentation=segmentation,
+            crop_size=crop_size,
+            timepoint=timepoint,
+            cellcycle=cellcycle,
+            classifier_column=classifier_column,
+            classifier_class=classifier_class,
+        )
+        if zarr_result is not None:
+            all_crops, all_crop_labels, all_image_ids = zarr_result
             logger.info(
-                f"Processing image index {img_idx} (OMERO ID: {image_id})"
-            )
-            all_image_ids.append(image_id)
-
-            # Load pixels (via diskcache)
-            cached = get_image_timepoint(
-                conn, image_id, timepoint, tag=plate_id
-            )  # ZYXC
-            raw = cached.squeeze(axis=0)  # YXC, original dtype
-            image_array = raw.astype(np.float32)
-
-            # Apply flatfield correction
-            if ff_success and flatfield is not None:
-                image_array = image_array / flatfield
-
-            # Normalise per channel to [0, 1] using the 99.9th percentile of
-            # each channel so the display matches the gallery widget's per-channel
-            # scaling. Dividing by iinfo.max (65535) produces very dim images
-            # because fluorescence images rarely use the full bit depth.
-            n_channels = image_array.shape[-1]
-            for ch in range(n_channels):
-                ch_slice = image_array[..., ch]
-                p_high = float(np.percentile(ch_slice, 99.9))
-                if p_high > 0:
-                    image_array[..., ch] = np.clip(ch_slice / p_high, 0.0, 1.0)
-
-            # Load segmentation masks
-            success, masks = _load_segmentation_masks(
-                conn, plate_id, image_id, timepoint
-            )
-            if not success:
-                logger.warning(
-                    f"Segmentation masks not found for image {image_id}, "
-                    f"skipping: {masks}"
-                )
-                continue
-
-            # Load centroids
-            success, centroids = _load_centroids_from_cellview(
-                plate_id,
+                "Zarr fast path produced %d crops for well %s",
+                len(all_crops),
                 well_id,
-                image_id,
-                segmentation,
-                cellcycle,
-                classifier_column,
-                classifier_class,
             )
-            if not success:
-                logger.warning(
-                    f"Centroids not found for image {image_id}, "
-                    f"skipping: {centroids}"
-                )
-                continue
-
-            logger.info(f"Image {image_id}: {len(centroids)} centroids found")
-
-            # Generate crops
-            crops, crop_labels = _generate_crops(
-                image_array, masks, centroids, crop_size, segmentation
+        else:
+            all_crops, all_crop_labels, all_image_ids = _load_crops_via_omero(
+                conn=conn,
+                plate=plate,
+                well=well,
+                plate_id=plate_id,
+                well_id=well_id,
+                image_indices=image_indices,
+                image_id_by_index=image_id_by_index,
+                timepoint=timepoint,
+                crop_size=crop_size,
+                segmentation=segmentation,
+                cellcycle=cellcycle,
+                classifier_column=classifier_column,
+                classifier_class=classifier_class,
             )
-            all_crops.extend(crops)
-            all_crop_labels.extend(crop_labels)
 
         if not all_crops:
             return (
@@ -295,8 +269,11 @@ def load_crops_from_omero(
             )
             masked_images = list(omero_data.selected_crops)
 
-        # Convert channel names to indices, matching session_utils approach
-        channels = user_data_dict.get("channels", [])
+        # Convert channel names to indices, matching session_utils approach.
+        # Empties are stripped earlier in the gallery widget; here we
+        # just resolve names against channel_data and pack into RGB by
+        # position (R=ch0, G=ch1, B=ch2 or 0).
+        channels = [ch for ch in user_data_dict.get("channels", []) if ch]
         channel_data = metadata.get("channel_data", {})
         channel_indices = []
         for ch in channels:
@@ -646,3 +623,306 @@ def _generate_crops(
 
     logger.info(f"Generated {len(crops)} valid crops")
     return crops, crop_labels
+
+
+def _load_crops_via_omero(
+    *,
+    conn: BlitzGateway,
+    plate: Any,
+    well: Any,
+    plate_id: int,
+    well_id: str,
+    image_indices: list[int],
+    image_id_by_index: dict[int, int],
+    timepoint: int,
+    crop_size: int,
+    segmentation: str,
+    cellcycle: str,
+    classifier_column: str,
+    classifier_class: str,
+) -> tuple[list[np.ndarray[Any, Any]], list[np.ndarray[Any, Any]], list[int]]:
+    """Per-field crop generation via OMERO + diskcache (legacy path).
+
+    Used when no zarr cache is available for the plate. Downloads each
+    field's pixels and segmentation masks, applies flatfield correction,
+    and crops around CellView centroids.
+    """
+    del plate  # unused — kept on signature for symmetry with zarr path
+    logger.info(f"Loading flatfield correction for plate {plate_id}")
+    ff_success, flatfield = _load_flatfield_correction(conn, plate_id)
+
+    all_crops: list[np.ndarray[Any, Any]] = []
+    all_crop_labels: list[np.ndarray[Any, Any]] = []
+    all_image_ids: list[int] = []
+
+    for img_idx in image_indices:
+        image = well.getImage(img_idx)
+        if not image:
+            logger.warning(f"Image at index {img_idx} not found, skipping")
+            continue
+
+        image_id = image_id_by_index.get(img_idx, image.getId())
+        logger.info(f"Processing image index {img_idx} (OMERO ID: {image_id})")
+        all_image_ids.append(image_id)
+
+        cached = get_image_timepoint(
+            conn, image_id, timepoint, tag=plate_id
+        )  # ZYXC
+        raw = cached.squeeze(axis=0)  # YXC, original dtype
+        image_array = raw.astype(np.float32)
+
+        if ff_success and flatfield is not None:
+            image_array = image_array / flatfield
+
+        n_channels = image_array.shape[-1]
+        for ch in range(n_channels):
+            ch_slice = image_array[..., ch]
+            p_high = float(np.percentile(ch_slice, 99.9))
+            if p_high > 0:
+                image_array[..., ch] = np.clip(ch_slice / p_high, 0.0, 1.0)
+
+        success, masks = _load_segmentation_masks(
+            conn, plate_id, image_id, timepoint
+        )
+        if not success:
+            logger.warning(
+                f"Segmentation masks not found for image {image_id}, "
+                f"skipping: {masks}"
+            )
+            continue
+
+        success, centroids = _load_centroids_from_cellview(
+            plate_id,
+            well_id,
+            image_id,
+            segmentation,
+            cellcycle,
+            classifier_column,
+            classifier_class,
+        )
+        if not success:
+            logger.warning(
+                f"Centroids not found for image {image_id}, "
+                f"skipping: {centroids}"
+            )
+            continue
+
+        logger.info(f"Image {image_id}: {len(centroids)} centroids found")
+
+        crops, crop_labels = _generate_crops(
+            image_array, masks, centroids, crop_size, segmentation
+        )
+        all_crops.extend(crops)
+        all_crop_labels.extend(crop_labels)
+
+    return all_crops, all_crop_labels, all_image_ids
+
+
+def _try_zarr_direct_load(
+    *,
+    plate_id: int,
+    well_id: str,
+    wanted_image_ids: list[int],
+    segmentation: str,
+    crop_size: int,
+    timepoint: int,
+    cellcycle: str,
+    classifier_column: str,
+    classifier_class: str,
+) -> (
+    tuple[list[np.ndarray[Any, Any]], list[np.ndarray[Any, Any]], list[int]]
+    | None
+):
+    """Try to load crops directly from the OME-Zarr stitched plate cache.
+
+    Returns ``(crops, label_crops, image_ids)`` when the zarr cache holds
+    this well, otherwise ``None`` so the caller can fall back to the
+    OMERO + diskcache path. Crops are normalised per channel to ``[0, 1]``
+    using the 99.9th percentile (matching the OMERO path).
+    """
+    if resolve_to_zarr(plate_id) is None:
+        return None
+    if well_id not in cached_wells(plate_id):
+        logger.info(
+            "Zarr cache present for plate %d but well %s not built; "
+            "falling back to OMERO loader",
+            plate_id,
+            well_id,
+        )
+        return None
+
+    # Load CellView once for the well (centroids are canvas-coordinate in
+    # stitched mode), then filter to the requested fields + optional
+    # cell-cycle / classifier filters.
+    try:
+        from cellview.api import cellview_load_data
+    except ImportError:
+        logger.warning("CellView not available; zarr fast path disabled")
+        return None
+
+    try:
+        df, _ = cellview_load_data(plate_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "CellView load failed for plate %d (%s); "
+            "falling back to OMERO loader",
+            plate_id,
+            exc,
+        )
+        return None
+
+    if df is None or df.empty:
+        logger.warning(
+            "CellView has no data for plate %d; falling back to OMERO loader",
+            plate_id,
+        )
+        return None
+
+    filtered = df[df["well"] == well_id]
+    if wanted_image_ids:
+        filtered = filtered[filtered["image_id"].isin(wanted_image_ids)]
+    # Live-cell time-lapse: CellView has one row per (cell, t) with the
+    # centroid AT that t. Without this filter, fetch_crop centres on a
+    # mix of timepoints' coordinates while reading pixels at a single
+    # ``t`` — cells end up off-frame. Mirrors the gallery fix in
+    # gallery_api._prepare_data_for_cropping.
+    if "timepoint" in filtered.columns:
+        filtered_tp = filtered[filtered["timepoint"] == int(timepoint)]
+        if not filtered_tp.empty:
+            filtered = filtered_tp
+        else:
+            logger.info(
+                "No CellView rows at timepoint %d for plate %d well %s; "
+                "falling back to all timepoints",
+                timepoint,
+                plate_id,
+                well_id,
+            )
+    if cellcycle != "All" and "cell_cycle" in filtered.columns:
+        filtered = filtered[filtered["cell_cycle"] == cellcycle]
+    if (
+        classifier_column
+        and classifier_class
+        and classifier_column in filtered.columns
+    ):
+        filtered = filtered[filtered[classifier_column] == classifier_class]
+
+    if filtered.empty:
+        logger.warning(
+            "No CellView rows after filtering for plate %d well %s",
+            plate_id,
+            well_id,
+        )
+        return None
+
+    if segmentation == "nucleus":
+        cy_col, cx_col = "centroid-0-nuc", "centroid-1-nuc"
+        mask_name = "nuclei"
+    else:
+        cy_col, cx_col = "centroid-0-cell", "centroid-1-cell"
+        mask_name = "cells"
+
+    for col in (cy_col, cx_col):
+        if col not in filtered.columns:
+            logger.warning(
+                "CellView missing column %s; falling back to OMERO loader",
+                col,
+            )
+            return None
+
+    # Canvas-percentile contrast: prefer the per-channel (lo, hi) window
+    # that was set when the plate was loaded into the viewer (matches the
+    # napari layer's ``contrast_limits``). Falls back to a per-crop 99.9th
+    # percentile when intensities are absent (headless callers).
+    from omero_screen_napari.omero_data_singleton import (
+        omero_data as _od,
+    )
+
+    canvas_intensities: dict[int, tuple[int, int]] = (
+        getattr(_od, "intensities", None) or {}
+    )
+
+    crops: list[np.ndarray[Any, Any]] = []
+    crop_labels: list[np.ndarray[Any, Any]] = []
+    seen_image_ids: list[int] = []
+    n_skipped = 0
+
+    for _row_idx, row in filtered.iterrows():
+        cy = float(row[cy_col])
+        cx = float(row[cx_col])
+        image_id = int(row["image_id"])
+        if image_id not in seen_image_ids:
+            seen_image_ids.append(image_id)
+
+        try:
+            crop_cyx = fetch_crop(
+                plate_id,
+                well_id,
+                label=0,
+                centroid=(cy, cx),
+                size=crop_size,
+                t=timepoint,
+            )
+            label_crop = fetch_label_crop(
+                plate_id,
+                well_id,
+                centroid=(cy, cx),
+                size=crop_size,
+                t=timepoint,
+                mask_name=mask_name,
+            )
+        except (FileNotFoundError, KeyError) as exc:
+            logger.warning(
+                "Zarr fetch failed mid-iteration (plate %d well %s): %s",
+                plate_id,
+                well_id,
+                exc,
+            )
+            return None
+
+        # (C, Y, X) → (Y, X, C), then normalise per-channel.
+        crop_yxc = np.transpose(crop_cyx, (1, 2, 0)).astype(
+            np.float32, copy=False
+        )
+        n_channels = crop_yxc.shape[-1]
+        for ch in range(n_channels):
+            ch_slice = crop_yxc[..., ch]
+            window = canvas_intensities.get(ch)
+            if window is not None:
+                lo, hi = float(window[0]), float(window[1])
+                rng = max(hi - lo, 1.0)
+                crop_yxc[..., ch] = np.clip((ch_slice - lo) / rng, 0.0, 1.0)
+            else:
+                p_high = float(np.percentile(ch_slice, 99.9))
+                if p_high > 0:
+                    crop_yxc[..., ch] = np.clip(ch_slice / p_high, 0.0, 1.0)
+
+        # Isolate the target cell's label at the centroid (matches
+        # _generate_crops's policy for no_background isolation).
+        h, w = label_crop.shape
+        cy_local, cx_local = h // 2, w // 2
+        target_label = int(label_crop[cy_local, cx_local])
+        if target_label == 0:
+            n_skipped += 1
+            continue
+        isolated = np.where(label_crop == target_label, label_crop, 0)
+        if not np.any(isolated):
+            n_skipped += 1
+            continue
+
+        crops.append(crop_yxc)
+        crop_labels.append(isolated)
+
+    if n_skipped:
+        logger.info(
+            "Zarr fast path skipped %d centroids on background", n_skipped
+        )
+
+    if not crops:
+        logger.warning(
+            "Zarr fast path produced no valid crops; "
+            "falling back to OMERO loader"
+        )
+        return None
+
+    return crops, crop_labels, seen_image_ids

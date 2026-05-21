@@ -701,7 +701,14 @@ class TestParseChannelData:
             assert "DAPI" in result
             assert result["DAPI"] == "0"
 
-    def test_hoechst_renamed_to_dapi(self):
+    def test_nucleus_channel_keeps_original_name(self):
+        """Original channel names (Hoechst, h2b_rfp, etc.) are preserved.
+
+        Previously ``_parse_channel_data`` force-renamed the nucleus
+        channel to ``DAPI``, which masked the biological marker. The
+        downstream code now uses :func:`resolve_channel_roles` to find
+        the nucleus, so the original label can be kept.
+        """
         from omero_screen_napari.plate_cache import _parse_channel_data
 
         mock_plate = MagicMock()
@@ -715,8 +722,9 @@ class TestParseChannelData:
             type(mock_ann),
         ):
             result = _parse_channel_data(mock_plate)
-            assert "DAPI" in result
-            assert "Hoechst" not in result
+            assert "Hoechst" in result
+            assert result["Hoechst"] == "0"
+            assert "DAPI" not in result
 
 
 # --------------- _default_intensities ---------------

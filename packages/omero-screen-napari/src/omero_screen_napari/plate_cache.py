@@ -972,9 +972,12 @@ def _parse_channel_data(plate: Any) -> dict[str, str]:
             roles = resolve_channel_roles(dict.fromkeys(result, 0))
         except ChannelAnnotationError:
             continue
-        nucleus_name = roles["nucleus"]
-        if nucleus_name != "DAPI":
-            result["DAPI"] = result.pop(nucleus_name)
+        # Validate that resolve_channel_roles found a nucleus channel,
+        # but keep the original channel name (e.g. ``h2b_rfp``) instead of
+        # renaming it to ``DAPI``. Downstream code that needs to *find*
+        # the nucleus channel should use ``resolve_channel_roles`` rather
+        # than substring-matching on the literal "DAPI".
+        _ = roles["nucleus"]
         return result
 
     raise ValueError(

@@ -97,7 +97,9 @@ def load_plate_to_viewer(
     # ``omero_data.images`` / ``omero_data.labels`` — those would defeat
     # zarr's lazy chunk loading. Widgets that need pixel arrays use the
     # zarr fetch API directly (gallery does this via _try_zarr_crop_path).
-    _populate_singleton(plate_id, well_pos_input, target_wells, info)
+    _populate_singleton(
+        plate_id, well_pos_input, target_wells, info, wells_data
+    )
 
     viewer.reset_view()
     logger.info(
@@ -236,6 +238,36 @@ def _add_label_layers(
     viewer.add_labels(pyramid, name=key, scale=scale)
 
 
+def _intensities_from_canvas(
+    wells_data: list[dict[str, Any]],
+) -> dict[int, tuple[int, int]] | None:
+    """Per-channel (lo, hi) from the first well's first timepoint.
+
+    Uses the same 0.1/99.9-percentile heuristic as the napari image
+    layers, so the gallery's per-channel scaling matches the viewer's
+    contrast limits. Returns ``None`` on any error so the caller can
+    fall back to CellView statistics.
+    """
+    try:
+        level0 = wells_data[0]["image"][0]  # zarr (T, C, Y, X)
+        if level0.ndim < 4:
+            return None
+        n_channels = level0.shape[1]
+        out: dict[int, tuple[int, int]] = {}
+        for c in range(n_channels):
+            sample = np.asarray(level0[0, c])
+            lo, hi = _channel_contrast(sample)
+            out[c] = (int(lo), int(hi))
+        return out
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to derive intensities from zarr canvas: %s "
+            "(falling back to CellView)",
+            exc,
+        )
+        return None
+
+
 def _channel_contrast(level0_yx: np.ndarray[Any, Any]) -> tuple[int, int]:
     """0.1/99.9-percentile contrast for a sample slice."""
     if level0_yx.size > 1_000_000:
@@ -309,6 +341,7 @@ def _populate_singleton(
     well_pos_input: str,
     target_wells: list[str],
     info: dict[str, Any],
+    wells_data: list[dict[str, Any]] | None = None,
 ) -> None:
     """Set the minimum fields downstream widgets read from the singleton.
 
@@ -377,8 +410,19 @@ def _populate_singleton(
     # surface a clean "plate not in CellView" error).
     omero_data.image_ids = _resolve_image_ids(plate_data, target_wells)
 
-    omero_data.intensities = _parse_intensities_from_cellview(
-        plate_id, channel_data
+    # Prefer canvas-percentile intensities matching napari's contrast
+    # limits over CellView mean(intensity_max), which is wildly off for
+    # live-cell channels (saturates tub-GFP to uniform green, crushes
+    # DAPI to near-zero). Falls back to CellView if no canvas sample is
+    # available.
+    if wells_data:
+        canvas_intensities = _intensities_from_canvas(wells_data)
+    else:
+        canvas_intensities = None
+    omero_data.intensities = (
+        canvas_intensities
+        if canvas_intensities is not None
+        else _parse_intensities_from_cellview(plate_id, channel_data)
     )
 
     logger.info(

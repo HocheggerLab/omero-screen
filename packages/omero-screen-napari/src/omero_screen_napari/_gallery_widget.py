@@ -21,6 +21,92 @@ from omero_screen_napari.gallery_api import show_gallery
 from omero_screen_napari.gallery_userdata_singleton import userdata
 from omero_screen_napari.omero_data_singleton import omero_data
 
+_RED_HINTS = ("rfp", "mcherry", "txred", "cy3", "h2b_rfp", "rfp_h2b")
+_GREEN_HINTS = ("gfp", "yfp", "fitc", "tub_gfp", "edu")
+_BLUE_HINTS = ("dapi", "hoechst", "cfp")
+
+
+def _auto_pick_rgb_channels(
+    available: list[str],
+) -> tuple[str, str, str]:
+    """Pick (red, green, blue) defaults from the loaded plate's channels.
+
+    Returns an empty string for a slot when no available channel name
+    matches the heuristic for that colour. The user can still override
+    the picks in the widget before clicking Enter.
+    """
+
+    def _first_match(hints: tuple[str, ...]) -> str:
+        for ch in available:
+            low = ch.lower()
+            if any(h in low for h in hints):
+                return ch
+        return ""
+
+    red = _first_match(_RED_HINTS)
+    green = _first_match(_GREEN_HINTS)
+    blue = _first_match(_BLUE_HINTS)
+    return red, green, blue
+
+
+def _sync_intensities_from_viewer() -> None:
+    """Pull live contrast_limits from the napari viewer's Image layers.
+
+    The gallery centres + scales each crop using
+    ``omero_data.intensities[channel_index]``. By default these are set
+    at well-load time (from canvas percentiles or CellView), so the
+    gallery is "frozen" — adjusting the viewer's contrast slider has no
+    effect. Reading the current ``contrast_limits`` here, just before
+    ``show_gallery`` runs, lets the user iterate contrast in the viewer
+    and see it reflected in the next gallery rebuild.
+
+    Layer matching: napari layer ``name`` is the channel name (set in
+    ``zarr_cache.display._add_image_layers``); we map that back to the
+    channel index via ``omero_data.channel_data``.
+    """
+    try:
+        from napari.viewer import current_viewer
+
+        viewer = current_viewer()
+    except Exception:  # noqa: BLE001
+        return
+    if viewer is None:
+        return
+
+    channel_data = getattr(omero_data, "channel_data", None) or {}
+    if not channel_data:
+        return
+
+    name_to_index: dict[str, int] = {}
+    for name, value in channel_data.items():
+        try:
+            name_to_index[str(name)] = int(float(value))
+        except (TypeError, ValueError):
+            continue
+
+    new_intensities = dict(getattr(omero_data, "intensities", {}) or {})
+    updated_any = False
+    for layer in viewer.layers:
+        if layer.__class__.__name__ != "Image":
+            continue
+        ch_idx = name_to_index.get(layer.name)
+        if ch_idx is None:
+            continue
+        cl = getattr(layer, "contrast_limits", None)
+        if cl is None:
+            continue
+        try:
+            lo, hi = float(cl[0]), float(cl[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        new_intensities[ch_idx] = (int(lo), int(hi))
+        updated_any = True
+
+    if updated_any:
+        omero_data.intensities = new_intensities
+        logger.info("Gallery contrast synced from viewer: %s", new_intensities)
+
+
 logger = get_logger(__name__)
 
 
@@ -160,11 +246,31 @@ def gallery_widget(
     reload: bool = True,
     contour: bool = True,
     no_background: bool = True,
-    blue_channel: str = "DAPI",
-    green_channel: str = "Tub",
-    red_channel: str = "EdU",
+    red_channel: str = "",
+    green_channel: str = "",
+    blue_channel: str = "",
 ) -> None:
-    channels = [blue_channel, green_channel, red_channel]
+    # Auto-pick RGB defaults from the loaded plate's channels when the
+    # user leaves a slot blank, or when the literal value isn't in the
+    # available channel list (covers stale hard-coded defaults like
+    # "DAPI" / "Tub" / "EdU" on plates that use different names).
+    available = list((omero_data.channel_data or {}).keys())
+    auto_red, auto_green, auto_blue = _auto_pick_rgb_channels(available)
+
+    def _resolve(user_value: str, auto_value: str) -> str:
+        if user_value and user_value in available:
+            return user_value
+        return auto_value
+
+    red_channel = _resolve(red_channel, auto_red)
+    green_channel = _resolve(green_channel, auto_green)
+    blue_channel = _resolve(blue_channel, auto_blue)
+
+    # Order matters: ``fill_missing_channels`` maps the list as
+    # [R=ch0, G=ch1, B=ch2]. With two channels the dispatcher packs
+    # them into R and G and leaves blue empty — the user prefers this
+    # to a slot-preserving G+B mapping for fluorescence imaging.
+    channels = [red_channel, green_channel, blue_channel]
     channels = [channel for channel in channels if channel != ""]
     if not well and omero_data.well_pos_list:
         well = omero_data.well_pos_list[0]
@@ -192,6 +298,7 @@ def gallery_widget(
     }
     try:
         userdata.populate_from_dict(user_data_dict)
+        _sync_intensities_from_viewer()
         show_gallery(omero_data, userdata)
     except ValueError as e:
         logger.exception("Gallery Error: %s", e)

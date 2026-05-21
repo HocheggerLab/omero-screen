@@ -78,21 +78,28 @@ def parse_npy_file(
             else:
                 masked_images = list(omero_data.selected_crops)
 
-            n_selected = len(user_data.channels)
+            # Resolve channels by position-packed RGB. Empties are
+            # stripped at save time, so user_data.channels is the list
+            # of non-empty names; fill_missing_channels then assigns
+            # [R=ch0, G=ch1, B=ch2 or 0].
+            channels_in_use = [ch for ch in user_data.channels if ch]
+            n_selected = len(channels_in_use)
             n_in_crop = masked_images[0].shape[-1] if masked_images else 0
+            channels_int: list[int] = []
 
             if n_in_crop == n_selected:
-                # New format: crops already contain only the selected channels
-                # in sequential order — use 0..n-1 for display mapping
+                # New format: crops already contain only the selected
+                # channels in sequential order — use 0..n-1 for display.
                 channels_int = list(range(n_selected))
                 logger.info(
-                    "Crops already channel-extracted (%d channels); using sequential indices",
+                    "Crops already channel-extracted (%d channels); using "
+                    "sequential indices",
                     n_selected,
                 )
             else:
-                # Old format: crops contain all OMERO channels — resolve names to indices
-                channels_int = []
-                for ch in user_data.channels:
+                # Old format: crops contain all OMERO channels — resolve
+                # names to indices via channel_data.
+                for ch in channels_in_use:
                     try:
                         channels_int.append(int(ch))
                         continue
@@ -112,7 +119,7 @@ def parse_npy_file(
                         )
 
                 if not channels_int and masked_images:
-                    n_requested = len(user_data.channels)
+                    n_requested = len(channels_in_use)
                     if n_requested <= 1:
                         logger.info(
                             "Could not resolve channel names; averaging all "

@@ -173,6 +173,26 @@ class CroppedImageParser:
 
             df = df.filter(pl.col("image_id").is_in(common_ids))
 
+        # Live-cell time-lapse: CellView stores one row per (cell, t),
+        # each with the centroid at that timepoint. Without this filter
+        # _select_centroids would return a mix of centroids from every
+        # timepoint, but the crop is fetched at a single t — so cells
+        # from other timepoints land where they used to be, not where
+        # they are now. Filter to the user's timepoint when the column
+        # is present.
+        if "timepoint" in df.columns:
+            tp = int(self._user_data.timepoint)
+            df_tp = df.filter(pl.col("timepoint") == tp)
+            if df_tp.height > 0:
+                df = df_tp
+            else:
+                logger.info(
+                    "No rows for timepoint %d (well %s); falling back to "
+                    "all timepoints",
+                    tp,
+                    self._user_data.well,
+                )
+
         # Check for duplicate indices
         self._check_duplicate_indices(df)
 
@@ -714,7 +734,10 @@ class RandomImageParser:
         if self._user_data.no_background:
             self._apply_mask_to_images()
 
-        # Convert channel names to indices
+        # Convert channel names to indices. Empties are stripped at the
+        # gallery_widget layer, so ``user_data.channels`` only contains
+        # resolvable names; ``fill_missing_channels`` then packs them
+        # into RGB by list position (R=ch0, G=ch1, B=ch2 or 0).
         channel_indices = []
         for channel_name in self._user_data.channels:
             val = self._omero_data.channel_data.get(channel_name)
@@ -856,9 +879,12 @@ def fill_missing_channels(
     empty_image = np.zeros((img.shape[0], img.shape[1]), dtype=img.dtype)
     ch_arrays = []
 
-    # Extract requested channels
+    # Extract requested channels. ``-1`` (or any negative / out-of-range
+    # index) is the sentinel for "no channel in this RGB slot" — the
+    # caller must NOT receive img[..., -1] (which would silently pick the
+    # last channel and mis-colour the result).
     for idx in channel_indices:
-        if idx < img.shape[-1]:
+        if 0 <= idx < img.shape[-1]:
             ch_arrays.append(img[..., idx])
         else:
             ch_arrays.append(empty_image)
@@ -918,6 +944,11 @@ class ParseGallery:
         return self._build_gallery()
 
     def _build_gallery(self) -> Any:
+        # Close any previously-open gallery figures before creating a new
+        # one. Each Enter would otherwise leak a figure into pyplot's
+        # global registry; on macOS the Cocoa/Qt backend segfaults after
+        # ~10 accumulated windows.
+        plt.close("all")
         fig, ax = plt.subplots(figsize=(10, 10))
         if len(self._user_data.channels) == 1:
             ax.imshow(self._gallery_image[..., 0], cmap="gray_r")
