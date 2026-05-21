@@ -64,26 +64,62 @@ You can:
 
 ## Step 3 — Cache the plate for faster access
 
-Downloading images from OMERO every time is slow. The **Cache** feature downloads all wells in a plate to your local disk once, so subsequent loads are instant.
+Downloading images from OMERO every time is slow. The **Cache** feature downloads a plate to your local disk once, so subsequent loads are instant.
+
+There are two cache backends, and the widget picks one for you based on how the plate was processed:
+
+| Backend | Used when | What's stored | How loads work |
+|---------|-----------|---------------|----------------|
+| **Disk cache** (legacy) | Plates processed in per-field mode | Raw per-image TCZYX pixels (uint16) | Pixels fetched per field at view time; stitching done in memory |
+| **OME-Zarr cache** | Plates processed with `--stitch` (see [stitched-mode segmentation](https://hocheggerlab.github.io/omero-screen/pipeline.html#stitched-mode-segmentation)) | Pre-stitched whole-well canvas in OME-Zarr v0.4 (NGFF) format | Lazy chunk loads straight into napari — bounded memory, instant pan/zoom |
+
+The widget detects stitched-mode plates automatically (by looking for `_stitched_segmentation` images in the OMERO segmentation dataset) and uses OME-Zarr. Everything else uses the disk cache.
 
 ### How to cache
 
 1. Tick the **Cache** checkbox before clicking Enter, **or**
-2. Open the **Cached Plates panel** at the top of the widget and click the **Cache** button next to the plate you want.
+2. Open the **Cached Plates panel** at the top of the widget and click the **Cache** button next to the plate you want, **or**
+3. Open the **Plate Info dialog** (see Step 1) and click **Cache Plate** there.
+
+For OME-Zarr builds you'll see a determinate progress bar (`building D1 (0/12)` → `wrote D1 (1/12), building D2` …). Cancelling mid-build is safe — wells already written stay on disk, and clicking Cache Plate again resumes from where it stopped.
 
 ### The Cached Plates panel
 
 | Control | What it does |
 |---------|-------------|
-| **Plate dropdown** | Shows all locally cached plates with their status |
+| **Plate dropdown** | Shows all locally cached plates with their status (disk or zarr) |
 | **Cache Size** | Total disk space used by the cache |
-| **Cache button** | Downloads the full plate in the background |
-| **Delete button** | Removes the cached data for a plate to free disk space |
+| **Cache button** | Downloads the full plate in the background, using the right backend |
+| **Delete button** | Removes the cached data for a plate (clears both backends if both are present) and the per-plate OME-Zarr directory |
 | **Refresh button** | Rescans the cache folder (useful if you cached from another session) |
 
 The cache persists between Napari sessions — you do not need to re-download when you restart.
 
+### Where the caches live on disk
+
+```
+~/.cache/omero_screen/
+├── images/    # disk cache: per-image TCZYX pixel blobs (diskcache + sqlite index)
+├── plates/    # disk cache: plate metadata + well layout
+└── zarr/      # OME-Zarr cache: one plate_<id>.zarr directory per cached plate
+    └── registry.json    # tracks last-accessed times for LRU eviction
+```
+
+Size limits are configurable via environment variables:
+- `OMERO_SCREEN_IMAGE_CACHE_SIZE_LIMIT` (default **20 GiB**, for the legacy disk cache; raw bytes)
+- `OMERO_SCREEN_ZARR_MAX_GB` (default **100 GiB**, for the OME-Zarr cache; integer GiB, clamped to a 10 GiB minimum)
+
+When a new build would exceed its cap, the least-recently-accessed plate is evicted automatically.
+
 > **Tip:** For large plates (>20 wells), start the cache download while you work on the first few wells. By the time you need the later wells, they will already be on disk.
+
+> **Tip:** If you suspect orphan files (e.g. after a crash), `rm -rf ~/.cache/omero_screen` is always safe — all three caches rebuild on demand.
+
+### Disk cache vs OME-Zarr — which is "better"?
+
+For the **future direction**: OME-Zarr is the destination. Loads are dramatically lighter on memory (no in-memory stitching at view time), and the format is standard so the same data can be opened by other tools (`napari-ome-zarr`, Fiji, `ome-zarr-py`).
+
+For **today**: the disk cache covers per-field plates that haven't been re-run with `--stitch`, and is still the path used by the gallery / training widgets via per-image crops. Both backends coexist; the dispatcher chooses the right one. You don't normally need to think about this — but if you're processing a new plate and want the fastest viewer experience, run with `--stitch` so the OME-Zarr path is available.
 
 ---
 

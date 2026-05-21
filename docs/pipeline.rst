@@ -52,6 +52,89 @@ The stages are:
    plate object; intermediate per-well files are deleted.
 
 
+.. _stitched-mode:
+
+Stitched-Mode Segmentation
+--------------------------
+
+By default the pipeline segments each field-of-view image independently and then
+merges the results. For plates where every well is tiled (multi-position
+acquisitions on Operetta / Opera / similar systems), the ``--stitch`` flag
+switches to a **whole-well canvas** workflow:
+
+1. All fields of a well are downloaded and flatfield-corrected.
+2. The fields are stitched into a single ``(T, Y, X, C)`` canvas using stage
+   positions read from OMERO.
+3. **Cellpose runs once** on the stitched canvas — internal tiling handles the
+   large input. This removes the per-field seam problem where a cell straddling
+   two fields would be cut in half by the border filter on each side.
+4. The resulting whole-well mask is **split back into per-field tiles**
+   (each label belongs to exactly one field by centroid) and uploaded to the
+   OMERO segmentation dataset with the suffix ``_stitched_segmentation``.
+5. Feature extraction proceeds on the stitched canvas, so each cell appears
+   exactly once in the output CSV.
+
+When to use ``--stitch``:
+
+* **Multi-position acquisitions** with tiled fields per well — the default path.
+* **Live-cell time-lapse**, where a single global segmentation produces
+  consistent labels across the canvas.
+* **Large cells** that frequently straddle field boundaries.
+
+When *not* to use ``--stitch``:
+
+* **Single-position acquisitions** (one image per well). The legacy per-field
+  path is faster and there is no benefit to stitching.
+* **Plates without reliable stage-position metadata**. The stitcher needs
+  ``PosX`` / ``PosY`` on each well-sample; if those are absent or noisy, the
+  canvas will not align.
+
+The downstream napari widgets detect stitched-mode plates automatically (by
+looking for ``_stitched_segmentation`` images in the dataset) and load the
+masks correctly without further configuration. See
+:doc:`omero-screen-napari/welldata_widget` for the cache-backend split.
+
+
+.. _channel-seg-profiles:
+
+Per-Channel Segmentation Profiles
+---------------------------------
+
+Cellpose's default thresholds work well on the high-contrast, even-intensity
+images you get from fixed-cell IF (DAPI, Hoechst). They struggle on live-cell
+fluorescent markers like **H2B-RFP** (variable per-cell brightness) or
+**Tubulin-GFP** (heterogeneous expression). The pipeline exposes a
+``CHANNEL_SEG_PROFILES`` map in the default config that applies bespoke
+preprocessing and Cellpose parameters when those channel names appear:
+
+.. code-block:: python
+
+   CHANNEL_SEG_PROFILES = {
+       "h2b_rfp": {"gamma": 0.5, "cellprob_threshold": -2.0},
+       "tub_gfp": {
+           "gamma": 0.5,
+           "cellprob_threshold": -2.0,
+           "flow_threshold": 0.6,
+       },
+   }
+
+The lookup is **case-insensitive** on the channel name. Three knobs are
+supported:
+
+* ``gamma`` — dynamic-range compression applied after percentile rescaling and
+  before Cellpose. ``< 1`` lifts dim values and compresses the bright end,
+  which improves detection of dim nuclei in frames that also contain bright
+  ones.
+* ``cellprob_threshold`` — passed directly to ``cellpose.eval()``. Lower it
+  (e.g. ``-2``) to accept less-confident detections.
+* ``flow_threshold`` — passed directly to ``cellpose.eval()``. Useful for
+  cell-channel segmentation when Tubulin signal is faint at the cell edge.
+
+Override by setting ``OMERO_SCREEN_CONFIG`` to a JSON file with a
+``CHANNEL_SEG_PROFILES`` block. Channels with no entry use the default
+Cellpose parameters — fixed-cell pipelines are unaffected.
+
+
 Command Line Interface
 ----------------------
 
@@ -117,6 +200,11 @@ The main entry point for running the analysis pipeline against one or more plate
      - off
      - Record per-image timing data and write a JSON benchmark report at the end of
        the run.
+   * - ``--stitch``
+     - off
+     - Run segmentation on a stitched whole-well canvas instead of per-field.
+       See :ref:`stitched-mode` for when to use this. Required for live-cell
+       time-lapse plates and for the OME-Zarr napari cache backend.
 
 **Examples**
 
@@ -142,6 +230,9 @@ The main entry point for running the analysis pipeline against one or more plate
 
     # Record benchmark timing data
     omero-screen 12345 --benchmark
+
+    # Stitched-mode segmentation (live-cell time-lapse, multi-tile per well)
+    omero-screen 12345 --stitch --cp4
 
 
 sbatch_omero_screen
