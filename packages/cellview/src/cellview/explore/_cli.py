@@ -129,7 +129,7 @@ def launch_explore(
     )
 
     EXPLORE_DIR.mkdir(parents=True, exist_ok=True)
-    _ensure_claude_md(EXPLORE_DIR)
+    _ensure_claude_assets(EXPLORE_DIR)
     _migrate_legacy_notebook(target.legacy_path, target.notebook_path)
 
     if target.notebook_path.exists() and not fresh:
@@ -323,14 +323,31 @@ def _folder_name_for_plates(plate_ids: list[int]) -> str | None:
     return None
 
 
-def _ensure_claude_md(explore_dir: Path) -> None:
-    """Copy the bundled CLAUDE.md into explore_dir if not already present."""
-    dest = explore_dir / "CLAUDE.md"
-    if dest.exists():
+def _ensure_claude_assets(explore_dir: Path) -> None:
+    """Drop CLAUDE.md and the bundled `.claude/` skills package into explore_dir.
+
+    Skips files that already exist so user edits are preserved. The source
+    layout uses ``_claude/`` (no leading dot) for packaging compatibility;
+    it is renamed to ``.claude/`` at the destination.
+    """
+    claude_md = explore_dir / "CLAUDE.md"
+    src_md = BUILTIN_TEMPLATE_DIR / "CLAUDE.md"
+    if not claude_md.exists() and src_md.exists():
+        shutil.copy2(src_md, claude_md)
+
+    src_dotclaude = BUILTIN_TEMPLATE_DIR / "_claude"
+    if not src_dotclaude.is_dir():
         return
-    source = BUILTIN_TEMPLATE_DIR / "CLAUDE.md"
-    if source.exists():
-        shutil.copy2(source, dest)
+    dest_dotclaude = explore_dir / ".claude"
+    for src_file in src_dotclaude.rglob("*"):
+        if not src_file.is_file():
+            continue
+        rel = src_file.relative_to(src_dotclaude)
+        dest_file = dest_dotclaude / rel
+        if dest_file.exists():
+            continue
+        dest_file.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_file, dest_file)
 
 
 def _migrate_legacy_notebook(legacy_path: Path, target_path: Path) -> None:

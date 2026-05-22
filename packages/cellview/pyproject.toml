@@ -24,7 +24,11 @@ test = ["pytest", "pytest-mock"]
 explore = ["nbformat>=5.9", "jupyterlab>=4.0"]
 
 [tool.setuptools.package-data]
-cellview = ["explore/templates/*.ipynb"]
+cellview = [
+    "explore/templates/*.ipynb",
+    "explore/templates/CLAUDE.md",
+    "explore/templates/_claude/**/*.md",
+]
 
 [project.scripts]
 cellview = "cellview.main:main"

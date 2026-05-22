@@ -171,8 +171,8 @@ data analysis. It consists of four modules:
   into notebooks before launching.
 - ``_cli.py`` — the ``launch_explore()`` orchestrator: resolves the template,
   injects plate IDs, opens the notebook in JupyterLab (or another editor via
-  ``_open_editor()``), and calls ``_ensure_claude_md()`` to copy the AI
-  context file on first run.
+  ``_open_editor()``), and calls ``_ensure_claude_assets()`` to copy
+  ``CLAUDE.md`` and the bundled ``.claude/`` skills package on first run.
 - ``_explore_json.py`` — ``explore_json()`` produces a JSON snapshot of the
   current database state for use by agentic workflows (e.g. AI assistants that
   need to know which plates and experiments exist).
