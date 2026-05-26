@@ -22,6 +22,16 @@ class UserData:
     channels: list[str] = field(default_factory=list)
 
     def populate_from_dict(self, data: dict[str, Any]) -> None:
+        """Replace all fields from ``data``, resetting anything not present.
+
+        All three call sites (gallery dialog, classifier-metadata load,
+        session-metadata load) supply complete dicts produced via
+        ``dataclasses.asdict``, so reset-before-populate gives them a
+        fresh snapshot. Without the reset, a previous load's
+        ``cellcycle`` / ``channel_data`` / etc. would linger when a key
+        was missing — a recurring cross-contamination bug pattern.
+        """
+        self.reset()
         for key, value in data.items():
             if hasattr(self, key):
                 setattr(self, key, value)

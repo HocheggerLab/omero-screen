@@ -1,12 +1,13 @@
 
-import pytest
 import numpy as np
+import pytest
 from omero_screen_napari.gallery_api import (
     calculate_crop_coordinates,
-    pad_region,
     erase_masks,
     fill_missing_channels,
+    pad_region,
 )
+
 
 class TestGalleryHelpers:
     def test_calculate_crop_coordinates(self):
@@ -98,8 +99,15 @@ class TestGalleryHelpers:
         assert res[0, 0, 2] == 0  # Blue = empty
 
 from unittest.mock import MagicMock
+
 import polars as pl
-from omero_screen_napari.gallery_api import CroppedImageParser, RandomImageParser, UserData, OmeroData
+from omero_screen_napari.gallery_api import (
+    CroppedImageParser,
+    OmeroData,
+    RandomImageParser,
+    UserData,
+)
+
 
 @pytest.fixture
 def mock_omero_data():
@@ -179,26 +187,6 @@ class TestCroppedImageParser:
         assert set(parser._df["image_id"].to_list()) == {101, 103}
         assert 102 not in parser._df["image_id"].to_list()
 
-    def test_remove_duplicate_images(self, mock_omero_data, mock_user_data):
-        parser = CroppedImageParser(mock_omero_data, mock_user_data)
-
-        # Create duplicate arrays
-        arr1 = np.zeros((10, 10))
-        arr2 = np.ones((10, 10))
-        arr3 = np.zeros((10, 10)) # Duplicate of arr1
-
-        parser._images = np.array([arr1, arr2, arr3])
-        parser._labels = np.array([arr1, arr2, arr3]) # Dummy labels
-
-        parser._remove_duplicate_images()
-
-        assert len(parser._images) == 2
-        # Verify content
-        remaining = parser._images
-        assert np.array_equal(remaining[0], arr1)
-        assert np.array_equal(remaining[1], arr2)
-
-
 class TestRandomImageParser:
     def test_parse_random_index_all(self, mock_omero_data, mock_user_data):
         parser = RandomImageParser(mock_omero_data, mock_user_data, False)
@@ -236,16 +224,6 @@ class TestRandomImageParser:
 
         remaining = parser._remove_chosen_crops(images)
         assert remaining == ["a", "c", "e"]
-
-    def test_check_identical_arrays_raises(self, mock_omero_data, mock_user_data):
-        parser = RandomImageParser(mock_omero_data, mock_user_data, False)
-
-        arr = np.zeros((5,5))
-        parser._random_images = [arr, arr] # Identical
-
-        with pytest.raises(ValueError, match="identical arrays"):
-            parser._check_identical_arrays()
-
 
 class TestZarrCropDispatch:
     """The _try_zarr_crop_path short-circuit: falls back cleanly when zarr

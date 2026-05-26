@@ -28,8 +28,6 @@ from qtpy.QtWidgets import (
 from omero_screen_napari.direct_omero_loader import load_crops_from_omero
 
 if TYPE_CHECKING:
-    from typing import Any
-
     from omero_screen_napari.gallery_userdata import UserData
     from omero_screen_napari.omero_data import OmeroData
     from omero_screen_napari.trainingdata_db.database import TrainingDB
@@ -132,7 +130,7 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
         self._classifier_class_combo.setEnabled(False)
         form_layout.addRow("Class:", self._classifier_class_combo)
 
-        self._plate_df: Any | None = None
+        self._plate_id_for_classes: int | None = None
 
         main_layout.addLayout(form_layout)
 
@@ -261,20 +259,35 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
         self._populate_classifier_options(plate_id)
 
     def _populate_classifier_options(self, plate_id: int) -> None:
-        """Query CellView for classifier columns available for this plate."""
-        try:
-            from cellview.api import cellview_load_data
+        """Query CellView for classifier columns available for this plate.
 
-            df, _ = cellview_load_data(plate_id)
-            self._plate_df = df
-            classifier_cols = [
-                c for c in df.columns if c.startswith("classifier_")
-            ]
-        except Exception as e:
+        Previously this called ``cellview_load_data(plate_id)`` and pulled
+        the entire plate (~695k rows × 287 cols, ~3 s) just to read column
+        names + per-column unique values. We now do a ``PRAGMA
+        table_info`` against ``measurements`` for the column list, and
+        defer the per-column ``SELECT DISTINCT`` to
+        ``_on_classifier_col_changed`` (only fires when the user actually
+        picks a classifier).
+        """
+        self._plate_id_for_classes = plate_id
+        try:
+            from cellview.db.db import CellViewDB
+
+            db = CellViewDB()
+            conn = db.connect()
+            try:
+                cols = conn.execute(
+                    "PRAGMA table_info(measurements)"
+                ).fetchall()
+                classifier_cols = sorted(
+                    row[1] for row in cols if row[1].startswith("classifier_")
+                )
+            finally:
+                conn.close()
+        except Exception as e:  # noqa: BLE001
             logger.warning(
-                f"Could not load CellView data for plate {plate_id}: {e}"
+                f"Could not list classifier columns for plate {plate_id}: {e}"
             )
-            self._plate_df = None
             classifier_cols = []
 
         self._classifier_col_combo.blockSignals(True)
@@ -296,24 +309,55 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
         self._classifier_class_combo.setEnabled(False)
 
     def _on_classifier_col_changed(self, col_name: str) -> None:
-        """Populate the class dropdown when a classifier column is selected."""
+        """Populate the class dropdown when a classifier column is selected.
+
+        Issues a ``SELECT DISTINCT col FROM measurements ... WHERE
+        plate_id = ?`` against DuckDB rather than pulling the full plate.
+        The plate predicate keeps it sub-100ms even on large plates.
+        """
         self._classifier_class_combo.clear()
         self._classifier_class_combo.addItem("All")
 
-        if (
-            not col_name
-            or col_name == "None"
-            or self._plate_df is None
-            or col_name not in self._plate_df.columns
-        ):
+        if not col_name or col_name == "None":
             self._classifier_class_combo.setEnabled(False)
             return
 
-        classes = sorted(
-            str(v) for v in self._plate_df[col_name].dropna().unique().tolist()
-        )
-        for cls in classes:
-            self._classifier_class_combo.addItem(cls)
+        plate_id = getattr(self, "_plate_id_for_classes", None)
+        if plate_id is None:
+            self._classifier_class_combo.setEnabled(False)
+            return
+
+        try:
+            from cellview.db.db import CellViewDB
+
+            db = CellViewDB()
+            conn = db.connect()
+            try:
+                # Column name is taken from PRAGMA table_info output, so
+                # it's safe to interpolate into the query string; DuckDB
+                # parameters can't bind identifiers.
+                rows = conn.execute(
+                    f"""
+                    SELECT DISTINCT m."{col_name}"
+                    FROM measurements m
+                    JOIN conditions c ON m.condition_id = c.condition_id
+                    JOIN repeats r ON c.repeat_id = r.repeat_id
+                    WHERE r.plate_id = ? AND m."{col_name}" IS NOT NULL
+                    ORDER BY m."{col_name}"
+                    """,
+                    [plate_id],
+                ).fetchall()
+            finally:
+                conn.close()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"Could not list classes for {col_name} on plate {plate_id}: {e}"
+            )
+            self._classifier_class_combo.setEnabled(False)
+            return
+
+        for row in rows:
+            self._classifier_class_combo.addItem(str(row[0]))
         self._classifier_class_combo.setEnabled(True)
 
     def _selected_classifier_column(self) -> str:
@@ -365,6 +409,7 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
                 cellcycle=self.cellcycle_input.currentText(),
                 classifier_column=self._selected_classifier_column(),
                 classifier_class=self._selected_classifier_class(),
+                timepoint=self.timepoint_input.value(),
             )
 
             if success:

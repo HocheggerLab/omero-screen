@@ -1,24 +1,18 @@
-import datetime
 import random
 from ast import literal_eval
 from collections.abc import Iterable
-from pathlib import Path
-from typing import Any, Optional, TypeVar
+from typing import Any, TypeVar
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
-from omero.gateway import BlitzGateway
 from omero_screen.config import get_logger
-from omero_utils import omero_connect
 from skimage import exposure
 from skimage.measure import find_contours, label, regionprops
 
 from omero_screen_napari.gallery_userdata import UserData
-from omero_screen_napari.omero_data import OmeroData, get_dataset_id
-from omero_screen_napari.utils import save_fig
-from omero_screen_napari.welldata_api import well_image_parser
+from omero_screen_napari.omero_data import OmeroData
 from omero_screen_napari.zarr_cache import (
     fetch_crop,
     fetch_label_crop,
@@ -125,7 +119,6 @@ class CroppedImageParser:
             return  # Or raise ValueError(msg) - return is safer for GUI to not crash hard
 
         self._crop_data()
-        self._remove_duplicate_images()
         self._omero_data.cropped_images = self._cropped_images
         self._omero_data.cropped_labels = self._cropped_labels
         self._omero_data.cropped_cell_meta = self._cell_meta
@@ -548,32 +541,6 @@ class CroppedImageParser:
                     }
                 )
 
-    def _remove_duplicate_images(self) -> None:
-        """Remove duplicate images and their corresponding labels from the dataset."""
-        unique_images = []
-        unique_labels = []
-        seen_images = set()
-        initial_count = len(self._images)
-
-        for image, unique_label in zip(
-            self._images, self._labels, strict=False
-        ):
-            image_tuple = tuple(
-                image.flatten()
-            )  # Convert image to a hashable type
-            if image_tuple not in seen_images:
-                seen_images.add(image_tuple)
-                unique_images.append(image)
-                unique_labels.append(unique_label)
-
-        self._images = np.array(unique_images)
-        self._labels = np.array(unique_labels)
-
-        # Calculate and log the number of removed images
-        final_count = len(self._images)
-        removed_count = initial_count - final_count
-        logger.info("Removed %d duplicate images.", removed_count)
-
 
 # helper functions for cropping images
 def crop_region(
@@ -721,7 +688,6 @@ class RandomImageParser:
                 for i in self._chosen_indices
                 if i < len(self._omero_data.cropped_cell_meta)
             ]
-        # self._check_identical_arrays()
         self._omero_data.cropped_images = self._remove_chosen_crops(
             self._omero_data.cropped_images
         )
@@ -801,27 +767,6 @@ class RandomImageParser:
         self._random_labels = [
             self._omero_data.cropped_labels[i] for i in self._chosen_indices
         ]
-
-    def _check_identical_arrays(self) -> None:
-        """Saftey check to ensure that gallery images have been chosen and that no identical arrays
-        are present in the chosen cells.
-        """
-        if not self._random_images:
-            logger.error("Slelection of crops for gallery has failed")
-            raise ValueError("Slelection of crops for gallery has failed")
-        # Check each array with every other array in the list
-        n = len(self._random_images)
-        for i in range(n):
-            for j in range(
-                i + 1, n
-            ):  # Start from i+1 to avoid comparing the same array
-                if np.array_equal(
-                    self._random_images[i], self._random_images[j]
-                ):
-                    raise ValueError(
-                        "There are identical arrays in the chosen cells. Please try again."
-                    )
-        return  # No identical arrays found
 
     _T = TypeVar("_T")
 
@@ -1078,109 +1023,4 @@ class ParseGallery:
             ha="center",
             va="bottom",
             fontsize=12,
-        )
-
-
-# -----------------------------Well Galleries-----------------------------------
-
-
-@omero_connect
-def run_gallery_parser(
-    omero_data: OmeroData,
-    user_data: UserData,
-    well_input: list[str],
-    galleries: int,
-    conn: Optional[BlitzGateway] = None,
-) -> None:
-    if conn:
-        try:
-            gallery_path = _manage_path(omero_data)
-            well_list = _get_wells(omero_data, well_input, conn)
-            for well in well_list:
-                try:
-                    _save_gallery(
-                        omero_data,
-                        user_data,
-                        well,
-                        galleries,
-                        gallery_path,
-                        conn,
-                    )
-                except Exception as e:  # noqa: BLE001
-                    logger.warning(e)
-        except Exception as e:
-            logger.error(e)
-            raise e
-
-
-def _manage_path(omero_data: OmeroData) -> Path:
-    DEFAULT_PATH = Path.home() / "Omero-Screen-Galleries"
-    DEFAULT_PATH.mkdir(exist_ok=True)
-    experiment = f"{omero_data.plate_id}_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
-    experiment_path = DEFAULT_PATH / experiment
-    experiment_path.mkdir(exist_ok=True)
-    print(f"Creating directory at {experiment_path}")
-    return experiment_path
-
-
-def _get_wells(
-    omero_data: OmeroData, well_input: list[str], conn: BlitzGateway
-) -> list[str]:
-    plate = conn.getObject("Plate", omero_data.plate_id)
-    well_list = [well.getWellPos() for well in plate.listChildren()]  # type: ignore
-    if well_input == ["All"]:
-        return well_list
-    else:
-        return [well for well in well_input if well in well_list]
-
-
-def _save_gallery(
-    omero_data: OmeroData,
-    userdata: UserData,
-    wellpos: str,
-    galleries: int,
-    path: Path,
-    conn: BlitzGateway,
-) -> None:
-    _reset_data(omero_data, userdata, wellpos, conn)
-    well_image_parser(omero_data, wellpos, conn)
-    userdata.reload = False
-    cropped_image_parser = CroppedImageParser(omero_data, userdata)
-    cropped_image_parser.parse_crops()
-    for i in range(galleries):
-        random_image_parser = RandomImageParser(
-            omero_data, userdata, classifier=False
-        )
-        random_image_parser.parse_random_images()
-        gallery_parser = ParseGallery(omero_data, userdata, show_gallery=False)
-        fig = gallery_parser.plot_gallery()
-        save_fig(
-            fig,
-            path,
-            f"{omero_data.plate_id}_{wellpos}_gallery_{i}",
-            fig_extension="pdf",
-        )
-
-
-def _reset_data(
-    omero_data: OmeroData, userdata: UserData, wellpos: str, conn: BlitzGateway
-) -> None:
-    omero_data.reset_well_and_image_data()
-    # omero_data.cropped_images == [np.empty((0,))]
-    # omero_data.cropped_labels == []
-    omero_data.well_pos_list = [wellpos]
-    userdata.well = wellpos
-    if plate := conn.getObject("Plate", omero_data.plate_id):
-        omero_data.plate = plate
-    else:
-        raise ValueError(f"Error connection to plate {omero_data.plate_id}")
-    # Check if both project and dataset can be retrieved, and then assign dataset to omero_data.screen_dataset
-    if dataset := conn.getObject(
-        "Dataset",
-        get_dataset_id(conn, omero_data.plate_id),
-    ):
-        omero_data.screen_dataset = dataset
-    else:
-        raise ValueError(
-            f"Error connection to plate dataset {omero_data.plate_id}"
         )

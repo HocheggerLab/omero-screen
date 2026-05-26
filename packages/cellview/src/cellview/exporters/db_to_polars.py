@@ -31,19 +31,26 @@ class PlateParserPolars:
         self.ui = CellViewUI()
 
     def _get_condition_variables(
-        self, plate_id: int
+        self, plate_id: int, well: str | None = None
     ) -> tuple[pl.DataFrame, list[str]]:
         """Get condition variables as separate columns and return variable names.
 
         Args:
             plate_id: The ID of the plate to get variables for.
+            well: Optional well label (e.g. ``"D1"``) to restrict the query
+                to a single well. ``None`` returns all wells on the plate.
 
         Returns:
             A tuple containing:
                 - A Polars DataFrame with condition variables as columns.
                 - A list of unique variable names.
         """
-        query = """
+        params: list[object] = [plate_id]
+        where = "WHERE r.plate_id = ?"
+        if well is not None:
+            where += " AND c.well = ?"
+            params.append(well)
+        query = f"""
         SELECT
             c.well,
             c.well_id,
@@ -57,10 +64,10 @@ class PlateParserPolars:
         FROM repeats r
         JOIN conditions c ON r.repeat_id = c.repeat_id
         LEFT JOIN condition_variables cv ON c.condition_id = cv.condition_id
-        WHERE r.plate_id = ?
+        {where}
         """
         # Load directly to Polars
-        df = self.conn.execute(query, [plate_id]).pl()
+        df = self.conn.execute(query, params).pl()
 
         variable_names = []
         if "variable_name" in df.columns:
@@ -106,11 +113,18 @@ class PlateParserPolars:
 
         return pl.DataFrame(), variable_names
 
-    def _get_measurements(self, plate_id: int) -> pl.DataFrame:
+    def _get_measurements(
+        self,
+        plate_id: int,
+        well: str | None = None,
+        timepoint: int | None = None,
+    ) -> pl.DataFrame:
         """Get measurements for a plate.
 
         Args:
             plate_id: The ID of the plate to get measurements for.
+            well: Optional well label (e.g. ``"D1"``) to restrict the query.
+            timepoint: Optional timepoint to restrict the query.
 
         Returns:
             A Polars DataFrame with measurements.
@@ -150,6 +164,14 @@ class PlateParserPolars:
         # Combine always_include columns with all measurement columns
         select_cols = always_include + measurement_cols
         select_clause = ",\n            ".join(select_cols)
+        params: list[object] = [plate_id]
+        where = "WHERE r.plate_id = ?"
+        if well is not None:
+            where += " AND c.well = ?"
+            params.append(well)
+        if timepoint is not None and "timepoint" in available_measurement_cols:
+            where += " AND m.timepoint = ?"
+            params.append(int(timepoint))
         query = f"""
         SELECT
             {select_clause}
@@ -157,11 +179,11 @@ class PlateParserPolars:
         JOIN conditions c ON r.repeat_id = c.repeat_id
         JOIN measurements m ON c.condition_id = m.condition_id
         JOIN experiments e ON r.experiment_id = e.experiment_id
-        WHERE r.plate_id = ?
+        {where}
         ORDER BY c.well, r.repeat_id, m.measurement_id
         """
         # Execute and convert directly to Polars
-        df = self.conn.execute(query, [plate_id]).pl()
+        df = self.conn.execute(query, params).pl()
 
         # Debug logging
         if "cell_cycle" in df.columns:
@@ -176,20 +198,31 @@ class PlateParserPolars:
 
         return df
 
-    def build_df(self, plate_id: int) -> tuple[pl.DataFrame, list[str]]:
+    def build_df(
+        self,
+        plate_id: int,
+        well: str | None = None,
+        timepoint: int | None = None,
+    ) -> tuple[pl.DataFrame, list[str]]:
         """Get the final tidy DataFrame for a plate.
 
         Args:
             plate_id: The ID of the plate to collect data for.
+            well: Optional well label to restrict the query (SQL pushdown).
+            timepoint: Optional timepoint to restrict the query (SQL pushdown).
 
         Returns:
             A tidy Polars DataFrame with all measurements and well conditions.
 
         """
         # Get condition variables as separate columns and variable names
-        conditions_df, variable_names = self._get_condition_variables(plate_id)
+        conditions_df, variable_names = self._get_condition_variables(
+            plate_id, well=well
+        )
         # Get measurements
-        measurements_df = self._get_measurements(plate_id)
+        measurements_df = self._get_measurements(
+            plate_id, well=well, timepoint=timepoint
+        )
 
         if measurements_df.is_empty():
             logger.error(f"No measurements found for plate {plate_id}")
@@ -238,7 +271,10 @@ def _build_polars_rehydrate_map(
 
 
 def export_polars_lf(
-    plate_id: int, conn: duckdb.DuckDBPyConnection
+    plate_id: int,
+    conn: duckdb.DuckDBPyConnection,
+    well: str | None = None,
+    timepoint: int | None = None,
 ) -> tuple[pl.LazyFrame, list[str]]:
     """Export a plate as a Polars LazyFrame.
 
@@ -249,6 +285,12 @@ def export_polars_lf(
     Args:
         plate_id: The ID of the plate to export.
         conn: The active DuckDB connection.
+        well: Optional well label (e.g. ``"D1"``) to push down into the SQL
+            ``WHERE`` clause. Cuts the materialised row count from a full
+            plate to a single well — useful for callers that only need
+            one well (e.g. the napari training-data loader).
+        timepoint: Optional timepoint to push down into the SQL ``WHERE``
+            clause (matched against ``measurements.timepoint``).
 
     Returns:
         A tuple containing:
@@ -257,7 +299,9 @@ def export_polars_lf(
 
     """
     parser = PlateParserPolars(conn)
-    df, variable_names = parser.build_df(plate_id)
+    df, variable_names = parser.build_df(
+        plate_id, well=well, timepoint=timepoint
+    )
 
     if "experiment_name" in df.columns:
         df = df.rename({"experiment_name": "experiment"})

@@ -192,7 +192,7 @@ class TestGenerateCrops:
 
         crop_size = 10
 
-        crops, crop_labels = _generate_crops(
+        crops, crop_labels, _ = _generate_crops(
             image, labels, centroids, crop_size, segmentation="nucleus"
         )
 
@@ -216,7 +216,7 @@ class TestGenerateCrops:
         centroids = np.array([[25, 25]])
         crop_size = 10
 
-        crops, crop_labels = _generate_crops(
+        crops, crop_labels, _ = _generate_crops(
             image, labels, centroids, crop_size, segmentation="cell"
         )
 
@@ -240,7 +240,7 @@ class TestGenerateCrops:
         centroids = np.array([[15, 15], [45, 45], [75, 75]])
         crop_size = 10
 
-        crops, crop_labels = _generate_crops(
+        crops, crop_labels, _ = _generate_crops(
             image, labels, centroids, crop_size, segmentation="nucleus"
         )
 
@@ -263,7 +263,7 @@ class TestGenerateCrops:
         centroids = np.array([[2, 2]])
         crop_size = 10
 
-        crops, crop_labels = _generate_crops(
+        crops, crop_labels, _ = _generate_crops(
             image, labels, centroids, crop_size, segmentation="nucleus"
         )
 
@@ -284,7 +284,7 @@ class TestGenerateCrops:
         centroids = np.array([[35, 35]])  # No label here
         crop_size = 10
 
-        crops, crop_labels = _generate_crops(
+        crops, crop_labels, _ = _generate_crops(
             image, labels, centroids, crop_size, segmentation="nucleus"
         )
 
@@ -304,13 +304,17 @@ class TestGenerateCrops:
         centroids = np.array([[10, 10], [45, 45], [80, 80]])
         crop_size = 10
 
-        crops, crop_labels = _generate_crops(
+        crops, crop_labels, kept = _generate_crops(
             image, labels, centroids, crop_size, segmentation="nucleus"
         )
 
         # Only the middle centroid should generate a crop
         assert len(crops) == 1
         assert len(crop_labels) == 1
+        # kept_centroids must align with the surviving crops so the caller
+        # can build cell_meta dicts — drives the get_used_centroids feature
+        # for direct-load sessions.
+        assert kept == [(45, 45)]
 
     def test_generate_crops_2d_labels_squeezed(self):
         """Test that 2D labels (no channel dim) are handled correctly."""
@@ -323,7 +327,7 @@ class TestGenerateCrops:
         centroids = np.array([[25, 25]])
         crop_size = 10
 
-        crops, crop_labels = _generate_crops(
+        crops, crop_labels, _ = _generate_crops(
             image, labels, centroids, crop_size, segmentation="nucleus"
         )
 
@@ -343,7 +347,7 @@ class TestGenerateCrops:
         centroids = np.array([[25, 25]])
         crop_size = 10
 
-        crops, crop_labels = _generate_crops(
+        crops, crop_labels, _ = _generate_crops(
             image, labels, centroids, crop_size, segmentation="nucleus"
         )
 
@@ -360,7 +364,7 @@ class TestGenerateCrops:
         centroids = np.array([]).reshape(0, 2)  # Empty array with correct shape
         crop_size = 10
 
-        crops, crop_labels = _generate_crops(
+        crops, crop_labels, _ = _generate_crops(
             image, labels, centroids, crop_size, segmentation="nucleus"
         )
 
@@ -378,7 +382,7 @@ class TestGenerateCrops:
         centroids = np.array([[10, 10]])
         crop_size = 30  # Larger than image
 
-        crops, crop_labels = _generate_crops(
+        crops, crop_labels, _ = _generate_crops(
             image, labels, centroids, crop_size, segmentation="nucleus"
         )
 
@@ -398,7 +402,7 @@ class TestGenerateCrops:
         centroids = np.array([[25.7, 25.3]])
         crop_size = 10
 
-        crops, crop_labels = _generate_crops(
+        crops, crop_labels, _ = _generate_crops(
             image, labels, centroids, crop_size, segmentation="nucleus"
         )
 
@@ -420,7 +424,7 @@ class TestGenerateCrops:
         centroids = np.array([[25, 25]])
         crop_size = 10
 
-        crops, crop_labels = _generate_crops(
+        crops, crop_labels, _ = _generate_crops(
             image, labels, centroids, crop_size, segmentation="nucleus"
         )
 

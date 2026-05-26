@@ -49,7 +49,7 @@ def _auto_pick_rgb_channels(
     return red, green, blue
 
 
-def _sync_intensities_from_viewer() -> None:
+def _commit_viewer_contrast_to_intensities() -> None:
     """Pull live contrast_limits from the napari viewer's Image layers.
 
     The gallery centres + scales each crop using
@@ -298,7 +298,7 @@ def gallery_widget(
     }
     try:
         userdata.populate_from_dict(user_data_dict)
-        _sync_intensities_from_viewer()
+        _commit_viewer_contrast_to_intensities()
         show_gallery(omero_data, userdata)
     except ValueError as e:
         logger.exception("Gallery Error: %s", e)
