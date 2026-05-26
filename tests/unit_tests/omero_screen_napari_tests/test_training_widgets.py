@@ -84,6 +84,10 @@ def mock_omero_data():
     mock.selected_labels = [np.zeros((10, 10)), np.zeros((10, 10))]
     mock.selected_classes = ["class1", "class2"]
     mock.channel_data = {}
+    # TrainingDataSaver reads this live; default to None so the
+    # non-session code path runs. Tests that want the session-path
+    # behaviour override this to a Path.
+    mock.session_file_path = None
     return mock
 
 @pytest.fixture
@@ -212,6 +216,23 @@ class TestTrainingDataSaver:
         assert "data" in data_dict
         assert "target" in data_dict
         assert data_dict["target"] == ["class1", "class2"]
+
+    def test_file_path_reflects_session_file_path_changes_post_init(
+        self, mock_omero_data, real_user_data
+    ):
+        # Regression: TrainingDataSaver used to cache file_path in __init__,
+        # so a session/direct load that mutated omero_data.session_file_path
+        # after construction wouldn't be picked up — saves would land in
+        # the wrong file. The properties now read live on every access.
+        nav = MagicMock()
+        saver = TrainingDataSaver("test", mock_omero_data, real_user_data, nav)
+        first_path = saver.file_path  # derived from plate/well/image/timepoint
+
+        new_path = Path("/tmp/some_other_session.npy")
+        mock_omero_data.session_file_path = new_path
+        assert saver.file_path == new_path
+        assert saver.file_path != first_path
+        assert saver.file_name == new_path.name
 
     @patch("omero_screen_napari._training_widget.Path.home")
     @patch("numpy.save")

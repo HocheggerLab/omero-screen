@@ -312,26 +312,10 @@ class TrainingWidget:
         self.image_navigator.previous_image()
 
     def save_training_data(self) -> None:
-        # If the setup widget generated new data (session_file_path changed),
-        # re-create the saver so we write to the correct file, not the stale one.
-        new_path = self.omero_data.session_file_path
-        if (
-            self.training_data_saver is not None
-            and new_path is not None
-            and self.training_data_saver.file_path != new_path
-            and self.class_name
-            and self.user_data
-        ):
-            self.training_data_saver = TrainingDataSaver(
-                self.class_name,
-                self.omero_data,
-                self.user_data,
-                self.image_navigator,
-                existing_file_path=new_path,
-            )
-            logger.info(
-                f"TrainingDataSaver refreshed to match session_file_path: {new_path}"
-            )
+        # TrainingDataSaver reads omero_data.session_file_path live on
+        # every save (see TrainingDataSaver._resolve_paths), so we don't
+        # need to re-create the saver after a session/direct load mutates
+        # that field — the next save picks up the new path automatically.
         if self.training_data_saver:
             self.training_data_saver.save_data_wrapper()
         else:
@@ -411,7 +395,6 @@ class TrainingWidget:
                 self.omero_data,
                 self.user_data,
                 self.image_navigator,
-                existing_file_path=self.omero_data.session_file_path,
             )
             logger.info(
                 f"TrainingDataSaver (re)initialized for classifier {classifier_name}"
@@ -539,13 +522,24 @@ class TrainingWidget:
 
 
 class TrainingDataSaver:
+    """Saves training data + metadata for the current annotation session.
+
+    Path and metadata derivation happens lazily at save time via properties
+    rather than being cached in ``__init__``. Earlier versions cached
+    ``file_path`` once at construction; after a direct-load or
+    session-load mutated ``omero_data.session_file_path``, the cached
+    path went stale and writes landed in the wrong file. The previous
+    workaround was to re-create the saver before every save — gone now
+    that ``file_path``/``file_name``/``meta_data_path``/``metadata`` are
+    derived live from the singletons.
+    """
+
     def __init__(
         self,
         classifier_name: str,
         omero_data_inst: "OmeroData",
         user_data: "UserData",
         image_navigator: ImageNavigator,
-        existing_file_path: "Path | None" = None,
     ) -> None:
         self.classifier_name = classifier_name
         self.omero_data = omero_data_inst
@@ -553,11 +547,26 @@ class TrainingDataSaver:
         self.image_navigator = image_navigator
         self.home_dir = Path.home() / "omeroscreen_trainingdata"
         self.classifier_dir = self.home_dir / self.classifier_name
-        self.file_name, self.file_path, self.meta_data_path = self._set_paths(
-            existing_file_path
-        )
+        # training_dict is rebuilt on every save (see `save_both` /
+        # `_save_training_data`); the initial value is just so callers
+        # that introspect it before the first save get something sane.
         self.training_dict = self._create_training_dict()
-        self.metadata = self._create_metadata_dict()
+
+    @property
+    def file_name(self) -> str:
+        return self._resolve_paths()[0]
+
+    @property
+    def file_path(self) -> Path:
+        return self._resolve_paths()[1]
+
+    @property
+    def meta_data_path(self) -> Path:
+        return self._resolve_paths()[2]
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        return self._create_metadata_dict()
 
     def save_data_wrapper(self) -> None:
         try:
@@ -641,13 +650,21 @@ class TrainingDataSaver:
             f"Data for image {self.file_name} successfully saved, with metadata present."
         )
 
-    def _set_paths(
-        self, existing_file_path: "Path | None" = None
-    ) -> tuple[str, Path, Path]:
+    def _resolve_paths(self) -> tuple[str, Path, Path]:
+        """Compute ``(file_name, file_path, meta_data_path)`` live.
+
+        Reads ``omero_data.session_file_path`` on every call so that any
+        load that updates the singleton (session reload, direct load,
+        setup widget's initial save) is reflected immediately. If a
+        session path is set, that file is reused in place. Otherwise the
+        path is derived from current plate/well/image/timepoint, with
+        ``_2``/``_3`` suffixes appended to avoid clobbering existing
+        files.
+        """
         meta_data_path = self.classifier_dir / "metadata.json"
-        # When loading an existing session, reuse its file so we update in place.
-        if existing_file_path is not None:
-            return existing_file_path.name, existing_file_path, meta_data_path
+        existing = self.omero_data.session_file_path
+        if existing is not None:
+            return existing.name, existing, meta_data_path
         plate = self.omero_data.plate_id
         well = self.omero_data.well_pos_list[0]
         image = self.omero_data.image_input
