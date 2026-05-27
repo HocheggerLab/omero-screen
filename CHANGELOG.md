@@ -1,3 +1,9 @@
+## omero-screen-v0.3.5 (2026-05-27)
+
+### Refactor
+
+- **omero-screen-napari**: make TrainingDataSaver derive paths lazily
+
 ## omero-screen-v0.3.4 (2026-04-15)
 
 ### Refactor
