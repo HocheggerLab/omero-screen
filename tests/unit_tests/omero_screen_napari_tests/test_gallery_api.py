@@ -102,10 +102,10 @@ from unittest.mock import MagicMock
 
 import polars as pl
 from omero_screen_napari.gallery_api import (
-    CroppedImageParser,
     OmeroData,
     RandomImageParser,
     UserData,
+    _filter_well_centroids,
 )
 
 
@@ -124,68 +124,53 @@ def mock_omero_data():
 def mock_user_data():
     return UserData()
 
-class TestCroppedImageParser:
-    def test_prepare_data_for_cropping_valid(self, mock_omero_data, mock_user_data):
-        # Setup mocks
+class TestFilterWellCentroids:
+    """_filter_well_centroids ports the old CroppedImageParser polars
+    filtering: well → cellcycle → classifier → loaded-image intersection →
+    timepoint, returning a pandas DataFrame for CropPipeline."""
+
+    def test_returns_loaded_well_rows(self, mock_omero_data, mock_user_data):
         mock_user_data.well = "A1"
         mock_user_data.segmentation = "nucleus"
         mock_user_data.cellcycle = "All"
 
-        # Mock well data
         df = pl.DataFrame({
             "well": ["A1", "A1"],
             "image_id": [101, 102],
             "centroid-0-nuc": [10, 20],
             "centroid-1-nuc": [10, 20],
-            "label": [1, 2]
+            "label": [1, 2],
         })
-        # Important: The code calls _get_well_data which filters plate_data.
-        # We can bypass that by setting _well_data directly or mocking filter chain.
-        # Let's mock the internal state after _get_well_data would run,
-        # OR mock the plate_data so the filter works.
-        # Mocking plate_data is cleaner if we can make the LazyFrame logic work.
-        # But _get_well_data calls .collect().
-        # Let's just set _well_data directly and test _prepare_data_for_cropping directly.
-
-        parser = CroppedImageParser(mock_omero_data, mock_user_data)
-        parser._well_data = df
-
-        # Set loaded image IDs in OmeroData
+        mock_omero_data.plate_data = df.lazy()
         mock_omero_data.image_ids = [101, 102]
 
-        parser._prepare_data_for_cropping()
+        result = _filter_well_centroids(mock_omero_data, mock_user_data)
 
-        assert parser._image_ids == [101, 102]
-        # Centroids are now resolved per-image in _crop_data; verify the
-        # stored dataframe carries the right rows for downstream lookup.
-        assert set(parser._df["image_id"].to_list()) == {101, 102}
-        assert parser._df["label"].to_list() == [1, 2]
+        assert set(result["image_id"].tolist()) == {101, 102}
+        assert result["label"].tolist() == [1, 2]
 
-    def test_prepare_data_for_cropping_filter_loaded_only(self, mock_omero_data, mock_user_data):
+    def test_filters_to_loaded_images_only(self, mock_omero_data, mock_user_data):
         mock_user_data.well = "A1"
         mock_user_data.segmentation = "nucleus"
         mock_user_data.cellcycle = "All"
 
-        # 3 images in metadata
         df = pl.DataFrame({
+            "well": ["A1", "A1", "A1"],
             "image_id": [101, 102, 103],
             "centroid-0-nuc": [10, 20, 30],
             "centroid-1-nuc": [10, 20, 30],
             "label": [1, 2, 3],
-            "cell_cycle": ["G1", "G1", "G1"]
+            "cell_cycle": ["G1", "G1", "G1"],
         })
-        parser = CroppedImageParser(mock_omero_data, mock_user_data)
-        parser._well_data = df
-
+        mock_omero_data.plate_data = df.lazy()
         # Only 101 and 103 are loaded
         mock_omero_data.image_ids = [101, 103]
 
-        parser._prepare_data_for_cropping()
+        result = _filter_well_centroids(mock_omero_data, mock_user_data)
 
-        # Should filter out 102; _df retains only the loaded images
-        assert parser._image_ids == [101, 103]
-        assert set(parser._df["image_id"].to_list()) == {101, 103}
-        assert 102 not in parser._df["image_id"].to_list()
+        # 102 filtered out (not loaded)
+        assert set(result["image_id"].tolist()) == {101, 103}
+        assert 102 not in result["image_id"].tolist()
 
 class TestRandomImageParser:
     def test_parse_random_index_all(self, mock_omero_data, mock_user_data):
@@ -224,93 +209,3 @@ class TestRandomImageParser:
 
         remaining = parser._remove_chosen_crops(images)
         assert remaining == ["a", "c", "e"]
-
-class TestZarrCropDispatch:
-    """The _try_zarr_crop_path short-circuit: falls back cleanly when zarr
-    is unavailable, and consumes fetch_crop / fetch_label_crop when it is.
-    """
-
-    def _make_parser(self, plate_id=1, well="A1", n_channels=2):
-        omero_data = MagicMock(spec=OmeroData)
-        omero_data.plate_id = plate_id
-        omero_data.intensities = {i: (0, 1000) for i in range(n_channels)}
-        omero_data.image_ids = [555]
-        omero_data.images = []
-        omero_data.labels = []
-        omero_data.cropped_images = []
-        omero_data.cropped_labels = []
-        ud = UserData()
-        ud.well = well
-        ud.crop_size = 32
-        ud.timepoint = 0
-        ud.segmentation = "nucleus"
-        parser = CroppedImageParser(omero_data, ud)
-        parser._centroids_row = [100]
-        parser._centroids_col = [100]
-        parser._ids = [7]
-        return parser
-
-    def test_falls_back_when_no_zarr(self, monkeypatch):
-        parser = self._make_parser()
-        monkeypatch.setattr(
-            "omero_screen_napari.gallery_api.resolve_to_zarr", lambda _p: None
-        )
-        assert parser._try_zarr_crop_path(555) is False
-
-    def test_falls_back_when_intensities_empty(self, monkeypatch):
-        parser = self._make_parser()
-        parser._omero_data.intensities = {}
-        monkeypatch.setattr(
-            "omero_screen_napari.gallery_api.resolve_to_zarr",
-            lambda _p: MagicMock(),
-        )
-        assert parser._try_zarr_crop_path(555) is False
-
-    def test_zarr_path_produces_crops(self, monkeypatch):
-        parser = self._make_parser(n_channels=2)
-        # Fake crops: (C, Y, X) image, (Y, X) labels containing target id 7.
-        fake_image = np.full((2, 32, 32), 500, dtype=np.uint16)
-        fake_label = np.zeros((32, 32), dtype=np.uint32)
-        fake_label[10:20, 10:20] = 7
-
-        monkeypatch.setattr(
-            "omero_screen_napari.gallery_api.resolve_to_zarr",
-            lambda _p: MagicMock(),
-        )
-        monkeypatch.setattr(
-            "omero_screen_napari.gallery_api.fetch_crop",
-            lambda *a, **k: fake_image,
-        )
-        monkeypatch.setattr(
-            "omero_screen_napari.gallery_api.fetch_label_crop",
-            lambda *a, **k: fake_label,
-        )
-
-        assert parser._try_zarr_crop_path(555) is True
-        assert len(parser._cropped_images) == 1
-        img = parser._cropped_images[0]
-        # Y, X, C output, scaled to float32 [0, 1].
-        assert img.shape == (32, 32, 2)
-        assert img.dtype == np.float32
-        # 500 / max(1000-0, 1) = 0.5
-        assert abs(float(img.mean()) - 0.5) < 1e-3
-        # Label crop isolated to id 7.
-        lbl = parser._cropped_labels[0]
-        assert int(lbl[15, 15]) == 7
-        assert int(lbl[0, 0]) == 0
-
-    def test_zarr_path_falls_back_when_fetch_raises(self, monkeypatch):
-        parser = self._make_parser()
-        monkeypatch.setattr(
-            "omero_screen_napari.gallery_api.resolve_to_zarr",
-            lambda _p: MagicMock(),
-        )
-
-        def boom(*a, **k):
-            raise FileNotFoundError("store evicted")
-
-        monkeypatch.setattr(
-            "omero_screen_napari.gallery_api.fetch_crop", boom
-        )
-        assert parser._try_zarr_crop_path(555) is False
-        assert parser._cropped_images == []

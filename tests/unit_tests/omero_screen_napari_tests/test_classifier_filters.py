@@ -4,7 +4,11 @@ import polars as pl
 import pytest
 from unittest.mock import MagicMock, patch
 
-from omero_screen_napari.gallery_api import CroppedImageParser, OmeroData, UserData
+from omero_screen_napari.gallery_api import (
+    OmeroData,
+    UserData,
+    _select_classifierdata,
+)
 from omero_screen_napari._welldata_widget import _extract_classifier_data
 
 
@@ -46,58 +50,40 @@ def mock_user_data() -> UserData:
     return ud
 
 
-def make_parser(omero_data: MagicMock, user_data: UserData) -> CroppedImageParser:
-    return CroppedImageParser(omero_data, user_data)
-
-
 # ---------------------------------------------------------------------------
 # _select_classifierdata
 # ---------------------------------------------------------------------------
 
 class TestSelectClassifierData:
-    def test_empty_filter_returns_all_rows(self, mock_omero_data, mock_user_data, base_df):
-        mock_user_data.classifier_filter = ""
-        parser = make_parser(mock_omero_data, mock_user_data)
-        result = parser._select_classifierdata(base_df)
+    def test_empty_filter_returns_all_rows(self, base_df):
+        result = _select_classifierdata(base_df, "")
         assert len(result) == len(base_df)
 
-    def test_whitespace_only_filter_returns_all_rows(self, mock_omero_data, mock_user_data, base_df):
-        mock_user_data.classifier_filter = "   "
-        parser = make_parser(mock_omero_data, mock_user_data)
-        result = parser._select_classifierdata(base_df)
+    def test_whitespace_only_filter_returns_all_rows(self, base_df):
+        result = _select_classifierdata(base_df, "   ")
         assert len(result) == len(base_df)
 
-    def test_filter_on_first_classifier_column(self, mock_omero_data, mock_user_data, base_df):
-        mock_user_data.classifier_filter = "mitotic"
-        parser = make_parser(mock_omero_data, mock_user_data)
-        result = parser._select_classifierdata(base_df)
+    def test_filter_on_first_classifier_column(self, base_df):
+        result = _select_classifierdata(base_df, "mitotic")
         assert len(result) == 2
         assert all(result["classifier_mitosis"] == "mitotic")
 
-    def test_filter_on_second_classifier_column(self, mock_omero_data, mock_user_data, base_df):
-        mock_user_data.classifier_filter = "high"
-        parser = make_parser(mock_omero_data, mock_user_data)
-        result = parser._select_classifierdata(base_df)
+    def test_filter_on_second_classifier_column(self, base_df):
+        result = _select_classifierdata(base_df, "high")
         assert len(result) == 2
         assert all(result["classifier_damage"] == "high")
 
-    def test_unknown_filter_value_returns_all_rows(self, mock_omero_data, mock_user_data, base_df):
-        mock_user_data.classifier_filter = "nonexistent"
-        parser = make_parser(mock_omero_data, mock_user_data)
-        result = parser._select_classifierdata(base_df)
+    def test_unknown_filter_value_returns_all_rows(self, base_df):
+        result = _select_classifierdata(base_df, "nonexistent")
         assert len(result) == len(base_df)
 
-    def test_filter_on_df_without_classifier_columns(self, mock_omero_data, mock_user_data):
+    def test_filter_on_df_without_classifier_columns(self):
         df_no_classifier = pl.DataFrame({"well": ["A1"], "cell_cycle": ["G1"]})
-        mock_user_data.classifier_filter = "mitotic"
-        parser = make_parser(mock_omero_data, mock_user_data)
-        result = parser._select_classifierdata(df_no_classifier)
+        result = _select_classifierdata(df_no_classifier, "mitotic")
         assert len(result) == 1
 
-    def test_filter_returns_correct_columns(self, mock_omero_data, mock_user_data, base_df):
-        mock_user_data.classifier_filter = "normal"
-        parser = make_parser(mock_omero_data, mock_user_data)
-        result = parser._select_classifierdata(base_df)
+    def test_filter_returns_correct_columns(self, base_df):
+        result = _select_classifierdata(base_df, "normal")
         assert set(result.columns) == set(base_df.columns)
 
 

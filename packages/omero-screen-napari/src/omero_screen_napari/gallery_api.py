@@ -1,7 +1,5 @@
 import random
-from ast import literal_eval
-from collections.abc import Iterable
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
@@ -9,15 +7,26 @@ import numpy as np
 import polars as pl
 from omero_screen.config import get_logger
 from skimage import exposure
-from skimage.measure import find_contours, label, regionprops
+from skimage.measure import find_contours
 
+if TYPE_CHECKING:
+    import pandas as pd
+
+# Re-exported for backward compatibility: these crop helpers now live in
+# crop_pipeline (shared with the direct-load paths) but are still imported
+# from gallery_api by direct_omero_loader, session_utils, and tests.
+from omero_screen_napari.crop_pipeline import (  # noqa: F401
+    CropPipeline,
+    CropSourceError,
+    WelldataSource,
+    ZarrSource,
+    calculate_crop_coordinates,
+    crop_region,
+    erase_masks,
+    pad_region,
+)
 from omero_screen_napari.gallery_userdata import UserData
 from omero_screen_napari.omero_data import OmeroData
-from omero_screen_napari.zarr_cache import (
-    fetch_crop,
-    fetch_label_crop,
-    resolve_to_zarr,
-)
 
 logger = get_logger(__name__)
 
@@ -29,10 +38,9 @@ def show_gallery(
     excluded_centroids: set[tuple[int, int, int]] | None = None,
 ) -> None:
     if user_data.reload or omero_data.cropped_images == []:
-        cropped_image_parser = CroppedImageParser(
+        parse_crops_into_omero_data(
             omero_data, user_data, excluded_centroids=excluded_centroids
         )
-        cropped_image_parser.parse_crops()
 
     random_image_parser = RandomImageParser(omero_data, user_data, classifier)
     random_image_parser.parse_random_images()
@@ -65,604 +73,203 @@ def show_gallery(
 # --------------------------Gallery Data Generators---------------------------
 
 
-class CroppedImageParser:
-    def __init__(
-        self,
-        omero_data: OmeroData,
-        user_data: UserData,
-        excluded_centroids: set[tuple[int, int, int]] | None = None,
-    ) -> None:
-        self._omero_data: OmeroData = omero_data
-        self._user_data: UserData = user_data
-        self._excluded_centroids: set[tuple[int, int, int]] = (
-            excluded_centroids or set()
+def parse_crops_into_omero_data(
+    omero_data: OmeroData,
+    user_data: UserData,
+    excluded_centroids: set[tuple[int, int, int]] | None = None,
+) -> None:
+    """Generate the well's crop pool into ``omero_data.cropped_*``.
+
+    Replaces the old ``CroppedImageParser``. Filters the well's CellView
+    rows (cellcycle / classifier / loaded-image intersection / timepoint),
+    picks a crop source (zarr stitched canvas when a per-channel contrast
+    window is available, else the in-memory fields), and runs
+    :class:`CropPipeline`. The downstream finalize step
+    (:class:`RandomImageParser`) is unchanged.
+    """
+    logger.info(
+        "Parsing crops for well %s using segmentation %s",
+        user_data.well,
+        user_data.segmentation,
+    )
+    centroids = _filter_well_centroids(omero_data, user_data)
+    if centroids.empty:
+        logger.warning(
+            "No centroids for well %s after filtering; no crops generated.",
+            user_data.well,
         )
-        self._well_data: pl.DataFrame = pl.DataFrame()
-        self._df: pl.DataFrame = pl.DataFrame()
-        self._images: np.ndarray[Any, Any] = np.empty((0,))
-        self._labels: np.ndarray[Any, Any] = np.empty((0,))
-        self._ids: list[int] = []
-        self._image_ids: list[int] = []
-        self._centroids_row: list[int] = []
-        self._centroids_col: list[int] = []
-        self._cropped_images: list[np.ndarray[Any, Any]] = []
-        self._cropped_labels: list[np.ndarray[Any, Any]] = []
-        self._cell_meta: list[dict[str, Any]] = []
-        self._current_image_id: int = 0
+        omero_data.cropped_images = []
+        omero_data.cropped_labels = []
+        omero_data.cropped_cell_meta = []
+        return
 
-    def parse_crops(self) -> None:
-        logger.info(
-            "Parsing crops for well %s using segmentation %s",
-            self._user_data.well,
-            self._user_data.segmentation,
+    pipeline = CropPipeline(
+        source=_make_gallery_source(omero_data, user_data),
+        centroids_df=centroids,
+        segmentation=user_data.segmentation,  # type: ignore[arg-type]
+        crop_size=user_data.crop_size,
+        timepoint=int(user_data.timepoint),
+        excluded_centroids=excluded_centroids,
+    )
+    try:
+        result = pipeline.run()
+    except CropSourceError as exc:
+        # Mirror the gallery's old per-image zarr→in-memory fallback, at
+        # run granularity: if the zarr store can't serve a crop mid-run,
+        # redo the whole well from the in-memory fields.
+        logger.warning(
+            "Crop source failed mid-run (%s); retrying from in-memory fields",
+            exc,
         )
-        self._get_well_data()
-        self._prepare_data_for_cropping()
+        result = CropPipeline(
+            source=WelldataSource(omero_data),
+            centroids_df=centroids,
+            segmentation=user_data.segmentation,  # type: ignore[arg-type]
+            crop_size=user_data.crop_size,
+            timepoint=int(user_data.timepoint),
+            excluded_centroids=excluded_centroids,
+        ).run()
 
-        # Verify images are loaded
-        if not self._image_ids:
-            logger.warning(
-                "No images found for well %s in metadata.",
-                self._user_data.well,
-            )
-            return
+    omero_data.cropped_images = result.crops
+    omero_data.cropped_labels = result.labels
+    omero_data.cropped_cell_meta = result.cell_meta
+    logger.info("Generated %d crops", len(result.crops))
 
-        # Check if the first image ID is in the loaded images.
-        # (Assuming if one is missing, likely all are, or at least the well isn't fully loaded)
-        if self._image_ids[0] not in self._omero_data.image_ids:
-            msg = (
-                f"Images for well {self._user_data.well} are not loaded. "
-                f"Please load the well data using the 'Well Data' widget first."
-            )
-            logger.error(msg)
-            # We can't proceed without pixels
-            return  # Or raise ValueError(msg) - return is safer for GUI to not crash hard
 
-        self._crop_data()
-        self._omero_data.cropped_images = self._cropped_images
-        self._omero_data.cropped_labels = self._cropped_labels
-        self._omero_data.cropped_cell_meta = self._cell_meta
-        logger.info("Generated %d crops", len(self._cropped_images))
+def _make_gallery_source(
+    omero_data: OmeroData, user_data: UserData
+) -> WelldataSource | ZarrSource:
+    """Pick the zarr stitched-canvas source when a contrast window is known.
 
-    def _get_well_data(self) -> None:
-        schema = self._omero_data.plate_data.collect_schema()
-        if len(schema) == 0:
-            raise ValueError(
-                f"Plate {self._omero_data.plate_id} has no data in CellView. "
-                "Please import the plate into CellView before using the gallery."
-            )
-        self._well_data = self._omero_data.plate_data.filter(
-            pl.col("well") == self._user_data.well
-        ).collect()
-
-    def _prepare_data_for_cropping(self) -> None:
-        """Prepare separate lists for each image with its associated centroids and ids."""
-        df = self._select_cellcycledata(self._well_data)
-        df = self._select_classifierdata(df)
-
-        # Filter: Only keep images that are actually loaded in omero_data
-        loaded_ids = set(self._omero_data.image_ids)
-        if not loaded_ids:
-            logger.warning(
-                "No images loaded in OmeroData. Cannot process crops."
-            )
-            df = df.filter(pl.col("image_id").is_in([]))  # Empty filter
-        else:
-            # Check for potential mismatch before filtering for validation logging
-            metadata_ids = set(df["image_id"].unique().to_list())
-            common_ids = metadata_ids.intersection(loaded_ids)
-
-            if not common_ids:
-                logger.warning(
-                    "No intersection between requested well (%s) images and loaded images. Loaded IDs: %s...",
-                    self._user_data.well,
-                    list(loaded_ids)[:5],
-                )
-            elif len(common_ids) < len(metadata_ids):
-                logger.info(
-                    "Processing %d images (subset of well) that are loaded in memory.",
-                    len(common_ids),
-                )
-
-            df = df.filter(pl.col("image_id").is_in(common_ids))
-
-        # Live-cell time-lapse: CellView stores one row per (cell, t),
-        # each with the centroid at that timepoint. Without this filter
-        # _select_centroids would return a mix of centroids from every
-        # timepoint, but the crop is fetched at a single t — so cells
-        # from other timepoints land where they used to be, not where
-        # they are now. Filter to the user's timepoint when the column
-        # is present.
-        if "timepoint" in df.columns:
-            tp = int(self._user_data.timepoint)
-            df_tp = df.filter(pl.col("timepoint") == tp)
-            if df_tp.height > 0:
-                df = df_tp
-            else:
-                logger.info(
-                    "No rows for timepoint %d (well %s); falling back to "
-                    "all timepoints",
-                    tp,
-                    self._user_data.well,
-                )
-
-        # Check for duplicate indices
-        self._check_duplicate_indices(df)
-
-        self._df = df  # kept for per-image centroid lookup in _crop_data
-        self._image_ids = df["image_id"].unique().to_list()
-        # Sort image IDs to match the order in the OmeroData object
-        self._image_ids.sort()
-        logger.debug("Image IDs: %s", self._image_ids)
-
-    def _get_centroid_columns(self) -> tuple[str, str, str]:
-        if self._user_data.segmentation == "nucleus":
-            return "centroid-0-nuc", "centroid-1-nuc", "label"
-        return "centroid-0-cell", "centroid-1-cell", "Cyto_ID"
-
-    def _select_image_data(self, image_id: int) -> None:
+    The gallery only ever used its zarr fast path when
+    ``omero_data.intensities`` was populated (otherwise it fell back to the
+    in-memory path to keep display contrast consistent). Preserve that: use
+    :class:`ZarrSource` only when intensities are set and the well is built,
+    else :class:`WelldataSource`.
+    """
+    intensities = omero_data.intensities
+    if intensities:
         try:
-            index = self._omero_data.image_ids.index(image_id)
-            self._images = self._omero_data.images[index]
-            self._labels = self._omero_data.labels[index]
-        except ValueError as e:
-            logger.error(
-                "Image ID %s not found in loaded images: %s", image_id, e
+            return ZarrSource(omero_data.plate_id, user_data.well, intensities)
+        except CropSourceError as exc:
+            logger.info(
+                "Zarr source unavailable (%s); using in-memory fields", exc
             )
-            raise
+    return WelldataSource(omero_data)
 
-    def _check_duplicate_indices(self, df: pl.DataFrame) -> None:
-        c0, c1, _ = self._get_centroid_columns()
-        # Check for exact duplicates where both coordinates match
-        duplicates_count = df.select([c0, c1]).is_duplicated().sum()
 
-        if duplicates_count > 0:
-            logger.warning(
-                "Found %d cells with identical coordinates (%s, %s). "
-                "This might indicate segmentation issues but will not stop gallery generation.",
-                duplicates_count,
-                c0,
-                c1,
-            )
+def _select_cellcycledata(df: pl.DataFrame, cellcycle: str) -> pl.DataFrame:
+    """Filter ``df`` to one cell-cycle phase; raise on an invalid phase.
 
-    def _select_cellcycledata(self, df: pl.DataFrame) -> pl.DataFrame:
-        cellcycle = self._user_data.cellcycle
-        if cellcycle == "All":
-            return df
-
-        # Check if column exists
-        if "cell_cycle" not in df.columns:
-            logger.error(
-                "'cell_cycle' column not found in data. Available columns: %s",
-                df.columns[:10],
-            )
-            raise ValueError(
-                "Cell cycle data not found. Cannot filter by cell cycle."
-            )
-
-        unique_phases = df["cell_cycle"].unique().to_list()
-        if cellcycle in unique_phases:
-            return df.filter(df["cell_cycle"] == cellcycle)
+    ``"All"`` is a no-op. Behaviour matches the old
+    ``CroppedImageParser._select_cellcycledata``.
+    """
+    if cellcycle == "All":
+        return df
+    if "cell_cycle" not in df.columns:
         logger.error(
-            "Invalid cell cycle phase: %s. Available phases: %s",
-            cellcycle,
-            unique_phases,
+            "'cell_cycle' column not found in data. Available columns: %s",
+            df.columns[:10],
         )
         raise ValueError(
-            f"Invalid cell cycle phase: {cellcycle}. Available phases in this well: {unique_phases}"
+            "Cell cycle data not found. Cannot filter by cell cycle."
         )
-
-    def _select_classifierdata(self, df: pl.DataFrame) -> pl.DataFrame:
-        value = self._user_data.classifier_filter.strip()
-        if not value:
-            return df
-        classifier_cols = [
-            c for c in df.columns if c.startswith("classifier_")
-        ]
-        for col in classifier_cols:
-            if value in df[col].unique().to_list():
-                return df.filter(pl.col(col) == value)
-        logger.warning(
-            "Classifier filter '%s' not found in any classifier column: %s",
-            value,
-            classifier_cols,
+    unique_phases = df["cell_cycle"].unique().to_list()
+    if cellcycle not in unique_phases:
+        raise ValueError(
+            f"Invalid cell cycle phase: {cellcycle}. "
+            f"Available phases in this well: {unique_phases}"
         )
-        return df
-
-    def _select_centroids(
-        self, df: pl.DataFrame
-    ) -> tuple[list[int], list[int], list[int]]:
-        c0, c1, id_col = self._get_centroid_columns()
-        if self._user_data.segmentation == "nucleus":
-            # labels may be average IDs (float64) or tuple of IDs. Convert strings if present.
-            ids = df[id_col]
-            if ids.dtype == pl.datatypes.String:
-                ids = ids.map_elements(literal_eval, return_dtype=pl.Object)
-            return (
-                df[c0].to_list(),
-                df[c1].to_list(),
-                ids.to_list(),
-            )
-        unique_centroids_df = df.unique(subset=[c0, c1])
-        return (
-            unique_centroids_df[c0].to_list(),
-            unique_centroids_df[c1].to_list(),
-            unique_centroids_df[id_col].to_list(),
-        )
-
-    def _crop_data(self) -> None:
-        for image_id in self._image_ids:
-            if image_id not in self._omero_data.image_ids:
-                logger.warning(
-                    "Image ID %s not loaded in OmeroData. Skipping.", image_id
-                )
-                continue
-            image_df = self._df.filter(pl.col("image_id") == image_id)
-            # Exclude cells already used in a previous session for this classifier
-            if self._excluded_centroids:
-                c0, c1, _ = self._get_centroid_columns()
-                excluded = self._excluded_centroids
-                cur_id = image_id
-                image_df = image_df.filter(
-                    ~pl.struct([c0, c1]).map_elements(
-                        lambda s, _c0=c0, _c1=c1, _id=cur_id, _ex=excluded: (
-                            int(s[_c0]),
-                            int(s[_c1]),
-                            _id,
-                        )
-                        in _ex,
-                        return_dtype=pl.Boolean,
-                    )
-                )
-            self._centroids_row, self._centroids_col, self._ids = (
-                self._select_centroids(image_df)
-            )
-            self._current_image_id = image_id
-            self._process_image_for_cropping(image_id)
-
-    def _try_zarr_crop_path(self, image_id: int) -> bool:
-        """Crop directly from the plate.zarr store if available.
-
-        Returns ``True`` when crops were produced (the caller skips the
-        legacy in-memory path). Returns ``False`` to fall back when:
-
-        * the plate has no zarr cache;
-        * ``omero_data.intensities`` is empty — the per-channel contrast
-          window needed to reproduce ``_scale_full_image``'s output is
-          missing, so falling back keeps gallery contrast consistent;
-        * a crop fetch raises mid-iteration (rare; store evicted).
-        """
-        plate_id = self._omero_data.plate_id
-        if resolve_to_zarr(plate_id) is None:
-            return False
-        intensities = self._omero_data.intensities
-        if not intensities:
-            return False
-
-        well = self._user_data.well
-        crop_size = self._user_data.crop_size
-        timepoint = self._user_data.timepoint
-        mask_name = (
-            "nuclei" if self._user_data.segmentation == "nucleus" else "cells"
-        )
-
-        crops_before = len(self._cropped_images)
-
-        for row, col, obj_id in zip(
-            self._centroids_row,
-            self._centroids_col,
-            self._ids,
-            strict=False,
-        ):
-            try:
-                crop_cyx = fetch_crop(
-                    plate_id,
-                    well,
-                    label=int(obj_id) if isinstance(obj_id, int) else 0,
-                    centroid=(float(row), float(col)),
-                    size=crop_size,
-                    t=timepoint,
-                )
-                label_crop = fetch_label_crop(
-                    plate_id,
-                    well,
-                    centroid=(float(row), float(col)),
-                    size=crop_size,
-                    t=timepoint,
-                    mask_name=mask_name,
-                )
-            except (FileNotFoundError, KeyError) as e:
-                logger.warning(
-                    "Zarr crop fetch failed for image %s well %s "
-                    "(falling back to in-memory path): %s",
-                    image_id,
-                    well,
-                    e,
-                )
-                return False
-
-            # (C, Y, X) → (Y, X, C) and scale to float32 [0, 1] using
-            # per-channel intensities (matches _scale_full_image output).
-            crop_yxc = np.transpose(crop_cyx, (1, 2, 0)).astype(
-                np.float32, copy=False
-            )
-            scaled = np.zeros_like(crop_yxc, dtype=np.float32)
-            for c in range(crop_yxc.shape[-1]):
-                min_i, max_i = intensities.get(c, (0, 1))
-                range_i = max(max_i - min_i, 1)
-                scaled[..., c] = np.clip(
-                    (crop_yxc[..., c] - min_i) / range_i, 0, 1
-                )
-
-            for corrected_label in erase_masks(label_crop.copy(), obj_id):
-                if np.any(corrected_label):
-                    self._cropped_images.append(scaled)
-                    self._cropped_labels.append(corrected_label)
-                    self._cell_meta.append(
-                        {
-                            "centroid_row": int(row),
-                            "centroid_col": int(col),
-                            "image_id": image_id,
-                        }
-                    )
-
-        added = len(self._cropped_images) - crops_before
-        logger.info(
-            "Generated %d zarr crops for image %s (well %s)",
-            added,
-            image_id,
-            well,
-        )
-        return True
-
-    def _process_image_for_cropping(self, image_id: int) -> None:
-        """Checks if image and lable data are available and applies cropping and processing
-        via _crop_and_process_image function
-        """
-        # Zarr fast path: fetch each crop lazily from the stitched plate
-        # store rather than materialising the full well image in memory.
-        # Falls through silently to the legacy per-field path when the
-        # plate has no zarr cache.
-        if self._try_zarr_crop_path(image_id):
-            return
-
-        self._select_image_data(image_id)
-
-        if self._images is None or self._labels is None:
-            logger.error("No images or labels to use for cropping galleries")
-            raise ValueError(
-                "No images or labels to use for cropping galleries"
-            )
-        logger.debug(
-            "Shape of selected images for cropping  is %s", self._images.shape
-        )
-        logger.debug(
-            "Shape of selected labels for cropping  is %s", self._labels.shape
-        )
-        timepoint = self._user_data.timepoint
-        if len(self._images.shape) == 5:
-            current_data = self._images[timepoint, ...]
-            current_labels_all = self._labels[timepoint, ...]
-        elif len(self._images.shape) == 4:
-            # Assuming (T, Y, X, C)
-            current_data = self._images[timepoint, ...]
-            current_labels_all = self._labels[timepoint, ...]
-        else:
-            current_data = self._images
-            current_labels_all = self._labels
-
-        # Scale the full image before cropping to ensure consistent intensity across all crops
-        current_data = self._scale_full_image(current_data)
-
-        # Select the correct label channel (0=Nucleus, 1=Cell)
-        if current_labels_all.ndim == 3 and current_labels_all.shape[-1] >= 2:
-            channel_idx = 0 if self._user_data.segmentation == "nucleus" else 1
-            current_labels = current_labels_all[..., channel_idx]
-        else:
-            # Squeeze trailing dimension for single-channel labels (e.g. nucleus-only)
-            current_labels = np.squeeze(current_labels_all)
-
-        for row, col, obj_id in zip(
-            self._centroids_row, self._centroids_col, self._ids, strict=False
-        ):
-            self._crop_and_process_image(
-                current_data, current_labels, row, col, obj_id
-            )
-        crop_count = len(self._cropped_images)
-        logger.info(
-            "%d cropped images and labels have been generated for image %s",
-            crop_count,
-            image_id,
-        )
-
-    def _scale_full_image(
-        self, image: np.ndarray[Any, Any]
-    ) -> np.ndarray[Any, Any]:
-        """Scales the full image using OmeroData intensities or image min/max."""
-        scaled_image = np.zeros_like(image, dtype=np.float32)
-        n_channels = image.shape[-1]
-
-        for i in range(n_channels):
-            # i is the channel index
-            if i in self._omero_data.intensities:
-                min_i, max_i = self._omero_data.intensities[i]
-                img_slice = image[..., i]
-                range_i = max(max_i - min_i, 1)
-                scaled = (img_slice - min_i) / range_i
-                scaled = np.clip(scaled, 0, 1)
-                scaled_image[..., i] = scaled
-            else:
-                # Fallback: scale relative to the *whole image* max, not local crop max
-                img_slice = image[..., i]
-                max_val = np.max(img_slice)
-                if max_val > 0:
-                    scaled_image[..., i] = img_slice / max_val
-                else:
-                    scaled_image[..., i] = img_slice
-        return scaled_image
-
-    def _crop_and_process_image(
-        self,
-        image: np.ndarray[Any, Any],
-        labels: np.ndarray[Any, Any],
-        row: int,
-        col: int,
-        obj_id: int | list[int] | float,
-    ) -> None:
-        """Performs crop cleans mask, checks if mask is present before appending data to cropped_images and cropped_labels lists
-        Uses helper functions crop_region, pad_region, erase_masks
-        """
-        cropped_image, cropped_label = crop_region(
-            image, labels, row, col, self._user_data.crop_size
-        )
-
-        if cropped_image.shape != (
-            self._user_data.crop_size,
-            self._user_data.crop_size,
-        ):
-            cropped_image, cropped_label = pad_region(
-                cropped_image, cropped_label, self._user_data.crop_size
-            )
-
-        # Support multiple labels in the mask
-        for corrected_cropped_label in erase_masks(
-            cropped_label.copy(), obj_id
-        ):
-            if np.any(
-                corrected_cropped_label
-            ):  # Check if the label is effectively empty
-                self._cropped_images.append(cropped_image)
-                self._cropped_labels.append(corrected_cropped_label)
-                self._cell_meta.append(
-                    {
-                        "centroid_row": int(row),
-                        "centroid_col": int(col),
-                        "image_id": self._current_image_id,
-                    }
-                )
+    return df.filter(df["cell_cycle"] == cellcycle)
 
 
-# helper functions for cropping images
-def crop_region(
-    current_data: np.ndarray[Any, Any],
-    current_labels: np.ndarray[Any, Any],
-    centroid_row: int,
-    centroid_col: int,
-    crop_size: int,
-) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
-    """Crop a region around the centroid of a segmented object."""
-    # Calculate crop coordinates
-    crop_row_start, crop_row_end = calculate_crop_coordinates(
-        centroid_row, current_data.shape[-3], crop_size
-    )
-    crop_col_start, crop_col_end = calculate_crop_coordinates(
-        centroid_col, current_data.shape[-2], crop_size
-    )
+def _select_classifierdata(
+    df: pl.DataFrame, classifier_filter: str
+) -> pl.DataFrame:
+    """Filter ``df`` to rows where any ``classifier_*`` column equals the value.
 
-    # Crop the region from the image
-    cropped_region = current_data[
-        crop_row_start:crop_row_end, crop_col_start:crop_col_end, :
-    ]
-    # Crop the corresponding region from the segmentation labels
-    cropped_label = current_labels[
-        crop_row_start:crop_row_end, crop_col_start:crop_col_end
-    ]
-
-    return cropped_region, cropped_label
-
-
-def calculate_crop_coordinates(
-    centroid: int, max_length: int, crop_size: int
-) -> tuple[int, int]:
-    """Calculate start and end points for cropping around a centroid."""
-    start = int(max(0, centroid - crop_size // 2))
-    end = int(min(max_length, centroid + crop_size // 2))
-    return start, end
-
-
-def pad_region(
-    cropped_region: np.ndarray[Any, Any],
-    cropped_label: np.ndarray[Any, Any],
-    crop_size: int,
-) -> tuple[np.ndarray[Any, Any], np.ndarray[Any, Any]]:
-    """Pad the cropped region and label to the desired crop size."""
-    pad_row = crop_size - cropped_region.shape[0]
-    pad_col = crop_size - cropped_region.shape[1]
-    # Pad centrally
-    cropped_region = np.pad(
-        cropped_region,
-        (
-            (pad_row // 2, pad_row - pad_row // 2),
-            (pad_col // 2, pad_col - pad_col // 2),
-            (0, 0),
-        ),
-        mode="constant",
-    )
-    cropped_label = np.pad(
-        cropped_label,
-        (
-            (pad_row // 2, pad_row - pad_row // 2),
-            (pad_col // 2, pad_col - pad_col // 2),
-        ),
-        mode="constant",
-    )
-    return cropped_region, cropped_label
-
-
-def erase_masks(
-    cropped_label: np.ndarray[Any, Any],
-    obj_id: int | list[int] | float,
-    tol: int = 10,
-) -> list[np.ndarray[Any, Any]]:
-    """Extracts label regions from the cropped_label. Uses the ID. If this is iterable extract each ID in the iteration.
-    If a scalar integer type then extract the ID. Otherwise ignore (legacy IDs could be a scalar float type)
-    and extract labels within a distance tolerance of the centroid.
-
-    Note that an integer type is detected by checking int(id) == id. This will not detect cases where multiple
-    IDs have been averaged to a single integral value. This is a minority case and allows supporting legacy
-    data with float IDs representing a single label.
+    Empty / whitespace value is a no-op. Searches each classifier column in
+    turn and filters on the first that contains the value; logs a warning and
+    returns ``df`` unchanged when no column matches. Behaviour matches the old
+    ``CroppedImageParser._select_classifierdata``.
     """
-    if isinstance(obj_id, int | float) and int(obj_id) == obj_id:
-        cropped_label[cropped_label != obj_id] = 0
-        return [cropped_label]
+    value = classifier_filter.strip()
+    if not value:
+        return df
+    classifier_cols = [c for c in df.columns if c.startswith("classifier_")]
+    for col in classifier_cols:
+        if value in df[col].unique().to_list():
+            return df.filter(pl.col(col) == value)
+    logger.warning(
+        "Classifier filter '%s' not found in any classifier column: %s",
+        value,
+        classifier_cols,
+    )
+    return df
 
-    labels = []
-    if isinstance(obj_id, Iterable):
-        for i in obj_id:
-            label_mask = cropped_label.copy()
-            label_mask[cropped_label != i] = 0
-            labels.append(label_mask)
-        return labels
 
-    center_row, center_col = np.array(cropped_label.shape) // 2
+def _filter_well_centroids(
+    omero_data: OmeroData, user_data: UserData
+) -> "pd.DataFrame":
+    """Filter the plate's CellView rows down to the well's croppable cells.
 
-    unique_labels = np.unique(cropped_label)
-    for unique_label in unique_labels:
-        if unique_label == 0:  # Skip background
-            continue
+    Ported faithfully from the old ``CroppedImageParser`` polars helpers
+    (``_get_well_data`` / ``_select_cellcycledata`` / ``_select_classifierdata``
+    / the loaded-image intersection / the timepoint filter), then converted
+    to pandas for :class:`CropPipeline`. Behaviour — including raising on an
+    invalid cell-cycle phase — is unchanged.
+    """
+    schema = omero_data.plate_data.collect_schema()
+    if len(schema) == 0:
+        raise ValueError(
+            f"Plate {omero_data.plate_id} has no data in CellView. "
+            "Please import the plate into CellView before using the gallery."
+        )
+    df = omero_data.plate_data.filter(
+        pl.col("well") == user_data.well
+    ).collect()
+    df = _select_cellcycledata(df, user_data.cellcycle)
+    df = _select_classifierdata(df, user_data.classifier_filter)
 
-        binary_mask = cropped_label == unique_label
+    # Keep only images actually loaded (image_ids is populated for both the
+    # in-memory and zarr backends).
+    loaded_ids = set(omero_data.image_ids)
+    if not loaded_ids:
+        logger.warning("No images loaded in OmeroData. Cannot process crops.")
+        df = df.filter(pl.col("image_id").is_in([]))
+    else:
+        metadata_ids = set(df["image_id"].unique().to_list())
+        common_ids = metadata_ids.intersection(loaded_ids)
+        if not common_ids:
+            logger.warning(
+                "No intersection between requested well (%s) images and "
+                "loaded images. Loaded IDs: %s...",
+                user_data.well,
+                list(loaded_ids)[:5],
+            )
+        elif len(common_ids) < len(metadata_ids):
+            logger.info(
+                "Processing %d images (subset of well) that are loaded.",
+                len(common_ids),
+            )
+        df = df.filter(pl.col("image_id").is_in(common_ids))
 
-        if np.sum(binary_mask) == 0:  # Check for empty masks
-            continue
+    # Live-cell time-lapse: keep only the requested timepoint's rows so crops
+    # centre on the cell at that t (CellView stores one row per (cell, t)).
+    if "timepoint" in df.columns:
+        tp = int(user_data.timepoint)
+        df_tp = df.filter(pl.col("timepoint") == tp)
+        if df_tp.height > 0:
+            df = df_tp
+        else:
+            logger.info(
+                "No rows for timepoint %d (well %s); falling back to all "
+                "timepoints",
+                tp,
+                user_data.well,
+            )
 
-        label_props = regionprops(label(binary_mask))  # type: ignore
-
-        if len(label_props) == 1:
-            cropped_centroid_row, cropped_centroid_col = label_props[
-                0
-            ].centroid
-
-            # Using a small tolerance value for comparing centroids
-            if (
-                abs(cropped_centroid_row - center_row) <= tol
-                and abs(cropped_centroid_col - center_col) <= tol
-            ):
-                label_mask = cropped_label.copy()
-                label_mask[cropped_label != unique_label] = 0
-                labels.append(label_mask)
-
-    return labels
+    return df.to_pandas()
 
 
 # --------------------------Select random images for gallery--------------------

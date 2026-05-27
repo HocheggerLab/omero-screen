@@ -271,8 +271,8 @@ class MetaDataSaver:
         # Keep the gallery's rows/columns so the session size matches the
         # gallery display (e.g. 4×4 = 16 crops, not all 211).
         from omero_screen_napari.gallery_api import (
-            CroppedImageParser,
             RandomImageParser,
+            parse_crops_into_omero_data,
         )
 
         # Exclude cells already annotated for this classifier+well
@@ -289,10 +289,9 @@ class MetaDataSaver:
             logger.warning("Could not query used centroids: %s", exc)
             excluded = set()
 
-        cropper = CroppedImageParser(
+        parse_crops_into_omero_data(
             self.omero_data, self.user_data, excluded_centroids=excluded
         )
-        cropper.parse_crops()
         selector = RandomImageParser(
             self.omero_data, self.user_data, classifier=True
         )
