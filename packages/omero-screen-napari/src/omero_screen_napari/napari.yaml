@@ -14,6 +14,12 @@ contributions:
     - id: omero-screen-napari.training_widget
       python_name: omero_screen_napari._training_widget:training_widget
       title: Training Widget
+    - id: omero-screen-napari.tracks_widget
+      python_name: omero_screen_napari._tracks_widget:tracks_gui_widget
+      title: Make Tracks widget
+    - id: omero-screen-napari.lineage_tree_widget
+      python_name: omero_screen_napari._lineage_tree_widget:LineageTreeWidget
+      title: Make Lineage Tree widget
   widgets:
     - command: omero-screen-napari.well_widget_combined
       display_name: Welldata Widget
@@ -23,3 +29,7 @@ contributions:
       display_name: Gallery Widget
     - command: omero-screen-napari.training_widget
       display_name: Training Widget
+    - command: omero-screen-napari.tracks_widget
+      display_name: Tracks Widget
+    - command: omero-screen-napari.lineage_tree_widget
+      display_name: Lineage Tree Widget

@@ -276,6 +276,25 @@ def process_wells(
             _create_classifier(conn, x, gallery_width, batch_size)
             for x in inference_model_names.split(":")
         ]
+
+    # Trackastra model is loaded once per plate and threaded into the stitched
+    # well loop. Tracking is opt-in via OMERO_SCREEN_TRACKING_MODEL and only
+    # supported on the stitched route (track ids stay coherent across FOVs).
+    tracking_model = None
+    tracking_model_name = os.getenv("OMERO_SCREEN_TRACKING_MODEL")
+    tracking_mode = os.getenv("OMERO_SCREEN_TRACKING_MODE", "greedy")
+    if tracking_model_name:
+        if not stitch_mode:
+            logger.warning(
+                "OMERO_SCREEN_TRACKING_MODEL is set but stitched mode is off; "
+                "tracking is only supported on the stitched route — skipping. "
+                "Re-run with --stitch to enable tracking."
+            )
+        else:
+            from omero_screen.tracking import load_tracking_model
+
+            tracking_model = load_tracking_model(tracking_model_name)
+
     border = int(os.getenv("OMERO_SCREEN_CLEAR_BORDER", "5"))
     wells = list(conn.getObject("Plate", metadata.plate_id).listChildren())
     get_benchmark().set_well_count(len(wells))
@@ -336,6 +355,8 @@ def process_wells(
                     border=border,
                     prog=prog,
                     stitch_mode=stitch_mode,
+                    tracking_model=tracking_model,
+                    tracking_mode=tracking_mode,
                 )
                 if not segmentation_mode:
                     _save_well_results(conn, well, well_data, well_quality)
@@ -706,6 +727,8 @@ def _stitched_well_loop(
     segmentation_mode: bool = False,
     border: int = 5,
     prog: ScreenProgress | None = None,
+    tracking_model: Any | None = None,
+    tracking_mode: str = "greedy",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Process a well as a single stitched canvas.
 
@@ -805,6 +828,35 @@ def _stitched_well_loop(
         # Cytoplasm = cell ∖ nucleus (matches Image._get_cyto)
         stitched_cyto_mask = _stitched_cyto(stitched_n_mask, stitched_c_mask)
 
+    # Track nuclei across the time axis while the well-wide masks are still
+    # coherent (before splitting into per-field tiles). Relabelling the nucleus
+    # mask here makes its labels track ids; the per-field upload below and
+    # ImageProperties downstream then carry track ids with no extra plumbing —
+    # ImageProperties keys on the nucleus ``label``, and the nucleus↔cell
+    # association is spatial, so cell/cyto measurements inherit the track id.
+    tracked = False
+    track_parent_map: dict[int, int] = {}
+    n_timepoints = stitched_img.shape[0]
+    if tracking_model is not None and n_timepoints > 1:
+        from omero_screen.tracking import track_nucleus_mask
+
+        if prog:
+            prog.set_stage("tracking")
+        with bench.stage("stitched_tracking"):
+            stitched_n_mask, track_parent_map = track_nucleus_mask(
+                stitched_img[..., nucleus_idx],
+                stitched_n_mask,
+                tracking_model,
+                mode=tracking_mode,
+            )
+        tracked = True
+        logger.info(
+            "Tracked well %s: %d tracks across %d timepoints",
+            well_pos,
+            len(track_parent_map),
+            n_timepoints,
+        )
+
     # Split the stitched masks back into per-field tiles and upload each
     # as a sibling Image in the dataset, named
     # "<field_id>_stitched_segmentation". This avoids the OMERO pyramid
@@ -889,6 +941,12 @@ def _stitched_well_loop(
         )
     df_well = image_props.image_df
     df_well_quality = image_props.quality_df
+    # When tracking ran, the nucleus ``label`` is the track id. Derive the
+    # track id and immutable ``_raw`` columns plus the lineage columns.
+    if tracked:
+        from omero_screen.tracking import add_track_columns
+
+        add_track_columns(df_well, track_parent_map)
     # Mark every measurement row so the cellview importer can populate
     # repeats.stitch_mode on the way in. Constant column — wasteful by
     # row but a single source-of-truth check at import time.
@@ -920,6 +978,8 @@ def _well_loop(
     border: int = 5,
     prog: ScreenProgress | None = None,
     stitch_mode: bool = False,
+    tracking_model: Any | None = None,
+    tracking_mode: str = "greedy",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Process all images in a well.
 
@@ -934,6 +994,9 @@ def _well_loop(
         border: Width of the border examined when filtering segmented objects (negative to disable)
         prog: Live progress display (optional)
         stitch_mode: Run stitched-well segmentation instead of per-field
+        tracking_model: Loaded Trackastra model, or None to disable tracking
+            (stitched route only)
+        tracking_mode: Trackastra linking mode when tracking is enabled
 
     Returns:
         Tuple[pd.DataFrame, pd.DataFrame]: DataFrames containing the final data and quality control data
@@ -949,6 +1012,8 @@ def _well_loop(
             segmentation_mode=segmentation_mode,
             border=border,
             prog=prog,
+            tracking_model=tracking_model,
+            tracking_mode=tracking_mode,
         )
 
     logger.info(

@@ -28,7 +28,8 @@ Live-cell tracking: [[&OmeroScreenTracking]].
 ## Operational quick reference
 
 - **Tooling:** `uv` only, never pip — `uv sync --dev`, `uv run <cmd>`. `ruff check . && ruff format .` · `mypy .` · `pytest`. Conventional commits via `cz commit`; don't bypass pre-commit hooks.
-- **Run:** `omero-screen <plate_id> [--env production] [--segmentation] [--inference model.pth]` · `cellview display|import-csv|import-plate|export` · `pytest tests/unit_tests/<package>` · `omero-integration-test e2e_connection`.
+- **Run:** `omero-screen <plate_id> [--env production] [--segmentation] [--inference model.pth] [--stitch] [--track [model]]` · `cellview display|import-csv|import-plate|export` · `pytest tests/unit_tests/<package>` · `omero-integration-test e2e_connection`.
+- **Tracking (Trackastra):** `--track [model]` (default `general_2d`) relabels nuclei with a stable `track_id` across T; requires `--stitch` and a timelapse (T>1), no-op on single-timepoint. Adds `track_id`/`parent_track_id` (+`_raw`) to measurements → CellView. `--track-mode greedy|greedy_nodiv|ilp`.
 - **Test server:** parallel OMERO at 127.0.0.2:4064 (root/omero) — `./scripts/manage_test_server.sh start|stop|status`.
-- **Env:** `.env.{development,production,e2etest}` via `ENV` (default development). Required: OMERO `USERNAME`/`PASSWORD`/`HOST`, CellView `DATABASE_PATH`/`TEST_DATABASE`. Optional: `OMERO_SCREEN_CONFIG`, `OMERO_SCREEN_INFERENCE_MODEL`, `OMERO_SCREEN_CLEAR_BORDER`.
+- **Env:** `.env.{development,production,e2etest}` via `ENV` (default development). Required: OMERO `USERNAME`/`PASSWORD`/`HOST`, CellView `DATABASE_PATH`/`TEST_DATABASE`. Optional: `OMERO_SCREEN_CONFIG`, `OMERO_SCREEN_INFERENCE_MODEL`, `OMERO_SCREEN_CLEAR_BORDER`, `OMERO_SCREEN_TRACKING_MODEL`, `OMERO_SCREEN_TRACKING_MODE`.
 - **Workspace members:** `.`, `packages/{omero-utils,omero-screen-napari,omero-screen-plots,cellview,cellclass}`.
