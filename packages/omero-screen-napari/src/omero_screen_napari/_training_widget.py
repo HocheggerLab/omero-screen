@@ -30,6 +30,9 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Sentinel for "paths not yet resolved", distinct from a None session_file_path.
+_UNSET = object()
+
 
 def training_widget(
     class_name: str | None = None,
@@ -331,97 +334,62 @@ class TrainingWidget:
             self.previous_image()
 
     def _on_session_loaded(self) -> None:
-        """Callback triggered when a session is loaded from the browser.
+        """Callback when a session is loaded from the session browser.
 
-        This updates the viewer to display the first image from the loaded session.
+        Reuses the session's existing NPY (``session_file_path`` is left as
+        the loader set it) and falls back to the loaded data's own classes
+        when the classifier has no metadata.
         """
-        if not self.omero_data.selected_images:
-            logger.warning("No images loaded from session")
-            return
-
-        logger.info(
-            f"Session loaded with {len(self.omero_data.selected_images)} images"
+        default_classes = (
+            list(set(self.omero_data.selected_classes))
+            if self.omero_data.selected_classes
+            else ["unassigned"]
         )
-
-        # Extract unique class labels from the loaded data
-        if self.omero_data.selected_classes:
-            unique_classes = list(set(self.omero_data.selected_classes))
-            logger.info(f"Found unique classes in session: {unique_classes}")
-
-            # Also try to load class options from metadata
-            classifier_name = self.classifier_selector.combobox.currentText()
-            if classifier_name and classifier_name != "-- Select --":
-                try:
-                    metadata_path = (
-                        Path.home()
-                        / "omeroscreen_trainingdata"
-                        / classifier_name
-                        / "metadata.json"
-                    )
-                    if metadata_path.exists():
-                        with metadata_path.open() as f:
-                            metadata = json.load(f)
-                        class_options = metadata.get(
-                            "class_options", unique_classes
-                        )
-                        logger.info(
-                            f"Loaded class options from metadata: {class_options}"
-                        )
-                        self.update_class_options(class_options)
-                    else:
-                        # Use unique classes from the data if no metadata
-                        logger.info(
-                            "No metadata found, using unique classes from data"
-                        )
-                        self.update_class_options(unique_classes)
-                except Exception as e:
-                    logger.warning(
-                        f"Could not load class options, using unique classes: {e}"
-                    )
-                    self.update_class_options(unique_classes)
-
-        # (Re-)create TrainingDataSaver, reusing the loaded session's file path
-        # so that saving updates the existing NPY rather than creating a new one.
-        classifier_name = self.classifier_selector.combobox.currentText()
-        if (
-            classifier_name
-            and classifier_name != "-- Select --"
-            and not classifier_name.startswith("(")
-            and self.user_data
-        ):
-            self.class_name = classifier_name
-            self.training_data_saver = TrainingDataSaver(
-                classifier_name,
-                self.omero_data,
-                self.user_data,
-                self.image_navigator,
-            )
-            logger.info(
-                f"TrainingDataSaver (re)initialized for classifier {classifier_name}"
-            )
-
-        self.image_navigator.current_index = 0
-        self.image_navigator.reset_for_new_dataset()
-        self.image_navigator.update_image()
-        logger.info(
-            f"Displaying {len(self.omero_data.selected_images)} "
-            "images from loaded session"
+        self._post_load_setup(
+            default_class_options=default_classes,
+            clear_session_file_path=False,
+            context="loaded session",
         )
 
     def _on_direct_load(self) -> None:
-        """Callback triggered when data is loaded directly from OMERO.
+        """Callback when data is loaded directly from OMERO (Add New Data).
 
-        This updates the viewer to display the first image from the loaded data.
+        Starts a fresh annotation file (``session_file_path`` cleared so the
+        saver derives a new indexed name) and defaults unannotated cells to
+        ``"unassigned"``.
+        """
+        self._post_load_setup(
+            default_class_options=["unassigned"],
+            clear_session_file_path=True,
+            context="direct OMERO load",
+        )
+
+    def _post_load_setup(
+        self,
+        *,
+        default_class_options: list[str],
+        clear_session_file_path: bool,
+        context: str,
+    ) -> None:
+        """Shared finalize for the session-load and direct-load callbacks.
+
+        Both used to duplicate ~40 lines: guard on loaded images, resolve the
+        classifier, load its class options, (re-)create the
+        :class:`TrainingDataSaver`, then reset the navigator. The only real
+        differences are captured by the two parameters — whether to keep the
+        loaded session's file (vs start a fresh indexed one) and what class
+        options to fall back to when the classifier has no metadata.
         """
         if not self.omero_data.selected_images:
-            logger.warning("No images loaded via direct OMERO loading")
+            logger.warning("No images loaded (%s)", context)
             return
 
         logger.info(
-            f"Direct load callback triggered with {len(self.omero_data.selected_images)} images"
+            "%s: %d images",
+            context,
+            len(self.omero_data.selected_images),
         )
 
-        # Get classifier name from the classifier selector
         classifier_name = self.classifier_selector.combobox.currentText()
         if (
             classifier_name
@@ -429,56 +397,75 @@ class TrainingWidget:
             and not classifier_name.startswith("(")
         ):
             self.class_name = classifier_name
-            logger.info(f"Using classifier: {classifier_name}")
-
-            # Load class options from metadata
-            try:
-                metadata_path = (
-                    Path.home()
-                    / "omeroscreen_trainingdata"
-                    / classifier_name
-                    / "metadata.json"
+            self.update_class_options(
+                self._load_class_options(
+                    classifier_name, default_class_options
                 )
-                if metadata_path.exists():
-                    with metadata_path.open() as f:
-                        metadata = json.load(f)
-                    class_options = metadata.get(
-                        "class_options", ["unassigned"]
-                    )
-                    logger.info(f"Loaded class options: {class_options}")
-                    self.update_class_options(class_options)
-
-                    # Always (re-)create TrainingDataSaver so file paths
-                    # reflect the newly-loaded data, not a previous session.
-                    # Clear session_file_path so a new indexed file is created.
-                    if self.class_name and self.user_data:
-                        self.omero_data.session_file_path = None
-                        self.training_data_saver = TrainingDataSaver(
-                            self.class_name,
-                            self.omero_data,
-                            self.user_data,
-                            self.image_navigator,
-                        )
-                        logger.info(
-                            f"TrainingDataSaver (re)initialized for classifier {self.class_name}"
-                        )
-                else:
-                    logger.warning(f"Metadata file not found: {metadata_path}")
-            except Exception as e:
-                logger.exception(f"Could not load class options: {e}")
+            )
+            if self.user_data:
+                # TrainingDataSaver derives its paths live from
+                # omero_data.session_file_path (see TrainingDataSaver), so
+                # clearing it here is enough to start a fresh file.
+                if clear_session_file_path:
+                    self.omero_data.session_file_path = None
+                self.training_data_saver = TrainingDataSaver(
+                    classifier_name,
+                    self.omero_data,
+                    self.user_data,
+                    self.image_navigator,
+                )
+                logger.info(
+                    "TrainingDataSaver (re)initialized for classifier %s",
+                    classifier_name,
+                )
         else:
             logger.warning(
-                "No classifier selected - cannot load class options"
+                "No valid classifier selected; cannot load class options (%s)",
+                context,
             )
 
-        # Update viewer
         self.image_navigator.current_index = 0
         self.image_navigator.reset_for_new_dataset()
         self.image_navigator.update_image()
         logger.info(
-            f"Displaying {len(self.omero_data.selected_images)} "
-            "images loaded directly from OMERO"
+            "Displaying %d images (%s)",
+            len(self.omero_data.selected_images),
+            context,
         )
+
+    def _load_class_options(
+        self, classifier_name: str, default: list[str]
+    ) -> list[str]:
+        """Return ``class_options`` from the classifier's metadata.json.
+
+        Falls back to ``default`` when the metadata file is absent or can't
+        be read — the loaded data's own classes for a session reload, or
+        ``["unassigned"]`` for a fresh direct load.
+        """
+        metadata_path = (
+            Path.home()
+            / "omeroscreen_trainingdata"
+            / classifier_name
+            / "metadata.json"
+        )
+        if not metadata_path.exists():
+            logger.info(
+                "No metadata for %s; using default class options",
+                classifier_name,
+            )
+            return default
+        try:
+            with metadata_path.open() as f:
+                metadata = json.load(f)
+            options = metadata.get("class_options")
+            return list(options) if options else default
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Could not read class options for %s: %s",
+                classifier_name,
+                exc,
+            )
+            return default
 
     def create_container(self) -> Container:  # type: ignore
         # Create container with magicgui widgets
@@ -547,22 +534,48 @@ class TrainingDataSaver:
         self.image_navigator = image_navigator
         self.home_dir = Path.home() / "omeroscreen_trainingdata"
         self.classifier_dir = self.home_dir / self.classifier_name
+        # Resolved (file_name, file_path, meta_data_path), memoised per
+        # session_file_path. See _resolved() for why this can't recompute on
+        # every access.
+        self._cached_paths: tuple[str, Path, Path] | None = None
+        self._cached_spf: Path | None | object = _UNSET
         # training_dict is rebuilt on every save (see `save_both` /
         # `_save_training_data`); the initial value is just so callers
         # that introspect it before the first save get something sane.
         self.training_dict = self._create_training_dict()
 
+    def _resolved(self) -> tuple[str, Path, Path]:
+        """Resolve paths once per ``session_file_path``, then memoise.
+
+        ``_resolve_paths`` appends a ``_2``/``_3`` suffix when the target NPY
+        already exists. That check is filesystem-stateful, so recomputing it
+        on every property access is a bug: ``save_both`` writes the NPY via
+        ``self.file_path`` and then ``_save_to_database`` reads ``self.file_path``
+        again — by which point the file exists, so the second read bumped to a
+        ``_2`` name and the DB recorded a path that doesn't exist on disk.
+
+        Memoising stabilises the path within a save (and across repeated saves
+        of the same dataset). It still reflects a new load: ``session_file_path``
+        changing invalidates the cache, and each session/direct load creates a
+        fresh saver instance anyway — so cross-session dedup stays correct.
+        """
+        spf = self.omero_data.session_file_path
+        if self._cached_paths is None or self._cached_spf != spf:
+            self._cached_paths = self._resolve_paths()
+            self._cached_spf = spf
+        return self._cached_paths
+
     @property
     def file_name(self) -> str:
-        return self._resolve_paths()[0]
+        return self._resolved()[0]
 
     @property
     def file_path(self) -> Path:
-        return self._resolve_paths()[1]
+        return self._resolved()[1]
 
     @property
     def meta_data_path(self) -> Path:
-        return self._resolve_paths()[2]
+        return self._resolved()[2]
 
     @property
     def metadata(self) -> dict[str, Any]:

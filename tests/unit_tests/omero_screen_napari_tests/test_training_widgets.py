@@ -234,6 +234,32 @@ class TestTrainingDataSaver:
         assert saver.file_path != first_path
         assert saver.file_name == new_path.name
 
+    def test_file_path_stable_across_accesses_after_file_created(
+        self, mock_omero_data, real_user_data, tmp_path
+    ):
+        # Regression: file_path was a property that re-ran the `.exists()`
+        # dedup on every access. save_both writes the NPY via self.file_path,
+        # then _save_to_database reads self.file_path again — once the file
+        # exists, the second read bumped to a `_2` name and the DB recorded a
+        # path that doesn't exist on disk. The resolution is now memoised, so
+        # it stays stable across accesses even after the file appears.
+        mock_omero_data.session_file_path = None
+        mock_omero_data.plate_id = 4053
+        mock_omero_data.well_pos_list = ["D1"]
+        mock_omero_data.image_input = "All"
+        real_user_data.timepoint = 5
+        nav = MagicMock()
+        saver = TrainingDataSaver("test", mock_omero_data, real_user_data, nav)
+        saver.classifier_dir = tmp_path
+
+        first = saver.file_path
+        assert first.name == "4053_D1_All_5.npy"
+        # Simulate np.save creating the file mid-save.
+        first.write_bytes(b"")
+        # Subsequent accesses must NOT bump to _5_2.npy.
+        assert saver.file_path == first
+        assert saver.file_name == "4053_D1_All_5.npy"
+
     @patch("omero_screen_napari._training_widget.Path.home")
     @patch("numpy.save")
     @patch("omero_screen_napari._training_widget.TrainingDataSaver._save_metadata")
