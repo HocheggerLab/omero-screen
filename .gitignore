@@ -281,6 +281,10 @@ scratch/
 !**/zarr_cache/**
 !**/zarr_cache_tests/
 !**/zarr_cache_tests/**
+# ...but the broad un-ignores above also re-include compiled bytecode;
+# keep __pycache__/*.pyc out (last-match-wins over the negations).
+**/zarr_cache/**/__pycache__/
+**/zarr_cache_tests/**/__pycache__/
 
 # =========================
 # Ignore large image files
