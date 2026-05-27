@@ -48,6 +48,7 @@ dependencies = [
     "myst-parser>=4.0.1",
     "sphinxcontrib-video>=0.4.2",
     "sphinx-rtd-theme>=3.0.2",
+    "trackastra>=0.5.3",
 ]
 
 [project.scripts]

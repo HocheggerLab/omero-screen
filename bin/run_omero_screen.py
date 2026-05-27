@@ -87,6 +87,22 @@ def main() -> None:
         action=argparse.BooleanOptionalAction,
         help="Run stitched-well segmentation: assemble all fields per well into one canvas, segment that canvas, and exclude border objects only at the outer edge (default: %(default)s)",
     )
+    group.add_argument(
+        "--track",
+        type=str,
+        nargs="?",
+        const="general_2d",
+        default=None,
+        metavar="MODEL",
+        help="Track nuclei across time with Trackastra. Optional MODEL is a pretrained name or checkpoint path (default when flag given: %(const)s). Requires --stitch and a timelapse (T>1); a no-op on single-timepoint plates.",
+    )
+    group.add_argument(
+        "--track-mode",
+        type=str,
+        default="greedy",
+        choices=["greedy", "greedy_nodiv", "ilp"],
+        help="Trackastra linking mode (default: %(default)s).",
+    )
     args = parser.parse_args()
 
     # Note: Lazy import to speed up parsing errors
@@ -101,6 +117,9 @@ def main() -> None:
         os.environ["OMERO_SCREEN_INFERENCE_GALLERY_WIDTH"] = str(args.gallery)
     if args.batch:
         os.environ["OMERO_SCREEN_INFERENCE_BATCH_SIZE"] = str(args.batch)
+    if args.track:
+        os.environ["OMERO_SCREEN_TRACKING_MODEL"] = args.track
+        os.environ["OMERO_SCREEN_TRACKING_MODE"] = args.track_mode
 
     if args.model or args.cp4:
         from omero_screen import default_config
