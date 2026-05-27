@@ -55,6 +55,9 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
         prog_options += " --cp4"
     if args.stitch:
         prog_options += " --stitch"
+    if args.track:
+        prog_options += f" --track {args.track}"
+        prog_options += f" --track-mode {args.track_mode}"
 
     # Create the job file
     script = f"{name}.sh"
@@ -267,6 +270,22 @@ def _parse_args() -> argparse.Namespace:
         default=False,
         action=argparse.BooleanOptionalAction,
         help="Run stitched-well segmentation: assemble all fields per well into one canvas, segment that canvas, and exclude border objects only at the outer edge (default: %(default)s)",
+    )
+    group.add_argument(
+        "--track",
+        type=str,
+        nargs="?",
+        const="general_2d",
+        default=None,
+        metavar="MODEL",
+        help="Track nuclei across time with Trackastra. Optional MODEL is a pretrained name or checkpoint path (default when flag given: %(const)s). Requires --stitch and a timelapse (T>1); a no-op on single-timepoint plates.",
+    )
+    group.add_argument(
+        "--track-mode",
+        type=str,
+        default="greedy",
+        choices=["greedy", "greedy_nodiv", "ilp"],
+        help="Trackastra linking mode (default: %(default)s).",
     )
 
     return parser.parse_args()
