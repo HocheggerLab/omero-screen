@@ -813,23 +813,26 @@ def _stitched_well_loop(
     # artefacts. Each label belongs to exactly one field by centroid,
     # so the cache layer can restitch with ``compose_labels`` without
     # ID remapping (Stage 2 concern).
-    split_kwargs = {
-        "positions": positions,
-        "tile_h": tile_h,
-        "tile_w": tile_w,
-        "overlap_x": OPERETTA_STITCH_DEFAULTS["overlap_x"],
-        "overlap_y": OPERETTA_STITCH_DEFAULTS["overlap_y"],
-        "translate_x": OPERETTA_STITCH_DEFAULTS["translate_x"],
-        "translate_y": OPERETTA_STITCH_DEFAULTS["translate_y"],
-    }
-    with bench.stage("stitched_mask_split"):
-        per_field_n_masks = split_stitched_mask_to_fields(
-            stitched_n_mask, **split_kwargs
+    # Pass split params explicitly rather than via a **dict. A dict literal
+    # mixing `positions` (list) with the int params widens to
+    # dict[str, object], which mypy can't match to the typed signature on
+    # unpack — CI mypy flags this even when a cached local run doesn't.
+    def _split(mask: npt.NDArray[Any]) -> list[npt.NDArray[Any]]:
+        return split_stitched_mask_to_fields(
+            mask,
+            positions=positions,
+            tile_h=tile_h,
+            tile_w=tile_w,
+            overlap_x=OPERETTA_STITCH_DEFAULTS["overlap_x"],
+            overlap_y=OPERETTA_STITCH_DEFAULTS["overlap_y"],
+            translate_x=OPERETTA_STITCH_DEFAULTS["translate_x"],
+            translate_y=OPERETTA_STITCH_DEFAULTS["translate_y"],
         )
+
+    with bench.stage("stitched_mask_split"):
+        per_field_n_masks = _split(stitched_n_mask)
         per_field_c_masks: list[npt.NDArray[Any]] | None = (
-            split_stitched_mask_to_fields(stitched_c_mask, **split_kwargs)
-            if stitched_c_mask is not None
-            else None
+            _split(stitched_c_mask) if stitched_c_mask is not None else None
         )
     with bench.stage("stitched_mask_upload"):
         for n in range(n_fields):
