@@ -16,6 +16,13 @@ from omero_screen.config import get_logger
 
 logger = get_logger(__name__)
 
+# Trackastra nucleus-tracking columns added by omero-screen when --track is
+# enabled. Migrated onto legacy measurements tables by
+# ``MeasurementsManager._ensure_dynamic_columns_exist``.
+_TRACK_COLUMNS = frozenset(
+    {"track_id", "track_id_raw", "parent_track_id", "parent_track_id_raw"}
+)
+
 
 class MeasurementsManager:
     """Class for managing single cell measurements import operations.
@@ -238,6 +245,13 @@ class MeasurementsManager:
                             f"Invalid background column name format: {col}"
                         )
                     columns_to_add.append((col, "FLOAT"))
+                elif col in _TRACK_COLUMNS:
+                    # Trackastra nucleus-tracking columns (track_id,
+                    # track_id_raw, parent_track_id, parent_track_id_raw)
+                    # added at import time for plates that opted into
+                    # --track. The static schema also declares them on
+                    # fresh DBs; this branch migrates legacy DBs.
+                    columns_to_add.append((col, "INTEGER"))
 
             # Add missing columns
             for col, dtype in columns_to_add:
