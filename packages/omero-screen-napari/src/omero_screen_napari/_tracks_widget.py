@@ -30,7 +30,7 @@ _TRACKS_LAYER_NAME = "tracks"
 )
 def tracks_widget(
     viewer: Viewer,
-    well: str = "Well Position",
+    well: str = "",
     color_by: str = "track_id",
     tail_length: int = 30,
 ) -> None:
@@ -38,7 +38,8 @@ def tracks_widget(
 
     Args:
         viewer: Active napari viewer (injected by magicgui).
-        well: Well position to load tracks for (e.g. ``"C4"``).
+        well: Well position to load tracks for (e.g. ``"C4"``). Leave blank to
+            use the well currently displayed in the viewer.
         color_by: Track property to colour by — ``track_id`` or ``cell_cycle``
             (the latter only if cell-cycle analysis ran).
         tail_length: Number of past frames drawn behind each track head.
@@ -51,11 +52,23 @@ def tracks_widget(
         )
         return
 
+    well_id = well.strip()
+    if not well_id:
+        loaded = list(getattr(omero_data, "well_pos_list", []) or [])
+        if not loaded:
+            notifications.show_warning(
+                "No well loaded — load a well with the Welldata widget first, "
+                "or type a well position (e.g. 'B2')."
+            )
+            return
+        well_id = str(loaded[0])
+        notifications.show_info(f"Loading tracks for well {well_id}.")
+
     try:
-        tracks = load_tracks_for_well(plate_data, well.strip())
+        tracks = load_tracks_for_well(plate_data, well_id)
     except (KeyError, ValueError) as exc:
         notifications.show_warning(
-            f"Could not load tracks for {well!r}: {exc}"
+            f"Could not load tracks for {well_id!r}: {exc}"
         )
         return
     if tracks is None:  # pragma: no cover - guarded by has_tracks above
@@ -83,11 +96,11 @@ def tracks_widget(
     n_tracks = len({int(t) for t in tracks.data[:, 0]})
     n_div = len(tracks.graph)
     notifications.show_info(
-        f"Loaded {n_tracks} tracks ({n_div} divisions) for well {well}."
+        f"Loaded {n_tracks} tracks ({n_div} divisions) for well {well_id}."
     )
     logger.info(
         "Added tracks layer for well %s: %d tracks, %d divisions",
-        well,
+        well_id,
         n_tracks,
         n_div,
     )
