@@ -1592,6 +1592,13 @@ class CellViewStateCore:
                 "well",
                 "integrated_int",
                 "Cyto_ID",
+                # Trackastra nucleus-tracking columns (omero-screen --track).
+                # ``track_id`` also covers ``track_id_raw``; ``parent_track_id``
+                # also covers ``parent_track_id_raw``. Without this they would
+                # be auto-renamed to ``classifier_*`` and treated as a model
+                # output.
+                "track_id",
+                "parent_track_id",
             )
             _known_suffixes = ("_background",)
             renames: dict[str, str] = {}

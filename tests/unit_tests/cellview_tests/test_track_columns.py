@@ -108,6 +108,42 @@ class TestDynamicMigration:
         assert TRACK_COL_NAMES.issubset(_measurements_columns(legacy_conn))
 
 
+def test_set_classifier_does_not_rename_track_columns() -> None:
+    """Track columns must not be caught by _set_classifier's legacy detection.
+
+    The legacy branch renames any unprefixed column to ``classifier_<name>``;
+    without the allowlist entry, ``track_id`` etc would land in the DB as
+    ``classifier_track_id`` and miss the napari Tracks widget.
+    """
+    from cellview.utils.state import CellViewStateCore
+
+    state = CellViewStateCore(ui=None)  # type: ignore[arg-type]
+    # Skip DB writes: short-circuit by hitting the empty-classifier early return
+    # while still exercising the legacy-detection branch.
+    state.df = pd.DataFrame(
+        {
+            "label": ["1"],
+            "area_nucleus": [10.0],
+            "centroid-0-nuc": [5.0],
+            "centroid-1-nuc": [5.0],
+            "intensity_mean_DAPI_nucleus": [100.0],
+            "track_id": [1],
+            "track_id_raw": [1],
+            "parent_track_id": [0],
+            "parent_track_id_raw": [0],
+        }
+    )
+    state.repeat_id = 1
+    state.db_conn = duckdb.connect(":memory:")
+    # _set_classifier returns early when no classifier cols found and the
+    # allowlist covers every remaining column — which is exactly what we want.
+    state._set_classifier()
+    # Track columns must keep their original names — no classifier_ prefix.
+    assert "track_id" in state.df.columns
+    assert "parent_track_id" in state.df.columns
+    assert not any(c.startswith("classifier_") for c in state.df.columns)
+
+
 def test_insert_with_track_columns_round_trip(tmp_path) -> None:
     """End-to-end: dynamic migration + INSERT round-trips track values."""
     conn = duckdb.connect(":memory:")
