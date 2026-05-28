@@ -8,8 +8,6 @@ The track centroids are in the same (stitched) pixel space as the displayed
 well image, so the Tracks layer overlays the segmentation directly.
 """
 
-from __future__ import annotations
-
 import logging
 
 from magicgui import magic_factory
