@@ -12,6 +12,7 @@ import logging
 
 from magicgui import magic_factory
 from magicgui.widgets import FunctionGui
+from napari.layers import Labels
 from napari.utils import notifications
 from napari.viewer import Viewer
 
@@ -21,6 +22,20 @@ from omero_screen_napari.tracks_loader import has_tracks, load_tracks_for_well
 logger = logging.getLogger("omero-screen-napari")
 
 _TRACKS_LAYER_NAME = "tracks"
+
+
+def _reference_scale(viewer: Viewer) -> tuple[float, ...] | None:
+    """Return the (T, Y, X) scale of an existing Labels layer, if any.
+
+    OME-Zarr ``coordinateTransformations`` give the spatial layers a physical
+    scale (e.g. ``[1.0, 0.5934, 0.5934]``). The Tracks layer must match it or
+    the track positions render in raw pixels and drift off the nuclei. Labels
+    layers are 3D (T, Y, X) — exactly the dimensions we need.
+    """
+    for layer in viewer.layers:
+        if isinstance(layer, Labels) and layer.scale is not None:
+            return tuple(float(s) for s in layer.scale)
+    return None
 
 
 @magic_factory(
@@ -85,6 +100,12 @@ def tracks_widget(
     if _TRACKS_LAYER_NAME in viewer.layers:
         del viewer.layers[_TRACKS_LAYER_NAME]
 
+    scale = _reference_scale(viewer)
+    add_kwargs: dict[str, object] = {}
+    if scale is not None:
+        add_kwargs["scale"] = scale
+        logger.info("Aligning tracks with labels layer scale %s", scale)
+
     viewer.add_tracks(
         tracks.data,
         graph=tracks.graph,
@@ -92,6 +113,7 @@ def tracks_widget(
         color_by=prop,
         tail_length=tail_length,
         name=_TRACKS_LAYER_NAME,
+        **add_kwargs,
     )
     n_tracks = len({int(t) for t in tracks.data[:, 0]})
     n_div = len(tracks.graph)
