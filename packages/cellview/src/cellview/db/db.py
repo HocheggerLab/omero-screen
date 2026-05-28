@@ -326,7 +326,17 @@ class CellViewDB:
 
                 intensity_min_DAPI_cyto FLOAT,
                 intensity_mean_DAPI_cyto FLOAT,
-                intensity_max_DAPI_cyto FLOAT
+                intensity_max_DAPI_cyto FLOAT,
+
+                -- Trackastra nucleus tracking (omero-screen --track).
+                -- NULL on fixed-cell / single-timepoint plates.
+                -- *_raw preserve the original Trackastra output; the unsuffixed
+                -- columns are the curated "current best" updated by future
+                -- reconciliation. Founders have parent_track_id == 0.
+                track_id INTEGER,
+                track_id_raw INTEGER,
+                parent_track_id INTEGER,
+                parent_track_id_raw INTEGER
             );
             """)
 
