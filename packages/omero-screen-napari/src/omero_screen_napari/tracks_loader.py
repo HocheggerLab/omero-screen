@@ -109,12 +109,15 @@ def load_tracks_for_well(
         raise ValueError(f"No tracked rows for well {well!r}.")
 
     track_ids = df[TRACK_ID_COL].to_numpy()
+    # Swap centroid-0 / centroid-1 — try the alternate axis order to confirm
+    # whether the alignment seen on plate 4155 was due to a y/x swap rather
+    # than the OME-Zarr physical-unit scale on the image layer.
     data = np.column_stack(
         [
             track_ids,
             df[TIME_COL].to_numpy(),
-            df[CENTROID_Y_COL].to_numpy(),
             df[CENTROID_X_COL].to_numpy(),
+            df[CENTROID_Y_COL].to_numpy(),
         ]
     ).astype(np.float64)
 
