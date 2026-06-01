@@ -39,11 +39,12 @@ from omero_screen_napari.zarr_cache.paths import (
 logger = logging.getLogger(__name__)
 
 
-# Chunking constants. See Stage 2 plan for rationale: 16-frame T-blocks
-# keep live-cell scrub-within-block fast while staying small enough that
-# single-cell crops only over-read modestly. 256 spatial slab is a balance
-# between number of chunks (avoid inode pressure) and over-read on crops.
-_T_BLOCK = 16
+# Chunking constants. One timepoint per chunk: napari scrubbing then loads a
+# single frame instead of a whole T-block, and BigDataViewer / Mastodon (which
+# assume one timepoint per chunk) can open the cache directly — a packed T axis
+# made BDV render only t=0 and black thereafter. 256 spatial slab balances the
+# number of chunks (inode pressure) against over-read on single-cell crops.
+_T_CHUNK = 1
 _SPATIAL_CHUNK = 256
 
 
@@ -92,11 +93,11 @@ def _split_well(well: str) -> tuple[str, str]:
 
 
 def _image_chunks(t: int) -> tuple[int, int, int, int]:
-    return (min(t, _T_BLOCK), 1, _SPATIAL_CHUNK, _SPATIAL_CHUNK)
+    return (_T_CHUNK, 1, _SPATIAL_CHUNK, _SPATIAL_CHUNK)
 
 
 def _label_chunks(t: int) -> tuple[int, int, int]:
-    return (min(t, _T_BLOCK), _SPATIAL_CHUNK, _SPATIAL_CHUNK)
+    return (_T_CHUNK, _SPATIAL_CHUNK, _SPATIAL_CHUNK)
 
 
 def _coord_transforms(

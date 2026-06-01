@@ -12,6 +12,10 @@ dependencies = [
     "ome-zarr>=0.9,<1.0",
     "zarr>=2.17,<3.0",
     "napari-ome-zarr>=0.6",
+    # Lineage tree visualisation for the Tracks layer. Built by the Lowe lab
+    # (the team that contributed the napari Tracks layer itself); double-click
+    # a track in napari to render its lineage.
+    "napari-arboretum>=0.2",
 ]
 
 [project.entry-points."napari.manifest"]

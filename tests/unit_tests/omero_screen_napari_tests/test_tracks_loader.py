@@ -4,12 +4,15 @@ These are pure-data tests using synthetic polars frames; no napari viewer or
 OMERO connection is involved.
 """
 
+from pathlib import Path
+
 import numpy as np
 import polars as pl
 import pytest
 
 from omero_screen_napari.tracks_loader import (
     TracksData,
+    export_track_csv,
     has_tracks,
     load_tracks_for_well,
 )
@@ -95,3 +98,42 @@ class TestLoadTracksForWell:
     def test_empty_well_raises(self) -> None:
         with pytest.raises(ValueError, match="No tracked rows"):
             load_tracks_for_well(_tracked_frame(), "Z9")
+
+
+class TestExportTrackCsv:
+    """`export_track_csv` writes the well+track_id slice of plate_data."""
+
+    def test_round_trip_row_count_and_order(self, tmp_path: Path) -> None:
+        lf = _tracked_frame()
+        out = tmp_path / "track2.csv"
+        n = export_track_csv(lf, "C4", 2, out)
+        assert n == 2  # well C4 has two timepoints for track 2
+        written = pl.read_csv(out)
+        assert list(written["timepoint"]) == [0, 1]
+        assert list(written["track_id"]) == [2, 2]
+        # Sanity: parent column carried through.
+        assert list(written["parent_track_id"]) == [0, 0]
+
+    def test_columns_match_source(self, tmp_path: Path) -> None:
+        lf = _tracked_frame()
+        out = tmp_path / "track1.csv"
+        export_track_csv(lf, "C4", 1, out)
+        written = pl.read_csv(out)
+        assert set(written.columns) == set(lf.collect_schema().names())
+
+    def test_missing_track_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="No measurements"):
+            export_track_csv(
+                _tracked_frame(), "C4", 999, tmp_path / "missing.csv"
+            )
+
+    def test_wrong_well_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="No measurements"):
+            export_track_csv(
+                _tracked_frame(), "Z9", 1, tmp_path / "wrong.csv"
+            )
+
+    def test_no_track_column_raises(self, tmp_path: Path) -> None:
+        lf = pl.LazyFrame({"well": ["C4"], "area_nucleus": [10.0]})
+        with pytest.raises(KeyError, match="no track_id column"):
+            export_track_csv(lf, "C4", 1, tmp_path / "none.csv")

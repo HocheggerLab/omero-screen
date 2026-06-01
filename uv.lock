@@ -1925,6 +1925,26 @@ all = [
 ]
 
 [[package]]
+name = "napari-arboretum"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "napari" },
+    { name = "napari-matplotlib" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pooch" },
+    { name = "qtpy" },
+    { name = "scikit-image" },
+    { name = "vispy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/19/da/c2b51676e2fab14abc6e4472e84abee07b70af0fc9cdca656f2c5dd8da86/napari_arboretum-0.2.0.tar.gz", hash = "sha256:eec5979f32881cdd7ec8205b8d895918a5e64ddb020a9eb2745381785d6b4df2", size = 9819534, upload-time = "2025-09-29T15:26:10.486Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/77/bc/d299ed39d9d09093c9726c92bb230fb993540aa5317d639a9a0aac596646/napari_arboretum-0.2.0-py3-none-any.whl", hash = "sha256:48cecca026d3da1a03db6a073ca92e770397e7e0e5e4572073d9c76d2eb7bfea", size = 18741, upload-time = "2025-09-29T15:26:09.144Z" },
+]
+
+[[package]]
 name = "napari-console"
 version = "0.1.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1937,6 +1957,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5a/03/6e1fcd9aa9ac4746ce2b44050ea8f7192d883f4d3da4e7ff08589ac3ad3b/napari_console-0.1.4.tar.gz", hash = "sha256:e185e4d36d8171ae23ca383dc69c38df76592a984d6c99ad08372d188a1fbb9b", size = 20152, upload-time = "2025-10-15T14:24:18.456Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/01/72/2067f28fd0ae87978f3b61e8ec30c1d085bbed03f64eb58e43949d526b3a/napari_console-0.1.4-py3-none-any.whl", hash = "sha256:565df1fa15db579552af9e9d9d3883067c00191be282ad47d80f9b0d50b4e5ad", size = 9786, upload-time = "2025-10-15T14:24:17.677Z" },
+]
+
+[[package]]
+name = "napari-matplotlib"
+version = "3.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "napari" },
+    { name = "numpy" },
+    { name = "tinycss2" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c8/91/a588e7a7bb02529d4219f5f0bcaf2336305d3da545787690c1544139d284/napari_matplotlib-3.0.2.tar.gz", hash = "sha256:d894ce9c004e3e4faadf6085904e18d5c4b7ccb69f932492037cc22979b04379", size = 1468037, upload-time = "2025-10-30T10:22:02.101Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/48/a4/b07ec74f0df9555bd54110f033497956715753c419236f40bc3f42984d27/napari_matplotlib-3.0.2-py3-none-any.whl", hash = "sha256:185bb4a967d157bf2b0efd14d7847023430a5ebe28aa81de34871df5477706f8", size = 365742, upload-time = "2025-10-30T10:22:00.196Z" },
 ]
 
 [[package]]
@@ -2552,6 +2587,7 @@ version = "0.3.4"
 source = { editable = "packages/omero-screen-napari" }
 dependencies = [
     { name = "cellclass" },
+    { name = "napari-arboretum" },
     { name = "napari-ome-zarr" },
     { name = "ome-zarr" },
     { name = "zarr" },
@@ -2560,6 +2596,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "cellclass", editable = "packages/cellclass" },
+    { name = "napari-arboretum", specifier = ">=0.2" },
     { name = "napari-ome-zarr", specifier = ">=0.6" },
     { name = "ome-zarr", specifier = ">=0.9,<1.0" },
     { name = "zarr", specifier = ">=2.17,<3.0" },

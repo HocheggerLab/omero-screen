@@ -19,6 +19,8 @@ Main Functions:
     - load_tracking_model: Load a pretrained Trackastra model once per run.
     - track_nucleus_mask: Relabel a nucleus mask in place with track ids and
       return the lineage (parent) map.
+    - add_track_columns: Derive the ``track_id`` / ``parent_track_id`` (+
+      ``_raw``) columns on a per-well measurements dataframe.
 """
 
 from __future__ import annotations

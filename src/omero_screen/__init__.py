@@ -4,9 +4,22 @@ __version__ = "0.3.4"
 
 import json
 import os
+import warnings
 from dataclasses import dataclass, field
 
-from .config import get_logger, set_env_vars
+# Trackastra pulls in chardet>=7, but ``requests`` constrains it to <6 and so
+# emits a RequestsDependencyWarning on every import. The libraries function
+# fine — silence the noise so napari's notifications panel doesn't double-log
+# it at startup. Filter on the message text (regex), not the warning class —
+# importing the class would itself trigger the requests check before the
+# filter is registered. The wildcard absorbs the versions in the message.
+warnings.filterwarnings(
+    "ignore",
+    message=r".*doesn't match a supported version.*",
+    module=r"requests(\..*)?",
+)
+
+from .config import get_logger, set_env_vars  # noqa: E402
 
 
 @dataclass

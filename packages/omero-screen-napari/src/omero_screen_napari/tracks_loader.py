@@ -12,12 +12,14 @@ napari's built-in ``Tracks`` layer consumes.
 
 Main Functions:
     - load_tracks_for_well: CellView LazyFrame slice -> :class:`TracksData`.
+    - export_track_csv: Write one track's measurements to a CSV file.
     - has_tracks: cheap check for whether a plate carries track data.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -125,6 +127,49 @@ def load_tracks_for_well(
         properties[col] = df[col].to_numpy()
 
     return TracksData(data=data, graph=graph, properties=properties)
+
+
+def export_track_csv(
+    plate_data: pl.LazyFrame, well: str, track_id: int, out_path: Path
+) -> int:
+    """Write all measurement rows for one track to a CSV file.
+
+    Slices the already-loaded ``plate_data`` LazyFrame by ``well`` and
+    ``track_id`` (so no DB round-trip), sorts by timepoint, and writes the
+    result to ``out_path``. The resulting CSV preserves every measurement
+    column — suitable for picking the cleanest N tracks and feeding them to
+    downstream time-course analysis.
+
+    Args:
+        plate_data: CellView measurements LazyFrame for the plate.
+        well: Well position to filter on.
+        track_id: Track to export.
+        out_path: Destination CSV path (parent directory must exist).
+
+    Returns:
+        The number of rows written.
+
+    Raises:
+        KeyError: If ``plate_data`` has no ``track_id`` column.
+        ValueError: If the slice is empty (no rows for that well + track id).
+    """
+    if not has_tracks(plate_data):
+        raise KeyError(
+            "plate_data has no track_id column — run the pipeline with --track."
+        )
+    df = (
+        plate_data.filter(
+            (pl.col("well") == well) & (pl.col(TRACK_ID_COL) == int(track_id))
+        )
+        .sort(TIME_COL)
+        .collect()
+    )
+    if df.height == 0:
+        raise ValueError(
+            f"No measurements for well {well!r} track {track_id}."
+        )
+    df.write_csv(out_path)
+    return int(df.height)
 
 
 def _build_graph(df: pl.DataFrame) -> dict[int, list[int]]:

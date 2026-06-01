@@ -95,6 +95,22 @@ def test_image_chunk_shape_uses_spatial_chunk(synth_well_data):
     assert arr.chunks == (1, 1, 256, 256)
 
 
+def test_timelapse_chunks_one_frame_per_chunk(synth_well_data):
+    """T axis must chunk as 1 even for a multi-timepoint well.
+
+    A packed T chunk makes BigDataViewer / Mastodon render only t=0 and black
+    thereafter; one frame per chunk also keeps napari time-scrubbing cheap.
+    """
+    image, nuc, _ = synth_well_data(t=6, c=2, h=512, w=512)
+    w = _writer(n_timepoints=6)
+    w.ensure_plate(all_wells=["A1"])
+    w.write_well("A1", image, nuc, None)
+    img = _open_grp(plate_zarr_path(100))["A/1/0/0"]
+    lbl = _open_grp(plate_zarr_path(100))["A/1/0/labels/nuclei/0"]
+    assert img.shape[0] == 6 and img.chunks[0] == 1
+    assert lbl.chunks[0] == 1
+
+
 def test_write_well_rejects_wrong_image_ndim(synth_well_data):
     w = _writer()
     w.ensure_plate(all_wells=["A1"])
