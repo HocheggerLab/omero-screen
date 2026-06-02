@@ -1,22 +1,15 @@
-"""Export a tracked well as a self-contained Mastodon bundle.
+"""Export a tracked well's lineage for curation in Mastodon (Fiji).
 
-Curation of automated tracks happens in Mastodon (Fiji). This module writes
-everything Mastodon needs into one accessible folder, sidestepping the three
-traps we hit getting the OME-Zarr cache to open directly:
+The OME-Zarr cache now lives in a visible folder (``~/omero-cache`` by
+default) and is written one-timepoint-per-chunk, so Mastodon can open a well's
+image group *directly* — no image copy or symlink. This module therefore only
+needs to write a Mastodon CSV-importer file for the tracks (beside the cached
+image) and a README with the exact paths to paste into Fiji plus the column
+mapping.
 
-- the cache lives under ``~/.cache`` which Fiji's file browser can't reach;
-- the cache packs the whole T axis into one chunk, so BigDataViewer renders
-  only ``t=0`` (older caches built before the ``_T_CHUNK = 1`` fix);
-- the HCS plate / row / column nesting confuses BDV's dataset discoverer.
-
-The bundle is therefore a **flat, one-timepoint-per-chunk OME-Zarr copy** of
-the single well's image, plus a Mastodon CSV-importer file for the tracks, plus
-a README with the click-by-click import steps.
-
-    ~/mastodon_exports/plate_<id>_<well>/
-        image.zarr/     flat multiscale group, T=1 chunks, .zgroup marker
-        tracks.csv      spots + links for Mastodon's CSV Importer
-        README.txt      import instructions + column mapping
+Protecting a plate from eviction during curation is a separate, explicit
+choice: the napari Tracks widget has Pin / Unpin buttons. Export does not pin —
+caching a plate doesn't mean you're curating it.
 
 Track model translation (CellView is *track-level*, Mastodon CSV is
 *spot-level*): each ``(track_id, timepoint)`` row becomes one spot with a
@@ -26,19 +19,19 @@ track's last spot (the division); founders' first spots use ``parent_id = -1``.
 Coordinates are scaled to physical units (µm) to match the image.
 
 Main Functions:
-    - export_well_for_mastodon: write the full bundle for one well.
+    - export_well_for_mastodon: write the tracks CSV + README for one well.
+    - write_plate_tracks_csvs: best-effort per-well CSVs at cache-build time.
     - build_mastodon_csv: pure track-level -> spot-level CSV translation.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import math
-import shutil
 from pathlib import Path
 
 import polars as pl
-import zarr
 
 from omero_screen_napari.tracks_loader import (
     CENTROID_X_COL,
@@ -48,17 +41,23 @@ from omero_screen_napari.tracks_loader import (
     TRACK_ID_COL,
     has_tracks,
 )
-from omero_screen_napari.zarr_cache.paths import plate_zarr_path
+from omero_screen_napari.zarr_cache import plate_zarr_path
 
-#: Default base directory for exports — a plain local folder Fiji can reach
-#: (NOT the hidden ~/.cache, and avoid the iCloud-synced ~/Desktop).
+logger = logging.getLogger("omero-screen-napari")
+
+#: Default base directory for the per-well export README folders.
 DEFAULT_EXPORT_BASE = Path.home() / "mastodon_exports"
 
 _AREA_COL = "area_nucleus"
 
 
 def _well_image_group(plate_id: int, well: str) -> Path:
-    """Resolve ``<cache>/plate_<id>.zarr/<row>/<col>/0`` for a well."""
+    """Resolve ``<cache>/plate_<id>.zarr/<row>/<col>/0`` for a well.
+
+    This is the multiscale image group Mastodon opens directly — it carries
+    its own ``.zgroup`` / ``.zattrs`` and (for caches built with the current
+    writer) one-timepoint-per-chunk data.
+    """
     if not well or len(well) < 2:
         raise ValueError(f"Well {well!r} must look like 'B2'.")
     row, col = well[0].upper(), well[1:]
@@ -80,41 +79,79 @@ def _pixel_size_um(well_group: Path) -> float:
     return float(scale[-1])
 
 
-def rechunk_image_for_bdv(well_group: Path, out_zarr: Path) -> None:
-    """Copy a well's image pyramid to a flat, BDV-friendly OME-Zarr.
+def well_tracks_csv_path(plate_id: int, well: str) -> Path:
+    """Where a well's Mastodon ``tracks.csv`` lives — beside its image group.
 
-    Rewrites every pyramid level with one timepoint per chunk and writes a
-    ``.zgroup`` marker plus the original ``.zattrs`` at the root, so the result
-    opens directly in BigDataViewer / Mastodon with all timepoints intact.
-
-    Args:
-        well_group: Source ``.../<row>/<col>/0`` group in the plate cache.
-        out_zarr: Destination ``.zarr`` directory (overwritten if present).
+    Co-locating it with the cached image (``<row>/<col>/tracks.csv``, a
+    sibling of the ``0`` multiscale group) makes a cached well self-sufficient
+    for Mastodon: open the image group, import the sibling CSV.
     """
-    if out_zarr.exists():
-        shutil.rmtree(out_zarr)
-    out_zarr.mkdir(parents=True)
+    return _well_image_group(plate_id, well).parent / "tracks.csv"
 
-    shutil.copy(well_group / ".zattrs", out_zarr / ".zattrs")
-    (out_zarr / ".zgroup").write_text(json.dumps({"zarr_format": 2}))
 
-    multiscale = json.loads((well_group / ".zattrs").read_text())[
-        "multiscales"
-    ][0]
-    for entry in multiscale["datasets"]:
-        level = entry["path"]
-        src = zarr.open(str(well_group / level), mode="r")
-        _, _, y, x = src.shape
-        tile = min(256, y, x)
-        dst = zarr.open(
-            str(out_zarr / level),
-            mode="w",
-            shape=src.shape,
-            dtype=src.dtype,
-            chunks=(1, 1, tile, tile),
-            compressor=src.compressor,
+def write_well_tracks_csv(
+    plate_id: int,
+    well: str,
+    plate_data: pl.LazyFrame,
+    pixel_size: float | None = None,
+) -> Path:
+    """Write a well's Mastodon tracks CSV into the cache, return its path.
+
+    Raises:
+        KeyError: If the plate has no track columns.
+        ValueError: If the well has no tracked rows.
+        FileNotFoundError: If the well image is not cached.
+    """
+    well_group = _well_image_group(plate_id, well)
+    px = pixel_size if pixel_size is not None else _pixel_size_um(well_group)
+    csv = build_mastodon_csv(plate_data, well, px)
+    out = well_group.parent / "tracks.csv"
+    csv.write_csv(out)
+    return out
+
+
+def write_plate_tracks_csvs(plate_id: int) -> list[Path]:
+    """Write a tracks CSV beside every cached, tracked well of a plate.
+
+    Best-effort and side-effect-only: pulls the plate's measurements from
+    CellView and writes one ``tracks.csv`` per cached well that has track
+    data. Returns the CSV paths written (empty if CellView is unavailable,
+    the plate isn't imported, or it carries no tracks). Never raises — it is
+    called from the zarr-cache build, which must not fail on a missing or
+    track-free CellView.
+    """
+    from omero_screen_napari.zarr_cache import cached_wells
+
+    try:
+        from cellview.db.db import CellViewDB
+        from cellview.exporters.db_to_polars import export_polars_lf
+
+        conn = CellViewDB().connect()
+        plate_data, _ = export_polars_lf(plate_id, conn)
+    except Exception as exc:  # noqa: BLE001 — best-effort; log and bail
+        logger.info(
+            "No Mastodon tracks CSV for plate %s (CellView unavailable: %s)",
+            plate_id,
+            exc,
         )
-        dst[:] = src[:]
+        return []
+
+    if not has_tracks(plate_data):
+        return []
+
+    written: list[Path] = []
+    for well in cached_wells(plate_id):
+        try:
+            written.append(write_well_tracks_csv(plate_id, well, plate_data))
+        except (KeyError, ValueError, FileNotFoundError):
+            continue  # well has no tracked rows / not cached — skip
+    if written:
+        logger.info(
+            "Wrote %d Mastodon tracks CSV(s) for plate %s",
+            len(written),
+            plate_id,
+        )
+    return written
 
 
 def build_mastodon_csv(
@@ -205,8 +242,12 @@ _README = """\
 Mastodon import — plate {plate_id} well {well}
 ================================================
 
+The omero-cache is an LRU cache. If you will curate this well over time,
+click "Pin plate" in the napari Tracks widget first so it is not evicted
+mid-curation; "Unpin plate" when you are done.
+
 1. Fiji → Plugins → Tracking → Mastodon → "new from OME-NGFF…"
-   Paste this path (Browse can't reach hidden folders; pasting works):
+   Paste this image path (it opens directly — no copy was made):
        {image_path}
    → Detect datasets → click the listed row → OK → save the BDV XML anywhere.
 
@@ -214,7 +255,9 @@ Mastodon import — plate {plate_id} well {well}
    per-channel contrast; 1 / 2 switch channels; F toggles a fused overlay.
 
 3. Load the tracks: main Mastodon window → File → Import → CSV Importer →
-   choose tracks.csv and map the columns:
+   choose this CSV (it sits next to the image):
+       {csv_path}
+   and map the columns:
        X=x  Y=y  Z=z  Frame=frame  ID=id  Parent ID=parent_id
        Radius (column)=radius  Label=label
    Default Radius: 10 (only used if the radius column is blank).
@@ -233,18 +276,24 @@ def export_well_for_mastodon(
     out_base: Path | None = None,
     pixel_size: float | None = None,
 ) -> dict[str, Path]:
-    """Write a self-contained Mastodon bundle for one well.
+    """Write the Mastodon tracks CSV (beside the cached image) and a README.
+
+    No image data is copied: Mastodon opens the cached well image group in
+    place (see :func:`_well_image_group`). Pinning the plate against eviction
+    is a separate, explicit step (the Pin button) — export does not pin.
 
     Args:
         plate_id: Plate to export from.
         well: Well position (e.g. ``"B2"``).
         plate_data: CellView measurements LazyFrame (``omero_data.plate_data``).
-        out_base: Base directory for exports; defaults to
+        out_base: Base directory for the README folder; defaults to
             :data:`DEFAULT_EXPORT_BASE`.
         pixel_size: µm/pixel override; defaults to the cache's metadata.
 
     Returns:
-        Mapping with ``dir``, ``image``, ``csv`` and ``readme`` paths.
+        Mapping with ``dir``, ``image``, ``csv`` and ``readme`` paths. ``image``
+        and ``csv`` both live in the cache well dir (not copied); ``readme``
+        is the guided-import note under ``out_base``.
     """
     well_group = _well_image_group(plate_id, well)
     px = pixel_size if pixel_size is not None else _pixel_size_um(well_group)
@@ -253,11 +302,10 @@ def export_well_for_mastodon(
     out_dir = base / f"plate_{plate_id}_{well}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    image_path = out_dir / "image.zarr"
-    rechunk_image_for_bdv(well_group, image_path)
-
+    # Write the CSV next to the cached image (same location the build uses),
+    # so there is a single canonical tracks.csv per well.
     csv = build_mastodon_csv(plate_data, well, px)
-    csv_path = out_dir / "tracks.csv"
+    csv_path = well_group.parent / "tracks.csv"
     csv.write_csv(csv_path)
 
     n_div = (
@@ -272,7 +320,8 @@ def export_well_for_mastodon(
         _README.format(
             plate_id=plate_id,
             well=well,
-            image_path=image_path,
+            image_path=well_group,
+            csv_path=csv_path,
             n_spots=csv.height,
             n_tracks=csv["label"].n_unique(),
             n_div=n_div,
@@ -281,7 +330,7 @@ def export_well_for_mastodon(
     )
     return {
         "dir": out_dir,
-        "image": image_path,
+        "image": well_group,
         "csv": csv_path,
         "readme": readme_path,
     }

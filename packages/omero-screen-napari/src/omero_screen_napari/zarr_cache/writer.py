@@ -14,6 +14,7 @@ Axes / chunking decisions are documented in the Stage 2 plan note.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -365,6 +366,14 @@ class PlateZarrWriter:
         # Atomic-ish swap. If the well already exists (re-write case), we
         # move the old one aside, install the new, then clean up.
         final_well_dir.parent.mkdir(parents=True, exist_ok=True)
+        # ome-zarr writes .zgroup markers at the plate root, well (column) and
+        # image-group levels, but not the intermediate row level. Without it
+        # BigDataViewer's N5 dataset discoverer NPEs while walking the HCS
+        # hierarchy, so the whole plate can't be opened directly in Mastodon.
+        # A bare group marker on the row directory is enough.
+        row_zgroup = final_well_dir.parent / ".zgroup"
+        if not row_zgroup.exists():
+            row_zgroup.write_text(json.dumps({"zarr_format": 2}))
         if final_well_dir.exists():
             backup = final_well_dir.with_name(final_well_dir.name + ".old")
             if backup.exists():

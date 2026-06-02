@@ -33,6 +33,11 @@ from omero_screen_napari.tracks_loader import (
     has_tracks,
     load_tracks_for_well,
 )
+from omero_screen_napari.zarr_cache import (
+    pin_plate,
+    pinned_plate_ids,
+    unpin_plate,
+)
 
 logger = logging.getLogger("omero-screen-napari")
 
@@ -253,12 +258,12 @@ def mastodon_export_widget(
     viewer: Viewer,
     well: str = "",
 ) -> None:
-    """Write a self-contained Mastodon bundle for one well.
+    """Write the Mastodon tracks CSV + README for a well.
 
-    Produces ``~/mastodon_exports/plate_<id>_<well>/`` with a flat,
-    BDV-friendly OME-Zarr copy of the well image, a ``tracks.csv`` for
-    Mastodon's CSV importer, and a README of import steps — all in a folder
-    Fiji can browse to (unlike the hidden ``~/.cache``).
+    Produces ``~/mastodon_exports/plate_<id>_<well>/README.txt`` and a
+    ``tracks.csv`` beside the cached well image (no image copy — Mastodon opens
+    the cache in place; the README has the exact paths). This does **not** pin
+    the plate; use the Pin button if you'll curate over time.
 
     Args:
         viewer: Active napari viewer (unused; kept for the magicgui binding).
@@ -288,18 +293,67 @@ def mastodon_export_widget(
         return
 
     notifications.show_info(
-        f"Exported well {well_id} → {paths['dir']}. "
-        f"Open README.txt there for the Mastodon import steps."
+        f"Exported well {well_id}. README: {paths['readme']}. "
+        f"Pin the plate (button below) if curating over time."
     )
-    logger.info("Mastodon bundle written to %s", paths["dir"])
+    logger.info("Mastodon export written to %s", paths["dir"])
+
+
+@magic_factory(call_button="Pin plate (protect from eviction)")
+def pin_plate_widget(viewer: Viewer) -> None:
+    """Pin the loaded plate so the cache evictor won't delete it.
+
+    Use before curating a well in Mastodon over time (a separate Fiji session
+    that can span days). The pin persists across napari restarts.
+
+    Args:
+        viewer: Active napari viewer (unused; kept for the magicgui binding).
+    """
+    plate_id = getattr(omero_data, "plate_id", None)
+    if plate_id is None:
+        notifications.show_warning("No plate loaded.")
+        return
+    pin_plate(int(plate_id))
+    logger.info("Pinned plate %s", plate_id)
+    notifications.show_info(
+        f"Pinned plate {plate_id}. Pinned plates: {sorted(pinned_plate_ids())}."
+    )
+
+
+@magic_factory(call_button="Unpin plate (done curating)")
+def unpin_plate_widget(viewer: Viewer) -> None:
+    """Release the pin on the loaded plate, so it can be evicted again.
+
+    Press this when you have finished curating in Mastodon. Also reports which
+    plates are currently pinned.
+
+    Args:
+        viewer: Active napari viewer (unused; kept for the magicgui binding).
+    """
+    plate_id = getattr(omero_data, "plate_id", None)
+    if plate_id is not None:
+        unpin_plate(int(plate_id))
+        logger.info("Unpinned plate %s", plate_id)
+
+    still_pinned = sorted(pinned_plate_ids())
+    if still_pinned:
+        notifications.show_info(
+            f"Unpinned plate {plate_id}. Still pinned: {still_pinned}."
+        )
+    else:
+        notifications.show_info(
+            f"Unpinned plate {plate_id}. No plates are pinned now."
+        )
 
 
 def tracks_gui_widget() -> Container:  # type: ignore[type-arg]
-    """Stack the Tracks, per-track CSV, and Mastodon-export widgets."""
+    """Stack the Tracks, per-track CSV, Mastodon-export and pin/unpin widgets."""
     return Container(
         widgets=[
             tracks_widget(),
             export_track_widget(),
             mastodon_export_widget(),
+            pin_plate_widget(),
+            unpin_plate_widget(),
         ]
     )

@@ -97,6 +97,30 @@ def test_evict_pinned_plate_is_skipped():
         unpin_plate(1)
 
 
+def test_persistent_pin_survives_inprocess_reset():
+    """A pin must protect a plate across a napari restart.
+
+    Mastodon curation pins a plate, then napari closes (clearing the
+    in-process set) while the user curates for days. The persistent registry
+    flag must still make the evictor skip the plate.
+    """
+    from omero_screen_napari.zarr_cache import eviction
+
+    _fake_plate(1, 2000, "2026-01-01T00:00:00+00:00")  # pinned, oldest (LRU)
+    _fake_plate(2, 2000, "2026-01-02T00:00:00+00:00")
+    pin_plate(1)  # persists to the registry
+    eviction._pinned_plates.clear()  # simulate a restart
+    try:
+        evicted = enforce_size_cap(extra_bytes=0, cap_bytes=1500)
+        # Plate 1 is LRU so would normally go first; the persistent pin
+        # protects it, so only plate 2 is evicted.
+        assert 1 not in evicted
+        assert plate_zarr_path(1).exists()
+        assert 2 in evicted
+    finally:
+        unpin_plate(1)
+
+
 def test_enforce_size_cap_evicts_lru_first():
     # Three plates totalling 6000 B. Cap at 4500 B with 0 extra → must
     # evict the LRU (plate 2, oldest last_accessed) to fit.

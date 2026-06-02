@@ -1,14 +1,21 @@
-"""Tests for the pure track-level → spot-level CSV translation.
+"""Tests for the Mastodon export: pure CSV translation + cache-side writers.
 
-Only ``build_mastodon_csv`` is exercised — it is pure data. The image rechunk
-and bundle orchestration touch the zarr cache on disk and are covered by the
-manual integration run in Mastodon.
+``build_mastodon_csv`` is pure data. ``write_well_tracks_csv`` /
+``write_plate_tracks_csvs`` touch a (synthetic) cache on disk; the full
+Mastodon round-trip is covered by the manual integration run.
 """
+
+import json
+from pathlib import Path
 
 import polars as pl
 import pytest
 
-from omero_screen_napari.mastodon_export import build_mastodon_csv
+from omero_screen_napari.mastodon_export import (
+    build_mastodon_csv,
+    write_plate_tracks_csvs,
+    write_well_tracks_csv,
+)
 
 
 def _frame() -> pl.LazyFrame:
@@ -101,3 +108,59 @@ def test_no_track_column_raises() -> None:
     lf = pl.LazyFrame({"well": ["B2"], "area_nucleus": [1.0]})
     with pytest.raises(KeyError, match="no track_id column"):
         build_mastodon_csv(lf, "B2", pixel_size=1.0)
+
+
+def _fake_cached_well(cache_root: Path, plate_id: int, well: str) -> Path:
+    """Create a minimal cached well image group with a scale in .zattrs."""
+    row, col = well[0], well[1:]
+    grp = cache_root / "zarr" / f"plate_{plate_id}.zarr" / row / col / "0"
+    grp.mkdir(parents=True)
+    (grp / ".zattrs").write_text(
+        json.dumps(
+            {
+                "multiscales": [
+                    {
+                        "datasets": [
+                            {
+                                "coordinateTransformations": [
+                                    {"type": "scale", "scale": [1.0, 1.0, 0.5, 0.5]}
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
+    )
+    return grp
+
+
+def test_write_well_tracks_csv_lands_beside_image(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("OMERO_SCREEN_CACHE_PATH", str(tmp_path))
+    grp = _fake_cached_well(tmp_path, 4155, "B2")
+    out = write_well_tracks_csv(4155, "B2", _frame(), pixel_size=1.0)
+    # CSV sits next to the "0" image group, in the well dir.
+    assert out == grp.parent / "tracks.csv"
+    assert out.exists()
+    assert pl.read_csv(out).height == 9
+
+
+def test_write_well_tracks_csv_reads_pixel_size_from_zattrs(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("OMERO_SCREEN_CACHE_PATH", str(tmp_path))
+    _fake_cached_well(tmp_path, 4155, "B2")
+    out = write_well_tracks_csv(4155, "B2", _frame())  # no pixel_size override
+    # .zattrs scale x = 0.5 → first spot x = centroid-1 (10.0) * 0.5 = 5.0.
+    assert pl.read_csv(out)["x"][0] == pytest.approx(5.0)
+
+
+def test_write_plate_tracks_csvs_is_best_effort(tmp_path, monkeypatch) -> None:
+    """No CellView / no cached wells → returns [] rather than raising."""
+    monkeypatch.setenv("OMERO_SCREEN_CACHE_PATH", str(tmp_path))
+    # CellView connect raises in this isolated env → graceful empty result.
+    monkeypatch.setattr(
+        "cellview.db.db.CellViewDB.connect",
+        lambda self: (_ for _ in ()).throw(RuntimeError("no db")),
+    )
+    assert write_plate_tracks_csvs(4155) == []

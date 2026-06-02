@@ -140,8 +140,11 @@ class NumpyDisk(Disk):  # type: ignore[misc]
 def get_cache_path(subdir: str) -> str:
     """Get the path to the cache directory.
 
-    Uses the environment variable OMERO_SCREEN_CACHE_PATH, or defaults
-    to HOME/.cache/omero_screen.
+    Uses the environment variable OMERO_SCREEN_CACHE_PATH, or defaults to
+    ``~/omero-cache`` — a visible folder (not hidden under ``~/.cache``) so
+    the OME-Zarr stores can be opened directly in external tools such as
+    Fiji/Mastodon. It is still an LRU cache (see ``zarr_cache.eviction``);
+    plates under active curation are protected by pinning, not by location.
 
     Args:
         subdir: Sub-directory to append to the path. Use empty string to ignore.
@@ -151,11 +154,34 @@ def get_cache_path(subdir: str) -> str:
     """
     path = os.getenv("OMERO_SCREEN_CACHE_PATH")
     if path is None:
-        path = str(pathlib.Path.home() / ".cache" / "omero_screen")
+        path = str(pathlib.Path.home() / "omero-cache")
     # Support use of ~ prefix
     elif path.startswith("~"):
         path = str(pathlib.Path(path).expanduser())
     return os.path.join(path, subdir)
+
+
+def _warn_if_legacy_cache() -> None:
+    """One-time notice that the cache moved out of ``~/.cache/omero_screen``.
+
+    Fires only when the default location is in use and the old hidden cache
+    still exists but the new one does not — i.e. on the first run after the
+    relocation. Once the new cache is populated the notice stops.
+    """
+    if os.getenv("OMERO_SCREEN_CACHE_PATH") is not None:
+        return
+    legacy = pathlib.Path.home() / ".cache" / "omero_screen"
+    current = pathlib.Path.home() / "omero-cache"
+    if legacy.exists() and not current.exists():
+        logger.info(
+            "Cache moved to %s (was %s). Rebuild plates here; the old hidden "
+            "cache can be deleted, or set OMERO_SCREEN_CACHE_PATH to keep it.",
+            current,
+            legacy,
+        )
+
+
+_warn_if_legacy_cache()
 
 
 # Configure cache path and size using environment.
