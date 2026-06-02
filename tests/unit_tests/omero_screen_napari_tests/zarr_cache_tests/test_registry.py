@@ -11,9 +11,11 @@ import pytest
 from omero_screen_napari.zarr_cache import registry as reg_mod
 from omero_screen_napari.zarr_cache.registry import (
     ZarrPlateEntry,
+    list_pinned,
     list_plates,
     load_registry,
     remove,
+    set_pinned,
     touch,
     upsert,
 )
@@ -21,6 +23,22 @@ from omero_screen_napari.zarr_cache.registry import (
 
 def test_load_returns_empty_when_file_absent():
     assert load_registry() == {}
+
+
+def test_pin_flag_round_trips_through_disk():
+    upsert(ZarrPlateEntry(plate_id=7))
+    assert list_pinned() == []
+    set_pinned(7, True)
+    # Reload from disk to prove persistence, not just in-memory mutation.
+    assert load_registry()[7].pinned is True
+    assert [e.plate_id for e in list_pinned()] == [7]
+    set_pinned(7, False)
+    assert list_pinned() == []
+
+
+def test_pinned_defaults_false_for_legacy_entries():
+    """A registry written before the pinned field loads as unpinned."""
+    assert ZarrPlateEntry.from_dict({"plate_id": 99}).pinned is False
 
 
 def test_upsert_roundtrip():

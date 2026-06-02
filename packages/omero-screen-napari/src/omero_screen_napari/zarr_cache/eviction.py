@@ -25,8 +25,10 @@ from pathlib import Path
 
 from omero_screen_napari.zarr_cache.paths import plate_zarr_path
 from omero_screen_napari.zarr_cache.registry import (
+    list_pinned,
     list_plates,
     remove,
+    set_pinned,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,7 +42,9 @@ _DEFAULT_CAP_GB = 100
 
 # In-process pin set. Readers register the plates they have open so the
 # eviction logic skips them. Pins are cleared via ``unpin_plate`` or
-# garbage collection of the reader.
+# garbage collection of the reader. This is the *transient* layer; durable
+# pins (e.g. a well under Mastodon curation across sessions) additionally
+# live in the registry — see ``is_pinned``.
 _pinned_plates: set[int] = set()
 
 
@@ -71,14 +75,37 @@ def get_cap_bytes() -> int:
     return cap_gb * (1024**3)
 
 
-def pin_plate(plate_id: int) -> None:
-    """Mark a plate as in-use; the evictor will skip it."""
+def pin_plate(plate_id: int, *, persist: bool = True) -> None:
+    """Mark a plate as in-use so the evictor skips it.
+
+    Args:
+        plate_id: Plate to pin.
+        persist: When True (default) the pin is also written to the registry
+            so it survives a restart — required for Mastodon curation, which
+            spans sessions. Pass False for a transient in-process pin (e.g. a
+            viewer that just has the store open).
+    """
     _pinned_plates.add(plate_id)
+    if persist:
+        set_pinned(plate_id, True)
 
 
 def unpin_plate(plate_id: int) -> None:
-    """Release a pin acquired via :func:`pin_plate`."""
+    """Release a pin acquired via :func:`pin_plate` (transient and durable)."""
     _pinned_plates.discard(plate_id)
+    set_pinned(plate_id, False)
+
+
+def is_pinned(plate_id: int) -> bool:
+    """True if a plate is pinned in-process or persistently in the registry."""
+    return plate_id in _pinned_plates or any(
+        e.plate_id == plate_id for e in list_pinned()
+    )
+
+
+def pinned_plate_ids() -> set[int]:
+    """All currently-pinned plate ids (in-process ∪ persistent)."""
+    return _pinned_plates | {e.plate_id for e in list_pinned()}
 
 
 def _dir_size_bytes(path: Path) -> int:
@@ -109,7 +136,7 @@ def evict_plate(plate_id: int) -> int:
     Returns the number of bytes reclaimed. Pinned plates are skipped with
     a warning (returns 0).
     """
-    if plate_id in _pinned_plates:
+    if is_pinned(plate_id):
         logger.warning("Skipping eviction of pinned plate %d", plate_id)
         return 0
     path = plate_zarr_path(plate_id)
@@ -151,9 +178,8 @@ def enforce_size_cap(
     evicted: list[int] = []
     while current_size_bytes() + extra_bytes > cap:
         # LRU first. list_plates() returns sorted by last_accessed ASC.
-        candidates = [
-            e for e in list_plates() if e.plate_id not in _pinned_plates
-        ]
+        pinned = pinned_plate_ids()
+        candidates = [e for e in list_plates() if e.plate_id not in pinned]
         if not candidates:
             logger.warning(
                 "Cannot enforce cap: every remaining plate is pinned. "

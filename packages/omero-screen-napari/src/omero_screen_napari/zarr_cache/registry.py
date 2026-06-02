@@ -54,6 +54,10 @@ class ZarrPlateEntry:
     n_wells_written: int = 0
     created_at: str = field(default_factory=_now_iso)
     last_accessed: str = field(default_factory=_now_iso)
+    # Persistent pin: a pinned plate is exempt from LRU eviction across
+    # sessions. Set when a well is exported for Mastodon curation (which can
+    # span days in a separate Fiji process) and cleared from the UI when done.
+    pinned: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ZarrPlateEntry:
@@ -64,6 +68,7 @@ class ZarrPlateEntry:
             n_wells_written=int(data.get("n_wells_written", 0)),
             created_at=str(data.get("created_at", _now_iso())),
             last_accessed=str(data.get("last_accessed", _now_iso())),
+            pinned=bool(data.get("pinned", False)),
         )
 
 
@@ -133,3 +138,17 @@ def touch(plate_id: int) -> None:
         return
     entries[plate_id].last_accessed = _now_iso()
     _save_registry(entries)
+
+
+def set_pinned(plate_id: int, pinned: bool) -> None:
+    """Persistently mark a plate pinned/unpinned. No-op if absent."""
+    entries = load_registry()
+    if plate_id not in entries:
+        return
+    entries[plate_id].pinned = pinned
+    _save_registry(entries)
+
+
+def list_pinned() -> list[ZarrPlateEntry]:
+    """Return all persistently-pinned plate entries."""
+    return [e for e in load_registry().values() if e.pinned]

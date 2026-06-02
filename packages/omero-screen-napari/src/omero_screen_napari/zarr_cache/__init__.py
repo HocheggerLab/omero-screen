@@ -35,7 +35,9 @@ from omero_screen_napari.zarr_cache.eviction import (
     enforce_size_cap,
     evict_plate,
     get_cap_bytes,
+    is_pinned,
     pin_plate,
+    pinned_plate_ids,
     unpin_plate,
 )
 from omero_screen_napari.zarr_cache.paths import (
@@ -74,6 +76,7 @@ __all__ = [
     "fetch_crop_from_row",
     "fetch_label_crop",
     "get_cap_bytes",
+    "is_pinned",
     "is_stitched_plate",
     "list_plates",
     "load_plate_to_viewer",
@@ -81,6 +84,7 @@ __all__ = [
     "resolve_target_wells",
     "open_plate",
     "pin_plate",
+    "pinned_plate_ids",
     "plate_info",
     "plate_zarr_path",
     "prepare",

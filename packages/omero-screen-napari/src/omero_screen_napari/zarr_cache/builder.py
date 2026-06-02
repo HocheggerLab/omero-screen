@@ -580,3 +580,16 @@ def build_plate_zarr(
         plate_id,
         len(target_wells),
     )
+
+    # If the plate carries Trackastra tracks in CellView, drop a Mastodon
+    # tracks.csv beside each cached well image so the cache is curation-ready
+    # without a separate export step. Best-effort and lazy-imported (the
+    # export module imports back into this sub-package); never fails the build.
+    try:
+        from omero_screen_napari.mastodon_export import write_plate_tracks_csvs
+
+        write_plate_tracks_csvs(plate_id)
+    except Exception:  # noqa: BLE001 — cache build must not fail on this
+        logger.debug(
+            "Track CSV write skipped for plate %s", plate_id, exc_info=True
+        )
