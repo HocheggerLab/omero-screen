@@ -58,6 +58,7 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
     if args.track:
         prog_options += f" --track {args.track}"
         prog_options += f" --track-mode {args.track_mode}"
+        prog_options += f" --track-batch-size {args.track_batch_size}"
 
     # Create the job file
     script = f"{name}.sh"
@@ -286,6 +287,14 @@ def _parse_args() -> argparse.Namespace:
         default="greedy",
         choices=["greedy", "greedy_nodiv", "ilp"],
         help="Trackastra linking mode (default: %(default)s).",
+    )
+    group.add_argument(
+        "--track-batch-size",
+        type=int,
+        default=4,
+        help="Attention windows Trackastra scores per forward pass "
+        "(default: %(default)s). Lower if tracking hits CUDA OOM on dense "
+        "wells; raise for faster scoring when GPU VRAM allows.",
     )
 
     return parser.parse_args()

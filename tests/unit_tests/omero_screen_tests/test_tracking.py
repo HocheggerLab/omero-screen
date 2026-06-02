@@ -82,6 +82,36 @@ class TestTrackNucleusMask:
         assert result.nucleus_mask.dtype == mask.dtype
         np.testing.assert_array_equal(result.nucleus_mask, relabelled)
 
+    def test_batch_size_forwarded_to_model(self) -> None:
+        """batch_size is passed through to Trackastra.track (GPU memory knob)."""
+        imgs = np.zeros((3, 4, 4), dtype=np.float32)
+        mask = np.ones((3, 4, 4), dtype=np.uint16)
+        model = MagicMock()
+        model.track.return_value = ("fake_graph", None)
+
+        with patch(
+            "trackastra.tracking.graph_to_ctc",
+            return_value=(_ctc_dataframe(), mask.copy()),
+        ):
+            track_nucleus_mask(imgs, mask, model, mode="greedy", batch_size=4)
+
+        assert model.track.call_args.kwargs["batch_size"] == 4
+
+    def test_batch_size_defaults_to_none(self) -> None:
+        """Without an explicit value, defer to Trackastra's own default."""
+        imgs = np.zeros((3, 4, 4), dtype=np.float32)
+        mask = np.ones((3, 4, 4), dtype=np.uint16)
+        model = MagicMock()
+        model.track.return_value = ("fake_graph", None)
+
+        with patch(
+            "trackastra.tracking.graph_to_ctc",
+            return_value=(_ctc_dataframe(), mask.copy()),
+        ):
+            track_nucleus_mask(imgs, mask, model, mode="greedy")
+
+        assert model.track.call_args.kwargs["batch_size"] is None
+
 
 class TestAddTrackColumns:
     def test_columns_derived_from_label(self) -> None:

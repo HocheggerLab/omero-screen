@@ -103,6 +103,14 @@ def main() -> None:
         choices=["greedy", "greedy_nodiv", "ilp"],
         help="Trackastra linking mode (default: %(default)s).",
     )
+    group.add_argument(
+        "--track-batch-size",
+        type=int,
+        default=4,
+        help="Attention windows Trackastra scores per forward pass (default: %(default)s). "
+        "Caps GPU memory during tracking; lower this if tracking hits CUDA OOM, "
+        "raise it for faster scoring when VRAM allows (Trackastra's own GPU default is 16).",
+    )
     args = parser.parse_args()
 
     # Note: Lazy import to speed up parsing errors
@@ -120,6 +128,9 @@ def main() -> None:
     if args.track:
         os.environ["OMERO_SCREEN_TRACKING_MODEL"] = args.track
         os.environ["OMERO_SCREEN_TRACKING_MODE"] = args.track_mode
+        os.environ["OMERO_SCREEN_TRACKING_BATCH_SIZE"] = str(
+            args.track_batch_size
+        )
 
     if args.model or args.cp4:
         from omero_screen import default_config

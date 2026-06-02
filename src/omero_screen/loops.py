@@ -283,6 +283,11 @@ def process_wells(
     tracking_model = None
     tracking_model_name = os.getenv("OMERO_SCREEN_TRACKING_MODEL")
     tracking_mode = os.getenv("OMERO_SCREEN_TRACKING_MODE", "greedy")
+    # Attention windows scored per forward pass — caps GPU activation memory.
+    # Default 4 (Trackastra's GPU default of 16 OOMs dense stitched wells).
+    tracking_batch_size = int(
+        os.getenv("OMERO_SCREEN_TRACKING_BATCH_SIZE", "4")
+    )
     if tracking_model_name:
         if not stitch_mode:
             logger.warning(
@@ -357,6 +362,7 @@ def process_wells(
                     stitch_mode=stitch_mode,
                     tracking_model=tracking_model,
                     tracking_mode=tracking_mode,
+                    tracking_batch_size=tracking_batch_size,
                 )
                 if not segmentation_mode:
                     _save_well_results(conn, well, well_data, well_quality)
@@ -729,6 +735,7 @@ def _stitched_well_loop(
     prog: ScreenProgress | None = None,
     tracking_model: Any | None = None,
     tracking_mode: str = "greedy",
+    tracking_batch_size: int = 4,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Process a well as a single stitched canvas.
 
@@ -848,6 +855,7 @@ def _stitched_well_loop(
                 stitched_n_mask,
                 tracking_model,
                 mode=tracking_mode,
+                batch_size=tracking_batch_size,
             )
         tracked = True
         logger.info(
@@ -980,6 +988,7 @@ def _well_loop(
     stitch_mode: bool = False,
     tracking_model: Any | None = None,
     tracking_mode: str = "greedy",
+    tracking_batch_size: int = 4,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Process all images in a well.
 
@@ -997,6 +1006,8 @@ def _well_loop(
         tracking_model: Loaded Trackastra model, or None to disable tracking
             (stitched route only)
         tracking_mode: Trackastra linking mode when tracking is enabled
+        tracking_batch_size: Attention windows scored per forward pass —
+            caps GPU memory during tracking (see ``track_nucleus_mask``)
 
     Returns:
         Tuple[pd.DataFrame, pd.DataFrame]: DataFrames containing the final data and quality control data
@@ -1014,6 +1025,7 @@ def _well_loop(
             prog=prog,
             tracking_model=tracking_model,
             tracking_mode=tracking_mode,
+            tracking_batch_size=tracking_batch_size,
         )
 
     logger.info(
