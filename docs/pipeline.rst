@@ -135,6 +135,47 @@ Override by setting ``OMERO_SCREEN_CONFIG`` to a JSON file with a
 Cellpose parameters — fixed-cell pipelines are unaffected.
 
 
+.. _temporal-tracking:
+
+Temporal Tracking
+-----------------
+
+For live-cell time-lapse plates the pipeline can link segmented nuclei across
+the time axis so each cell carries a stable ``track_id`` for its whole
+lifetime. Tracking uses `Trackastra <https://github.com/weigertlab/trackastra>`_
+(Weigert lab, ECCV 2024) — a track-by-detection model with strong pretrained
+weights and no hyperparameters to tune — and is enabled with the ``--track``
+flag.
+
+How it works:
+
+1. Tracking runs on the **stitched whole-well nucleus mask**, so it requires
+   ``--stitch`` and links cells coherently across field-of-view boundaries.
+2. Trackastra relabels the nucleus mask **in place** so each nucleus's label
+   *is* its ``track_id``. Because cell and cytoplasm measurements are tied to
+   the nucleus by spatial overlap, they inherit the track id automatically.
+3. Four columns flow into the measurements CSV and on into CellView:
+   ``track_id`` and ``parent_track_id`` (the current, curatable values) plus
+   immutable ``track_id_raw`` / ``parent_track_id_raw`` originals. A division
+   gives the two daughter tracks new ids whose ``parent_track_id`` points at
+   the mother.
+4. Tracking is a **no-op on single-timepoint (fixed-cell) plates** — a run with
+   ``--track`` set on a ``T == 1`` plate produces byte-identical output to a
+   run without it.
+
+Tracks are then viewed and curated downstream: explore them in napari with the
+:doc:`omero-screen-napari/tracks_widget`, and hand-correct them in Mastodon via
+the OME-Zarr cache. See the :doc:`tracking` overview for the end-to-end story.
+
+Linking modes are selected with ``--track-mode``:
+
+* ``greedy`` *(default)* — fast greedy linking with divisions.
+* ``greedy_nodiv`` — slightly faster, no divisions (rarely useful for
+  cell-cycle work).
+* ``ilp`` — integer-linear-programming linking; most accurate, slowest, and
+  requires the optional ``motile`` solver stack.
+
+
 Command Line Interface
 ----------------------
 
@@ -205,6 +246,15 @@ The main entry point for running the analysis pipeline against one or more plate
      - Run segmentation on a stitched whole-well canvas instead of per-field.
        See :ref:`stitched-mode` for when to use this. Required for live-cell
        time-lapse plates and for the OME-Zarr napari cache backend.
+   * - ``--track [MODEL]``
+     - off
+     - Track nuclei across time with Trackastra (see :ref:`temporal-tracking`).
+       Optional ``MODEL`` is a pretrained name or checkpoint path; the flag
+       alone defaults to ``general_2d``. Requires ``--stitch`` and a timelapse
+       (``T > 1``); a no-op on single-timepoint plates.
+   * - ``--track-mode MODE``
+     - greedy
+     - Trackastra linking mode: ``greedy``, ``greedy_nodiv``, or ``ilp``.
 
 **Examples**
 
@@ -233,6 +283,9 @@ The main entry point for running the analysis pipeline against one or more plate
 
     # Stitched-mode segmentation (live-cell time-lapse, multi-tile per well)
     omero-screen 12345 --stitch --cp4
+
+    # Live-cell tracking: stitched segmentation + Trackastra nucleus tracking
+    omero-screen 12345 --stitch --track general_2d
 
 
 sbatch_omero_screen
@@ -299,7 +352,9 @@ sbatch_omero_screen
      - Use Cellpose 4 (cpsam) models.
    * - ``--model MODEL``
      - Override all segmentation models with a single model name.
-   * - ``--cp4``
-     - Use Cellpose 4 models.
-   * - ``--model MODEL``
-     - Override all segmentation models.
+   * - ``--stitch``
+     - Run stitched whole-well segmentation.
+   * - ``--track [MODEL]``
+     - Track nuclei across time with Trackastra (requires ``--stitch``).
+   * - ``--track-mode MODE``
+     - Trackastra linking mode (``greedy`` / ``greedy_nodiv`` / ``ilp``).

@@ -61,6 +61,7 @@ Documentation Contents
    :caption: Omero Screen
 
    pipeline
+   tracking
    cyclic_if
    configuration
    developer_guide
