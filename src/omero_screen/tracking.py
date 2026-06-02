@@ -89,6 +89,7 @@ def track_nucleus_mask(
     nucleus_mask: npt.NDArray[Any],
     model: Trackastra,
     mode: str = "greedy",
+    batch_size: int | None = None,
 ) -> TrackingResult:
     """Track nuclei across time and relabel the mask with stable track ids.
 
@@ -97,6 +98,14 @@ def track_nucleus_mask(
         nucleus_mask: Per-frame Cellpose nucleus labels, shape ``(T, Y, X)``.
         model: A model from :func:`load_tracking_model`.
         mode: Linking mode — one of :data:`VALID_TRACKING_MODES`.
+        batch_size: Number of attention windows the transformer scores per
+            forward pass. Drives GPU activation memory (~linear): the attention
+            cost scales as ``batch_size × detections_per_window²``, so dense
+            stitched wells can exhaust GPU VRAM at Trackastra's GPU default of
+            16. ``None`` defers to Trackastra's own default (1 on CPU, 16 on
+            GPU); the pipeline passes a smaller value (see
+            ``OMERO_SCREEN_TRACKING_BATCH_SIZE``). Lower = less GPU memory,
+            modestly slower scoring; raise it until a well OOMs, then back off.
 
     Returns:
         A :class:`TrackingResult` with the relabelled nucleus mask and the
@@ -130,6 +139,7 @@ def track_nucleus_mask(
         nucleus_mask,
         mode=mode,
         normalize_imgs=True,
+        batch_size=batch_size,
     )
     # graph_to_ctc gives the canonical CTC relabelling (divisions create new
     # ids with explicit parents) plus the lineage table. We use it for both so
