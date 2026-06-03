@@ -15,6 +15,7 @@ import pytest
 from omero_screen.tracking import (
     TrackingResult,
     add_track_columns,
+    load_tracking_model,
     track_nucleus_mask,
 )
 
@@ -52,7 +53,9 @@ class TestTrackNucleusMask:
     def test_invalid_mode_raises(self) -> None:
         mask = np.zeros((2, 4, 4), dtype=np.uint16)
         with pytest.raises(ValueError, match="Unknown tracking mode"):
-            track_nucleus_mask(mask.astype(np.float32), mask, MagicMock(), mode="bogus")
+            track_nucleus_mask(
+                mask.astype(np.float32), mask, MagicMock(), mode="bogus"
+            )
 
     def test_shape_mismatch_raises(self) -> None:
         imgs = np.zeros((2, 4, 4), dtype=np.float32)
@@ -112,11 +115,80 @@ class TestTrackNucleusMask:
 
         assert model.track.call_args.kwargs["batch_size"] is None
 
+    def test_window_override_sets_model_config(self) -> None:
+        """An explicit window shrinks the model's temporal window in place."""
+        imgs = np.zeros((3, 4, 4), dtype=np.float32)
+        mask = np.ones((3, 4, 4), dtype=np.uint16)
+        model = MagicMock()
+        model.track.return_value = ("fake_graph", None)
+        model.transformer.config = {"window": 10}  # real dict, not a Mock
+
+        with patch(
+            "trackastra.tracking.graph_to_ctc",
+            return_value=(_ctc_dataframe(), mask.copy()),
+        ):
+            track_nucleus_mask(imgs, mask, model, mode="greedy", window=2)
+
+        assert model.transformer.config["window"] == 2
+
+    def test_window_none_keeps_model_config(self) -> None:
+        """Without an override the model's trained window is untouched."""
+        imgs = np.zeros((3, 4, 4), dtype=np.float32)
+        mask = np.ones((3, 4, 4), dtype=np.uint16)
+        model = MagicMock()
+        model.track.return_value = ("fake_graph", None)
+        model.transformer.config = {"window": 10}
+
+        with patch(
+            "trackastra.tracking.graph_to_ctc",
+            return_value=(_ctc_dataframe(), mask.copy()),
+        ):
+            track_nucleus_mask(imgs, mask, model, mode="greedy")
+
+        assert model.transformer.config["window"] == 10
+
+
+class TestLoadTrackingModel:
+    def test_device_override_is_passed(self) -> None:
+        """An explicit device is forwarded to Trackastra.from_pretrained."""
+        with patch(
+            "trackastra.model.Trackastra.from_pretrained"
+        ) as mock_from_pretrained:
+            load_tracking_model("general_2d", device="cpu")
+
+        assert mock_from_pretrained.call_args.kwargs["device"] == "cpu"
+
+    def test_device_none_autodetects(self) -> None:
+        """device=None falls back to get_device()."""
+        with (
+            patch(
+                "trackastra.model.Trackastra.from_pretrained"
+            ) as mock_from_pretrained,
+            patch("omero_screen.tracking.get_device", return_value="cuda"),
+        ):
+            load_tracking_model("general_2d")
+
+        assert mock_from_pretrained.call_args.kwargs["device"] == "cuda"
+
+    def test_mps_falls_back_to_cpu(self) -> None:
+        """Trackastra has no MPS kernels — auto-detected mps becomes cpu."""
+        with (
+            patch(
+                "trackastra.model.Trackastra.from_pretrained"
+            ) as mock_from_pretrained,
+            patch("omero_screen.tracking.get_device", return_value="mps"),
+        ):
+            load_tracking_model("general_2d")
+
+        assert mock_from_pretrained.call_args.kwargs["device"] == "cpu"
+
 
 class TestAddTrackColumns:
     def test_columns_derived_from_label(self) -> None:
         """track_id == label; parent columns come from the parent map."""
-        df = pd.DataFrame({"label": [1, 2, 3, 4], "area_nucleus": [10, 11, 5, 6]})
+        df = pd.DataFrame(
+            {"label": [1, 2, 3, 4], "area_nucleus": [10, 11, 5, 6]}
+        )
         parent_map = {1: 0, 2: 0, 3: 2, 4: 2}
 
         add_track_columns(df, parent_map)

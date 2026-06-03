@@ -288,6 +288,15 @@ def process_wells(
     tracking_batch_size = int(
         os.getenv("OMERO_SCREEN_TRACKING_BATCH_SIZE", "4")
     )
+    # cpu/cuda override: dense wells exceed GPU VRAM regardless of batch size
+    # (the spatial-bias matrix is O(detections_per_window²)); "cpu" runs the
+    # identical computation in host RAM. None → auto-detect.
+    tracking_device = os.getenv("OMERO_SCREEN_TRACKING_DEVICE") or None
+    # Temporal window override (frames per attention window). Smaller → less
+    # GPU memory (~quadratic) at the cost of temporal context. Empty → keep the
+    # model's trained window.
+    _window_env = os.getenv("OMERO_SCREEN_TRACKING_WINDOW")
+    tracking_window = int(_window_env) if _window_env else None
     if tracking_model_name:
         if not stitch_mode:
             logger.warning(
@@ -298,7 +307,9 @@ def process_wells(
         else:
             from omero_screen.tracking import load_tracking_model
 
-            tracking_model = load_tracking_model(tracking_model_name)
+            tracking_model = load_tracking_model(
+                tracking_model_name, device=tracking_device
+            )
 
     border = int(os.getenv("OMERO_SCREEN_CLEAR_BORDER", "5"))
     wells = list(conn.getObject("Plate", metadata.plate_id).listChildren())
@@ -363,6 +374,7 @@ def process_wells(
                     tracking_model=tracking_model,
                     tracking_mode=tracking_mode,
                     tracking_batch_size=tracking_batch_size,
+                    tracking_window=tracking_window,
                 )
                 if not segmentation_mode:
                     _save_well_results(conn, well, well_data, well_quality)
@@ -736,6 +748,7 @@ def _stitched_well_loop(
     tracking_model: Any | None = None,
     tracking_mode: str = "greedy",
     tracking_batch_size: int = 4,
+    tracking_window: int | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Process a well as a single stitched canvas.
 
@@ -856,6 +869,7 @@ def _stitched_well_loop(
                 tracking_model,
                 mode=tracking_mode,
                 batch_size=tracking_batch_size,
+                window=tracking_window,
             )
         tracked = True
         logger.info(
@@ -989,6 +1003,7 @@ def _well_loop(
     tracking_model: Any | None = None,
     tracking_mode: str = "greedy",
     tracking_batch_size: int = 4,
+    tracking_window: int | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Process all images in a well.
 
@@ -1008,6 +1023,9 @@ def _well_loop(
         tracking_mode: Trackastra linking mode when tracking is enabled
         tracking_batch_size: Attention windows scored per forward pass —
             caps GPU memory during tracking (see ``track_nucleus_mask``)
+        tracking_window: Override Trackastra's temporal window (frames per
+            attention window); None keeps the model default (see
+            ``track_nucleus_mask``)
 
     Returns:
         Tuple[pd.DataFrame, pd.DataFrame]: DataFrames containing the final data and quality control data
@@ -1026,6 +1044,7 @@ def _well_loop(
             tracking_model=tracking_model,
             tracking_mode=tracking_mode,
             tracking_batch_size=tracking_batch_size,
+            tracking_window=tracking_window,
         )
 
     logger.info(

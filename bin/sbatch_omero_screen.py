@@ -59,6 +59,10 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
         prog_options += f" --track {args.track}"
         prog_options += f" --track-mode {args.track_mode}"
         prog_options += f" --track-batch-size {args.track_batch_size}"
+        if args.track_device:
+            prog_options += f" --track-device {args.track_device}"
+        if args.track_window:
+            prog_options += f" --track-window {args.track_window}"
 
     # Create the job file
     script = f"{name}.sh"
@@ -295,6 +299,23 @@ def _parse_args() -> argparse.Namespace:
         help="Attention windows Trackastra scores per forward pass "
         "(default: %(default)s). Lower if tracking hits CUDA OOM on dense "
         "wells; raise for faster scoring when GPU VRAM allows.",
+    )
+    group.add_argument(
+        "--track-device",
+        type=str,
+        default=None,
+        choices=["cpu", "cuda"],
+        help="Force the tracking device (default: auto-detect). Use 'cpu' when "
+        "a dense well exceeds GPU VRAM — same computation in host RAM, slower "
+        "but no VRAM ceiling and no accuracy loss.",
+    )
+    group.add_argument(
+        "--track-window",
+        type=int,
+        default=None,
+        help="Override Trackastra's temporal window (frames per attention "
+        "window). Smaller cuts GPU memory ~quadratically at the cost of "
+        "temporal context; default keeps the model's trained window.",
     )
 
     return parser.parse_args()

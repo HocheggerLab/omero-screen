@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
@@ -58,7 +59,9 @@ class TrackingResult(NamedTuple):
     parent_map: dict[int, int]
 
 
-def load_tracking_model(model_name: str) -> Trackastra:
+def load_tracking_model(
+    model_name: str, device: str | None = None
+) -> Trackastra:
     """Load a pretrained Trackastra model.
 
     Call once per run (mirrors the one-time Cellpose/inference model setup) and
@@ -67,15 +70,24 @@ def load_tracking_model(model_name: str) -> Trackastra:
     Args:
         model_name: Pretrained model name (e.g. ``"general_2d"``, ``"ctc"``) or
             a path to a fine-tuned checkpoint directory.
+        device: Force a torch device — ``"cpu"`` or ``"cuda"``. ``None``
+            auto-detects (CUDA if available, else CPU). Trackastra's attention
+            builds a dense ``(heads, N, N)`` spatial-bias matrix per window
+            (``N`` = detections summed over the window's frames), so a dense
+            stitched well can exceed GPU VRAM regardless of batch size; forcing
+            ``"cpu"`` runs the *identical* computation in host RAM (slower, but
+            no 44 GiB ceiling and no loss of accuracy). See
+            ``OMERO_SCREEN_TRACKING_DEVICE``.
 
     Returns:
         A loaded :class:`trackastra.model.Trackastra` instance.
     """
     from trackastra.model import Trackastra
 
-    # Trackastra accepts "cuda"/"cpu"; it has no MPS kernels, so fall back to
-    # CPU on Apple silicon rather than crashing.
-    device = str(get_device())
+    if device is None:
+        # Trackastra accepts "cuda"/"cpu"; it has no MPS kernels, so fall back
+        # to CPU on Apple silicon rather than crashing.
+        device = str(get_device())
     if device == "mps":
         logger.info("Trackastra has no MPS backend; using CPU instead.")
         device = "cpu"
@@ -90,6 +102,7 @@ def track_nucleus_mask(
     model: Trackastra,
     mode: str = "greedy",
     batch_size: int | None = None,
+    window: int | None = None,
 ) -> TrackingResult:
     """Track nuclei across time and relabel the mask with stable track ids.
 
@@ -99,13 +112,19 @@ def track_nucleus_mask(
         model: A model from :func:`load_tracking_model`.
         mode: Linking mode — one of :data:`VALID_TRACKING_MODES`.
         batch_size: Number of attention windows the transformer scores per
-            forward pass. Drives GPU activation memory (~linear): the attention
-            cost scales as ``batch_size × detections_per_window²``, so dense
-            stitched wells can exhaust GPU VRAM at Trackastra's GPU default of
-            16. ``None`` defers to Trackastra's own default (1 on CPU, 16 on
-            GPU); the pipeline passes a smaller value (see
-            ``OMERO_SCREEN_TRACKING_BATCH_SIZE``). Lower = less GPU memory,
-            modestly slower scoring; raise it until a well OOMs, then back off.
+            forward pass. ``None`` defers to Trackastra's own default (1 on CPU,
+            16 on GPU). Note this is only a memory lever when there are *many*
+            windows; for a short timelapse the window count collapses to one or
+            two (see ``window``) and batch size has no effect. See
+            ``OMERO_SCREEN_TRACKING_BATCH_SIZE``.
+        window: Override the temporal window (frames concatenated into one
+            attention window). The dense ``(heads, N, N)`` spatial-bias matrix
+            scales as ``N²`` where ``N ≈ window × detections_per_frame``, so a
+            smaller window cuts GPU memory roughly quadratically — the effective
+            lever for fitting a dense well on the GPU. Trade-off: less temporal
+            context (weaker division / gap-closing inference); minor for
+            ``greedy`` frame-to-frame linking. ``None`` keeps the model's
+            trained window. See ``OMERO_SCREEN_TRACKING_WINDOW``.
 
     Returns:
         A :class:`TrackingResult` with the relabelled nucleus mask and the
@@ -133,6 +152,40 @@ def track_nucleus_mask(
         return TrackingResult(nucleus_mask, {})
 
     from trackastra.tracking import graph_to_ctc
+
+    # Optionally shrink the temporal window before tracking. Trackastra reads
+    # the window from the model config at predict time, so overriding it here
+    # (a subset of the trained window — never larger) is the effective GPU
+    # memory lever for dense wells.
+    config = getattr(model.transformer, "config", {})
+    if window is not None:
+        config["window"] = window
+        logger.info(
+            "Overriding Trackastra temporal window → %d frames", window
+        )
+
+    # Diagnostic: the attention spatial-bias matrix is (heads, N, N) where
+    # N = detections summed over the frames in one window — this, not batch
+    # size, is what drives GPU memory (~N²). Surface it so the scale is visible
+    # rather than guessed.
+    n_frames = nucleus_mask.shape[0]
+    per_frame = [
+        int(np.unique(nucleus_mask[t]).size - 1) for t in range(n_frames)
+    ]
+    eff_window = min(int(config.get("window", n_frames)), n_frames)
+    n_per_window = max(
+        sum(per_frame[i : i + eff_window])
+        for i in range(n_frames - eff_window + 1)
+    )
+    logger.info(
+        "Tracking %d frames, %d–%d objects/frame; effective window %d → "
+        "~%d detections/window (attention memory scales as this squared).",
+        n_frames,
+        min(per_frame),
+        max(per_frame),
+        eff_window,
+        n_per_window,
+    )
 
     graph, _ = model.track(
         image_stack,

@@ -111,6 +111,23 @@ def main() -> None:
         "Caps GPU memory during tracking; lower this if tracking hits CUDA OOM, "
         "raise it for faster scoring when VRAM allows (Trackastra's own GPU default is 16).",
     )
+    group.add_argument(
+        "--track-device",
+        type=str,
+        default=None,
+        choices=["cpu", "cuda"],
+        help="Force the tracking device (default: auto-detect). Use 'cpu' when a "
+        "dense well exceeds GPU VRAM — runs the identical computation in host "
+        "RAM (slower, but no 44 GiB ceiling and no loss of accuracy).",
+    )
+    group.add_argument(
+        "--track-window",
+        type=int,
+        default=None,
+        help="Override Trackastra's temporal window (frames per attention window). "
+        "Smaller cuts GPU memory ~quadratically at the cost of temporal context; "
+        "default keeps the model's trained window.",
+    )
     args = parser.parse_args()
 
     # Note: Lazy import to speed up parsing errors
@@ -131,6 +148,10 @@ def main() -> None:
         os.environ["OMERO_SCREEN_TRACKING_BATCH_SIZE"] = str(
             args.track_batch_size
         )
+        if args.track_device:
+            os.environ["OMERO_SCREEN_TRACKING_DEVICE"] = args.track_device
+        if args.track_window:
+            os.environ["OMERO_SCREEN_TRACKING_WINDOW"] = str(args.track_window)
 
     if args.model or args.cp4:
         from omero_screen import default_config
