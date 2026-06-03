@@ -594,6 +594,13 @@ def _segment_stitched_nuclei(
     n_t = stitched_img.shape[0]
     masks = np.zeros(stitched_img.shape[:3], dtype=np.uint16)
     for t in range(n_t):
+        # Per-timepoint progress: stitched Cellpose eval is silent and slow on
+        # long timelapses (tens of seconds per frame), so without this the log
+        # goes quiet for many minutes. Only emit for multi-frame canvases.
+        if n_t > 1:
+            logger.info(
+                "Stitched nucleus segmentation: timepoint %d/%d", t + 1, n_t
+            )
         # (Y, X) → cellpose-ready (1, Y, X) single-channel stack
         img_t = stitched_img[t, ..., nucleus_channel_index]
         scaled_t = scale_img(img_t)
@@ -675,6 +682,12 @@ def _segment_stitched_cells(
     n_t = stitched_img.shape[0]
     masks = np.zeros(stitched_img.shape[:3], dtype=np.uint16)
     for t in range(n_t):
+        # Per-timepoint progress (see _segment_stitched_nuclei): cell eval is
+        # the slowest silent stage — surface it so long runs aren't opaque.
+        if n_t > 1:
+            logger.info(
+                "Stitched cell segmentation: timepoint %d/%d", t + 1, n_t
+            )
         cell_t = stitched_img[t, ..., cell_channel_index]
         nuc_t = stitched_img[t, ..., nucleus_channel_index]
         cell_scaled = scale_img(cell_t)
