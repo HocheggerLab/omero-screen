@@ -88,6 +88,14 @@ def main() -> None:
         help="Run stitched-well segmentation: assemble all fields per well into one canvas, segment that canvas, and exclude border objects only at the outer edge (default: %(default)s)",
     )
     group.add_argument(
+        "--stream-stitch",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="Stitch one timepoint at a time to bound host RAM on long multi-channel "
+        "timelapses (peak ~= canvas + one frame, not all fields + canvas). Costs "
+        "n_fields x T OMERO reads. Requires --stitch (default: %(default)s).",
+    )
+    group.add_argument(
         "--track",
         type=str,
         nargs="?",
@@ -152,6 +160,8 @@ def main() -> None:
             os.environ["OMERO_SCREEN_TRACKING_DEVICE"] = args.track_device
         if args.track_window:
             os.environ["OMERO_SCREEN_TRACKING_WINDOW"] = str(args.track_window)
+    if args.stream_stitch:
+        os.environ["OMERO_SCREEN_STITCH_STREAMING"] = "1"
 
     if args.model or args.cp4:
         from omero_screen import default_config
