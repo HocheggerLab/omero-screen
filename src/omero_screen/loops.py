@@ -514,7 +514,14 @@ def _load_well_fields(
                     f"Channel '{ch}' not found in flatfield correction masks. "
                     f"Available channels: {list(flatfield_dict.keys())}."
                 )
-            img = array[..., ch_idx] / flatfield_dict[ch]
+            # Flatfield division promotes uint16 → float64. Cast straight to
+            # float32: a 24-bit mantissa is far more precision than 16-bit
+            # camera data carries, and it halves the resident size of the
+            # stitched canvas and every array derived from it — the dominant
+            # host-RAM cost on long multi-channel timelapses.
+            img = (array[..., ch_idx] / flatfield_dict[ch]).astype(
+                np.float32, copy=False
+            )
             # Reduce (tzyx) → (tyx)
             img = np.squeeze(img, axis=1)
             per_channel[ch].append(img)
