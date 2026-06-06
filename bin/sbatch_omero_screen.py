@@ -55,6 +55,8 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
         prog_options += " --cp4"
     if args.stitch:
         prog_options += " --stitch"
+    if args.stream_stitch:
+        prog_options += " --stream-stitch"
     if args.track:
         prog_options += f" --track {args.track}"
         prog_options += f" --track-mode {args.track_mode}"
@@ -275,6 +277,14 @@ def _parse_args() -> argparse.Namespace:
         default=False,
         action=argparse.BooleanOptionalAction,
         help="Run stitched-well segmentation: assemble all fields per well into one canvas, segment that canvas, and exclude border objects only at the outer edge (default: %(default)s)",
+    )
+    group.add_argument(
+        "--stream-stitch",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="Stitch one timepoint at a time to bound host RAM on long "
+        "multi-channel timelapses (costs n_fields x T OMERO reads). "
+        "Requires --stitch (default: %(default)s).",
     )
     group.add_argument(
         "--track",

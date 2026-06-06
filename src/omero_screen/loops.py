@@ -755,6 +755,94 @@ def _stitch_well(
     return np.stack(channel_canvases, axis=-1)
 
 
+def _load_and_stitch_streaming(
+    conn: BlitzGateway,
+    well: WellWrapper,
+    metadata: MetadataParser,
+    flatfield_dict: dict[str, npt.NDArray[Any]],
+) -> tuple[npt.NDArray[Any], list[tuple[float, float]], list[int], int, int]:
+    """Stitch a well one timepoint at a time to bound host RAM.
+
+    Produces the same ``(T, Y, X, C)`` float32 canvas as ``_load_well_fields``
+    + ``_stitch_well``, but never holds more than a single timepoint's raw
+    fields in memory at once. Each frame is fetched per field via an OMERO
+    sub-volume read (one timepoint), flatfield-corrected, stitched with
+    :func:`_stitch_well`, and written into a preallocated canvas. Peak RAM is
+    therefore ``canvas + one timepoint of fields`` rather than ``all fields +
+    canvas`` — the fix for long multi-channel timelapses that OOM during load.
+
+    The cost is ``n_fields × T`` OMERO reads instead of ``n_fields`` (for a
+    single-timepoint plate the two are identical). Opt-in via
+    ``OMERO_SCREEN_STITCH_STREAMING``.
+
+    Returns:
+        canvas: Stitched ``(T, Y, X, C)`` float32 array.
+        positions: Per-field stage positions, field order.
+        image_ids: Per-field OMERO image ids, field order.
+        tile_h, tile_w: Per-field (Y, X) size — for splitting masks back to
+            fields on upload.
+    """
+    channels = metadata.channel_data
+    n_fields = len(list(well.listChildren()))
+
+    samples = [well.getWellSample(n) for n in range(n_fields)]
+    image_objs = [s.getImage() for s in samples]
+    image_ids = [int(o.getId()) for o in image_objs]
+    positions: list[tuple[float, float]] = []
+    for s in samples:
+        px, py = s.getPosX(), s.getPosY()
+        positions.append(
+            (
+                px.getValue() if px is not None else 0.0,
+                py.getValue() if py is not None else 0.0,
+            )
+        )
+
+    first = image_objs[0]
+    n_t = int(first.getSizeT())
+    size_x, size_y = int(first.getSizeX()), int(first.getSizeY())
+    size_z, size_c = int(first.getSizeZ()), int(first.getSizeC())
+
+    ch_names = list(channels.keys())
+    canvas: npt.NDArray[Any] | None = None
+    for t in range(n_t):
+        if n_t > 1:
+            logger.info("Streaming stitch: timepoint %d/%d", t + 1, n_t)
+        # One timepoint of every field (all Z, C), flatfield-corrected.
+        frame: dict[str, list[npt.NDArray[Any]]] = {ch: [] for ch in ch_names}
+        for fid in image_ids:
+            # start_coords / axis_lengths are XYZCT; the array comes back TZYXC.
+            _, arr = get_image(
+                conn,
+                fid,
+                start_coords=(0, 0, 0, 0, t),
+                axis_lengths=(size_x, size_y, size_z, size_c, 1),
+            )
+            for ch, idx in channels.items():
+                if ch not in flatfield_dict:
+                    raise KeyError(
+                        f"Channel '{ch}' not found in flatfield correction "
+                        f"masks. Available: {list(flatfield_dict.keys())}."
+                    )
+                # (1, Z, Y, X) → squeeze Z → (1, Y, X) → drop the size-1 T
+                img = (arr[..., int(idx)] / flatfield_dict[ch]).astype(
+                    np.float32, copy=False
+                )
+                frame[ch].append(np.squeeze(img, axis=1)[0])
+        # (N, 1, Y, X) per channel → reuse _stitch_well for this one frame.
+        frame_stack = {
+            ch: np.stack(frame[ch])[:, np.newaxis] for ch in ch_names
+        }
+        stitched_t = _stitch_well(frame_stack, positions)  # (1, Ys, Xs, C)
+        if canvas is None:
+            ys, xs = stitched_t.shape[1], stitched_t.shape[2]
+            canvas = np.zeros((n_t, ys, xs, len(ch_names)), dtype=np.float32)
+        canvas[t] = stitched_t[0]
+
+    assert canvas is not None  # n_t >= 1
+    return canvas, positions, image_ids, size_y, size_x
+
+
 def _stitched_well_loop(
     conn: BlitzGateway,
     well: WellWrapper,
@@ -791,19 +879,37 @@ def _stitched_well_loop(
     bench = get_benchmark()
     if prog:
         prog.set_stage("stitching")
-    with bench.stage("stitched_download"):
-        per_channel, positions, image_ids = _load_well_fields(
-            conn, well, metadata, dataset_id, flatfield_dict
-        )
-    # Preserve channel order — _stitch_well builds the canvas in this order
-    channel_order = list(per_channel.keys())
-    # Per-field (T, Y, X) shape — needed later to split the stitched
-    # mask back into per-field tiles for OMERO upload.
-    sample_channel = next(iter(per_channel.values()))
-    tile_h = sample_channel.shape[2]
-    tile_w = sample_channel.shape[3]
-    with bench.stage("stitched_compose"):
-        stitched_img = _stitch_well(per_channel, positions)
+    # Streaming opt-in: stitch one timepoint at a time so peak RAM is
+    # (canvas + one frame's fields) rather than (all fields + canvas).
+    # Costs n_fields × T OMERO reads — worth it on long multi-channel
+    # timelapses that otherwise OOM during load.
+    if os.getenv("OMERO_SCREEN_STITCH_STREAMING"):
+        with bench.stage("stitched_download"):
+            stitched_img, positions, image_ids, tile_h, tile_w = (
+                _load_and_stitch_streaming(
+                    conn, well, metadata, flatfield_dict
+                )
+            )
+        # _stitch_well (used per-frame internally) builds channels in this
+        # order; metadata.channel_data is its source of truth.
+        channel_order = list(metadata.channel_data.keys())
+    else:
+        with bench.stage("stitched_download"):
+            per_channel, positions, image_ids = _load_well_fields(
+                conn, well, metadata, dataset_id, flatfield_dict
+            )
+        # Preserve channel order — _stitch_well builds the canvas in this order
+        channel_order = list(per_channel.keys())
+        # Per-field (T, Y, X) shape — needed later to split the stitched
+        # mask back into per-field tiles for OMERO upload.
+        sample_channel = next(iter(per_channel.values()))
+        tile_h = sample_channel.shape[2]
+        tile_w = sample_channel.shape[3]
+        with bench.stage("stitched_compose"):
+            stitched_img = _stitch_well(per_channel, positions)
+        # Free per-field memory before segmentation — the stitched canvas
+        # holds all the pixels we need from here on.
+        del per_channel
     # Fallback id used only if tile geometry is unavailable; per-row
     # image_id resolution by centroid is performed in ImageProperties.
     synthetic_image_id = image_ids[0]
@@ -814,10 +920,6 @@ def _stitched_well_loop(
         stitched_img.dtype,
         n_fields,
     )
-
-    # Free per-field memory before segmentation — the stitched canvas
-    # holds all the pixels we need from here on.
-    del per_channel
 
     nucleus_channel = metadata.channel_roles["nucleus"]
     if nucleus_channel not in channel_order:
