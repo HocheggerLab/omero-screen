@@ -6,6 +6,7 @@ float32 (not float64), which halves the resident size of the stitched canvas
 and everything derived from it on long multi-channel timelapses.
 """
 
+import os
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -13,8 +14,71 @@ import numpy as np
 from omero_screen.loops import (
     _load_and_stitch_streaming,
     _load_well_fields,
+    _should_stream_stitch,
     _stitch_well,
 )
+
+
+def _well_with_dims(n_fields: int, n_t: int, side: int) -> MagicMock:
+    """A well whose first sample reports the given T and Y=X=side dims."""
+    well = MagicMock()
+    well.listChildren.return_value = [object()] * n_fields
+    img = well.getWellSample.return_value.getImage.return_value
+    img.getSizeT.return_value = n_t
+    img.getSizeY.return_value = side
+    img.getSizeX.return_value = side
+    return well
+
+
+def test_should_stream_env_override() -> None:
+    """An explicit env setting wins over the estimate, either way."""
+    with patch.dict(os.environ, {"OMERO_SCREEN_STITCH_STREAMING": "1"}):
+        assert _should_stream_stitch(MagicMock(), MagicMock()) is True
+    with patch.dict(os.environ, {"OMERO_SCREEN_STITCH_STREAMING": "0"}):
+        assert _should_stream_stitch(MagicMock(), MagicMock()) is False
+
+
+def test_should_stream_auto_enables_over_budget() -> None:
+    """A long multi-channel well over the RAM budget auto-streams."""
+    metadata = MagicMock()
+    metadata.channel_data = {"a": 0, "b": 1, "c": 2, "d": 3}
+    well = _well_with_dims(n_fields=25, n_t=200, side=1080)  # ~93 GB canvas
+    with (
+        patch.dict(os.environ, {}, clear=False),
+        patch(
+            "omero_screen.loops._available_ram_bytes", return_value=128 * 10**9
+        ),
+    ):
+        os.environ.pop("OMERO_SCREEN_STITCH_STREAMING", None)
+        assert _should_stream_stitch(well, metadata) is True
+
+
+def test_should_stream_auto_off_when_small() -> None:
+    """A single-timepoint well comfortably under budget does not stream."""
+    metadata = MagicMock()
+    metadata.channel_data = {"a": 0, "b": 1}
+    well = _well_with_dims(n_fields=25, n_t=1, side=1080)
+    with (
+        patch.dict(os.environ, {}, clear=False),
+        patch(
+            "omero_screen.loops._available_ram_bytes", return_value=128 * 10**9
+        ),
+    ):
+        os.environ.pop("OMERO_SCREEN_STITCH_STREAMING", None)
+        assert _should_stream_stitch(well, metadata) is False
+
+
+def test_should_stream_off_when_budget_unknown() -> None:
+    """Unreadable RAM budget → don't surprise the user; stay non-streaming."""
+    metadata = MagicMock()
+    metadata.channel_data = {"a": 0}
+    well = _well_with_dims(n_fields=25, n_t=200, side=1080)
+    with (
+        patch.dict(os.environ, {}, clear=False),
+        patch("omero_screen.loops._available_ram_bytes", return_value=0),
+    ):
+        os.environ.pop("OMERO_SCREEN_STITCH_STREAMING", None)
+        assert _should_stream_stitch(well, metadata) is False
 
 
 def _mock_well(n_fields: int) -> MagicMock:

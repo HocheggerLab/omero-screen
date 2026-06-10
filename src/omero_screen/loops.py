@@ -755,6 +755,78 @@ def _stitch_well(
     return np.stack(channel_canvases, axis=-1)
 
 
+# Fraction of the host-RAM budget the estimated non-streaming stitch peak must
+# stay under before streaming is auto-enabled.
+_STREAM_RAM_SAFETY = 0.7
+# Non-streaming peak ≈ all raw fields + canvas + a stack transient; the fields
+# and the canvas are each ~one canvas-worth, hence ~2.5×.
+_STREAM_PEAK_FACTOR = 2.5
+
+
+def _available_ram_bytes() -> int:
+    """Best-effort host-RAM budget in bytes.
+
+    Under SLURM the job's cgroup memory limit is the real ceiling, so prefer
+    it; fall back to total physical RAM. Returns 0 if neither is readable, in
+    which case the caller declines to auto-stream rather than guess.
+    """
+    for path in (
+        "/sys/fs/cgroup/memory.max",  # cgroup v2
+        "/sys/fs/cgroup/memory/memory.limit_in_bytes",  # cgroup v1
+    ):
+        try:
+            with open(path) as fh:
+                raw = fh.read().strip()
+        except OSError:
+            continue
+        if raw and raw != "max":
+            try:
+                limit = int(raw)
+            except ValueError:
+                continue
+            if 0 < limit < (1 << 62):  # v1 uses a huge sentinel when unlimited
+                return limit
+    try:
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    except (ValueError, OSError, AttributeError):
+        return 0
+
+
+def _should_stream_stitch(well: WellWrapper, metadata: MetadataParser) -> bool:
+    """Whether to stitch this well one timepoint at a time.
+
+    Honours an explicit ``OMERO_SCREEN_STITCH_STREAMING`` (``1``/``0``);
+    otherwise auto-enables when the estimated non-streaming peak (all fields +
+    canvas, float32) would exceed a safety fraction of the host-RAM budget.
+    """
+    env = os.getenv("OMERO_SCREEN_STITCH_STREAMING")
+    if env is not None and env != "":
+        return env.lower() not in ("0", "false", "no")
+
+    budget = _available_ram_bytes()
+    if budget <= 0:
+        return False  # unknown budget — don't surprise the user
+
+    n_fields = len(list(well.listChildren()))
+    img = well.getWellSample(0).getImage()
+    n_t = int(img.getSizeT())
+    field_px = int(img.getSizeY()) * int(img.getSizeX())
+    n_ch = len(metadata.channel_data)
+    # Overestimate by ignoring tile overlap — conservative, so we stream a
+    # touch sooner rather than risk OOM.
+    canvas_bytes = n_t * n_fields * field_px * n_ch * 4  # float32
+    peak = canvas_bytes * _STREAM_PEAK_FACTOR
+    stream = peak > budget * _STREAM_RAM_SAFETY
+    logger.info(
+        "Stitch memory estimate: ~%.0f GB peak vs ~%.0f GB budget → "
+        "streaming %s (override: --stream-stitch / --no-stream-stitch).",
+        peak / 1e9,
+        budget / 1e9,
+        "ON" if stream else "off",
+    )
+    return stream
+
+
 def _load_and_stitch_streaming(
     conn: BlitzGateway,
     well: WellWrapper,
@@ -879,11 +951,12 @@ def _stitched_well_loop(
     bench = get_benchmark()
     if prog:
         prog.set_stage("stitching")
-    # Streaming opt-in: stitch one timepoint at a time so peak RAM is
-    # (canvas + one frame's fields) rather than (all fields + canvas).
-    # Costs n_fields × T OMERO reads — worth it on long multi-channel
-    # timelapses that otherwise OOM during load.
-    if os.getenv("OMERO_SCREEN_STITCH_STREAMING"):
+    # Streaming stitches one timepoint at a time so peak RAM is
+    # (canvas + one frame's fields) rather than (all fields + canvas), at the
+    # cost of n_fields × T OMERO reads. Auto-enabled when the estimated peak
+    # exceeds the host-RAM budget; overridable via --stream-stitch /
+    # --no-stream-stitch.
+    if _should_stream_stitch(well, metadata):
         with bench.stage("stitched_download"):
             stitched_img, positions, image_ids, tile_h, tile_w = (
                 _load_and_stitch_streaming(

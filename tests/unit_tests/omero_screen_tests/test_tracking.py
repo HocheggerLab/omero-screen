@@ -14,6 +14,8 @@ import pytest
 
 from omero_screen.tracking import (
     TrackingResult,
+    _auto_gpu_window,
+    _max_detections_for_window,
     add_track_columns,
     load_tracking_model,
     track_nucleus_mask,
@@ -181,6 +183,51 @@ class TestLoadTrackingModel:
             load_tracking_model("general_2d")
 
         assert mock_from_pretrained.call_args.kwargs["device"] == "cpu"
+
+
+class TestMaxDetectionsForWindow:
+    def test_sliding_window_max(self) -> None:
+        """N is the max sum over any contiguous window of frames."""
+        per_frame = [1, 2, 3, 4]
+        assert _max_detections_for_window(per_frame, 2) == 7  # 3+4
+        assert _max_detections_for_window(per_frame, 1) == 4
+        # Window larger than the movie clamps to the whole movie.
+        assert _max_detections_for_window(per_frame, 10) == 10
+
+
+class TestAutoGpuWindow:
+    def test_reduces_window_to_fit_vram(self) -> None:
+        """Shrinks the window until the ~200·N² estimate fits free VRAM."""
+        per_frame = [5000] * 10  # N(w) = 5000·w
+        # window 4 → 80 GB, window 3 → 45 GB, window 2 → 20 GB.
+        # free = 30 GB → budget 0.85·30 = 25.5 GB → only window 2 fits.
+        with (
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.cuda.empty_cache"),
+            patch(
+                "torch.cuda.mem_get_info",
+                return_value=(30 * 10**9, 44 * 10**9),
+            ),
+        ):
+            assert _auto_gpu_window(per_frame, max_window=4) == 2
+
+    def test_keeps_full_window_when_it_fits(self) -> None:
+        """Plenty of free VRAM → the model's full window is kept."""
+        per_frame = [5000] * 10
+        with (
+            patch("torch.cuda.is_available", return_value=True),
+            patch("torch.cuda.empty_cache"),
+            patch(
+                "torch.cuda.mem_get_info",
+                return_value=(200 * 10**9, 200 * 10**9),
+            ),
+        ):
+            assert _auto_gpu_window(per_frame, max_window=4) == 4
+
+    def test_no_cuda_returns_max_window(self) -> None:
+        """Without CUDA info, run at the full window rather than guess."""
+        with patch("torch.cuda.is_available", return_value=False):
+            assert _auto_gpu_window([5000] * 10, max_window=4) == 4
 
 
 class TestAddTrackColumns:

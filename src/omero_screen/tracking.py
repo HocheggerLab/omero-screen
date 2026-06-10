@@ -43,6 +43,59 @@ logger = get_logger(__name__)
 # optional ``motile`` + Gurobi/SCIP stack; guard its use at call time.
 VALID_TRACKING_MODES = ("greedy", "greedy_nodiv", "ilp")
 
+# Empirically calibrated peak bytes per N² for Trackastra's attention step,
+# where N = detections summed over a window's frames. Anchored on the observed
+# A40 OOM: a window-4 well with N≈15,589 needed ≳36 GiB at the failing
+# allocation (≳150 bytes/N²). We round up to 200 for headroom — overestimating
+# only costs a slightly smaller window, while underestimating costs a lost
+# multi-hour run, so we deliberately lean conservative.
+_ATTENTION_BYTES_PER_N2 = 200
+# Fraction of *free* VRAM the estimated attention peak must fit within.
+_VRAM_SAFETY = 0.85
+
+
+def _max_detections_for_window(per_frame: list[int], window: int) -> int:
+    """Largest detections-per-window (N) over all sliding windows of size."""
+    n_frames = len(per_frame)
+    window = min(window, n_frames)
+    return max(
+        sum(per_frame[i : i + window]) for i in range(n_frames - window + 1)
+    )
+
+
+def _auto_gpu_window(per_frame: list[int], max_window: int) -> int:
+    """Largest temporal window whose attention peak fits free GPU VRAM.
+
+    Trackastra's attention peak scales as ~N² (N = detections summed over a
+    window's frames). We estimate that peak with the calibrated factor above
+    and pick the largest window from ``max_window`` down whose estimate fits a
+    safety fraction of currently free VRAM, having first released the
+    segmentation step's cached allocations. Returns ``max_window`` unchanged if
+    CUDA memory info is unavailable (run rather than guess) and never goes
+    below 2 (the minimum useful temporal window).
+
+    Args:
+        per_frame: Object count per timepoint.
+        max_window: The model's trained window (the upper bound).
+
+    Returns:
+        The chosen window size.
+    """
+    import torch
+
+    if not torch.cuda.is_available():
+        return max_window
+    # Reclaim the cached VRAM segmentation left behind so the estimate reflects
+    # what tracking can actually use.
+    torch.cuda.empty_cache()
+    free, _total = torch.cuda.mem_get_info()
+    budget = free * _VRAM_SAFETY
+    for window in range(max_window, 1, -1):
+        n = _max_detections_for_window(per_frame, window)
+        if _ATTENTION_BYTES_PER_N2 * n * n <= budget:
+            return window
+    return 2
+
 
 class TrackingResult(NamedTuple):
     """Result of tracking a nucleus mask.
@@ -153,30 +206,44 @@ def track_nucleus_mask(
 
     from trackastra.tracking import graph_to_ctc
 
-    # Optionally shrink the temporal window before tracking. Trackastra reads
-    # the window from the model config at predict time, so overriding it here
-    # (a subset of the trained window — never larger) is the effective GPU
-    # memory lever for dense wells.
+    # Object count per timepoint — drives both the diagnostic and the window
+    # auto-fit (N = detections summed over a window's frames).
+    n_frames = nucleus_mask.shape[0]
+    per_frame = [
+        int(np.unique(nucleus_mask[t]).size - 1) for t in range(n_frames)
+    ]
+
+    # Decide the temporal window. Trackastra reads it from the model config at
+    # predict time, so we set config["window"] in place (a subset of the
+    # trained window — never larger). Precedence:
+    #   explicit override  >  auto-fit on GPU  >  full window on CPU
     config = getattr(model.transformer, "config", {})
+    device = str(getattr(model, "device", "cpu"))
+    model_window = min(int(config.get("window", n_frames)), n_frames)
     if window is not None:
         config["window"] = window
         logger.info(
             "Overriding Trackastra temporal window → %d frames", window
         )
+    elif device == "cuda":
+        # Shrink the window just enough that the O(N²) attention fits free VRAM,
+        # keeping tracking on the GPU (fast) instead of falling back to CPU.
+        auto = _auto_gpu_window(per_frame, model_window)
+        if auto < model_window:
+            config["window"] = auto
+            logger.info(
+                "Auto-reduced temporal window %d → %d to fit GPU VRAM "
+                "(override: --track-window N, or --track-device cpu for the "
+                "full window at the cost of speed).",
+                model_window,
+                auto,
+            )
 
     # Diagnostic: the attention spatial-bias matrix is (heads, N, N) where
-    # N = detections summed over the frames in one window — this, not batch
-    # size, is what drives GPU memory (~N²). Surface it so the scale is visible
-    # rather than guessed.
-    n_frames = nucleus_mask.shape[0]
-    per_frame = [
-        int(np.unique(nucleus_mask[t]).size - 1) for t in range(n_frames)
-    ]
+    # N = detections summed over the frames in one window — this is what drives
+    # GPU memory (~N²). Surface it so the scale is visible, not guessed.
     eff_window = min(int(config.get("window", n_frames)), n_frames)
-    n_per_window = max(
-        sum(per_frame[i : i + eff_window])
-        for i in range(n_frames - eff_window + 1)
-    )
+    n_per_window = _max_detections_for_window(per_frame, eff_window)
     logger.info(
         "Tracking %d frames, %d–%d objects/frame; effective window %d → "
         "~%d detections/window (attention memory scales as this squared).",
