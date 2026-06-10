@@ -89,11 +89,13 @@ def main() -> None:
     )
     group.add_argument(
         "--stream-stitch",
-        default=False,
+        default=None,
         action=argparse.BooleanOptionalAction,
         help="Stitch one timepoint at a time to bound host RAM on long multi-channel "
-        "timelapses (peak ~= canvas + one frame, not all fields + canvas). Costs "
-        "n_fields x T OMERO reads. Requires --stitch (default: %(default)s).",
+        "timelapses (peak ~= canvas + one frame, not all fields + canvas; costs "
+        "n_fields x T OMERO reads). Default: auto-enable when the estimated peak "
+        "exceeds the host-RAM budget. Use --stream-stitch / --no-stream-stitch to "
+        "force. Requires --stitch.",
     )
     group.add_argument(
         "--track",
@@ -160,8 +162,10 @@ def main() -> None:
             os.environ["OMERO_SCREEN_TRACKING_DEVICE"] = args.track_device
         if args.track_window:
             os.environ["OMERO_SCREEN_TRACKING_WINDOW"] = str(args.track_window)
-    if args.stream_stitch:
-        os.environ["OMERO_SCREEN_STITCH_STREAMING"] = "1"
+    if args.stream_stitch is not None:
+        os.environ["OMERO_SCREEN_STITCH_STREAMING"] = (
+            "1" if args.stream_stitch else "0"
+        )
 
     if args.model or args.cp4:
         from omero_screen import default_config
