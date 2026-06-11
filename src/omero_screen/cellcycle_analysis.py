@@ -230,14 +230,21 @@ def _thresholdingH3(
     if data[DAPI_col] <= 1.5:
         return "Sub-G1"
 
+    # H3P-positive cells are mitotic — decide this BEFORE the DNA/EdU windows.
+    # Mitotic chromatin condensation and cell rounding inflate the integrated
+    # DNA (a genuine 4N mitotic over-reads as >4N) and spill into the EdU
+    # channel, so a mitotic cell otherwise fails the [3, 5.5) DNA / EdU < 3
+    # windows and is mis-called Polyploid or S — glaring on mitotic-arrest
+    # plates (e.g. MG132), invisible on asynchronous ones. The DAPI >= 3 floor
+    # excludes debris / Sub-G1 carrying a stray bright H3P pixel.
+    elif data[H3P_col] > 5 and data[DAPI_col] >= 3:
+        return "M"
+
     elif 1.5 < data[DAPI_col] < 3 and data[EdU_col] < 3:
         return "G1"
 
-    elif 3 <= data[DAPI_col] < 5.5 and data[EdU_col] < 3 and data[H3P_col] < 5:
+    elif 3 <= data[DAPI_col] < 5.5 and data[EdU_col] < 3:
         return "G2"
-
-    elif 3 <= data[DAPI_col] < 5.5 and data[EdU_col] < 3 and data[H3P_col] > 5:
-        return "M"
 
     elif 1.5 < data[DAPI_col] < 3 and data[EdU_col] > 3:
         return "Early S"
