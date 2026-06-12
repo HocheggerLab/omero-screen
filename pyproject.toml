@@ -135,6 +135,7 @@ exclude = [
     "omero_screen_napari_original/.*",
     "examples/.*",
     ".*/test_stats\\.py$",
+    "skills/.*",                          # runtime-agnostic skill asset scripts
 ]
 incremental = true
 cache_dir = ".mypy_cache"
@@ -212,6 +213,7 @@ extend-exclude = [
     "**/docs/**",              # Everything in any docs dir
     "**/notebooks/**",         # Everything in any notebooks dir
     "**/cellpose3/**",         # Everything ported from Cellpose v3
+    "skills/**",               # Runtime-agnostic skill asset scripts
 ]
 
 fix = true
