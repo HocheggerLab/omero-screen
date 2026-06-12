@@ -5,7 +5,6 @@ isolation — no OMERO connection or fixtures required.
 """
 
 import pytest
-
 from omero_utils.message import ChannelAnnotationError
 
 from omero_screen.metadata_parser import (
@@ -76,6 +75,12 @@ class TestResolveChannelRoles:
             )
             # Only the explicit suffix wins; the bare name has no role
             assert roles == {"nucleus": "DAPI", "cell": f"{name}_cell"}, name
+
+    def test_gapdh_is_cell_alias(self):
+        """``gapdh`` triggers the cell role, case-insensitively and as a token."""
+        for name in ("gapdh", "GAPDH", "Gapdh", "GAPDH_488", "cell_gapdh"):
+            roles = resolve_channel_roles({"DAPI": 0, name: 1})
+            assert roles == {"nucleus": "DAPI", "cell": name}, name
 
     def test_feature_channels_have_no_role(self):
         roles = resolve_channel_roles(
@@ -249,7 +254,8 @@ class TestFeatureChannelToken:
 
 class TestClassifierNucleiFallback:
     """ImageClassifier resolves a model trained on 'DAPI' against a plate using
-    a different nuclei-channel name (e.g. 'Hoechst' post-step-7)."""
+    a different nuclei-channel name (e.g. 'Hoechst' post-step-7).
+    """
 
     def test_dapi_classifier_resolves_against_hoechst_plate(self):
         import numpy as np
@@ -326,6 +332,11 @@ class TestNapariRoleBasedColors:
         assert colors["H2B_RFP_nucleus"] == "blue"
         assert colors["Phalloidin_cell"] == "green"
         assert "p21" not in colors
+
+    def test_gapdh_plate(self):
+        colors = self._color_map(["DAPI", "GAPDH", "EdU"])
+        assert colors["DAPI"] == "blue"
+        assert colors["GAPDH"] == "green"
 
     def test_no_nucleus_or_cell_yields_empty_map(self):
         colors = self._color_map(["EdU", "p21", "GFP"])

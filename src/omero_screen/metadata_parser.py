@@ -51,7 +51,7 @@ NUCLEUS_ALIASES: frozenset[str] = frozenset(
 # (split on ``_`` / ``-``) equals one of these aliases, case-insensitive.
 # Token-based matching avoids false positives like ``stub`` / ``tube`` /
 # ``tubular`` that a naive substring match would catch.
-CELL_ALIASES: frozenset[str] = frozenset({"tub"})
+CELL_ALIASES: frozenset[str] = frozenset({"tub", "gapdh"})
 ROLE_SUFFIXES: dict[str, str] = {"_nucleus": "nucleus", "_cell": "cell"}
 
 

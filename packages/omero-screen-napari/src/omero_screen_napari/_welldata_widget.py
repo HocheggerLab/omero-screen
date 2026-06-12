@@ -1364,7 +1364,7 @@ def add_label_layers(
 
 
 _NUCLEUS_ALIASES = frozenset({"dapi", "hoechst", "dna", "h2b_rfp"})
-_CELL_ALIASES = frozenset({"tub"})
+_CELL_ALIASES = frozenset({"tub", "gapdh"})
 
 
 def _role_based_color_map(channel_names: list[str]) -> dict[str, str]:
