@@ -1,3 +1,29 @@
+## omero-screen-v0.4.0 (2026-06-16)
+
+### Feat
+
+- auto-manage tracking VRAM and stitch host-RAM (fewer flags)
+- **loops**: opt-in per-timepoint streaming stitch to bound host RAM
+- **loops**: per-timepoint progress logs in stitched segmentation
+- **tracking**: add device + window controls for GPU-OOM-safe tracking
+- **tracking**: configurable batch size to cap GPU memory
+- **tracking**: forward --track/--track-mode through SLURM submission
+- **tracking**: add Trackastra nucleus tracking (Stage 1 + 2)
+
+### Fix
+
+- **cellcycle**: classify H3P-positive cells as M before DNA/EdU gates
+- **napari**: align Tracks layer with OME-Zarr physical-unit scale
+- **napari**: try swapped centroid-0/centroid-1 axis order in Tracks loader
+- **napari**: default Tracks widget well to empty + auto-fill from loaded data
+- **cellview**: exempt track columns from classifier auto-rename
+- **cellview**: persist Trackastra track columns through import
+- **tracking**: drop from __future__ import annotations in tracks widget
+
+### Perf
+
+- **loops**: cast flatfield-corrected fields to float32
+
 ## omero-screen-v0.3.5 (2026-05-27)
 
 ### Refactor

@@ -10,7 +10,7 @@ The root project ./src/omero_screen handles the analysis pipeline and data stora
 
 ## Status
 
-Version: ![version](https://img.shields.io/badge/version-0.3.5-blue)
+Version: ![version](https://img.shields.io/badge/version-0.4.0-blue)
 
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 
