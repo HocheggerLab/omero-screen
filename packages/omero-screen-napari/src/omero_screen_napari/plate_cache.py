@@ -1779,7 +1779,7 @@ def _squeeze_stack(
         raise ValueError(f"Cached {name} arrays have inconsistent shapes")
 
     # Stack images: result is (N,[ T,] Z, Y, X, C)
-    stacked = np.stack(arrays, axis=0)
+    stacked: npt.NDArray[Any] = np.stack(arrays, axis=0)
 
     # Squeeze singleton dimensions (Z typically = 1) but keep N and C
     # Match the shape convention used by ImageParser._parse_images()

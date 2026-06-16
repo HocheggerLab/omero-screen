@@ -18,11 +18,13 @@ import json
 import logging
 import os
 import shutil
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
+import dask.array as da
 import numpy as np
 import zarr
+from dask.callbacks import Callback
 from numpy.typing import NDArray
 from ome_zarr.scale import Scaler
 from ome_zarr.writer import (
@@ -39,6 +41,10 @@ from omero_screen_napari.zarr_cache.paths import (
 
 logger = logging.getLogger(__name__)
 
+# Image/label arrays may be eager numpy or lazy dask (streamed block-by-block
+# by ome-zarr's write_image/write_labels). Both support .ndim/.shape/.astype.
+type ArrayLike = NDArray[Any] | da.Array
+
 
 # Chunking constants. One timepoint per chunk: napari scrubbing then loads a
 # single frame instead of a whole T-block, and BigDataViewer / Mastodon (which
@@ -47,6 +53,38 @@ logger = logging.getLogger(__name__)
 # number of chunks (inode pressure) against over-read on single-cell crops.
 _T_CHUNK = 1
 _SPATIAL_CHUNK = 256
+
+
+class _StageProgress(Callback):  # type: ignore[misc]
+    """Map a dask compute's task completion onto a [base, base+span] fraction.
+
+    ``write_image`` / ``write_labels`` stream their lazy blocks via the dask
+    scheduler; this diagnostic counts finished tasks and reports a cumulative
+    fraction of the *well* (each write call owns a slice of the 0–1 budget).
+    The graph is re-read on every ``_start`` so a call that triggers several
+    computes (e.g. pyramid levels) still advances within its slice.
+    """
+
+    def __init__(
+        self, report: Callable[[float], None], base: float, span: float
+    ) -> None:
+        self._report = report
+        self._base = base
+        self._span = span
+        self._total = 1
+        self._done = 0
+
+    def _start(self, dsk: Any) -> None:
+        self._total = max(len(dsk), 1)
+        self._done = 0
+
+    def _posttask(
+        self, key: Any, result: Any, dsk: Any, state: Any, worker_id: Any
+    ) -> None:
+        self._done += 1
+        self._report(
+            self._base + self._span * min(1.0, self._done / self._total)
+        )
 
 
 # Default contrast palette for the omero.channels metadata block. Tuned for
@@ -62,13 +100,15 @@ _DEFAULT_CHANNEL_COLORS = [
 ]
 
 
-def _channel_window(arr_yx: NDArray[Any]) -> dict[str, float]:
+def _channel_window(arr_yx: ArrayLike) -> dict[str, float]:
     """Compute a sensible contrast window from one timepoint's channel data.
 
     Uses 0.1–99.9 percentiles to ignore saturation and dark outliers.
     ``min`` / ``max`` carry the data extrema; ``start`` / ``end`` are the
     suggested display limits.
     """
+    # One frame — materialise if it's a lazy dask slice (cheap, single block).
+    arr_yx = np.asarray(arr_yx)
     flat = arr_yx.ravel()
     # Subsample for speed on a 3232² canvas.
     if flat.size > 1_000_000:
@@ -231,9 +271,10 @@ class PlateZarrWriter:
     def write_well(
         self,
         well: str,
-        image_tcyx: NDArray[Any],
-        label_nuclei_tyx: NDArray[Any],
-        label_cells_tyx: NDArray[Any] | None = None,
+        image_tcyx: ArrayLike,
+        label_nuclei_tyx: ArrayLike,
+        label_cells_tyx: ArrayLike | None = None,
+        progress_cb: Callable[[float], None] | None = None,
     ) -> None:
         """Write one well's stitched image and label arrays.
 
@@ -242,7 +283,27 @@ class PlateZarrWriter:
 
         ``label_nuclei_tyx`` / ``label_cells_tyx``: shape ``(T, Y, X)``,
         ``uint32`` (or any integer that round-trips through uint32).
+
+        ``progress_cb``: optional callback invoked with a monotonically
+        increasing fraction in ``[0, 1]`` as the (image, nuclei, cells)
+        arrays stream to disk — lets a caller drive a sub-well progress bar.
+        Throttled to ~1% steps; never raises into the write path.
         """
+        # Monotonic, throttled wrapper around the user callback. The dask
+        # diagnostics below can momentarily report a lower fraction (a new
+        # compute resets the task count), so we clamp to non-decreasing.
+        _last = [0.0]
+
+        def _emit(frac: float) -> None:
+            if progress_cb is None:
+                return
+            if (frac >= 1.0 or frac - _last[0] >= 0.01) and frac > _last[0]:
+                _last[0] = frac
+                try:
+                    progress_cb(frac)
+                except Exception:  # progress is best-effort, never fatal
+                    logger.debug("progress_cb raised", exc_info=True)
+
         if image_tcyx.ndim != 4:
             raise ValueError(
                 f"image_tcyx must be 4-D (T,C,Y,X); got shape {image_tcyx.shape}"
@@ -312,14 +373,21 @@ class PlateZarrWriter:
             has_channel=False,
         )
 
-        write_image(
-            image_tcyx,
-            img_grp,
-            axes="tcyx",
-            chunks=_image_chunks(t),
-            scaler=img_scaler,
-            coordinate_transformations=img_transforms,
-        )
+        # Split the well's 0–1 progress budget across the streamed writes.
+        # The image array (T×C×Y×X) dominates, so it gets the larger slice.
+        has_cells = cell is not None
+        img_span = 0.5 if has_cells else 0.6
+        nuc_span = 0.25 if has_cells else 0.4
+
+        with _StageProgress(_emit, 0.0, img_span):
+            write_image(
+                image_tcyx,
+                img_grp,
+                axes="tcyx",
+                chunks=_image_chunks(t),
+                scaler=img_scaler,
+                coordinate_transformations=img_transforms,
+            )
 
         # NGFF requires the ``omero`` block as a sibling of ``multiscales``
         # at the image-group level, not nested inside it. ``write_image``'s
@@ -343,25 +411,30 @@ class PlateZarrWriter:
             "rdefs": {"defaultT": 0, "defaultZ": 0, "model": "color"},
             "version": "0.4",
         }
-        write_labels(
-            nuc,
-            img_grp,
-            name="nuclei",
-            axes="tyx",
-            chunks=_label_chunks(t),
-            scaler=label_scaler,
-            coordinate_transformations=lbl_transforms,
-        )
-        if cell is not None:
+        with _StageProgress(_emit, img_span, nuc_span):
             write_labels(
-                cell,
+                nuc,
                 img_grp,
-                name="cells",
+                name="nuclei",
                 axes="tyx",
                 chunks=_label_chunks(t),
                 scaler=label_scaler,
                 coordinate_transformations=lbl_transforms,
             )
+        if cell is not None:
+            with _StageProgress(
+                _emit, img_span + nuc_span, 1.0 - img_span - nuc_span
+            ):
+                write_labels(
+                    cell,
+                    img_grp,
+                    name="cells",
+                    axes="tyx",
+                    chunks=_label_chunks(t),
+                    scaler=label_scaler,
+                    coordinate_transformations=lbl_transforms,
+                )
+        _emit(1.0)
 
         # Atomic-ish swap. If the well already exists (re-write case), we
         # move the old one aside, install the new, then clean up.

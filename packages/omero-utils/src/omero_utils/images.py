@@ -444,17 +444,44 @@ def fetch_stitched_field_masks(
             stitched mode and the caller should fall back to per-field
             masks.
     """
+    mask_ids, source_ids = resolve_stitched_mask_ids(well)
+    nuclei, cells = fetch_stitched_field_masks_trange(
+        conn,
+        mask_ids,
+        source_ids=source_ids,
+        conn_factory=conn_factory,
+        max_workers=max_workers,
+    )
+    return nuclei, cells, source_ids
+
+
+def resolve_stitched_mask_ids(
+    well: WellWrapper,
+) -> tuple[list[int], list[int]]:
+    """Resolve per-field ``(mask_id, source_id)`` for a well's stitched masks.
+
+    The cheap, pixel-free first phase of :func:`fetch_stitched_field_masks`,
+    split out so a streaming caller can resolve the ids once and then fetch
+    pixels per timepoint-block via :func:`fetch_stitched_field_masks_trange`.
+
+    Args:
+        well: Well object whose fields will be queried.
+
+    Returns:
+        ``(mask_ids, source_ids)`` in well-sample order.
+
+    Raises:
+        KeyError: If any field lacks a ``Stitched_Segmentation_Mask``
+            annotation (well not processed in stitched mode).
+    """
     n_fields = len(list(well.listChildren()))
     source_ids: list[int] = [0] * n_fields
     mask_ids: list[int] = [0] * n_fields
-
-    # Phase 1 — collect (field_id, mask_id) per field. Cheap, sequential.
     for n in range(n_fields):
         ws = well.getWellSample(n)
         field_image = ws.getImage()
         field_id = field_image.getId()
         source_ids[n] = field_id
-
         anns = parse_annotations(field_image, ns=OmeroScreenNS.METADATA)
         if STITCHED_MASK_ANNOTATION_KEY not in anns:
             raise KeyError(
@@ -463,16 +490,66 @@ def fetch_stitched_field_masks(
                 f"Was this well processed in stitched mode?"
             )
         mask_ids[n] = int(anns[STITCHED_MASK_ANNOTATION_KEY])
+    return mask_ids, source_ids
 
-    # Phase 2 — download mask pixels. Run in parallel when a
-    # ``conn_factory`` callable is supplied (BlitzGateway is not
-    # thread-safe; each worker needs its own).
+
+def fetch_stitched_field_masks_trange(
+    conn: BlitzGateway,
+    mask_ids: list[int],
+    *,
+    t0: int | None = None,
+    t1: int | None = None,
+    source_ids: list[int] | None = None,
+    conn_factory: Any | None = None,
+    max_workers: int = 3,
+) -> tuple[list[npt.NDArray[Any]], list[npt.NDArray[Any] | None]]:
+    """Download per-field stitched masks for timepoints ``[t0, t1)``.
+
+    ``t0=t1=None`` fetches the full time range (the legacy whole-well
+    behaviour); otherwise only the half-open block ``[t0, t1)`` is read via
+    an OMERO sub-volume call, so a streaming build never holds more than one
+    block of label pixels in memory.
+
+    Args:
+        conn: OMERO connection (used when ``conn_factory`` is ``None``).
+        mask_ids: Per-field mask image ids from
+            :func:`resolve_stitched_mask_ids`.
+        t0: Inclusive start timepoint; ``None`` (with ``t1``) means full range.
+        t1: Exclusive end timepoint; ``None`` (with ``t0``) means full range.
+        source_ids: Optional per-field source ids, for clearer errors.
+        conn_factory: Zero-arg callable returning a fresh ``BlitzGateway``
+            for parallel, thread-local downloads.
+        max_workers: Concurrency for the parallel path.
+
+    Returns:
+        ``(nuclei_per_field, cells_per_field)`` — lists of ``(t, Y, X)``
+        masks (``t = t1 - t0`` for a block), ``cells`` entries ``None`` for
+        nucleus-only fields.
+    """
+    n_fields = len(mask_ids)
+    ids = source_ids if source_ids is not None else mask_ids
     raw_masks: list[npt.NDArray[Any] | None] = [None] * n_fields
 
     def _download_one(idx: int, mask_id: int) -> tuple[int, npt.NDArray[Any]]:
         worker_conn = conn_factory() if conn_factory is not None else conn
         try:
-            _, mask_array = get_image(worker_conn, mask_id)
+            if t0 is None or t1 is None:
+                _, mask_array = get_image(worker_conn, mask_id)
+            else:
+                img = worker_conn.getObject("Image", mask_id)
+                # ezomero start_coords / axis_lengths are XYZCT.
+                _, mask_array = get_image(
+                    worker_conn,
+                    mask_id,
+                    start_coords=(0, 0, 0, 0, t0),
+                    axis_lengths=(
+                        img.getSizeX(),
+                        img.getSizeY(),
+                        img.getSizeZ(),
+                        img.getSizeC(),
+                        t1 - t0,
+                    ),
+                )
         finally:
             if conn_factory is not None and worker_conn is not conn:
                 import contextlib
@@ -495,13 +572,13 @@ def fetch_stitched_field_masks(
         for i in range(n_fields):
             _, raw_masks[i] = _download_one(i, mask_ids[i])
 
-    # Phase 3 — squeeze and split channels. CPU-bound, sequential.
+    # Squeeze Z and split channels. CPU-bound, sequential.
     nuclei: list[npt.NDArray[Any]] = []
     cells: list[npt.NDArray[Any] | None] = []
     for n, mask_array in enumerate(raw_masks):
         if mask_array is None:
             raise RuntimeError(
-                f"Stitched mask for field {source_ids[n]} failed to download"
+                f"Stitched mask for field {ids[n]} failed to download"
             )
         if mask_array.shape[1] != 1:
             raise ValueError(
@@ -520,4 +597,4 @@ def fetch_stitched_field_masks(
             np.ascontiguousarray(squeezed[..., 1]) if n_channels == 2 else None
         )
 
-    return nuclei, cells, source_ids
+    return nuclei, cells

@@ -24,17 +24,29 @@ the UI.
 
 from __future__ import annotations
 
+# dask ships only partial type info, so its array/delayed calls read as
+# "untyped" under strict mypy. This module is the dask bridge; every internal
+# call is typed, so disabling just this one code here is precise enough.
+# mypy: disable-error-code="no-untyped-call"
 import contextlib
 import logging
+import os
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import partial
 from pathlib import Path
 from typing import Any
 
+import dask
+import dask.array as da
 import numpy as np
 import numpy.typing as npt
+from dask.delayed import delayed
 from omero.gateway import BlitzGateway, WellWrapper
-from omero_utils.images import fetch_stitched_field_masks
+from omero_utils.images import (
+    fetch_stitched_field_masks_trange,
+    resolve_stitched_mask_ids,
+)
 from omero_utils.stitching import (
     OPERETTA_STITCH_DEFAULTS,
     recompose_split_labels,
@@ -58,6 +70,18 @@ from omero_screen_napari.zarr_cache.registry import ZarrPlateEntry, upsert
 from omero_screen_napari.zarr_cache.writer import PlateZarrWriter
 
 logger = logging.getLogger(__name__)
+
+# Timepoints stitched per lazy dask block. The build never holds more than a
+# few blocks at once (bounded by the dask scheduler), so this is the
+# memory↔#-OMERO-calls lever. Conservative default keeps long live-cell wells
+# within a 16 GB Mac; override with OMERO_SCREEN_CACHE_BLOCK. (Auto-sizing from
+# the RAM budget is the planned optimisation.)
+_CACHE_BLOCK_T = int(os.getenv("OMERO_SCREEN_CACHE_BLOCK", "4"))
+# Concurrent dask blocks during the streamed write. Caps peak memory at
+# roughly ``workers × block_t`` frames (plus pyramids), so the two knobs
+# together bound RAM. Threads (not processes): the work is blocking Ice I/O,
+# which releases the GIL. Override with OMERO_SCREEN_CACHE_WORKERS.
+_CACHE_DASK_WORKERS = int(os.getenv("OMERO_SCREEN_CACHE_WORKERS", "2"))
 
 
 # ----------------------------------------------------------------------
@@ -268,6 +292,218 @@ def _recompose_labels(
     )
 
 
+def _load_stitch_image_block(
+    conn: BlitzGateway,
+    omero_conn: Any | None,
+    image_ids: list[int],
+    positions: list[tuple[float, float]],
+    channel_data: dict[str, str],
+    flatfield_dict: dict[str, npt.NDArray[Any]],
+    t0: int,
+    t1: int,
+    plate_id: int,
+) -> npt.NDArray[Any]:
+    """Download + flatfield + stitch one timepoint block → ``(bt, C, Y, X)``.
+
+    Runs inside a dask task (on a worker thread), so it uses its own
+    thread-local BlitzGateway and reads only timepoints ``[t0, t1)`` of each
+    field — the image disk-cache makes the probe re-read of block 0 free.
+    """
+    worker_conn = omero_conn.create_conn() if omero_conn is not None else conn
+    try:
+        channels = list(channel_data)
+        per_channel: dict[str, list[npt.NDArray[Any]]] = {
+            ch: [] for ch in channels
+        }
+        for img_id in image_ids:
+            arr = get_image(
+                worker_conn, img_id, start=t0, end=t1, tag=plate_id
+            )  # (bt, Z, Y, X, C)
+            for ch_name, idx_str in channel_data.items():
+                ch_idx = int(idx_str)
+                raw = arr[:, 0, :, :, ch_idx].astype(np.float32, copy=False)
+                corrected = raw / flatfield_dict[ch_name]
+                field = np.clip(corrected, 0, np.iinfo(np.uint16).max).astype(
+                    np.uint16, copy=False
+                )
+                per_channel[ch_name].append(field)  # (bt, Y, X)
+        per_channel_stacks = [
+            np.stack(per_channel[ch], axis=0) for ch in channels
+        ]  # each (N, bt, Y, X)
+        images_ntyxc = np.stack(per_channel_stacks, axis=-1)
+    finally:
+        if omero_conn is not None and worker_conn is not conn:
+            with contextlib.suppress(Exception):
+                worker_conn.close()
+    return _stitch_image(images_ntyxc, positions)  # (bt, C, Y, X)
+
+
+def _load_recompose_label_block(
+    conn: BlitzGateway,
+    omero_conn: Any | None,
+    mask_ids: list[int],
+    source_ids: list[int],
+    positions: list[tuple[float, float]],
+    tile_h: int,
+    tile_w: int,
+    t0: int,
+    t1: int,
+) -> tuple[npt.NDArray[Any], npt.NDArray[Any] | None]:
+    """Download + recompose one timepoint block of label masks.
+
+    Returns ``(nuclei (bt, Y, X), cells (bt, Y, X) | None)``. Uses one
+    thread-local connection and reads sequentially within the block — dask
+    provides the cross-block parallelism.
+    """
+    worker_conn = omero_conn.create_conn() if omero_conn is not None else conn
+    try:
+        nuc_fields, cell_fields = fetch_stitched_field_masks_trange(
+            worker_conn,
+            mask_ids,
+            t0=t0,
+            t1=t1,
+            source_ids=source_ids,
+            conn_factory=None,
+            max_workers=1,
+        )
+    finally:
+        if omero_conn is not None and worker_conn is not conn:
+            with contextlib.suppress(Exception):
+                worker_conn.close()
+    # uint32 to match the dask array's declared dtype (and the zarr label
+    # dtype the writer casts to) — labels can exceed uint16 on big wells.
+    nuc = _recompose_labels(nuc_fields, positions, tile_h, tile_w).astype(
+        np.uint32, copy=False
+    )
+    if any(c is not None for c in cell_fields):
+        if not all(c is not None for c in cell_fields):
+            raise ValueError(
+                "Well has cell masks for some fields but not all — "
+                "refusing to recompose mixed coverage."
+            )
+        cell = _recompose_labels(
+            [c for c in cell_fields if c is not None],
+            positions,
+            tile_h,
+            tile_w,
+        ).astype(np.uint32, copy=False)
+    else:
+        cell = None
+    return nuc, cell
+
+
+def _build_lazy_well_arrays(
+    conn: BlitzGateway,
+    omero_conn: Any | None,
+    well: WellWrapper,
+    channel_data: dict[str, str],
+    flatfield_dict: dict[str, npt.NDArray[Any]],
+    plate_id: int,
+    block_t: int = _CACHE_BLOCK_T,
+) -> tuple[
+    da.Array,
+    da.Array,
+    da.Array | None,
+]:
+    """Build lazy dask ``image (T,C,Y,X)`` + ``nuclei/cells (T,Y,X)`` arrays.
+
+    Each dask chunk is a delayed ``[t0, t1)`` stitch/recompose, so the writer
+    (`write_image`/`write_labels`, both dask-streaming) pulls one block at a
+    time and never materialises the whole well. Block 0 is loaded eagerly once
+    to probe canvas/tile dims and cell-mask presence (cheap; cached on disk).
+
+    Returns:
+        ``(image_dask, nuclei_dask, cells_dask_or_None)``.
+    """
+    n_fields = len(list(well.listChildren()))
+    image_ids: list[int] = []
+    positions: list[tuple[float, float]] = []
+    for n in range(n_fields):
+        ws = well.getWellSample(n)
+        image_ids.append(int(ws.getImage().getId()))
+        px, py = ws.getPosX(), ws.getPosY()
+        positions.append(
+            (
+                px.getValue() if px is not None else 0.0,
+                py.getValue() if py is not None else 0.0,
+            )
+        )
+    first = well.getWellSample(0).getImage()
+    n_t = int(first.getSizeT())
+    n_ch = len(channel_data)
+    tile_h, tile_w = int(first.getSizeY()), int(first.getSizeX())
+    mask_ids, source_ids = resolve_stitched_mask_ids(well)
+
+    # Probe block 0 for canvas dims (image) and cell presence (labels).
+    probe_img = _load_stitch_image_block(
+        conn,
+        omero_conn,
+        image_ids,
+        positions,
+        channel_data,
+        flatfield_dict,
+        0,
+        1,
+        plate_id,
+    )  # (1, C, Y, X)
+    cy, cx = int(probe_img.shape[2]), int(probe_img.shape[3])
+    nuc0, cell0 = _load_recompose_label_block(
+        conn, omero_conn, mask_ids, source_ids, positions, tile_h, tile_w, 0, 1
+    )
+    ly, lx = int(nuc0.shape[1]), int(nuc0.shape[2])
+    has_cells = cell0 is not None
+
+    blocks = [(t, min(t + block_t, n_t)) for t in range(0, n_t, block_t)]
+    img_parts = [
+        da.from_delayed(
+            delayed(_load_stitch_image_block)(
+                conn,
+                omero_conn,
+                image_ids,
+                positions,
+                channel_data,
+                flatfield_dict,
+                t0,
+                t1,
+                plate_id,
+            ),
+            shape=(t1 - t0, n_ch, cy, cx),
+            dtype=np.uint16,
+        )
+        for t0, t1 in blocks
+    ]
+    image_dask = da.concatenate(img_parts, axis=0)
+
+    nuc_parts: list[da.Array] = []
+    cell_parts: list[da.Array] = []
+    for t0, t1 in blocks:
+        # One delayed compute per block; nuclei and cells index the same
+        # node so dask downloads the block only once.
+        lbl = delayed(_load_recompose_label_block)(
+            conn,
+            omero_conn,
+            mask_ids,
+            source_ids,
+            positions,
+            tile_h,
+            tile_w,
+            t0,
+            t1,
+        )
+        nuc_parts.append(
+            da.from_delayed(lbl[0], shape=(t1 - t0, ly, lx), dtype=np.uint32)
+        )
+        if has_cells:
+            cell_parts.append(
+                da.from_delayed(
+                    lbl[1], shape=(t1 - t0, ly, lx), dtype=np.uint32
+                )
+            )
+    nuclei_dask = da.concatenate(nuc_parts, axis=0)
+    cells_dask = da.concatenate(cell_parts, axis=0) if has_cells else None
+    return image_dask, nuclei_dask, cells_dask
+
+
 def _dir_size(path: Path) -> int:
     return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
 
@@ -323,6 +559,7 @@ def build_plate_zarr(
     *,
     wells: Iterable[str] | None = None,
     progress_cb: Callable[[str], None] | None = None,
+    step_cb: Callable[[str, float], None] | None = None,
     omero_conn: Any | None = None,
     max_workers: int = 3,
 ) -> Iterator[str]:
@@ -340,6 +577,11 @@ def build_plate_zarr(
         progress_cb: Optional callback invoked with the well ID after
             each successful write — same value the generator yields.
             Lets non-iterator callers (UI thread) react.
+        step_cb: Optional callback invoked with ``(well_id, fraction)`` as
+            each well streams to disk (fraction in ``[0, 1]``). Drives a
+            sub-well progress bar so long live-cell wells don't read as
+            stalled. Called from the build thread — marshal to the UI thread
+            (e.g. ``superqt.ensure_main_thread``) before touching widgets.
         omero_conn: Optional ``OmeroConnection`` used to spawn per-thread
             BlitzGateway connections for the parallel download path.
             When ``None``, downloads run sequentially on ``conn``.
@@ -482,7 +724,13 @@ def build_plate_zarr(
         for well_pos in all_wells
     }
 
-    with writer:
+    # Bound dask to a few worker threads so the streamed writes hold only a
+    # few blocks at once — without this the default scheduler would fan out
+    # across all cores and undo the memory bound.
+    with (
+        dask.config.set(scheduler="threads", num_workers=_CACHE_DASK_WORKERS),
+        writer,
+    ):
         writer.ensure_plate(all_wells=all_wells, well_metadata=well_meta_map)
 
         for well_pos in target_wells:
@@ -498,29 +746,20 @@ def build_plate_zarr(
                 "Building zarr for well %s of plate %s", well_pos, plate_id
             )
 
-            # --- Image branch -------------------------------------------------
-            images_ntyxc, positions, tile_h, tile_w = _load_well_fields(
-                conn,
-                well_obj,
-                channel_data,
-                flatfield_dict,
-                omero_conn=omero_conn,
-                max_workers=max_workers,
-                plate_id=plate_id,
-            )
-            image_tcyx = _stitch_image(images_ntyxc, positions)
-
-            # --- Label branch -------------------------------------------------
+            # Build lazy dask arrays — image + labels stitched per timepoint
+            # block on demand, so the writer (dask-streaming) never holds the
+            # whole well in RAM. Probing block 0 also surfaces a non-stitched
+            # well via the KeyError from the label id resolution.
             try:
-                nuc_per_field, cell_per_field, _ = fetch_stitched_field_masks(
-                    conn,
-                    well_obj,
-                    conn_factory=(
-                        omero_conn.create_conn
-                        if omero_conn is not None
-                        else None
-                    ),
-                    max_workers=max_workers,
+                image_tcyx, nuc_stitched, cell_stitched = (
+                    _build_lazy_well_arrays(
+                        conn,
+                        omero_conn,
+                        well_obj,
+                        channel_data,
+                        flatfield_dict,
+                        plate_id,
+                    )
                 )
             except KeyError as e:
                 # Well wasn't processed in stitched mode (no
@@ -533,31 +772,16 @@ def build_plate_zarr(
                     e,
                 )
                 continue
-            nuc_stitched = _recompose_labels(
-                nuc_per_field, positions, tile_h, tile_w
-            )
-            cell_stitched: npt.NDArray[Any] | None
-            if any(c is not None for c in cell_per_field):
-                # All-or-nothing: if any field has a cell mask, expect them
-                # all (the omero-screen pipeline writes both channels per
-                # field when cell segmentation ran).
-                if not all(c is not None for c in cell_per_field):
-                    raise ValueError(
-                        f"Well {well_pos} has cell masks for some fields but "
-                        f"not all — refusing to recompose mixed coverage."
-                    )
-                cell_stitched = _recompose_labels(
-                    [c for c in cell_per_field if c is not None],
-                    positions,
-                    tile_h,
-                    tile_w,
-                )
-            else:
-                cell_stitched = None
 
-            # --- Write --------------------------------------------------------
+            # --- Write (streams the dask arrays block-by-block) ---------------
             writer.write_well(
-                well_pos, image_tcyx, nuc_stitched, cell_stitched
+                well_pos,
+                image_tcyx,
+                nuc_stitched,
+                cell_stitched,
+                progress_cb=(
+                    partial(step_cb, well_pos) if step_cb is not None else None
+                ),
             )
 
             if progress_cb is not None:
