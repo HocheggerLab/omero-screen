@@ -20,6 +20,7 @@ from typing import Any
 
 import dask.array as da
 import numpy as np
+from omero_screen.config import getenv_as_int
 
 from omero_screen_napari.zarr_cache.reader import (
     cached_wells,
@@ -28,6 +29,68 @@ from omero_screen_napari.zarr_cache.reader import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# Opportunistic dask cache: caches *decoded* array results (not just raw
+# chunk bytes like the reader's LRUStoreCache), so replaying a timelapse,
+# scrubbing back, or re-zooming a region already viewed hits RAM instead
+# of re-running the from_zarr → slice → stack graph. Registered once per
+# process; size override via ``OMERO_SCREEN_DASK_CACHE_MB``.
+_dask_cache_registered = False
+
+
+def _ensure_dask_cache() -> None:
+    """Register a process-wide dask opportunistic cache (idempotent)."""
+    global _dask_cache_registered
+    if _dask_cache_registered:
+        return
+    try:
+        from dask.cache import Cache
+
+        cache_bytes = getenv_as_int("OMERO_SCREEN_DASK_CACHE_MB", 2048) * 2**20
+        Cache(cache_bytes).register()  # type: ignore[no-untyped-call]
+        _dask_cache_registered = True
+        logger.info(
+            "Registered dask opportunistic cache (%d MB)", cache_bytes >> 20
+        )
+    except Exception:  # pragma: no cover - cache is a perf optimisation only
+        logger.warning(
+            "Could not register dask cache; playback may be laggier",
+            exc_info=True,
+        )
+
+
+_async_enabled = False
+
+
+def _ensure_async_slicing() -> None:
+    """Turn on napari async slicing (idempotent).
+
+    Slice loading is synchronous on the Qt GUI thread by default, so any
+    frame that takes longer than the play interval to read+render — a
+    full-res (level 0) tile when zoomed in, or the two uint32 label
+    layers — freezes the viewer until it finishes, which reads as the
+    timelapse stalling then fast-forwarding. Async moves the read off the
+    GUI thread: the viewer keeps the previous frame on screen until the
+    new one is ready, so interaction stays responsive. Disable with
+    ``OMERO_SCREEN_NAPARI_ASYNC=0``.
+    """
+    global _async_enabled
+    if _async_enabled:
+        return
+    try:
+        from napari.settings import get_settings
+
+        get_settings().experimental.async_ = bool(
+            getenv_as_int("OMERO_SCREEN_NAPARI_ASYNC", 1)
+        )
+        _async_enabled = True
+        logger.info(
+            "napari async slicing = %s",
+            get_settings().experimental.async_,
+        )
+    except Exception:  # pragma: no cover - perf optimisation only
+        logger.warning("Could not toggle napari async slicing", exc_info=True)
 
 
 # Channel colormap rotation — first four match the omero-screen palette.
@@ -57,6 +120,8 @@ def load_plate_to_viewer(
     Returns:
         The list of well IDs actually loaded.
     """
+    _ensure_dask_cache()
+    _ensure_async_slicing()
     info = plate_info(plate_id)
     available = cached_wells(plate_id)
     target_wells = _resolve_well_list(well_pos_input, available)

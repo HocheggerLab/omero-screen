@@ -39,6 +39,7 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from superqt.utils import ensure_main_thread
 from vispy.color import Colormap
 
 from omero_screen_napari.omero_data import OmeroConnection
@@ -93,8 +94,8 @@ class MetadataWidget(QWidget):  # type: ignore
             table.setHorizontalHeaderLabels(["Classifier", "Class", "Cells"])
             table.setEditTriggers(QTableWidget.NoEditTriggers)  # type: ignore[attr-defined]
             table.setSelectionMode(QTableWidget.NoSelection)  # type: ignore[attr-defined]
-            table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)  # type: ignore[attr-defined]
-            table.verticalHeader().setVisible(False)
+            table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)  # type: ignore[attr-defined, union-attr]
+            table.verticalHeader().setVisible(False)  # type: ignore[union-attr]
             table.setSortingEnabled(False)
             for classifier, entries in classifier_data.items():
                 for class_val, count in entries:
@@ -336,7 +337,7 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
         # caching starts to enable the cancel button and
         # when it completes to disable the cancel button.
         # Presently we just poll the active download.
-        self._cache_timer = QTimer(self)
+        self._cache_timer: QTimer | None = QTimer(self)
         self._cache_timer.timeout.connect(self._poll_cache_status)
         self._cache_timer.start(1000)
 
@@ -458,13 +459,15 @@ def _open_plate_info(
         welldata_instance.well_pos_list.value = well_pos
         welldata_instance()
 
-    def cache_callback(plate_id: int) -> None:
+    def cache_callback(plate_id: int, wells: list[str] | None = None) -> None:
         # Stitched-mode plates use the OME-Zarr cache (lazy chunk loads,
         # bounded memory). Per-field plates use the legacy diskcache.
         # Mirrors the dispatch in CachedPlatesSelector._on_cache_clicked.
+        # ``wells`` (ticked in the plate-info dialog) restricts the zarr
+        # build to a subset — key for huge live-cell plates.
         try:
             if _plate_is_stitched(plate_id):
-                start_zarr_build_worker(plate_id, parent)
+                start_zarr_build_worker(plate_id, parent, wells=wells)
                 if _cached_plates_selector_ref is not None:
                     _cached_plates_selector_ref.enable_cancel_button()
                 return
@@ -782,13 +785,18 @@ def _plate_is_stitched(plate_id: int) -> bool:
         omero_conn.close(hard=False)
 
 
-def start_zarr_build_worker(plate_id: int, parent: QWidget) -> None:
+def start_zarr_build_worker(
+    plate_id: int, parent: QWidget, wells: list[str] | None = None
+) -> None:
     """Start a background zarr build for ``plate_id``.
 
     Mirrors the structure of :func:`start_cache_worker` so the rest of
     the widget (cancel button, completion refresh) keeps working. The
     worker yields well IDs as each one is written, which the progress
     bar uses for incremental updates.
+
+    ``wells`` restricts the build to a subset of well positions (e.g. the
+    wells ticked in the plate-info dialog); ``None`` builds the whole plate.
     """
     global _active_lock, _active_cache_plate_id, _active_cache_stop_flag
 
@@ -821,6 +829,18 @@ def start_zarr_build_worker(plate_id: int, parent: QWidget) -> None:
         try:
             main_conn = omero_conn.get_conn()
             target_wells = resolve_target_wells(plate_id, main_conn)
+            if wells is not None:
+                # Restrict to the user's ticked wells, but keep the
+                # resolver's empty-well / resumability filtering.
+                requested = set(wells)
+                target_wells = [w for w in target_wells if w in requested]
+                logger.info(
+                    "Zarr build for plate %d restricted to %d selected "
+                    "well(s): %s",
+                    plate_id,
+                    len(target_wells),
+                    sorted(target_wells),
+                )
         except Exception as exc:  # noqa: BLE001 — surface and bail
             logger.error(
                 "Failed to plan zarr build for plate %d: %s", plate_id, exc
@@ -830,13 +850,19 @@ def start_zarr_build_worker(plate_id: int, parent: QWidget) -> None:
             return
 
         total_wells = len(target_wells)
+        # napari's QProgressBar only accepts *integer* values, but we want
+        # smooth sub-well animation. Give each well an integer sub-resolution:
+        # the bar runs 0..total_wells*STEPS and every update is an int.
+        steps = 1000
         first_well = target_wells[0] if target_wells else None
         initial_desc = (
             f"Zarr plate {plate_id}: building {first_well} (0/{total_wells})"
             if first_well is not None
             else f"Zarr plate {plate_id}: nothing to build"
         )
-        pbr.append(napari_progress(total=total_wells, desc=initial_desc))
+        pbr.append(
+            napari_progress(total=total_wells * steps, desc=initial_desc)
+        )
 
         if total_wells == 0:
             # Everything already cached / no non-empty wells. Close the
@@ -847,6 +873,30 @@ def start_zarr_build_worker(plate_id: int, parent: QWidget) -> None:
                 f"Plate {plate_id}: zarr cache already complete"
             )
             return
+
+        # Sub-well progress. The builder streams each well's image + label
+        # arrays and reports a 0–1 fraction via ``step_cb``; we translate that
+        # into fractional advances of the (integer-well) bar so long live-cell
+        # wells animate instead of sitting at 0 until they jump a whole well.
+        # base/pos are integer step counts (well_index * steps + sub-progress).
+        sub = {"base": 0, "pos": 0, "well": 0}
+
+        @ensure_main_thread  # type: ignore[misc]
+        def on_step(well_id: str, frac: float) -> None:
+            """Fractional bar update (integer steps); marshalled to the GUI."""
+            if not pbr:
+                return
+            # Cap below the next well's tick until on_yield confirms the well
+            # is on disk. All quantities are integer steps.
+            target = sub["base"] + int(min(frac, 0.999) * steps)
+            delta = target - sub["pos"]
+            if delta > 0:
+                pbr[0].update(delta)
+                sub["pos"] = target
+            pbr[0].set_description(
+                f"Zarr plate {plate_id}: building {well_id} "
+                f"({sub['well']}/{total_wells}, {int(frac * 100)}%)"
+            )
 
         def _generator() -> Generator[str, None, str | None]:
             """Wrap the builder so we can close the OMERO connection on exit."""
@@ -861,6 +911,10 @@ def start_zarr_build_worker(plate_id: int, parent: QWidget) -> None:
                     plate_id,
                     conn,
                     wells=target_wells,
+                    # @ensure_main_thread wraps on_step's return as a Future;
+                    # the builder calls it fire-and-forget, so the runtime
+                    # contract (str, float) -> None still holds.
+                    step_cb=on_step,  # type: ignore[arg-type]
                     omero_conn=omero_conn,
                     # 3 OMERO connections in flight. Empirically the
                     # sweet spot for the Sussex OMERO link — higher
@@ -883,8 +937,15 @@ def start_zarr_build_worker(plate_id: int, parent: QWidget) -> None:
         def on_yield(well_id: str) -> None:
             """Runs on the main thread (Qt marshals via QueuedConnection)."""
             completed.append(well_id)
-            pbr[0].update(1)
             done = len(completed)
+            # Snap the bar up to this well's integer step boundary, then reset
+            # the sub-well baseline for the next well. All integer steps.
+            snap = done * steps - sub["pos"]
+            if snap > 0:
+                pbr[0].update(snap)
+            sub["base"] = done * steps
+            sub["pos"] = done * steps
+            sub["well"] = done
             # Preview the next well so the bar reads as "now building Y"
             # rather than only the last completed well.
             if done < total_wells:

@@ -224,7 +224,9 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
         plate_id: OMERO plate ID.
         on_build_callback: Callback used when the plate info has been built (receives plate ID).
         on_load_callback: Callback receiving a well position string (e.g. "A1").
-        on_cache_callback: Callback receiving plate ID to cache.
+        on_cache_callback: Callback receiving ``(plate_id, wells)`` to cache.
+            ``wells`` is the list of ticked well positions, or ``None`` to
+            cache the whole plate when nothing is ticked.
         parent: Parent widget.
     """
 
@@ -233,7 +235,8 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
         plate_id: int,
         on_build_callback: Callable[[int], None] | None = None,
         on_load_callback: Callable[[str], None] | None = None,
-        on_cache_callback: Callable[[int], None] | None = None,
+        on_cache_callback: Callable[[int, list[str] | None], None]
+        | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -312,7 +315,7 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
             f"<b>Pixel size:</b> {header_info['pixel_size']}"
         )
         label = QLabel(text)
-        label.setTextFormat(Qt.RichText)  # type: ignore[arg-type]
+        label.setTextFormat(Qt.RichText)  # type: ignore[attr-defined]
         return label
 
     def _build_table(
@@ -396,7 +399,7 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
                 self._cached_wells.add(well_pos)
 
         table.setSortingEnabled(True)
-        table.sortItems(1, Qt.AscendingOrder)  # type: ignore[arg-type]
+        table.sortItems(1, Qt.AscendingOrder)  # type: ignore[attr-defined]
 
         # Place "Select All" checkbox in the header (column 0)
         header = table.horizontalHeader()
@@ -425,7 +428,7 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
         self._select_all_cb.setToolTip("Select / Deselect All")
         self._select_all_cb.stateChanged.connect(self._on_select_all_toggled)
         table.setHorizontalHeaderItem(0, QTableWidgetItem(""))
-        table.horizontalHeader().setMinimumSectionSize(40)
+        table.horizontalHeader().setMinimumSectionSize(40)  # type: ignore[union-attr]
 
         return table
 
@@ -435,22 +438,27 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
         for cb in self._row_checkboxes:
             cb.setChecked(checked)
 
+    def _checked_wells(self) -> list[str]:
+        """Well positions for the ticked rows (empty list if none ticked)."""
+        wells: list[str] = []
+        for row_idx, cb in enumerate(self._row_checkboxes):
+            if cb.isChecked():
+                item = self.table.item(row_idx, 1)  # Well column at index 1
+                if item:
+                    wells.append(item.text())
+        return wells
+
     def _on_load_selected(self) -> None:
         """Load wells for the checked rows (falls back to row selection)."""
         if self.on_load_callback is None:
             return
 
         # Primary: collect wells from checked checkboxes
-        well_positions: list[str] = []
-        for row_idx, cb in enumerate(self._row_checkboxes):
-            if cb.isChecked():
-                item = self.table.item(row_idx, 1)  # Well column at index 1
-                if item:
-                    well_positions.append(item.text())
+        well_positions: list[str] = self._checked_wells()
 
         # Fallback: use Qt row selection if no checkboxes are checked
         if not well_positions:
-            selected_rows = self.table.selectionModel().selectedRows()
+            selected_rows = self.table.selectionModel().selectedRows()  # type: ignore[union-attr]
             for index in selected_rows:
                 item = self.table.item(index.row(), 1)
                 if item:
@@ -471,10 +479,11 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
             self.accept()
 
     def _on_cache_selected(self) -> None:
-        """Cache the plate."""
+        """Cache the plate — restricted to ticked wells if any are checked."""
         if self.on_cache_callback is None:
             return
-        self.on_cache_callback(self.plate_id)
+        wells = self._checked_wells()
+        self.on_cache_callback(self.plate_id, wells or None)
         self._start_cache_monitoring()
 
     def _start_cache_monitoring(self) -> None:

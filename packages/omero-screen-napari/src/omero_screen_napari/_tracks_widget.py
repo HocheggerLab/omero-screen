@@ -100,12 +100,14 @@ def _resolve_well(typed: str) -> str | None:
     call_button="Load tracks",
     color_by={"choices": ["track_id", "cell_cycle"]},
     tail_length={"min": 0, "max": 1000},
+    show_divisions={"label": "Show divisions (lineage)"},
 )
 def tracks_widget(
     viewer: Viewer,
     well: str = "",
     color_by: str = "track_id",
-    tail_length: int = 30,
+    tail_length: int = 10,
+    show_divisions: bool = False,
 ) -> None:
     """Add a napari Tracks layer for one well from the loaded CellView data.
 
@@ -115,7 +117,15 @@ def tracks_widget(
             use the well currently displayed in the viewer.
         color_by: Track property to colour by — ``track_id`` or ``cell_cycle``
             (the latter only if cell-cycle analysis ran).
-        tail_length: Number of past frames drawn behind each track head.
+        tail_length: Number of past frames drawn behind each track head. Each
+            frame redraws every visible tail segment, so on long timelapses
+            with many tracks this dominates playback cost — keep it small
+            (~10) for smooth scrubbing, raise only to inspect long histories.
+        show_divisions: Pass the division lineage graph to the Tracks layer.
+            Off by default: building the graph (thousands of divisions on a
+            dense movie) adds a noticeable load freeze plus per-frame draw
+            cost, so playback is smoother without it. Turn it on to see
+            division links and to drive napari-arboretum's lineage tree.
     """
     plate_data = omero_data.plate_data
     if not has_tracks(plate_data):
@@ -158,9 +168,15 @@ def tracks_widget(
         add_kwargs["scale"] = scale
         logger.info("Aligning tracks with labels layer scale %s", scale)
 
+    # Only hand napari the lineage graph when the user asks for it: building
+    # it for thousands of divisions freezes the load and adds per-frame draw
+    # cost. An empty graph keeps the layer to plain tracks (and disables
+    # arboretum's lineage view until divisions are turned back on).
+    graph = tracks.graph if show_divisions else {}
+
     viewer.add_tracks(
         tracks.data,
-        graph=tracks.graph,
+        graph=graph,
         properties=tracks.properties,
         color_by=prop,
         tail_length=tail_length,
@@ -175,16 +191,27 @@ def tracks_widget(
 
     n_tracks = len({int(t) for t in tracks.data[:, 0]})
     n_div = len(tracks.graph)
-    notifications.show_info(
-        f"Loaded {n_tracks} tracks ({n_div} divisions) for well {well_id}. "
-        "Open Plugins → napari-arboretum and double-click a track for its "
-        "lineage tree."
-    )
+    if show_divisions:
+        msg = (
+            f"Loaded {n_tracks} tracks ({n_div} divisions) for well {well_id}. "
+            "Open Plugins → napari-arboretum and double-click a track for its "
+            "lineage tree."
+        )
+    else:
+        msg = (
+            f"Loaded {n_tracks} tracks for well {well_id} (divisions hidden "
+            f"for smoother playback). Tick 'Show divisions' and reload to see "
+            f"the {n_div} division links and enable arboretum lineage."
+        )
+    notifications.show_info(msg)
     logger.info(
-        "Added tracks layer for well %s: %d tracks, %d divisions",
+        "Added tracks layer for well %s: %d tracks, %d divisions, "
+        "show_divisions=%s, tail_length=%d",
         well_id,
         n_tracks,
         n_div,
+        show_divisions,
+        tail_length,
     )
 
 

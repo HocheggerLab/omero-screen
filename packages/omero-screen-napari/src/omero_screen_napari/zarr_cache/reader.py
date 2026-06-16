@@ -7,9 +7,11 @@ napari side only needs raw multiscale arrays to hand to viewer layers.
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from typing import Any
 
 import zarr
+from omero_screen.config import getenv_as_int
 
 from omero_screen_napari.zarr_cache.paths import plate_zarr_path
 from omero_screen_napari.zarr_cache.registry import touch
@@ -17,11 +19,40 @@ from omero_screen_napari.zarr_cache.registry import touch
 logger = logging.getLogger(__name__)
 
 
+# Chunk-level cache size in bytes for the napari display path. A single
+# live-cell well loads as ~4 layers (2 image channels + nuclei + cells)
+# at ~125 MB/frame at level 0, so without a resident chunk cache every
+# timepoint scrub re-reads + re-decompresses all of them from disk —
+# the cause of the "freeze then fast-forward" playback stall. 1 GiB keeps
+# several frames' worth of decoded chunks hot across slider ticks and
+# re-zooms. Override with ``OMERO_SCREEN_ZARR_DISPLAY_CACHE_MB``.
+_DISPLAY_CACHE_BYTES = (
+    getenv_as_int("OMERO_SCREEN_ZARR_DISPLAY_CACHE_MB", 1024) * 2**20
+)
+
+
+@lru_cache(maxsize=8)
+def _open_cached_root(plate_path: str) -> zarr.hierarchy.Group:
+    """Open a plate root with an LRU chunk cache layered on the store.
+
+    Wrapping the ``DirectoryStore`` in :class:`zarr.LRUStoreCache` keeps
+    decompressed chunks resident across reads. napari layers hold the
+    returned zarr arrays for the session, so the same cache backs every
+    timepoint scrub and re-zoom — mirroring :func:`crop._open_cached_root`.
+    Caching on ``plate_path`` ensures one shared cache per plate rather
+    than a fresh (cold) one per ``read_well`` call.
+    """
+    store = zarr.DirectoryStore(plate_path)
+    cached = zarr.LRUStoreCache(store, max_size=_DISPLAY_CACHE_BYTES)
+    return zarr.open_group(store=cached, mode="r")
+
+
 def open_plate(plate_id: int) -> zarr.hierarchy.Group:
     """Open the plate's zarr root group (read-only).
 
     Updates ``last_accessed`` in the registry as a side effect so eviction
-    respects usage.
+    respects usage. The returned group is backed by a process-wide
+    :class:`zarr.LRUStoreCache` so decoded chunks survive between reads.
     """
     path = plate_zarr_path(plate_id)
     if not path.exists():
@@ -30,7 +61,7 @@ def open_plate(plate_id: int) -> zarr.hierarchy.Group:
             f"Cache button or build_plate_zarr() to create it."
         )
     touch(plate_id)
-    return zarr.open_group(str(path), mode="r")
+    return _open_cached_root(str(path))
 
 
 def plate_info(plate_id: int) -> dict[str, Any]:
