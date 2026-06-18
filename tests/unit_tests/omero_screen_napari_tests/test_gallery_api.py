@@ -127,7 +127,8 @@ def mock_user_data():
 class TestFilterWellCentroids:
     """_filter_well_centroids ports the old CroppedImageParser polars
     filtering: well → cellcycle → classifier → loaded-image intersection →
-    timepoint, returning a pandas DataFrame for CropPipeline."""
+    timepoint, returning a pandas DataFrame for CropPipeline.
+    """
 
     def test_returns_loaded_well_rows(self, mock_omero_data, mock_user_data):
         mock_user_data.well = "A1"
@@ -209,3 +210,54 @@ class TestRandomImageParser:
 
         remaining = parser._remove_chosen_crops(images)
         assert remaining == ["a", "c", "e"]
+
+
+class TestChannelResolution:
+    """Regression tests for gallery RGB-slot resolution.
+
+    Guards the bug where a single-channel selection (which must render in
+    grayscale) was silently expanded to a 3-channel RGB image by auto-filling
+    the blank slots — e.g. DAPI -> [DAPI, EdU, DAPI] (magenta nucleus + green).
+    """
+
+    available = ["DAPI", "Tub", "H2AX", "EdU"]
+
+    def test_single_channel_stays_single(self):
+        # The regression: picking only DAPI must NOT pull in other channels.
+        from omero_screen_napari._gallery_widget import _resolve_channels
+
+        assert _resolve_channels("DAPI", "", "", self.available) == ["DAPI"]
+
+    def test_single_channel_renders_grayscale(self):
+        # A single resolved channel must produce a (H, W, 1) grayscale image.
+        from omero_screen_napari._gallery_widget import _resolve_channels
+
+        channels = _resolve_channels("DAPI", "", "", self.available)
+        idx = [self.available.index(c) for c in channels]
+        img = np.zeros((8, 8, len(self.available)), dtype=np.uint8)
+        out = fill_missing_channels(img, idx)
+        assert out.shape == (8, 8, 1)
+
+    def test_two_channels_preserved_in_order(self):
+        from omero_screen_napari._gallery_widget import _resolve_channels
+
+        assert _resolve_channels("DAPI", "EdU", "", self.available) == [
+            "DAPI",
+            "EdU",
+        ]
+
+    def test_stale_value_is_dropped(self):
+        # A value not on the plate is ignored, not forced into the list.
+        from omero_screen_napari._gallery_widget import _resolve_channels
+
+        assert _resolve_channels("RFP", "", "", self.available) == [
+            "EdU",
+            "DAPI",
+        ]  # falls back to auto-pick (no red hint -> EdU green, DAPI blue)
+
+    def test_all_blank_falls_back_to_auto_defaults(self):
+        from omero_screen_napari._gallery_widget import _resolve_channels
+
+        channels = _resolve_channels("", "", "", self.available)
+        assert channels  # non-empty
+        assert all(c in self.available for c in channels)

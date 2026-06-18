@@ -49,6 +49,29 @@ def _auto_pick_rgb_channels(
     return red, green, blue
 
 
+def _resolve_channels(
+    red: str, green: str, blue: str, available: list[str]
+) -> list[str]:
+    """Resolve the user's RGB channel picks into the gallery channel list.
+
+    Keeps each slot only if it names a channel on the plate; drops blanks and
+    stale values (e.g. a hard-coded ``"DAPI"``/``"Tub"``/``"EdU"`` left over
+    from a plate with different names), preserving R, G, B order. A single kept
+    channel therefore yields a single-channel (grayscale) gallery — clearing
+    the other slots is how the user asks for fewer channels. When nothing valid
+    is selected (e.g. a freshly opened widget with all slots blank), falls back
+    to sensible RGB defaults picked from the plate.
+    """
+
+    def _valid(value: str) -> str:
+        return value if (value and value in available) else ""
+
+    channels = [c for c in (_valid(red), _valid(green), _valid(blue)) if c]
+    if not channels:
+        channels = [c for c in _auto_pick_rgb_channels(available) if c]
+    return channels
+
+
 def _commit_viewer_contrast_to_intensities() -> None:
     """Pull live contrast_limits from the napari viewer's Image layers.
 
@@ -250,28 +273,12 @@ def gallery_widget(
     green_channel: str = "",
     blue_channel: str = "",
 ) -> None:
-    # Auto-pick RGB defaults from the loaded plate's channels when the
-    # user leaves a slot blank, or when the literal value isn't in the
-    # available channel list (covers stale hard-coded defaults like
-    # "DAPI" / "Tub" / "EdU" on plates that use different names).
+    # Resolve the RGB slot picks to a channel list (order R,G,B). One channel
+    # -> grayscale; ``fill_missing_channels`` maps [R=ch0, G=ch1, B=ch2].
     available = list((omero_data.channel_data or {}).keys())
-    auto_red, auto_green, auto_blue = _auto_pick_rgb_channels(available)
-
-    def _resolve(user_value: str, auto_value: str) -> str:
-        if user_value and user_value in available:
-            return user_value
-        return auto_value
-
-    red_channel = _resolve(red_channel, auto_red)
-    green_channel = _resolve(green_channel, auto_green)
-    blue_channel = _resolve(blue_channel, auto_blue)
-
-    # Order matters: ``fill_missing_channels`` maps the list as
-    # [R=ch0, G=ch1, B=ch2]. With two channels the dispatcher packs
-    # them into R and G and leaves blue empty — the user prefers this
-    # to a slot-preserving G+B mapping for fluorescence imaging.
-    channels = [red_channel, green_channel, blue_channel]
-    channels = [channel for channel in channels if channel != ""]
+    channels = _resolve_channels(
+        red_channel, green_channel, blue_channel, available
+    )
     if not well and omero_data.well_pos_list:
         well = omero_data.well_pos_list[0]
         logger.info(f"Using default well: {well}")
