@@ -19,6 +19,7 @@ import numpy.typing as npt
 import pandas as pd
 import scipy.spatial
 from ezomero import get_image
+from loguru import logger
 from matplotlib.collections import LineCollection
 from numpy.fft import fft2, ifft2
 from omero.gateway import (
@@ -39,12 +40,8 @@ from omero_utils.images import upload_masks
 from omero_utils.message import OmeroError, PlateDataError, PlateNotFoundError
 from scipy.optimize import linear_sum_assignment
 
-from omero_screen.config import get_logger
-
 from .metadata_parser import MetadataParser
 from .plate_dataset import PlateDataset
-
-logger = get_logger(__name__)
 
 
 def aggregate_plates(
@@ -89,7 +86,7 @@ def aggregate_plates(
         PlateNotFoundError: if a plate does not exist
         PlateDataError: if plates are missing the OMERO screen results, or if the alignment is missing for a well
     """
-    logger.info("Aggregating to master plate: %d", plate_id)
+    logger.info(f"Aggregating to master plate: {plate_id}")
     # Download OMERO screen results
     df1 = _get_results(conn, plate_id)
     map1 = _get_mask_map(conn, plate_id) if method == 3 else {}
@@ -102,7 +99,7 @@ def aggregate_plates(
     images1 = _get_well_images(conn, plate_id)
     image_map: list[list[str | int]] = [list(x) for x in images1]
     for index, plate_other in enumerate(plate_ids):
-        logger.info("Mapping plates: %d - %d", plate_id, plate_other)
+        logger.info(f"Mapping plates: {plate_id} - {plate_other}")
         df2 = _get_results(conn, plate_other)
         map2 = _get_mask_map(conn, plate_other) if method == 3 else {}
         # Extract centroids: shape = n x 2
@@ -143,12 +140,7 @@ def aggregate_plates(
             c2 = df2w[["centroid-1", "centroid-0"]].values
 
             logger.info(
-                "Mapping objects [%s:%d-%d] %d - %d",
-                well_pos,
-                im1[1],
-                im2[1],
-                len(c1),
-                len(c2),
+                f"Mapping objects [{well_pos}:{im1[1]:d}-{im2[1]:d}] {len(c1):d} - {len(c2):d}"
             )
 
             # create a mapping:
@@ -195,18 +187,10 @@ def aggregate_plates(
                 row_ind = row_ind[selected]
                 col_ind = col_ind[selected]
 
-            logger.info(
-                "Mapped %d / %d",
-                len(row_ind),
-                min(len(c1), len(c2)),
-            )
+            logger.info(f"Mapped {len(row_ind):d} / {min(len(c1), len(c2)):d}")
 
             if len(row_ind) == 0:
-                logger.warning(
-                    "No mappings between %s and %s",
-                    im1,
-                    im2,
-                )
+                logger.warning(f"No mappings between {im1} and {im2}")
             elif std_distance > 0 and method < 3:
                 # Remove outliers from the distance mappings
                 diff = c1[row_ind] - c2[col_ind]
@@ -221,24 +205,17 @@ def aggregate_plates(
                     dist = np.sort(dist)
                     dist = (dist - mean) / std
                     logger.info(
-                        "Big deviations: %s (%d)", dist[-10:], len(dist)
+                        f"Big deviations: {dist[-10:]} ({len(dist):d})"
                     )
                     q3 = np.quantile(dist, 0.75)
                     iqr = q3 - np.quantile(dist, 0.25)
                     selected2 = dist > (q3 + 1.5 * iqr)
-                    logger.info(
-                        "Outliers: %s (%d)", dist[selected2], len(dist)
-                    )
+                    logger.info(f"Outliers: {dist[selected2]} ({len(dist):d})")
 
                     row_ind = row_ind[selected]
                     col_ind = col_ind[selected]
                     logger.info(
-                        "Distances within %.1f + %.1f * %.1f: %d / %d",
-                        mean,
-                        std_distance,
-                        std,
-                        len(row_ind),
-                        min(len(c1), len(c2)),
+                        f"Distances within {mean:.1f} + {std_distance:.1f} * {std:.1f}: {len(row_ind):d} / {min(len(c1), len(c2)):d}"
                     )
 
             # Join results. Rename columns to preserve all data.
@@ -319,7 +296,7 @@ def align_plates(
         OmeroError: if plates do not align below the threshold, or if the alignments are not within
             the tolerance to the centroid
     """
-    logger.info("Aligning to master plate: %d", plate_id)
+    logger.info(f"Aligning to master plate: {plate_id}")
     # Check plates are compatible
     plate_dim = _plate_dimensions(conn, plate_id)
     # Currently only support T=Z=1
@@ -362,7 +339,7 @@ def align_plates(
     well_samples1 = _get_well_samples(conn, plate_id)
     if seed is None:
         seed = int.from_bytes(os.urandom(8))
-    logger.info("Selecting well samples using seed: %d", seed)
+    logger.info(f"Selecting well samples using seed: {seed}")
     random.seed(a=seed)
     # Shuffle the indices and use the top n for samples.
     # We skip frames if the image is blank so we need the entire list.
@@ -388,7 +365,7 @@ def align_plates(
     start_coords = [0, 0, 0, ch1, 0]
     axis_lengths = [plate_dim[0][-1], plate_dim[0][-2], 1, 1, 1]
     for plate_other in plate_ids:
-        logger.info("Aligning plates: %d - %d", plate_id, plate_other)
+        logger.info(f"Aligning plates: {plate_id} - {plate_other}")
         well_samples2 = _get_well_samples(conn, plate_other)
         ch2 = _resolve_align_idx(plate_other)
         start_coords2 = start_coords.copy()
@@ -417,10 +394,7 @@ def align_plates(
                 b1 = (im1 == 0).all()
                 if b1 or (im2 == 0).all():
                     logger.warning(
-                        "Skipping empty frame alignment %s [%s] from plate %d",
-                        well,
-                        idx,
-                        plate_id if b1 else plate_other,
+                        f"Skipping empty frame alignment {well} [{idx}] from plate {plate_id if b1 else plate_other:d}"
                     )
                     image_alignments.append(
                         (plate_other, well, idx, image_id2, 0, 0)
@@ -429,7 +403,7 @@ def align_plates(
                 # Convert TZYXC to YX before alignment
                 # Q. Would a Gaussian blur improve alignment?
                 trans = _translation(im1.squeeze(), im2.squeeze())
-                logger.info("Sample alignment %s [%s] %s", well, idx, trans)
+                logger.info(f"Sample alignment {well} [{idx}] {trans}")
                 image_alignments.append(
                     (plate_other, well, idx, image_id2) + trans
                 )
@@ -451,7 +425,7 @@ def align_plates(
             distances = np.array(
                 [np.sqrt((np.array(x) ** 2).sum()) for x in shifts]
             )
-            logger.info("Alignment distances: %s", distances)
+            logger.info(f"Alignment distances: {distances}")
             # Exclude outliers
             if iqr > 0:
                 q1, q3 = np.quantile(distances, [0.25, 0.75])
@@ -459,13 +433,7 @@ def align_plates(
                 ignore = distances > outlier
                 if np.any(ignore):
                     logger.info(
-                        "Ignoring outlier distances: %s > %.2f (%.2f + %.2f * (%.2f - %.2f))",
-                        distances[ignore],
-                        outlier,
-                        q3,
-                        iqr,
-                        q3,
-                        q1,
+                        f"Ignoring outlier distances: {distances[ignore]} > {outlier:.2f} ({q3:.2f} + {iqr:.2f} * ({q3:.2f} - {q1:.2f}))"
                     )
                     distances = distances[~ignore]
                     shifts = np.array(shifts)[~ignore]
@@ -479,17 +447,13 @@ def align_plates(
             b = np.array(shifts).std(axis=0)
             shift = (a[1], a[0])
             logger.info(
-                "Alignment: (%.1f, %.1f) +/- (%.1f, %.1f)",
-                shift[0],
-                shift[1],
-                b[1],
-                b[0],
+                f"Alignment: ({shift[0]:.1f}, {shift[1]:.1f}) +/- ({b[1]:.1f}, {b[0]:.1f})"
             )
             # Validate all alignments are within a tolerance to the mean
             distances = np.array(
                 [np.sqrt(((np.array(x) - a) ** 2).sum()) for x in shifts]
             )
-            logger.info("Alignment distances to centroid: %s", distances)
+            logger.info(f"Alignment distances to centroid: {distances}")
             if np.any(distances >= tolerance):
                 raise OmeroError(
                     f"Plate alignment {plate_id} to {plate_other} [{well}] above distance tolerance {tolerance} to centroid: {distances[distances >= tolerance]}",
@@ -750,17 +714,7 @@ def _translate(
     # translate image 2
     im3 = np.zeros_like(im2)
     logger.debug(
-        "translate %s + %s : %d:%d, %d:%d = %d:%d, %d:%d",
-        shape,
-        trans,
-        i1[0][0],
-        i1[1][0],
-        i1[0][1],
-        i1[1][1],
-        i2[0][0],
-        i2[1][0],
-        i2[0][1],
-        i2[1][1],
+        f"translate {shape} + {trans} : {i1[0][0]:d}:{i1[1][0]:d}, {i1[0][1]:d}:{i1[1][1]:d} = {i2[0][0]:d}:{i2[1][0]:d}, {i2[0][1]:d}:{i2[1][1]:d}"
     )
     im3[i1[0][0] : i1[1][0], i1[0][1] : i1[1][1]] = im2[
         i2[0][0] : i2[1][0], i2[0][1] : i2[1][1]
@@ -838,9 +792,7 @@ def map_partial_linear_sum(
             d = v1 - v2
             cm[j] = np.sqrt((d * d).sum())
     logger.info(
-        "Computed distance matrix with %d distances under threshold %.1f",
-        count,
-        threshold,
+        f"Computed distance matrix with {count:d} distances under threshold {threshold:.1f}"
     )
     row_ind, col_ind = linear_sum_assignment(cost)
 
@@ -879,9 +831,7 @@ def map_nearest_neighbour(
             d = v1 - v2
             pairs.append(((d * d).sum(), i, j))
     logger.info(
-        "Computed %d distances under threshold %.1f",
-        len(pairs),
-        threshold,
+        f"Computed {len(pairs):d} distances under threshold {threshold:.1f}"
     )
 
     # Sort list and build assignments
@@ -978,7 +928,7 @@ def map_masks(
     selected = row_ind >= 0
     row_ind = row_ind[selected]
     col_ind = col_ind[selected]
-    logger.info("Selected %d of %d overlaps", len(row_ind), len(pairs))
+    logger.info(f"Selected {len(row_ind)} of {len(pairs)} overlaps")
     return row_ind, col_ind
 
 
@@ -1035,7 +985,7 @@ def _get_mask_from_map(
     """Get the first plane of the nuclei segmentation mask from the image map."""
     image = image_map.get(image_id)
     if image is not None:
-        logger.info("Segmentation masks found for image %d", image_id)
+        logger.info(f"Segmentation masks found for image {image_id}")
         # Only download first channel: XYZCT order
         axis_lengths = [image.getSizeX(), image.getSizeY(), 1, 1, 1]
         _, masks = get_image(conn, image.getId(), axis_lengths=axis_lengths)
@@ -1126,14 +1076,14 @@ def mapping_gallery(
     Raises:
         PlateNotFoundError: if the plate does not exist
     """
-    logger.info("Generating alignment gallery for master plate: %d", plate_id)
+    logger.info(f"Generating alignment gallery for master plate: {plate_id}")
     plate = conn.getObject("Plate", plate_id)
     if plate is None:
         raise PlateNotFoundError("Plate:{plate_id}", logger)
     # Create the samples
     if seed is None:
         seed = int.from_bytes(os.urandom(8))
-    logger.info("Selecting mapping samples using seed: %d", seed)
+    logger.info(f"Selecting mapping samples using seed: {seed}")
     random.seed(a=seed)
     selected_indices = random.sample(
         range(len(image_map)), min(grid_size * grid_size, len(image_map))
@@ -1197,7 +1147,7 @@ def mapping_gallery(
                 )
 
     name = "mapping_gallery"
-    logger.info("Saving gallery: %s", name)
+    logger.info(f"Saving gallery: {name}")
     delete_file_attachment(conn, plate, ends_with=name + ".png")
     attach_figure(conn, fig, plate, name)
 
@@ -1232,7 +1182,7 @@ def create_cell_masks(
         PlateDataError: if the alignment is missing for a well
         OmeroError: if the mask does not exist
     """
-    logger.info("Creating missing cell masks using master plate: %d", plate_id)
+    logger.info(f"Creating missing cell masks using master plate: {plate_id}")
     # Get plates
     plate_ids = alignments["plate"].unique()
     per_sample = "image_id" in alignments.columns
@@ -1242,7 +1192,7 @@ def create_cell_masks(
     images1 = _get_well_images(conn, plate_id)
     map1 = _get_mask_map(conn, plate_id)
     for plate_other in plate_ids:
-        logger.info("Creating missing masks for plate: %d", plate_other)
+        logger.info(f"Creating missing masks for plate: {plate_other}")
         created = 0
         dataset_id2 = PlateDataset(conn, plate_other).dataset_id
         plate_alignments = alignments[alignments["plate"] == plate_other]
@@ -1260,11 +1210,7 @@ def create_cell_masks(
                 else:
                     continue
             logger.info(
-                "%s cell mask for image %s %d using image %d",
-                msg,
-                well_pos,
-                image_id2,
-                image_id1,
+                f"{msg} cell mask for image {well_pos} {image_id2:d} using image {image_id1:d}"
             )
             # Check mask from master plate
             dim = _get_mask_dim(image_id1, map1)
@@ -1316,11 +1262,7 @@ def create_cell_masks(
             # Note: original nuclei only mask may have a different dtype
             if n_mask2.dtype != c_mask2.dtype:
                 logger.info(
-                    "Updating mismatched image data types: %s (%s) + %s (%s)",
-                    n_mask2.shape,
-                    n_mask2.dtype,
-                    c_mask2.shape,
-                    c_mask2.dtype,
+                    f"Updating mismatched image data types: {n_mask2.shape} ({n_mask2.dtype}) + {c_mask2.shape} ({c_mask2.dtype})"
                 )
                 # Use the type with the largest max. Works for the expected unsigned int data types.
                 if np.iinfo(n_mask2.dtype).max > np.iinfo(c_mask2.dtype).max:
@@ -1340,10 +1282,7 @@ def create_cell_masks(
             created += 1
         # end well samples
         logger.info(
-            "Created %d / %d missing cell masks for plate %d",
-            created,
-            len(images2),
-            plate_other,
+            f"Created {created:d} / {len(images2):d} missing cell masks for plate {plate_other:d}"
         )
     # end plates
 
@@ -1354,7 +1293,7 @@ def _get_mask_dim(
     """Get the mask XYZCT dimensions."""
     image = image_map.get(image_id)
     if image is not None:
-        logger.debug("Segmentation masks found for image %d", image_id)
+        logger.debug(f"Segmentation masks found for image {image_id}")
         return (
             image.getSizeX(),
             image.getSizeY(),

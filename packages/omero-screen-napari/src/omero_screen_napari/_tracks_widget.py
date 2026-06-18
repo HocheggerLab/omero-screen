@@ -16,9 +16,9 @@ Two export companions:
   README) for manual curation in Mastodon.
 """
 
-import logging
 from pathlib import Path
 
+from loguru import logger
 from magicgui import magic_factory
 from magicgui.widgets import Container
 from napari.layers import Labels
@@ -38,8 +38,6 @@ from omero_screen_napari.zarr_cache import (
     pinned_plate_ids,
     unpin_plate,
 )
-
-logger = logging.getLogger("omero-screen-napari")
 
 _TRACKS_LAYER_NAME = "tracks"
 
@@ -166,7 +164,7 @@ def tracks_widget(
     add_kwargs: dict[str, object] = {}
     if scale is not None:
         add_kwargs["scale"] = scale
-        logger.info("Aligning tracks with labels layer scale %s", scale)
+        logger.info(f"Aligning tracks with labels layer scale {scale}")
 
     # Only hand napari the lineage graph when the user asks for it: building
     # it for thousands of divisions freezes the load and adds per-frame draw
@@ -205,13 +203,7 @@ def tracks_widget(
         )
     notifications.show_info(msg)
     logger.info(
-        "Added tracks layer for well %s: %d tracks, %d divisions, "
-        "show_divisions=%s, tail_length=%d",
-        well_id,
-        n_tracks,
-        n_div,
-        show_divisions,
-        tail_length,
+        f"Added tracks layer for well {well_id}: {n_tracks:d} tracks, {n_div:d} divisions, show_divisions={show_divisions}, tail_length={tail_length:d}"
     )
 
 
@@ -272,11 +264,7 @@ def export_track_widget(
         f"Exported track {track_id} ({n_rows} rows) to {out_path.name}."
     )
     logger.info(
-        "Exported %d rows for well %s track %d -> %s",
-        n_rows,
-        well_id,
-        track_id,
-        out_path,
+        f"Exported {n_rows:d} rows for well {well_id} track {track_id:d} -> {out_path}"
     )
 
 
@@ -323,7 +311,7 @@ def mastodon_export_widget(
         f"Exported well {well_id}. README: {paths['readme']}. "
         f"Pin the plate (button below) if curating over time."
     )
-    logger.info("Mastodon export written to %s", paths["dir"])
+    logger.info(f"Mastodon export written to {paths['dir']}")
 
 
 @magic_factory(call_button="Pin plate (protect from eviction)")
@@ -341,7 +329,7 @@ def pin_plate_widget(viewer: Viewer) -> None:
         notifications.show_warning("No plate loaded.")
         return
     pin_plate(int(plate_id))
-    logger.info("Pinned plate %s", plate_id)
+    logger.info(f"Pinned plate {plate_id}")
     notifications.show_info(
         f"Pinned plate {plate_id}. Pinned plates: {sorted(pinned_plate_ids())}."
     )
@@ -360,7 +348,7 @@ def unpin_plate_widget(viewer: Viewer) -> None:
     plate_id = getattr(omero_data, "plate_id", None)
     if plate_id is not None:
         unpin_plate(int(plate_id))
-        logger.info("Unpinned plate %s", plate_id)
+        logger.info(f"Unpinned plate {plate_id}")
 
     still_pinned = sorted(pinned_plate_ids())
     if still_pinned:
@@ -375,6 +363,9 @@ def unpin_plate_widget(viewer: Viewer) -> None:
 
 def tracks_gui_widget() -> Container:  # type: ignore[type-arg]
     """Stack the Tracks, per-track CSV, Mastodon-export and pin/unpin widgets."""
+    from omero_screen_napari._logging import init_plugin_logging
+
+    init_plugin_logging()
     return Container(
         widgets=[
             tracks_widget(),

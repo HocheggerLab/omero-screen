@@ -542,6 +542,6 @@ class CellposeModel():
 
         # XXX: No support for mps in 3D taken from Cellpose 4
         if changed_device_from is not None:
-            models_logger.info("switching back to device %s" % self.device)
+            models_logger.info(f"switching back to device {self.device}")
             self.device = torch.device(changed_device_from)
         return masks

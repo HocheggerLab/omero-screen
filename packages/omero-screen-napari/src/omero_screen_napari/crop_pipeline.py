@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import numpy as np
-from omero_screen.config import get_logger
+from loguru import logger
 from skimage.measure import label as sk_label
 from skimage.measure import regionprops
 
@@ -44,8 +44,6 @@ if TYPE_CHECKING:
     from omero.gateway import BlitzGateway
 
     from omero_screen_napari.omero_data import OmeroData
-
-logger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +333,7 @@ class CropPipeline:
             if produced_for_image:
                 result.image_ids.append(image_id)
 
-        logger.info("CropPipeline produced %d crops", len(result.crops))
+        logger.info(f"CropPipeline produced {len(result.crops)} crops")
         return result
 
 
@@ -556,7 +554,7 @@ class OmeroSource:
             dataset = self._dataset()
             if not dataset:
                 logger.warning(
-                    "Dataset for plate %d not found", self._plate_id
+                    f"Dataset for plate {self._plate_id:d} not found"
                 )
                 return False, None
             ff_image = next(
@@ -576,7 +574,7 @@ class OmeroSource:
             flatfield = cached.squeeze(axis=0).astype(np.float32)
             return True, flatfield
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to load flatfield correction: %s", exc)
+            logger.warning(f"Failed to load flatfield correction: {exc}")
             return False, None
 
     def _load_masks(self, image_id: int, t: int) -> np.ndarray[Any, Any]:

@@ -13,7 +13,7 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any, cast
 
-from omero_screen.config import get_logger
+from loguru import logger
 
 from .schema import (
     CREATE_INDEXES_SQL,
@@ -22,8 +22,6 @@ from .schema import (
     SCHEMA_VERSION,
     get_filter_query,
 )
-
-logger = get_logger(__name__)
 
 
 class TrainingDB:

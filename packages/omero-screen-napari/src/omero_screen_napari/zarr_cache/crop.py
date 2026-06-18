@@ -26,7 +26,6 @@ return is always exactly ``(size, size)``.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from functools import lru_cache
@@ -39,13 +38,11 @@ from typing import (
 import numpy as np
 import numpy.typing as npt
 import zarr
+from loguru import logger
 from omero.gateway import BlitzGateway
 
 from omero_screen_napari.zarr_cache.builder import build_plate_zarr
 from omero_screen_napari.zarr_cache.paths import plate_zarr_path
-
-logger = logging.getLogger(__name__)
-
 
 # Default crop size in pixels (square). Matches the per-field gallery
 # default so existing classifier inputs slot in unchanged.
@@ -484,14 +481,14 @@ def prepare(
                 progress_cb(plate_id, "ready")
             continue
 
-        logger.info("prepare: building zarr for plate %d", plate_id)
+        logger.info(f"prepare: building zarr for plate {plate_id}")
         try:
             for well_id in build_plate_zarr(plate_id, conn):
                 if progress_cb is not None:
                     progress_cb(plate_id, f"built {well_id}")
             results[plate_id] = "built"
         except Exception as e:  # noqa: BLE001
-            logger.error("prepare: build failed for plate %d: %s", plate_id, e)
+            logger.error(f"prepare: build failed for plate {plate_id}: {e}")
             results[plate_id] = "failed"
             if progress_cb is not None:
                 progress_cb(plate_id, f"failed: {e}")

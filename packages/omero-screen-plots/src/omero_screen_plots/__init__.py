@@ -8,7 +8,6 @@ The omero_screen_plots package provides plotting and analysis tools for OMERO sc
 
 __version__ = "0.4.0"
 
-
 # Import user-facing plot functions
 from omero_screen_plots.cellcycleplot_api import (
     cellcycle_plot,

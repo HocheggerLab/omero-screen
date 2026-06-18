@@ -138,6 +138,29 @@ def main() -> None:
         "Smaller cuts GPU memory ~quadratically at the cost of temporal context; "
         "default keeps the model's trained window.",
     )
+    log_group = parser.add_argument_group("Logging")
+    log_group.add_argument(
+        "--log-level",
+        type=str,
+        default=None,
+        help="Log level (DEBUG/INFO/WARNING/ERROR). Overrides "
+        "$OMERO_SCREEN_LOG_LEVEL; default INFO.",
+    )
+    log_group.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        help="Log file path, or 'none' to disable file logging. Overrides "
+        "$OMERO_SCREEN_LOG_FILE; default logs/app.log.",
+    )
+    log_group.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Verbose debugging: DEBUG level, console logging on, and rich "
+        "tracebacks. Console is off by default so logs don't clutter the "
+        "progress display.",
+    )
     args = parser.parse_args()
 
     # Note: Lazy import to speed up parsing errors
@@ -146,6 +169,18 @@ def main() -> None:
 
     if args.env:
         os.environ["ENV"] = args.env
+
+    # Configure logging once, at the entry point. Importing config triggers
+    # set_env_vars() (loads .env.{ENV}) so an OMERO_SCREEN_LOG_* override placed
+    # there is honoured; an explicit flag still wins over the env var.
+    from omero_screen.config import configure_logging
+
+    configure_logging(
+        level="DEBUG" if args.verbose else args.log_level,
+        console=args.verbose,
+        diagnose=args.verbose,
+        log_file=args.log_file,
+    )
     if args.inference:
         os.environ["OMERO_SCREEN_INFERENCE_MODEL"] = ":".join(args.inference)
     if args.gallery:

@@ -2,12 +2,11 @@
 
 import numpy as np
 import pandas as pd
+from loguru import logger
 from matplotlib.axes import Axes
-from omero_screen.config import get_logger
 from scipy import stats
 
 # Initialize logger with the module's name
-logger = get_logger(__name__)
 
 
 def calculate_pvalues(
@@ -19,7 +18,7 @@ def calculate_pvalues(
         df2[df2[condition_col] == condition][column].tolist()
         for condition in conditions
     ]
-    logger.debug("count_list: %s", count_list)
+    logger.debug(f"count_list: {count_list}")
 
     pvalues = []
     for data in count_list[1:]:
@@ -46,7 +45,7 @@ def calculate_pvalues(
                     pvalues.append(p_value)
         except (ValueError, RuntimeError, stats.LinAlgError) as e:
             logger.warning(
-                "Error in t-test calculation: %s, setting p-value to 1.0", e
+                f"Error in t-test calculation: {e}, setting p-value to 1.0"
             )
             pvalues.append(1.0)
 
@@ -76,7 +75,7 @@ def set_significance_marks(
 ) -> None:
     """Set the significance marks on the axes."""
     pvalues = calculate_pvalues(df, conditions, condition_col, y_col)
-    logger.info("pvalues: %s", pvalues)
+    logger.info(f"pvalues: {pvalues}")
     for i, _ in enumerate(conditions[1:], start=1):
         p_value = pvalues[i - 1]  # Adjust index for p-values list
         significance = get_significance_marker(p_value)
@@ -142,9 +141,7 @@ def calculate_grouped_pvalues(
                     # Check for sufficient variance and sample size
                     if len(reference_data) < 2 or len(condition_data) < 2:
                         logger.warning(
-                            "Insufficient sample size for t-test: %s vs %s",
-                            reference_condition,
-                            condition,
+                            f"Insufficient sample size for t-test: {reference_condition} vs {condition}"
                         )
                         p_value = 1.0
                     elif (
@@ -170,18 +167,13 @@ def calculate_grouped_pvalues(
                     results.append((global_index, p_value))
                 except (ValueError, RuntimeError, stats.LinAlgError) as e:
                     logger.warning(
-                        "Error in t-test calculation for %s vs %s: %s",
-                        reference_condition,
-                        condition,
-                        e,
+                        f"Error in t-test calculation for {reference_condition} vs {condition}: {e}"
                     )
                     global_index = group_start + i
                     results.append((global_index, 1.0))
             else:
                 logger.warning(
-                    "No data found for comparison: %s vs %s",
-                    reference_condition,
-                    condition,
+                    f"No data found for comparison: {reference_condition} vs {condition}"
                 )
 
     return results
@@ -274,7 +266,7 @@ def set_grouped_within_significance_marks(
         df, conditions, condition_col, y_col, group_size
     )
 
-    logger.info("grouped pvalues: %s", pvalue_results)
+    logger.info(f"grouped pvalues: {pvalue_results}")
 
     # Annotate significance marks
     for condition_index, p_value in pvalue_results:

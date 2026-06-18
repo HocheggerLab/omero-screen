@@ -1,9 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from omero_screen.config import get_logger
-
-logger = get_logger(__name__)
+from loguru import logger
 
 
 @dataclass
@@ -35,10 +33,10 @@ class UserData:
         for key, value in data.items():
             if hasattr(self, key):
                 setattr(self, key, value)
-                logger.debug("Updated %s to %s", key, value)
+                logger.debug(f"Updated {key} to {value}")
             else:
                 logger.error(
-                    "Error: %s is not a valid attribute of UserData", key
+                    f"Error: {key} is not a valid attribute of UserData"
                 )
 
     def reset(self) -> None:

@@ -16,13 +16,13 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 from ezomero import get_image
+from loguru import logger
 from omero.gateway import (
     BlitzGateway,
     ImageWrapper,
     MapAnnotationWrapper,
     WellWrapper,
 )
-from omero_screen.config import get_logger
 from omero_screen.constants import OmeroScreenNS
 from typing_extensions import Generator
 
@@ -31,8 +31,6 @@ from omero_utils.map_anns import (
     delete_map_annotation,
     parse_annotations,
 )
-
-logger = get_logger(__name__)
 
 
 def upload_masks(

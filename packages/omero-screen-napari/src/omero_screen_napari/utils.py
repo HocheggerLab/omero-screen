@@ -4,10 +4,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 from omero.gateway import BlitzGateway, WellWrapper
-from omero_screen.config import get_logger
 from skimage import exposure
-
-logger = get_logger(__name__)
 
 
 def attach_file_to_well(

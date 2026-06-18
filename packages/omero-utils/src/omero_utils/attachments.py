@@ -23,6 +23,7 @@ import tempfile
 from typing import Optional
 
 import pandas as pd
+from loguru import logger
 from matplotlib.figure import Figure
 from omero.gateway import (
     BlitzGateway,
@@ -30,10 +31,7 @@ from omero.gateway import (
     FileAnnotationWrapper,
     OriginalFileWrapper,
 )
-from omero_screen.config import get_logger
 from pandas import DataFrame
-
-logger = get_logger(__name__)
 
 
 def get_file_attachments(

@@ -120,10 +120,9 @@ def run(args: argparse.Namespace) -> None:
     if args.wandb:
         import wandb
 
-    logging.basicConfig(
-        format="[%(asctime)s] %(levelname)s - %(message)s",
-        level=args.log_level,
-    )
+    from cellclass._logging import configure_logging
+
+    configure_logging(args.log_level)
 
     start_time = time.time()
     restart = hasattr(args, "restart")

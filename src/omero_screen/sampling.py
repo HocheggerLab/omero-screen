@@ -19,18 +19,16 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import omero
+from loguru import logger
 from omero.gateway import BlitzGateway, ImageWrapper, MapAnnotationWrapper
 from omero.rtypes import unwrap
 from tifffile import imwrite
 
-from omero_screen.config import get_logger
 from omero_screen.constants import OmeroScreenNS
 
 from .flatfield_corr import flatfieldcorr_name
 from .metadata_parser import MetadataParser
 from .plate_dataset import PlateDataset
-
-logger = get_logger(__name__)
 
 
 def segmentation_samples(
@@ -59,27 +57,27 @@ def segmentation_samples(
         seed: random seed.
         compression: Output TIFF compression.
     """
-    logger.info("Processing plate %s", plate_id)
+    logger.info(f"Processing plate {plate_id}")
     metadata = MetadataParser(conn, plate_id)
     metadata.manage_metadata()
-    logger.debug("Channel Metadata: %s", metadata.channel_data)
+    logger.debug(f"Channel Metadata: {metadata.channel_data}")
     dataset_id = PlateDataset(conn, plate_id).dataset_id
 
     channels = _get_segmentation_channels(metadata)
-    logger.info("Segmentation channels: %s", channels)
+    logger.info(f"Segmentation channels: {channels}")
 
     # Save flatfield correction
     fn = os.path.join(out_directory, f"{plate_id}.c.tiff")
     if overwrite or not os.path.exists(fn):
         logger.info(
-            "Saving flat-field correction image: %s", os.path.basename(fn)
+            f"Saving flat-field correction image: {os.path.basename(fn)}"
         )
         img = _get_flatfieldcorr(conn, plate_id, dataset_id, channels)
         imwrite(fn, img, compression=compression)
 
     images = _get_image_ids(conn, plate_id)
     samples = _get_image_samples(images, k, seed)
-    logger.info("Sample size: %d", len(samples))
+    logger.info(f"Sample size: {len(samples)}")
 
     # Cache the segmentation images from the plate dataset
     dataset = conn.getObject("Dataset", dataset_id)
@@ -114,7 +112,7 @@ def segmentation_samples(
                 mask_id = seg_images.get(f"{i}_segmentation", 0)
                 mask = conn.getObject("Image", mask_id) if mask_id else None
                 if mask is None:
-                    logger.debug("No segmentation result for image: %d", i)
+                    logger.debug(f"No segmentation result for image: {i}")
 
             # Record metadata. Extract the required cell line field then dump the rest.
             fn = f"{plate_id}_{image_id}_{t}.i.tiff"
@@ -197,7 +195,7 @@ def _get_image_samples(
             timepoints.append((w, i, t))
 
     if len(timepoints) > k:
-        logger.info("Sample %d / %d using seed %d", k, len(timepoints), seed)
+        logger.info(f"Sample {k} / {len(timepoints)} using seed {seed}")
         random.seed(seed)
         timepoints = random.sample(timepoints, k)
         timepoints.sort()

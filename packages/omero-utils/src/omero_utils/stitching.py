@@ -28,17 +28,14 @@ the napari widget (display stitched wells); kept in omero-utils to
 avoid a circular dependency between those packages.
 """
 
-import logging
 from typing import Any, cast
 
 import numpy as np
 import scipy.ndimage
+from loguru import logger
 from numpy.typing import NDArray
-from omero_screen.config import get_logger
+from omero_screen.config import is_level_enabled
 from skimage.util import map_array
-
-logger = get_logger(__name__)
-
 
 # Operetta stitching calibration constants. These are microscope-level
 # values (not per-plate or per-well) and have been stable for the lab's
@@ -69,23 +66,20 @@ def has_valid_positions(
     """
     valid = [p for p in positions if p is not None]
     if len(valid) < max(2, len(positions)):
-        if logger.isEnabledFor(logging.DEBUG):
+        if is_level_enabled("DEBUG"):
             if len(valid) < len(positions):
                 logger.debug(
-                    "Missing positions: %d < %d", len(valid), len(positions)
+                    f"Missing positions: {len(valid):d} < {len(positions):d}"
                 )
             else:
-                logger.debug("Not enough positions: %d", len(positions))
+                logger.debug(f"Not enough positions: {len(positions)}")
         return False
 
     xs = [p[0] for p in valid if p[0] is not None]
     ys = [p[1] for p in valid if p[0] is not None]
     if min(len(xs), len(ys)) < len(positions):
         logger.debug(
-            "Missing X/Y positions: %d,%d < %d",
-            len(xs),
-            len(ys),
-            len(positions),
+            f"Missing X/Y positions: {len(xs):d},{len(ys):d} < {len(positions):d}"
         )
         return False
 
@@ -105,11 +99,7 @@ def has_valid_positions(
 
     if len(location) < len(valid):
         logger.warning(
-            "Stage positions form %d grid cells for %d images — "
-            "cannot stitch without losing data. Positions (first 5): %s",
-            len(location),
-            len(valid),
-            valid[:5],
+            f"Stage positions form {len(location):d} grid cells for {len(valid):d} images — cannot stitch without losing data. Positions (first 5): {valid[:5]}"
         )
         return False
     return True
@@ -193,14 +183,10 @@ def positions_to_grid(
 
     n_cells = sum(len(rows) for rows in grid_map.values())
     logger.info(
-        "Position grid: %d cols x %d rows (%d cells for %d images)",
-        len(x_clusters),
-        len(y_clusters),
-        n_cells,
-        len(positions),
+        f"Position grid: {len(x_clusters):d} cols x {len(y_clusters):d} rows ({n_cells:d} cells for {len(positions):d} images)"
     )
 
-    if n_cells and logger.isEnabledFor(logging.DEBUG):
+    if n_cells and is_level_enabled("DEBUG"):
         # Print information for stitching.
         # Rows/columns assumed orthogonal and aligned to x/y axes.
         maxx = np.max(list(grid_map.keys()))
@@ -234,16 +220,7 @@ def positions_to_grid(
                     cy.append(positions[j][1] - positions[i][1])
 
         logger.debug(
-            "Position grid: %s; row %.3f,%.3f +/- %.3f,%.3f, col %.3f,%.3f +/- %.3f,%.3f (raw units)",
-            grid,
-            np.mean(rx),
-            np.mean(ry),
-            np.std(rx),
-            np.std(ry),
-            np.mean(cx),
-            np.mean(cy),
-            np.std(cx),
-            np.std(cy),
+            f"Position grid: {grid}; row {np.mean(rx):.3f},{np.mean(ry):.3f} +/- {np.std(rx):.3f},{np.std(ry):.3f}, col {np.mean(cx):.3f},{np.mean(cy):.3f} +/- {np.std(cx):.3f},{np.std(cy):.3f} (raw units)"
         )
 
     return grid_map
@@ -275,14 +252,7 @@ def _compute_overlap(
         return overlap
 
     logger.info(
-        "%s spacing %.6g / %.6g gives %.0f px step (tile=%d px) — "
-        "positions likely not in µm, using fallback overlap %d",
-        axis_label,
-        spacing,
-        pixel_size,
-        step_px,
-        tile_size_px,
-        fallback,
+        f"{axis_label} spacing {spacing:.6g} / {pixel_size:.6g} gives {step_px:.0f} px step (tile={tile_size_px:d} px) — positions likely not in µm, using fallback overlap {fallback:d}"
     )
     return fallback
 

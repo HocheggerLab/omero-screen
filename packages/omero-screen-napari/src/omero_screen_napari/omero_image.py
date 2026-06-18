@@ -9,12 +9,11 @@ import numpy as np
 import numpy.typing as npt
 from diskcache import Cache, Disk
 from diskcache.core import UNKNOWN
+from loguru import logger
 from numcodecs import Blosc as _BloscCodec
 from omero.api import RawPixelsStore
 from omero.gateway import BlitzGateway, ImageWrapper
-from omero_screen.config import get_logger, getenv_as_int
-
-logger = get_logger(__name__)
+from omero_screen.config import getenv_as_int
 
 MODE_NUMPY = 5
 MODE_NUMPY_COMPRESSED = 6
@@ -174,10 +173,7 @@ def _warn_if_legacy_cache() -> None:
     current = pathlib.Path.home() / "omero-cache"
     if legacy.exists() and not current.exists():
         logger.info(
-            "Cache moved to %s (was %s). Rebuild plates here; the old hidden "
-            "cache can be deleted, or set OMERO_SCREEN_CACHE_PATH to keep it.",
-            current,
-            legacy,
+            f"Cache moved to {current} (was {legacy}). Rebuild plates here; the old hidden cache can be deleted, or set OMERO_SCREEN_CACHE_PATH to keep it."
         )
 
 
@@ -197,7 +193,7 @@ _cache = Cache(
     ),
 )
 logger.info(
-    "Image cache: %s (size limit: %d)", _cache.directory, _cache.size_limit
+    f"Image cache: {_cache.directory} (size limit: {_cache.size_limit:d})"
 )
 
 
@@ -238,7 +234,7 @@ def get_image(
         k = get_key(image_id, t)
         a = _cache.get(k)
         if a is None:
-            logger.info("Downloading image %s", k)
+            logger.info(f"Downloading image {k!r}")
             if store is None:
                 store, shape, dt_be = initialise_download(conn, image)
             a = get_omero_image_timepoint(store, t, shape, dt_be)
@@ -272,7 +268,7 @@ def get_image_timepoint(
     k = get_key(image_id, t)
     a = _cache.get(k)
     if a is None:
-        logger.info("Downloading image %s:%d", k, t)
+        logger.info(f"Downloading image {k!r}:{t}")
         image = get_omero_image_wrapper(conn, image_id)
         sizeT = image.getSizeT()
         if t < 0 or t > sizeT:

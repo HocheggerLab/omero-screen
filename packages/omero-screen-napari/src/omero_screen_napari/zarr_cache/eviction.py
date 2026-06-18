@@ -18,10 +18,11 @@ it cannot grow without limit. Policies:
 
 from __future__ import annotations
 
-import logging
 import os
 import shutil
 from pathlib import Path
+
+from loguru import logger
 
 from omero_screen_napari.zarr_cache.paths import plate_zarr_path
 from omero_screen_napari.zarr_cache.registry import (
@@ -30,9 +31,6 @@ from omero_screen_napari.zarr_cache.registry import (
     remove,
     set_pinned,
 )
-
-logger = logging.getLogger(__name__)
-
 
 # Cap floor: refuse to operate below this. A 10 GB cap is the smallest
 # size that can hold a typical fixed-cell screening plate.
@@ -66,9 +64,7 @@ def get_cap_bytes() -> int:
         cap_gb = int(raw) if raw else _DEFAULT_CAP_GB
     except ValueError:
         logger.warning(
-            "OMERO_SCREEN_ZARR_MAX_GB=%r is not an integer; using default %d GB",
-            raw,
-            _DEFAULT_CAP_GB,
+            f"OMERO_SCREEN_ZARR_MAX_GB={raw!r} is not an integer; using default {_DEFAULT_CAP_GB:d} GB"
         )
         cap_gb = _DEFAULT_CAP_GB
     cap_gb = max(cap_gb, _MIN_CAP_GB)
@@ -137,14 +133,14 @@ def evict_plate(plate_id: int) -> int:
     a warning (returns 0).
     """
     if is_pinned(plate_id):
-        logger.warning("Skipping eviction of pinned plate %d", plate_id)
+        logger.warning(f"Skipping eviction of pinned plate {plate_id}")
         return 0
     path = plate_zarr_path(plate_id)
     size = _dir_size_bytes(path)
     if path.exists():
         shutil.rmtree(path, ignore_errors=True)
     remove(plate_id)
-    logger.info("Evicted plate %d (%.1f MB)", plate_id, size / 1024 / 1024)
+    logger.info(f"Evicted plate {plate_id} ({size / 1024 / 1024:.1f} MB)")
     return size
 
 
@@ -182,11 +178,7 @@ def enforce_size_cap(
         candidates = [e for e in list_plates() if e.plate_id not in pinned]
         if not candidates:
             logger.warning(
-                "Cannot enforce cap: every remaining plate is pinned. "
-                "current=%.1f GB, extra=%.1f GB, cap=%.1f GB",
-                current_size_bytes() / 1024**3,
-                extra_bytes / 1024**3,
-                cap / 1024**3,
+                f"Cannot enforce cap: every remaining plate is pinned. current={current_size_bytes() / 1024**3:.1f} GB, extra={extra_bytes / 1024**3:.1f} GB, cap={cap / 1024**3:.1f} GB"
             )
             break
         victim = candidates[0]

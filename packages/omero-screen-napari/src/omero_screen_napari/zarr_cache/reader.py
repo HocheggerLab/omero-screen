@@ -6,7 +6,6 @@ napari side only needs raw multiscale arrays to hand to viewer layers.
 
 from __future__ import annotations
 
-import logging
 from functools import lru_cache
 from typing import Any
 
@@ -15,9 +14,6 @@ from omero_screen.config import getenv_as_int
 
 from omero_screen_napari.zarr_cache.paths import plate_zarr_path
 from omero_screen_napari.zarr_cache.registry import touch
-
-logger = logging.getLogger(__name__)
-
 
 # Chunk-level cache size in bytes for the napari display path. A single
 # live-cell well loads as ~4 layers (2 image channels + nuclei + cells)

@@ -6,11 +6,9 @@ bypassing Pandas to avoid compatibility issues.
 
 import duckdb
 import polars as pl
+from loguru import logger
 
 from cellview.utils.ui import CellViewUI
-from omero_screen.config import get_logger
-
-logger = get_logger(__name__)
 
 
 class PlateParserPolars:

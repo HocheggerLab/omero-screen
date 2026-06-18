@@ -30,14 +30,13 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+from loguru import logger
 
-from omero_screen.config import get_logger
 from omero_screen.torch import get_device
 
 if TYPE_CHECKING:
     from trackastra.model import Trackastra
 
-logger = get_logger(__name__)
 
 # Linking modes accepted by Trackastra.track. ``ilp`` additionally requires the
 # optional ``motile`` + Gurobi/SCIP stack; guard its use at call time.
@@ -145,7 +144,7 @@ def load_tracking_model(
         logger.info("Trackastra has no MPS backend; using CPU instead.")
         device = "cpu"
 
-    logger.info("Loading Trackastra model '%s' on %s", model_name, device)
+    logger.info(f"Loading Trackastra model '{model_name}' on {device}")
     return Trackastra.from_pretrained(model_name, device=device)
 
 
@@ -223,7 +222,7 @@ def track_nucleus_mask(
     if window is not None:
         config["window"] = window
         logger.info(
-            "Overriding Trackastra temporal window → %d frames", window
+            f"Overriding Trackastra temporal window → {window:d} frames"
         )
     elif device == "cuda":
         # Shrink the window just enough that the O(N²) attention fits free VRAM,
@@ -232,11 +231,7 @@ def track_nucleus_mask(
         if auto < model_window:
             config["window"] = auto
             logger.info(
-                "Auto-reduced temporal window %d → %d to fit GPU VRAM "
-                "(override: --track-window N, or --track-device cpu for the "
-                "full window at the cost of speed).",
-                model_window,
-                auto,
+                f"Auto-reduced temporal window {model_window:d} → {auto:d} to fit GPU VRAM (override: --track-window N, or --track-device cpu for the full window at the cost of speed)."
             )
 
     # Diagnostic: the attention spatial-bias matrix is (heads, N, N) where
@@ -245,13 +240,7 @@ def track_nucleus_mask(
     eff_window = min(int(config.get("window", n_frames)), n_frames)
     n_per_window = _max_detections_for_window(per_frame, eff_window)
     logger.info(
-        "Tracking %d frames, %d–%d objects/frame; effective window %d → "
-        "~%d detections/window (attention memory scales as this squared).",
-        n_frames,
-        min(per_frame),
-        max(per_frame),
-        eff_window,
-        n_per_window,
+        f"Tracking {n_frames:d} frames, {min(per_frame):d}–{max(per_frame):d} objects/frame; effective window {eff_window:d} → ~{n_per_window:d} detections/window (attention memory scales as this squared)."
     )
 
     graph, _ = model.track(
@@ -274,10 +263,7 @@ def track_nucleus_mask(
     n_tracks = len(parent_map)
     n_divisions = sum(1 for parent in parent_map.values() if parent != 0) // 2
     logger.info(
-        "Tracked %d nuclei into %d tracks (%d divisions).",
-        int(nucleus_mask.max()),
-        n_tracks,
-        n_divisions,
+        f"Tracked {int(nucleus_mask.max()):d} nuclei into {n_tracks:d} tracks ({n_divisions:d} divisions)."
     )
     return TrackingResult(relabelled, parent_map)
 

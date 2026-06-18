@@ -1,6 +1,6 @@
+from loguru import logger
 from magicgui import magic_factory
 from magicgui.widgets import Container
-from omero_screen.config import get_logger
 from qtpy.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -104,13 +104,13 @@ def _commit_viewer_contrast_to_intensities() -> None:
 
     if updated_any:
         omero_data.intensities = new_intensities
-        logger.info("Gallery contrast synced from viewer: %s", new_intensities)
-
-
-logger = get_logger(__name__)
+        logger.info(f"Gallery contrast synced from viewer: {new_intensities}")
 
 
 def gallery_gui_widget() -> Container:  # type: ignore
+    from omero_screen_napari._logging import init_plugin_logging
+
+    init_plugin_logging()
     gallery_widget_instance = gallery_widget()
     reset_widget_instance = reset_widget()
     container = Container(  # type: ignore[type-var]
@@ -274,7 +274,7 @@ def gallery_widget(
     channels = [channel for channel in channels if channel != ""]
     if not well and omero_data.well_pos_list:
         well = omero_data.well_pos_list[0]
-        logger.info("Using default well: %s", well)
+        logger.info(f"Using default well: {well}")
 
     if not well:
         logger.warning(
@@ -301,8 +301,8 @@ def gallery_widget(
         _commit_viewer_contrast_to_intensities()
         show_gallery(omero_data, userdata)
     except ValueError as e:
-        logger.exception("Gallery Error: %s", e)
+        logger.exception(f"Gallery Error: {e}")
         QMessageBox.critical(None, "Gallery Error", str(e))
     except Exception as e:  # noqa: BLE001
-        logger.exception("Unexpected Error: %s", e)
+        logger.exception(f"Unexpected Error: {e}")
         QMessageBox.critical(None, "Unexpected Error", str(e))

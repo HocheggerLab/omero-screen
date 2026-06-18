@@ -13,32 +13,31 @@ Available functions:
 - PlateDataError: Raised when there is an error in the plate data.
 """
 
-import logging
+from __future__ import annotations
+
 import sys
 import traceback
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from omero_screen.config import get_console, get_logger
+from omero_screen.config import get_console
 from rich.panel import Panel
 
-# Initialize logger with the module's name
-logger = get_logger(__name__)
+if TYPE_CHECKING:
+    from loguru import Logger
 
 ERROR_STYLE = "bold red"
 
 
 def log_connection_success(
-    style: str, message: str, logger_instance: logging.Logger
+    style: str, message: str, logger_instance: Logger
 ) -> None:
     """Log and print a success message."""
     logger_instance.info(message)
     get_console().rule(f"[{style}] {message}: {datetime.now().ctime()}")
 
 
-def log_success(
-    style: str, message: str, logger_instance: logging.Logger
-) -> None:
+def log_success(style: str, message: str, logger_instance: Logger) -> None:
     """Log and print a success message."""
     logger_instance.info(message)
     get_console().print(f"[{style}]✓ {message}")
@@ -50,7 +49,7 @@ class OmeroError(Exception):
     def __init__(
         self,
         message: str,
-        logger_instance: logging.Logger,
+        logger_instance: Logger,
         original_error: Optional[Exception] = None,
     ):
         """Initialize the OmeroError class.
@@ -102,7 +101,7 @@ class OmeroConnectionError(OmeroError):
     def __init__(
         self,
         message: str,
-        logger_instance: logging.Logger,
+        logger_instance: Logger,
         original_error: Optional[Exception] = None,
     ):
         """Initialize the OmeroConnectionError class.
@@ -121,7 +120,7 @@ class PlateNotFoundError(OmeroError):
     def __init__(
         self,
         message: str,
-        logger_instance: logging.Logger,
+        logger_instance: Logger,
         original_error: Optional[Exception] = None,
     ):
         """Initialize the PlateNotFoundError class.
@@ -140,7 +139,7 @@ class PlateDataError(OmeroError):
     def __init__(
         self,
         message: str,
-        logger_instance: logging.Logger,
+        logger_instance: Logger,
         original_error: Optional[Exception] = None,
     ):
         """Initialize the PlateDataError class.
@@ -159,7 +158,7 @@ class ExcelParsingError(OmeroError):
     def __init__(
         self,
         message: str,
-        logger_instance: logging.Logger,
+        logger_instance: Logger,
         original_error: Optional[Exception] = None,
     ):
         """Initialize the ExcelParsingError class.
@@ -178,7 +177,7 @@ class ChannelAnnotationError(OmeroError):
     def __init__(
         self,
         message: str,
-        logger_instance: logging.Logger,
+        logger_instance: Logger,
         original_error: Optional[Exception] = None,
     ):
         """Initialize the ChannelAnnotationError class.
@@ -197,7 +196,7 @@ class WellAnnotationError(OmeroError):
     def __init__(
         self,
         message: str,
-        logger_instance: logging.Logger,
+        logger_instance: Logger,
         original_error: Optional[Exception] = None,
     ):
         """Initialize the WellAnnotationError class.
@@ -216,7 +215,7 @@ class MetadataValidationError(OmeroError):
     def __init__(
         self,
         message: str,
-        logger_instance: logging.Logger,
+        logger_instance: Logger,
         original_error: Optional[Exception] = None,
     ):
         """Initialize the MetadataValidationError class.

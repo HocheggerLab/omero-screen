@@ -7,14 +7,11 @@ and fixing schema issues (e.g., removing problematic columns with numeric suffix
 import contextlib
 
 import duckdb
+from loguru import logger
 from rich.table import Table
 
 from cellview.db.db import CellViewDB
 from cellview.utils.ui import CellViewUI, Colors
-from omero_screen.config import get_logger
-
-logger = get_logger(__name__)
-
 
 ui = CellViewUI()
 

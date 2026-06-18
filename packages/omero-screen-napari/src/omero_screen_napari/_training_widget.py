@@ -5,9 +5,9 @@ from typing import TYPE_CHECKING, Any
 
 import napari
 import numpy as np
+from loguru import logger
 from magicgui import magicgui
 from magicgui.widgets import Container, RadioButtons
-from omero_screen.config import get_logger
 from qtpy.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from omero_screen_napari.gallery_userdata import UserData
     from omero_screen_napari.omero_data import OmeroData
 
-logger = get_logger(__name__)
 
 # Sentinel for "paths not yet resolved", distinct from a None session_file_path.
 _UNSET = object()
@@ -38,6 +37,9 @@ def training_widget(
     class_name: str | None = None,
     user_data: "UserData | None" = userdata,
 ) -> Container:  # type: ignore
+    from omero_screen_napari._logging import init_plugin_logging
+
+    init_plugin_logging()
     widget = TrainingWidget(class_name, user_data, omero_data)
     return widget.container
 
@@ -381,13 +383,11 @@ class TrainingWidget:
         options to fall back to when the classifier has no metadata.
         """
         if not self.omero_data.selected_images:
-            logger.warning("No images loaded (%s)", context)
+            logger.warning(f"No images loaded ({context})")
             return
 
         logger.info(
-            "%s: %d images",
-            context,
-            len(self.omero_data.selected_images),
+            f"{context}: {len(self.omero_data.selected_images):d} images"
         )
 
         classifier_name = self.classifier_selector.combobox.currentText()
@@ -415,22 +415,18 @@ class TrainingWidget:
                     self.image_navigator,
                 )
                 logger.info(
-                    "TrainingDataSaver (re)initialized for classifier %s",
-                    classifier_name,
+                    f"TrainingDataSaver (re)initialized for classifier {classifier_name}"
                 )
         else:
             logger.warning(
-                "No valid classifier selected; cannot load class options (%s)",
-                context,
+                f"No valid classifier selected; cannot load class options ({context})"
             )
 
         self.image_navigator.current_index = 0
         self.image_navigator.reset_for_new_dataset()
         self.image_navigator.update_image()
         logger.info(
-            "Displaying %d images (%s)",
-            len(self.omero_data.selected_images),
-            context,
+            f"Displaying {len(self.omero_data.selected_images):d} images ({context})"
         )
 
     def _load_class_options(
@@ -450,8 +446,7 @@ class TrainingWidget:
         )
         if not metadata_path.exists():
             logger.info(
-                "No metadata for %s; using default class options",
-                classifier_name,
+                f"No metadata for {classifier_name}; using default class options"
             )
             return default
         try:
@@ -461,9 +456,7 @@ class TrainingWidget:
             return list(options) if options else default
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "Could not read class options for %s: %s",
-                classifier_name,
-                exc,
+                f"Could not read class options for {classifier_name}: {exc}"
             )
             return default
 
@@ -591,7 +584,7 @@ class TrainingDataSaver:
             file_check = self._check_directory_contents()
             self._handle_saving_logic(file_check)
         except Exception as e:  # noqa: BLE001
-            logger.error(e)
+            logger.error(str(e))
             _show_error_message(str(e))
 
     def _create_and_save(self) -> None:

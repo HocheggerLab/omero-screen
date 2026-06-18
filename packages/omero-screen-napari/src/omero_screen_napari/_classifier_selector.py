@@ -8,8 +8,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
 from magicgui.widgets import Container, Label
-from omero_screen.config import get_logger
 from qtpy.QtWidgets import (
     QComboBox,
     QLabel,
@@ -21,8 +21,6 @@ from qtpy.QtWidgets import (
 from omero_screen_napari.gallery_userdata_singleton import userdata
 from omero_screen_napari.omero_data_singleton import omero_data
 from omero_screen_napari.trainingdata_db.database import TrainingDB
-
-logger = get_logger(__name__)
 
 
 class ClassifierInfoPanel:

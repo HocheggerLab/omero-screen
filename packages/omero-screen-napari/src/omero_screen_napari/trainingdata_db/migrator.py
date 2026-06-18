@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 import numpy as np
-from omero_screen.config import get_logger
+from loguru import logger
 
 from .database import TrainingDB
 
@@ -23,9 +23,6 @@ class MigrationStats(TypedDict):
     annotations_imported: int
     sessions_skipped: int
     errors: list[str]
-
-
-logger = get_logger(__name__)
 
 
 class TrainingDataMigrator:

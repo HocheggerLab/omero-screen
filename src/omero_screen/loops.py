@@ -45,6 +45,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from ezomero import get_image
+from loguru import logger
 from matplotlib.figure import Figure
 from omero.gateway import BlitzGateway, WellWrapper
 from omero_utils.attachments import (
@@ -65,7 +66,6 @@ from omero_utils.stitching import (
 
 from omero_screen import default_config
 from omero_screen.cellcycle_analysis import cellcycle_analysis
-from omero_screen.config import get_logger
 from omero_screen.constants import OmeroScreenNS
 from omero_screen.gallery_figure import create_gallery
 from omero_screen.general_functions import filter_segmentation, scale_img
@@ -89,8 +89,6 @@ from .flatfield_corr import flatfieldcorr
 from .metadata_parser import MetadataParser
 from .plate_dataset import PlateDataset
 from .progress import ScreenProgress
-
-logger = get_logger(__name__)
 
 
 @contextmanager
@@ -118,13 +116,13 @@ def plate_loop(
         Tuple[DataFrame, DataFrame, DataFrame, Dict]: Three DataFrames containing the final data and quality control data;
         dictionary of matplotlib figures of the inference gallery keyed by class (can be None)
     """
-    logger.info("Processing plate %s", plate_id)
+    logger.info(f"Processing plate {plate_id}")
     bench = get_benchmark()
 
     with bench.stage("metadata_parsing"):
         metadata = MetadataParser(conn, plate_id)
         metadata.manage_metadata()
-    logger.debug("Channel Metadata: %s", str(metadata.channel_data))
+    logger.debug(f"Channel Metadata: {str(metadata.channel_data)}")
 
     # Validate cell line required for segmentation model
     for cell_line in set(metadata.well_data["cell_line"]):
@@ -156,8 +154,8 @@ def plate_loop(
         )
         return df_final, None, df_quality_control, None
 
-    logger.debug("Final data sample: %s", df_final.head())
-    logger.debug("Final data columns: %s", df_final.columns)
+    logger.debug(f"Final data sample: {df_final.head()}")
+    logger.debug(f"Final data columns: {df_final.columns}")
 
     # check conditions for cell cycle analysis
     logger.info("Performing cell cycle analysis")
@@ -200,19 +198,16 @@ def plate_loop(
                 _add_welldata(conn, wells, df_final_cc)
             except KeyError as e:
                 logger.error(
-                    "Cell cycle analysis failed — missing column: %s. "
-                    "This usually means a required channel (EdU, H3P, or DAPI) "
-                    "is missing or misspelled in the metadata.",
-                    e,
+                    f"Cell cycle analysis failed — missing column: {e}. This usually means a required channel (EdU, H3P, or DAPI) is missing or misspelled in the metadata."
                 )
                 df_final_cc = None
             except Exception as e:  # noqa: BLE001
                 logger.error(
-                    "Cell cycle analysis failed with unexpected error: %s. "
-                    "Check the log file for details.",
-                    e,
+                    f"Cell cycle analysis failed with unexpected error: {e}. Check the log file for details."
                 )
-                logger.debug("Cell cycle analysis traceback:", exc_info=True)
+                logger.opt(exception=True).debug(
+                    "Cell cycle analysis traceback:"
+                )
                 df_final_cc = None
         else:
             df_final_cc = None
@@ -239,7 +234,7 @@ def _print_device_info() -> None:
     """
     import omero_screen.torch
 
-    logger.info("Using Cellpose with %s", str(omero_screen.torch.get_device()))
+    logger.info(f"Using Cellpose with {str(omero_screen.torch.get_device())}")
 
 
 def process_wells(
@@ -343,10 +338,7 @@ def process_wells(
             )
             if well_data is not None:
                 logger.info(
-                    "Loaded well results %s (%d/%d).",
-                    well_pos,
-                    count + 1,
-                    len(non_empty_wells),
+                    f"Loaded well results {well_pos} ({count + 1:d}/{len(non_empty_wells):d})."
                 )
                 # Still tick through the well context so the bar advances
                 with prog.well(well_pos, n_images):
@@ -355,10 +347,7 @@ def process_wells(
                         prog.image_done()
             else:
                 logger.info(
-                    "Analysing well %s (%d/%d).",
-                    well_pos,
-                    count + 1,
-                    len(non_empty_wells),
+                    f"Analysing well {well_pos} ({count + 1:d}/{len(non_empty_wells):d})."
                 )
                 well_data, well_quality = _well_loop(
                     conn,
@@ -395,11 +384,7 @@ def process_wells(
                         selected_images, gallery_width
                     )
                     logger.info(
-                        "Gallery created for '%s/%s': %d/%d",
-                        cls.class_name,
-                        predicted_class,
-                        len(selected_images),
-                        total,
+                        f"Gallery created for '{cls.class_name}/{predicted_class}': {len(selected_images):d}/{total:d}"
                     )
 
     return df_final, df_quality_control, dict_gallery
@@ -579,7 +564,7 @@ def _segment_stitched_nuclei(
 
     if segmentation_model.get_type() == "cellpose3":
         diameter: int | None = _nuc_diameter_for_cell_line(cell_line)
-        logger.info("Segmenting stitched nuclei with diameter %s", diameter)
+        logger.info(f"Segmenting stitched nuclei with diameter {diameter}")
     else:
         diameter = None  # cellpose 4 is scale-independent
 
@@ -592,10 +577,7 @@ def _segment_stitched_nuclei(
     }
     if profile:
         logger.info(
-            "Channel '%s' segmentation profile: gamma=%s, eval kwargs=%s",
-            channel_name,
-            gamma,
-            eval_kwargs,
+            f"Channel '{channel_name}' segmentation profile: gamma={gamma}, eval kwargs={eval_kwargs}"
         )
 
     n_t = stitched_img.shape[0]
@@ -606,7 +588,7 @@ def _segment_stitched_nuclei(
         # goes quiet for many minutes. Only emit for multi-frame canvases.
         if n_t > 1:
             logger.info(
-                "Stitched nucleus segmentation: timepoint %d/%d", t + 1, n_t
+                f"Stitched nucleus segmentation: timepoint {t + 1:d}/{n_t:d}"
             )
         # (Y, X) → cellpose-ready (1, Y, X) single-channel stack
         img_t = stitched_img[t, ..., nucleus_channel_index]
@@ -623,9 +605,7 @@ def _segment_stitched_nuclei(
             )
         except IndexError:
             logger.warning(
-                "Stitched nucleus segmentation failed (t=%d) — "
-                "returning empty mask.",
-                t,
+                f"Stitched nucleus segmentation failed (t={t:d}) — returning empty mask."
             )
             mask = np.zeros(img_t.shape, dtype=np.uint16)
         # Outer-edge border filter only. clear_border treats the array
@@ -669,7 +649,7 @@ def _segment_stitched_cells(
             f"Unknown cell-segmentation model for cell line: {cell_line}"
         )
     segmentation_model = SegmentationModel(model_name)
-    logger.info("Segmenting stitched cells with model %s", model_name)
+    logger.info(f"Segmenting stitched cells with model {model_name}")
 
     profile = apply_seg_profile(channel_name)
     gamma = profile.get("gamma")
@@ -680,10 +660,7 @@ def _segment_stitched_cells(
     }
     if profile:
         logger.info(
-            "Channel '%s' segmentation profile: gamma=%s, eval kwargs=%s",
-            channel_name,
-            gamma,
-            eval_kwargs,
+            f"Channel '{channel_name}' segmentation profile: gamma={gamma}, eval kwargs={eval_kwargs}"
         )
 
     n_t = stitched_img.shape[0]
@@ -693,7 +670,7 @@ def _segment_stitched_cells(
         # the slowest silent stage — surface it so long runs aren't opaque.
         if n_t > 1:
             logger.info(
-                "Stitched cell segmentation: timepoint %d/%d", t + 1, n_t
+                f"Stitched cell segmentation: timepoint {t + 1:d}/{n_t:d}"
             )
         cell_t = stitched_img[t, ..., cell_channel_index]
         nuc_t = stitched_img[t, ..., nucleus_channel_index]
@@ -709,9 +686,7 @@ def _segment_stitched_cells(
             )
         except IndexError:
             logger.warning(
-                "Stitched cell segmentation failed (t=%d) — "
-                "returning empty mask.",
-                t,
+                f"Stitched cell segmentation failed (t={t:d}) — returning empty mask."
             )
             mask = np.zeros(cell_t.shape, dtype=np.uint16)
         masks[t] = filter_segmentation(mask, border=border)
@@ -818,11 +793,7 @@ def _should_stream_stitch(well: WellWrapper, metadata: MetadataParser) -> bool:
     peak = canvas_bytes * _STREAM_PEAK_FACTOR
     stream = peak > budget * _STREAM_RAM_SAFETY
     logger.info(
-        "Stitch memory estimate: ~%.0f GB peak vs ~%.0f GB budget → "
-        "streaming %s (override: --stream-stitch / --no-stream-stitch).",
-        peak / 1e9,
-        budget / 1e9,
-        "ON" if stream else "off",
+        f"Stitch memory estimate: ~{peak / 1e9:.0f} GB peak vs ~{budget / 1e9:.0f} GB budget → streaming {'ON' if stream else 'off'} (override: --stream-stitch / --no-stream-stitch)."
     )
     return stream
 
@@ -879,7 +850,7 @@ def _load_and_stitch_streaming(
     canvas: npt.NDArray[Any] | None = None
     for t in range(n_t):
         if n_t > 1:
-            logger.info("Streaming stitch: timepoint %d/%d", t + 1, n_t)
+            logger.info(f"Streaming stitch: timepoint {t + 1}/{n_t}")
         # One timepoint of every field (all Z, C), flatfield-corrected.
         frame: dict[str, list[npt.NDArray[Any]]] = {ch: [] for ch in ch_names}
         for fid in image_ids:
@@ -944,9 +915,7 @@ def _stitched_well_loop(
     """
     well_pos = well.getWellPos()
     n_fields = len(list(well.listChildren()))
-    logger.info(
-        "Stitched analysis: well %s with %d fields", well_pos, n_fields
-    )
+    logger.info(f"Stitched analysis: well {well_pos} with {n_fields:d} fields")
 
     bench = get_benchmark()
     if prog:
@@ -987,11 +956,7 @@ def _stitched_well_loop(
     # image_id resolution by centroid is performed in ImageProperties.
     synthetic_image_id = image_ids[0]
     logger.info(
-        "Stitched canvas for %s: shape %s, dtype %s, %d fields",
-        well_pos,
-        stitched_img.shape,
-        stitched_img.dtype,
-        n_fields,
+        f"Stitched canvas for {well_pos}: shape {stitched_img.shape}, dtype {stitched_img.dtype}, {n_fields:d} fields"
     )
 
     nucleus_channel = metadata.channel_roles["nucleus"]
@@ -1016,10 +981,7 @@ def _stitched_well_loop(
             channel_name=nucleus_channel,
         )
     logger.info(
-        "Stitched nucleus mask for %s: %d nuclei (border=%d)",
-        well_pos,
-        int(stitched_n_mask.max()),
-        border,
+        f"Stitched nucleus mask for {well_pos}: {int(stitched_n_mask.max()):d} nuclei (border={border:d})"
     )
 
     stitched_c_mask: npt.NDArray[Any] | None = None
@@ -1035,10 +997,7 @@ def _stitched_well_loop(
                 channel_name=cell_channel,
             )
         logger.info(
-            "Stitched cell mask for %s: %d cells (channel=%s)",
-            well_pos,
-            int(stitched_c_mask.max()),
-            cell_channel,
+            f"Stitched cell mask for {well_pos}: {int(stitched_c_mask.max()):d} cells (channel={cell_channel})"
         )
         # Cytoplasm = cell ∖ nucleus (matches Image._get_cyto)
         stitched_cyto_mask = _stitched_cyto(stitched_n_mask, stitched_c_mask)
@@ -1068,10 +1027,7 @@ def _stitched_well_loop(
             )
         tracked = True
         logger.info(
-            "Tracked well %s: %d tracks across %d timepoints",
-            well_pos,
-            len(track_parent_map),
-            n_timepoints,
+            f"Tracked well {well_pos}: {len(track_parent_map):d} tracks across {n_timepoints:d} timepoints"
         )
 
     # Split the stitched masks back into per-field tiles and upload each
@@ -1169,10 +1125,7 @@ def _stitched_well_loop(
     # row but a single source-of-truth check at import time.
     df_well["stitch_mode"] = True
     logger.info(
-        "Stitched features for %s: %d rows, %d columns",
-        well_pos,
-        len(df_well),
-        len(df_well.columns),
+        f"Stitched features for {well_pos}: {len(df_well):d} rows, {len(df_well.columns):d} columns"
     )
 
     if prog:
@@ -1316,9 +1269,7 @@ def _add_welldata(
     from omero_screen_plots import well_qc_plot
 
     logger.debug(
-        "Attaching per-well QC figures: %d wells, df has %d rows",
-        len(wells),
-        len(df_final),
+        f"Attaching per-well QC figures: {len(wells):d} wells, df has {len(df_final):d} rows"
     )
     attached = 0
     for well in wells:
@@ -1334,21 +1285,18 @@ def _add_welldata(
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.error(
-                    "Failed to render combplot for well %s (%d cells): %s",
-                    well_pos,
-                    n_cells,
-                    exc,
+                    f"Failed to render combplot for well {well_pos} ({n_cells:d} cells): {exc}"
                 )
-                logger.debug("combplot traceback:", exc_info=True)
+                logger.opt(exception=True).debug("combplot traceback:")
                 continue
             delete_file_attachment(conn, well, ends_with=f"{well_pos}.png")
             attach_figure(conn, fig, well, well_pos)
             attached += 1
         else:
             logger.warning(
-                "Insufficient data for %s (%d cells)", well_pos, n_cells
+                f"Insufficient data for {well_pos} ({n_cells:d} cells)"
             )
-    logger.debug("Attached %d/%d well QC figures", attached, len(wells))
+    logger.debug(f"Attached {attached}/{len(wells)} well QC figures")
 
 
 # Columns that are not biologically interesting for the per-well QC title —

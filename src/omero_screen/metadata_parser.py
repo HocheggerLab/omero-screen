@@ -15,6 +15,7 @@ import re
 from collections import Counter
 from typing import Any
 
+from loguru import logger
 from omero.gateway import BlitzGateway, FileAnnotationWrapper, PlateWrapper
 from omero_utils.attachments import (
     delete_excel_attachment,
@@ -37,10 +38,8 @@ from omero_utils.message import (
 from rich.panel import Panel
 from rich.table import Table
 
-from omero_screen.config import get_console, get_logger
+from omero_screen.config import get_console
 from omero_screen.constants import OmeroScreenNS
-
-logger = get_logger(__name__)
 
 SUCCESS_STYLE = "bold cyan"
 
@@ -156,7 +155,7 @@ def _normalize_cell_line_column(df: Any) -> Any:
     for original, normalized in col_map.items():
         if normalized == "cell_line" and original != "cell_line":
             logger.debug(
-                "Normalizing Excel column '%s' → 'cell_line'", original
+                f"Normalizing Excel column '{original}' → 'cell_line'"
             )
             return df.rename(columns={original: "cell_line"})
     if "cell_line" not in df.columns:
@@ -180,7 +179,7 @@ def _normalize_cell_line_key(annotation: dict[str, Any]) -> dict[str, Any]:
         return annotation
     for key in list(annotation):
         if key.lower().replace(" ", "_") == "cell_line":
-            logger.debug("Normalizing annotation key '%s' → 'cell_line'", key)
+            logger.debug(f"Normalizing annotation key '{key}' → 'cell_line'")
             annotation["cell_line"] = annotation.pop(key)
             return annotation
     return annotation
@@ -412,8 +411,7 @@ class MetadataParser:
                 well_index = well_data["Well"].index(well_name)
             except ValueError:
                 logger.debug(
-                    "Well %s not in metadata (may be marked as Empty), skipping annotation.",
-                    well_name,
+                    f"Well {well_name} not in metadata (may be marked as Empty), skipping annotation."
                 )
                 continue
             well_meta_data = {
@@ -829,7 +827,7 @@ class MetadataParser:
         pixel_size_x = round(float(pixels.getPhysicalSizeX().getValue()), 1)
         pixel_size_y = round(float(pixels.getPhysicalSizeY().getValue()), 1)
         logger.debug(
-            "Pixel size x: %s, Pixel size y: %s", pixel_size_x, pixel_size_y
+            f"Pixel size x: {pixel_size_x}, Pixel size y: {pixel_size_y}"
         )
         # Validate that we have valid pixel sizes
         if pixel_size_x is None or pixel_size_y is None:

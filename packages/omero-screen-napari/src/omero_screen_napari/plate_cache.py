@@ -19,7 +19,6 @@ Cache "pos" entries are a tuple of XY image stage positions.
 from __future__ import annotations
 
 import contextlib
-import logging
 import queue
 import threading
 import time
@@ -33,11 +32,12 @@ import numpy.typing as npt
 import omero
 import polars as pl
 from diskcache import Cache
+from loguru import logger
 from omero.gateway import BlitzGateway, MapAnnotationWrapper
 from omero.model import LengthI
 from omero.model.enums import UnitsLength
 from omero.rtypes import unwrap
-from omero_screen.config import get_logger, getenv_as_int
+from omero_screen.config import getenv_as_int, is_level_enabled
 from omero_screen.constants import OmeroScreenNS
 
 from omero_screen_napari.omero_data import OmeroConnection, get_dataset_id
@@ -61,9 +61,6 @@ from omero_screen_napari.omero_image import (
 from omero_screen_napari.omero_image import (
     evict as evict_images,
 )
-
-logger = get_logger(__name__)
-
 
 # Bump this when the on-disk metadata format changes.
 # Caching will delete and re-download plates cached with an older version.
@@ -121,9 +118,7 @@ _cache = Cache(
     tag_index=True,
 )
 logger.info(
-    "Plate cache: %s (size limit: %d)",
-    _cache.directory,
-    _cache.size_limit,
+    f"Plate cache: {_cache.directory} (size limit: {_cache.size_limit:d})"
 )
 
 
@@ -187,7 +182,7 @@ def get_all_cached_plates() -> list[tuple[int, str, str]]:
                 )
             )
     except Exception:
-        logger.debug("Error scanning cache keys", exc_info=True)
+        logger.opt(exception=True).debug("Error scanning cache keys")
     # Assumed date YYYY-MM-DD is sortable
     plates.sort(key=lambda x: x[2], reverse=True)
     return plates
@@ -351,16 +346,13 @@ def get_plate_metadata(
         old_version = v.get("cache_version", 0)
         if old_version < _CACHE_VERSION:
             logger.info(
-                "Plate %d: cache version %d < %d, deleting stale data",
-                plate_id,
-                old_version,
-                _CACHE_VERSION,
+                f"Plate {plate_id:d}: cache version {old_version:d} < {_CACHE_VERSION:d}, deleting stale data"
             )
             # Evict stale metadata, keep images
             delete_plate_from_cache(plate_id, remove_images=False)
             v = None
     if v is None:
-        logger.info("Caching plate %d: fetching metadata", plate_id)
+        logger.info(f"Caching plate {plate_id}: fetching metadata")
         v = _fetch_plate_metadata(connection.get_conn(), plate_id)
         _cache.set(_get_meta_key(plate_id), v, tag=plate_id)
     return v  # type: ignore[no-any-return]
@@ -374,7 +366,7 @@ def get_well_data(
     Re-uses the connection or creates one if required."""
     v = get_cached_well_data(plate_id)
     if v is None:
-        logger.info("Caching plate %d: fetching well data", plate_id)
+        logger.info(f"Caching plate {plate_id}: fetching well data")
         v = _fetch_well_map(connection.get_conn(), plate_id)
         _cache.set(_get_well_key(plate_id), v, tag=plate_id)
     return v  # type: ignore[no-any-return]
@@ -389,7 +381,7 @@ def get_label_map(
     Re-uses the connection or creates one if required."""
     v = get_cached_label_map(plate_id)
     if v is None:
-        logger.info("Caching plate %d: fetching label map", plate_id)
+        logger.info(f"Caching plate {plate_id}: fetching label map")
         v = _fetch_label_map(connection.get_conn(), plate_id)
         _cache.set(_get_label_key(plate_id), v, tag=plate_id)
     return v  # type: ignore[no-any-return]
@@ -413,7 +405,7 @@ def delete_plate_from_cache(plate_id: int, remove_images: bool = True) -> int:
     if remove_images:
         deleted += evict_images(plate_id)
 
-    logger.info("Deleted %d keys for plate %d", deleted, plate_id)
+    logger.info(f"Deleted {deleted} keys for plate {plate_id}")
     return deleted
 
 
@@ -524,12 +516,7 @@ def ensure_cache_space(
 
     if vol + needed_bytes > size_limit:
         logger.warning(
-            "Cache still needs %d bytes after evicting %d plate(s). "
-            "volume=%d, limit=%d",
-            needed_bytes,
-            len(evicted),
-            cache_volume(),
-            size_limit,
+            f"Cache still needs {needed_bytes:d} bytes after evicting {len(evicted):d} plate(s). volume={cache_volume():d}, limit={size_limit:d}"
         )
 
     return evicted, vol, len(evicted)
@@ -587,9 +574,7 @@ def clean_orphaned_plates(
         completeness = _plate_image_completeness(plate_id)
         if completeness < 0.5:
             logger.info(
-                "Cleaning orphaned plate %d (%.0f%% complete)",
-                plate_id,
-                completeness * 100,
+                f"Cleaning orphaned plate {plate_id:d} ({completeness * 100:.0f}% complete)"
             )
             delete_plate_from_cache(plate_id)
             cleaned.append(plate_id)
@@ -630,7 +615,7 @@ def cache_plate(
     """
     # Use try-block to close the connection when no longer required
     try:
-        logger.info("Caching plate %d", plate_id)
+        logger.info(f"Caching plate {plate_id}")
         meta = get_plate_metadata(connection, plate_id)
         wells = get_well_data(connection, plate_id)
         label_map = get_label_map(connection, plate_id)
@@ -642,10 +627,7 @@ def cache_plate(
         skipped = sorted(set(wells) - set(wells_filtered))
         if skipped:
             logger.info(
-                "Plate %d: skipping %d empty well(s) for cache: %s",
-                plate_id,
-                len(skipped),
-                skipped,
+                f"Plate {plate_id:d}: skipping {len(skipped):d} empty well(s) for cache: {skipped}"
             )
         wells = wells_filtered
         label_map = {k: v for k, v in label_map.items() if k in wells}
@@ -658,23 +640,16 @@ def cache_plate(
         size_limit = cache_size_limit()
         if estimated_bytes >= size_limit:
             logger.warning(
-                "Plate %d: estimated size %.2f GB exceeds cache size %.2f GB, skipping caching",
-                plate_id,
-                estimated_bytes / 2**30,
-                size_limit / 2**30,
+                f"Plate {plate_id:d}: estimated size {estimated_bytes / 2**30:.2f} GB exceeds cache size {size_limit / 2**30:.2f} GB, skipping caching"
             )
             return f"Plate {plate_id}: estimated size {estimated_bytes / 2**30:.2f} GB exceeds cache size {size_limit / 2**30:.2f} GB"
 
         logger.info(
-            "Plate %d: estimated size %.2f GB (cache volume %.1f / %.2f GB)",
-            plate_id,
-            estimated_bytes / 2**30,
-            cache_volume() / 2**30,
-            size_limit / 2**30,
+            f"Plate {plate_id:d}: estimated size {estimated_bytes / 2**30:.2f} GB (cache volume {cache_volume() / 2**30:.1f} / {size_limit / 2**30:.2f} GB)"
         )
 
         # Fetch flatfield mask image (image is cached)
-        logger.info("Caching plate %d: fetching flatfield mask", plate_id)
+        logger.info(f"Caching plate {plate_id}: fetching flatfield mask")
         ff_mask_id = meta.get("ff_mask_id") or 0
         flatfield_masks = get_cached_image(get_key(ff_mask_id, 0))
         if flatfield_masks is None:
@@ -722,7 +697,7 @@ def cache_plate(
                 n_wells += 1
 
         if n_wells == 0:
-            logger.info("Plate %d: all images already cached", plate_id)
+            logger.info(f"Plate {plate_id}: all images already cached")
             return None
 
         # Accurate download size (assuming all images the same).
@@ -748,21 +723,16 @@ def cache_plate(
         # This may can fail if the pixels type from previous estimate was wrong.
         if estimated_bytes >= size_limit:
             logger.warning(
-                "Plate %d: estimated download size %.2f GB exceeds cache size %.2f GB, skipping caching",
-                plate_id,
-                estimated_bytes / 2**30,
-                size_limit / 2**30,
+                f"Plate {plate_id:d}: estimated download size {estimated_bytes / 2**30:.2f} GB exceeds cache size {size_limit / 2**30:.2f} GB, skipping caching"
             )
             return f"Plate {plate_id}: estimated size {estimated_bytes / 2**30:.2f} GB exceeds cache size {size_limit / 2**30:.2f} GB"
 
         logger.info(
-            "Plate %d: estimated download size %.2f GB",
-            plate_id,
-            estimated_bytes / 2**30,
+            f"Plate {plate_id:d}: estimated download size {estimated_bytes / 2**30:.2f} GB"
         )
 
         if stop_flag.is_set():
-            logger.warning("Plate %d: download cancelled", plate_id)
+            logger.warning(f"Plate {plate_id}: download cancelled")
             return f"Plate {plate_id}: download cancelled"
     finally:
         # No longer required
@@ -780,12 +750,7 @@ def cache_plate(
 
     total = len(keys)
     logger.info(
-        "Caching plate %d (%d wells): downloading %d items (%d wells) with %d workers",
-        plate_id,
-        len(sorted_well_keys),
-        total,
-        n_wells,
-        max_workers,
+        f"Caching plate {plate_id:d} ({len(sorted_well_keys):d} wells): downloading {total:d} items ({n_wells:d} wells) with {max_workers:d} workers"
     )
 
     # Download images + labels with per-image progress.
@@ -817,10 +782,7 @@ def cache_plate(
                     done += 1
                     if downloaded >= size_limit:
                         logger.warning(
-                            "Plate %d: download size %.2f GB exceeds cache size %.2f GB, stopping caching",
-                            plate_id,
-                            downloaded / 2**30,
-                            size_limit / 2**30,
+                            f"Plate {plate_id:d}: download size {downloaded / 2**30:.2f} GB exceeds cache size {size_limit / 2**30:.2f} GB, stopping caching"
                         )
                         stop_flag.set()
                     # Check stop flag after any potential blocking wait but before
@@ -838,7 +800,7 @@ def cache_plate(
                 exc = f.exception()
                 if exc is not None:
                     logger.exception(
-                        "Error in download worker for plate %d", plate_id
+                        f"Error in download worker for plate {plate_id:d}"
                     )
                     raise exc
     finally:
@@ -850,11 +812,7 @@ def cache_plate(
     # not by itself indicate cancellation. Use item progress instead.
     cancelled = done < total
     logger.info(
-        "Plate %d: caching %s (%d/%d items)",
-        plate_id,
-        "cancelled" if cancelled else "complete",
-        done,
-        total,
+        f"Plate {plate_id:d}: caching {'cancelled' if cancelled else 'complete'} ({done:d}/{total:d} items)"
     )
     if cancelled:
         return f"Plate {plate_id}: download cancelled"
@@ -1081,8 +1039,7 @@ def _parse_intensities_from_cellview(
 
     except Exception:
         logger.debug(
-            "CellView not available for plate %d, using default intensities",
-            plate_id,
+            f"CellView not available for plate {plate_id:d}, using default intensities"
         )
         return _default_intensities(channel_data)
 
@@ -1105,25 +1062,19 @@ def _load_plate_data_from_cellview(plate_id: int) -> pl.LazyFrame:
         if not result or result[0] == 0:
             db_conn.close()
             logger.warning(
-                "Plate %d not found in CellView database — gallery will be unavailable",
-                plate_id,
+                f"Plate {plate_id:d} not found in CellView database — gallery will be unavailable"
             )
             return pl.LazyFrame()
         lf, _ = export_polars_lf(plate_id, db_conn)
         db_conn.close()
         schema = lf.collect_schema()
         logger.info(
-            "Loaded plate_data for plate %d: %d columns including %s",
-            plate_id,
-            len(schema),
-            list(schema.names())[:5],
+            f"Loaded plate_data for plate {plate_id:d}: {len(schema):d} columns including {list(schema.names())[:5]}"
         )
         return lf
     except Exception:
-        logger.warning(
-            "Failed to load plate_data from CellView for plate %d — gallery will be unavailable",
-            plate_id,
-            exc_info=True,
+        logger.opt(exception=True).warning(
+            f"Failed to load plate_data from CellView for plate {plate_id:d} — gallery will be unavailable",
         )
         return pl.LazyFrame()
 
@@ -1407,7 +1358,7 @@ def _download_batch(
         last_image_id: int | None = None
 
         # Accumulators for per-phase timing (only when DEBUG logging)
-        profiling = logger.isEnabledFor(logging.DEBUG)
+        profiling = is_level_enabled("DEBUG")
         t_setup = 0.0
         t_download = 0.0
         t_cache_write = 0.0
@@ -1415,7 +1366,7 @@ def _download_batch(
         for i, (image_id, timepoint) in enumerate(batch):
             # Check stop flag after any potential blocking wait
             if stop_flag.is_set():
-                logger.info("Stopping download @ %d/%d", i, len(batch))
+                logger.info(f"Stopping download @ {i}/{len(batch)}")
                 break
 
             # Keep the RawPixelsStore open across timepoints of the
@@ -1432,9 +1383,7 @@ def _download_batch(
                     # Image deleted/inaccessible since the cache was built —
                     # log and skip rather than aborting the whole worker.
                     logger.warning(
-                        "Skipping missing image %d (not found on OMERO; "
-                        "rebuild plate cache to refresh stale label IDs)",
-                        image_id,
+                        f"Skipping missing image {image_id:d} (not found on OMERO; rebuild plate cache to refresh stale label IDs)"
                     )
                     last_image_id = image_id  # don't retry this id in batch
                     continue
@@ -1459,16 +1408,7 @@ def _download_batch(
         if profiling and batch:
             n_items = len(batch)
             logger.debug(
-                "Batch timing (%d items): "
-                "setup=%.2fs download=%.2fs write=%.2fs "
-                "per-image: su=%.0fms dl=%.0fms wr=%.0fms",
-                n_items,
-                t_setup,
-                t_download,
-                t_cache_write,
-                t_setup / n_items * 1000,
-                t_download / n_items * 1000,
-                t_cache_write / n_items * 1000,
+                f"Batch timing ({n_items:d} items): setup={t_setup:.2f}s download={t_download:.2f}s write={t_cache_write:.2f}s per-image: su={t_setup / n_items * 1000:.0f}ms dl={t_download / n_items * 1000:.0f}ms wr={t_cache_write / n_items * 1000:.0f}ms"
             )
     finally:
         if store is not None:
@@ -1551,10 +1491,7 @@ def load_from_cache(
 
         for i, well_pos in enumerate(well_pos_list):
             logger.info(
-                "Loading well images %s (%d/%d)",
-                well_pos,
-                i + 1,
-                len(well_pos_list),
+                f"Loading well images {well_pos} ({i + 1:d}/{len(well_pos_list):d})"
             )
 
             well_info = wells[well_pos]
@@ -1566,9 +1503,7 @@ def load_from_cache(
             for idx in image_index:
                 if idx >= len(well_images):
                     logger.warning(
-                        "Image index %d out of range for well %s",
-                        idx,
-                        well_pos,
+                        f"Image index {idx:d} out of range for well {well_pos}"
                     )
                     continue
 
@@ -1618,10 +1553,7 @@ def load_from_cache(
             # Get labels for this well
             if well_pos in label_map:
                 logger.info(
-                    "Loading well labels %s (%d/%d)",
-                    well_pos,
-                    i + 1,
-                    len(well_pos_list),
+                    f"Loading well labels {well_pos} ({i + 1:d}/{len(well_pos_list):d})"
                 )
                 well_label_entries = label_map[well_pos]
                 for idx in image_index:
@@ -1702,10 +1634,7 @@ def load_from_cache(
         omero_data.plate_data = _load_plate_data_from_cellview(plate_id)
 
         logger.info(
-            "Loaded plate %d: %d images, %d labels",
-            plate_id,
-            len(image_arrays),
-            len(label_arrays),
+            f"Loaded plate {plate_id:d}: {len(image_arrays):d} images, {len(label_arrays):d} labels"
         )
     finally:
         connection.close()
@@ -1772,9 +1701,9 @@ def _squeeze_stack(
     # Log shapes for debugging mismatches
     shapes = {arr.shape for arr in arrays}
     if len(shapes) > 1:
-        logger.warning("%s arrays have inconsistent shapes: %s", name, shapes)
+        logger.warning(f"{name} arrays have inconsistent shapes: {shapes}")
         for i, arr in enumerate(arrays):
-            logger.warning("  %s arrays[%d]: shape %s", name, i, arr.shape)
+            logger.warning(f"  {name} arrays[{i}]: shape {arr.shape}")
         # Not possible to stack the images
         raise ValueError(f"Cached {name} arrays have inconsistent shapes")
 

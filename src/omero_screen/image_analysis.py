@@ -27,6 +27,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from ezomero import get_image
+from loguru import logger
 from omero.gateway import BlitzGateway, ImageWrapper, WellWrapper
 from omero_utils.images import parse_mip, upload_masks
 from omero_utils.stitching import assign_field_by_centroid
@@ -35,7 +36,6 @@ from skimage import measure
 
 from omero_screen import default_config
 from omero_screen.benchmarking import get_benchmark
-from omero_screen.config import get_logger
 from omero_screen.general_functions import filter_segmentation, scale_img
 from omero_screen.image_classifier import ImageClassifier
 from omero_screen.metadata_parser import MetadataParser, strip_role_suffix
@@ -44,8 +44,6 @@ from omero_screen.segmentation import (
     apply_gamma,
     apply_seg_profile,
 )
-
-logger = get_logger(__name__)
 
 
 class Image:
@@ -185,7 +183,7 @@ class Image:
         for image in dataset.listChildren():
             if image.getName() == image_name:
                 image_id = image.getId()
-                logger.info("Segmentation masks found for image %s", image_id)
+                logger.info(f"Segmentation masks found for image {image_id}")
                 # masks is TZYXC
                 _, masks = get_image(self._conn, image_id)
                 if masks.shape[-1] == 2:
@@ -269,7 +267,7 @@ class Image:
         # Cellpose 3 requires scaling of nuclei models; cellpose 4 is scale independent
         if segmentation_model.get_type() == "cellpose3":
             diameter = self.nuc_diameter
-            logger.info("Segmenting nuclei with diameter %s", diameter)
+            logger.info(f"Segmenting nuclei with diameter {diameter}")
         else:
             diameter = None
 
@@ -301,11 +299,7 @@ class Image:
                 )
             except IndexError:
                 logger.warning(
-                    "Nucleus segmentation failed for image %s (t=%d) — "
-                    "returning empty mask. This may indicate an issue with "
-                    "the image data or segmentation model.",
-                    self.omero_image.getId(),
-                    t,
+                    f"Nucleus segmentation failed for image {self.omero_image.getId()} (t={t:d}) — returning empty mask. This may indicate an issue with the image data or segmentation model."
                 )
                 n_mask_array = np.zeros(scaled_img_t.shape, dtype=np.uint8)
             # Store the segmentation mask in the corresponding timepoint
@@ -387,12 +381,7 @@ class Image:
                 )
             except IndexError:
                 logger.warning(
-                    "Cell segmentation failed for image %s (t=%d) — "
-                    "returning empty mask. This may indicate an issue with "
-                    "the image data or segmentation model '%s'.",
-                    self.omero_image.getId(),
-                    t,
-                    model_name,
+                    f"Cell segmentation failed for image {self.omero_image.getId()} (t={t:d}) — returning empty mask. This may indicate an issue with the image data or segmentation model '{model_name}'."
                 )
                 c_masks_array = np.zeros_like(comb_image_t).astype(np.uint8)
 

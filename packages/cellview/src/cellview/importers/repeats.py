@@ -7,13 +7,11 @@ import io
 from typing import Optional, cast
 
 import duckdb
+from loguru import logger
 from rich.console import Console
 
 from cellview.utils.error_classes import DataError, DBError, StateError
 from cellview.utils.state import CellViewState, CellViewStateCore
-from omero_screen.config import get_logger
-
-logger = get_logger(__name__)
 
 
 class RepeatsManager:
@@ -43,7 +41,7 @@ class RepeatsManager:
         self.state = (
             state if state is not None else CellViewState.get_instance()
         )
-        self.logger = get_logger(__name__)
+        self.logger = logger
 
     def _fetch_existing_repeats(
         self,

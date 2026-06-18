@@ -1,13 +1,37 @@
 """Configuration and Logging Utilities for OMERO Screen.
 
-This module provides utilities for loading, validating, and managing environment variables and logging configuration for the OMERO Screen application. It supports loading environment variables from .env files (with environment-specific overrides), validates required variables, and configures logging with support for both console and file handlers.
+This module provides utilities for loading, validating, and managing environment
+variables and logging configuration for the OMERO Screen application. It supports
+loading environment variables from .env files (with environment-specific
+overrides), validates required variables, and configures logging on top of
+`loguru` with support for both a Rich-rendered console sink and a rotating file
+sink.
+
+Logging architecture (loguru):
+    - There is a single global `loguru` logger. Modules use it directly via
+      ``from loguru import logger`` — there is no per-module logger and no
+      ``get_logger`` seam. Because the logger is one process-global object, a
+      single ``configure_logging()`` call governs logging for the whole process.
+    - Configuration happens **once, at an application entry point** (a CLI
+      ``main()`` or, for napari, a widget factory), never as an import side
+      effect. Library packages (omero-utils, omero-screen-plots) simply emit;
+      they don't configure or disable loguru, so their records flow into
+      whatever sinks the application set up.
+    - Production defaults are baked in (rotating file sink at INFO, console
+      off); ``OMERO_SCREEN_LOG_LEVEL`` / ``OMERO_SCREEN_LOG_FILE`` provide
+      optional overrides, read at call time (argument > env var > default).
+    - Third-party stdlib logging (omero, cellpose, numba, matplotlib, fontTools)
+      is redirected into loguru via an `InterceptHandler` on the stdlib root,
+      except in plugin mode (napari) where the host owns the root.
 
 Main Functions:
     - set_env_vars: Loads environment variables from .env files or the environment.
-    - validate_env_vars: Ensures required environment variables are set.
-    - get_logger: Returns a configured logger instance for the application/module.
-    - configure_log_handler: Helper to configure logging handlers.
-    - getenv_as_bool: Utility to parse boolean environment variables.
+    - configure_logging: Configures the global loguru logger (call once at an
+      entry point). ``configure_logging_once`` is the idempotent variant for
+      activation points that may fire repeatedly (e.g. napari widgets).
+    - is_level_enabled: Guard for expensive, level-gated computation.
+    - get_console: Returns the shared Rich console.
+    - getenv_as_bool / getenv_as_int: Parse typed environment variables.
 
 Attributes:
     project_root (Path): The root directory of the project, used to locate .env files.
@@ -18,18 +42,29 @@ Raises:
 
 import logging
 import os
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
+from loguru import logger as _loguru_logger
 from rich.console import Console
 from rich.logging import RichHandler
 
 # Define project_root at module level
-# Define project_root at module level
 project_root = Path(__file__).parent.parent.parent.resolve()
 
-_LOGGING_CONFIGURED = False
+# Whether configure_logging() has run in this process.
+_CONFIGURED = False
+
+# Built-in defaults (production-safe): logging works with zero env/config.
+_DEFAULT_LEVEL = "INFO"
+_DEFAULT_LOG_FILE = "logs/app.log"
+
+# Default loguru format for the file sink (the console sink delegates rendering
+# to Rich). ``{name}``/``{line}`` are auto-derived by loguru from the call site.
+_LOGURU_FILE_FORMAT = (
+    "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{line} | {message}"
+)
 
 # Global console instance
 _console: Console = Console()
@@ -106,16 +141,14 @@ def set_env_vars() -> None:
         load_dotenv(default_env_path, override=True)
         return
 
-    # If no files found, check for required environment variables
+    # If no files found, check for required environment variables. Logging is
+    # not listed: it is configured in code with safe defaults (see
+    # configure_logging), so it never gates startup.
     required_vars = [
         "ENV",
         "USERNAME",
         "PASSWORD",
         "HOST",
-        "LOG_LEVEL",
-        "LOG_FORMAT",
-        "ENABLE_CONSOLE_LOGGING",
-        "ENABLE_FILE_LOGGING",
     ]
 
     if all(os.getenv(var) is not None for var in required_vars):
@@ -142,189 +175,140 @@ def set_env_vars() -> None:
     raise OSError(error_msg)
 
 
-def validate_env_vars() -> None:
-    """Validates that all required environment variables are set.
+# Third-party loggers we keep quiet (their records are intercepted into loguru).
+_NOISY_LIBRARIES = ("omero", "cellpose", "numba", "matplotlib", "fontTools")
 
-    Checks for the presence of required environment variables needed for logging configuration. Raises an OSError if any are missing.
 
-    Raises:
-        OSError: If one or more required environment variables are missing.
+class _InterceptHandler(logging.Handler):
+    """Stdlib handler that forwards every record into loguru.
+
+    Installed on the stdlib root logger (standalone mode only) so that
+    third-party libraries logging via the standard library are rendered through
+    our loguru sinks with consistent formatting. This is the canonical loguru
+    recipe (see the loguru docs, "Entirely compatible with standard logging").
     """
-    required_vars = ["LOG_LEVEL", "LOG_FILE_PATH"]
-    if missing_vars := [var for var in required_vars if not os.getenv(var)]:
-        raise OSError(
-            f"Missing required environment variables: {', '.join(missing_vars)}"
-        )
 
-
-def configure_log_handler(
-    handler: logging.Handler,
-    log_level: str,
-    formatter: logging.Formatter,
-    logger: logging.Logger,
-) -> None:
-    """Configures a logging handler with the specified settings and adds it to the given logger.
-
-    Sets the log level and formatter for the provided handler, then attaches the handler to the specified logger instance.
-
-    Args:
-        handler (logging.Handler): The logging handler to configure.
-        log_level (str): The logging level to set (e.g., 'DEBUG', 'INFO').
-        formatter (logging.Formatter): The formatter to use for log messages.
-        logger (logging.Logger): The logger to add the handler to.
-    """
-    handler.setLevel(getattr(logging, log_level, logging.DEBUG))
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-
-
-def get_logger(name: str) -> logging.Logger:
-    """Returns a logger with the specified name, ensuring it is properly configured for the application.
-
-    On the first call, this function sets up the root logger configuration, including log level,
-    format, and handlers based on environment variables.
-    Subsequent calls return loggers with the given name that inherit the root logger's configuration.
-
-    Args:
-        name (str): The logger name, typically __name__ from the calling module.
-
-    Returns:
-        logging.Logger: A configured logger instance.
-    """
-    # Handle the case when module is run directly (__main__)
-    if name == "__main__":
-        # Get the caller's file path
-        import inspect
-
-        frame = inspect.stack()[1]
-        module_path = Path(frame.filename)
+    def emit(self, record: logging.LogRecord) -> None:  # noqa: D102
+        # Map the stdlib level to a loguru level name, falling back to the
+        # numeric level if loguru doesn't know the name.
         try:
-            # Get relative path from project root to the module
-            rel_path = module_path.relative_to(project_root / "src")
-            # Convert path to module notation (my_app.submodule.file)
-            module_name = str(rel_path.with_suffix("")).replace(os.sep, ".")
-            name = module_name
+            level: str | int = _loguru_logger.level(record.levelname).name
         except ValueError:
-            # Fallback if file is not in src directory
-            name = module_path.stem
+            level = record.levelno
 
-    # Get the requested logger
-    logger = logging.getLogger(name)
+        # Walk back out of the logging machinery so the originating module,
+        # function and line are reported rather than this handler.
+        frame: Any = logging.currentframe()
+        depth = 2
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
 
-    # Configure logging system if not yet configured
-    global _LOGGING_CONFIGURED
-    if not _LOGGING_CONFIGURED:
-        _LOGGING_CONFIGURED = True
-
-        validate_env_vars()
-
-        # Load Config
-        LOG_LEVEL = (
-            os.getenv("LOG_LEVEL", "INFO").split("#")[0].strip().upper()
-        )
-        LOG_FORMAT = (
-            os.getenv(
-                "LOG_FORMAT",
-                "%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s",
-            )
-            .split("#")[0]
-            .strip()
-        )
-        ENABLE_CONSOLE_LOGGING = getenv_as_bool("ENABLE_CONSOLE_LOGGING")
-        ENABLE_FILE_LOGGING = getenv_as_bool("ENABLE_FILE_LOGGING")
-        LOG_FILE_PATH = (
-            os.getenv("LOG_FILE_PATH", "logs/app.log").split("#")[0].strip()
+        _loguru_logger.opt(depth=depth, exception=record.exc_info).log(
+            level, record.getMessage()
         )
 
-        # Ensure log path is absolute
-        log_path_obj = Path(LOG_FILE_PATH)
-        if not log_path_obj.is_absolute():
-            log_path_obj = project_root / LOG_FILE_PATH
-        LOG_FILE_PATH = str(log_path_obj)
 
-        LOG_MAX_BYTES = getenv_as_int("LOG_MAX_BYTES", 1048576)
-        LOG_BACKUP_COUNT = getenv_as_int("LOG_BACKUP_COUNT", 5)
+def configure_logging(
+    *,
+    level: str | None = None,
+    console: bool = False,
+    log_file: str | None = None,
+    diagnose: bool = False,
+    plugin: bool = False,
+) -> None:
+    """Configure the global loguru logger for an application entry point.
 
-        formatter = logging.Formatter(LOG_FORMAT)
+    Call this ONCE, explicitly, from an application's ``main()`` (or, for the
+    napari plugin, from the top-level widget — see ``configure_logging_once``).
+    Libraries must never call it. Because loguru's ``logger`` is a single
+    process-global object, this one call governs logging for every module in
+    every package in the process.
 
-        # Prepare Handlers
-        handlers: list[logging.Handler] = []
+    Production defaults (zero config required): a rotating **file** sink at
+    INFO, **console off** (the Rich progress display / panels are the user
+    channel — a console log sink would corrupt them). Calling it again simply
+    re-applies the configuration (``logger.remove()`` first), so it is safe to
+    call from an idempotent widget hook.
 
-        # Console Handler
-        if ENABLE_CONSOLE_LOGGING:
-            ch = RichHandler(console=get_console())
-            ch.setLevel(getattr(logging, LOG_LEVEL, logging.DEBUG))
-            # Rich console will add time, level and source file line to log messages.
-            # Do not use the custom formatter.
-            handlers.append(ch)
+    Resolution precedence for ``level``/``log_file`` is **argument > env var >
+    default** (env vars ``OMERO_SCREEN_LOG_LEVEL`` / ``OMERO_SCREEN_LOG_FILE``,
+    read here at call time — never at import).
 
-        # File Handler
-        if ENABLE_FILE_LOGGING:
-            log_path = Path(LOG_FILE_PATH)
-            if log_dir := log_path.parent:
-                log_dir.mkdir(parents=True, exist_ok=True)
+    Args:
+        level: Minimum level (e.g. ``"DEBUG"``). Falls back to
+            ``OMERO_SCREEN_LOG_LEVEL`` then ``"INFO"``.
+        console: Add a Rich console sink (sharing ``progress.py``'s ``Console``).
+            Off by default; turn on for ``--verbose`` / interactive debugging.
+        log_file: File-sink path. Falls back to ``OMERO_SCREEN_LOG_FILE`` then
+            ``logs/app.log``. ``"none"``/``"off"``/``""`` disables the file sink.
+        diagnose: loguru variable-value tracebacks. Off in production (can leak
+            values/secrets into the log); on for ``--verbose``.
+        plugin: When embedded in a host that owns the stdlib root logger
+            (napari), skip installing the stdlib InterceptHandler.
+    """
+    global _CONFIGURED
 
-            fh = RotatingFileHandler(
-                LOG_FILE_PATH,
-                maxBytes=LOG_MAX_BYTES,
-                backupCount=LOG_BACKUP_COUNT,
-            )
-            fh.setLevel(getattr(logging, LOG_LEVEL, logging.DEBUG))
-            fh.setFormatter(formatter)
-            handlers.append(fh)
+    level = (
+        level or os.getenv("OMERO_SCREEN_LOG_LEVEL") or _DEFAULT_LEVEL
+    ).upper()
+    if log_file is None:
+        log_file = os.getenv("OMERO_SCREEN_LOG_FILE", _DEFAULT_LOG_FILE)
 
-        root_logger = logging.getLogger()
+    # Drop loguru's default stderr sink (and anything from a prior call).
+    _loguru_logger.remove()
 
-        # Strategy Detection
-        # If root logger has handlers, we assume we are running as a plugin (e.g. Napari)
-        # and should avoid messing with the root logger to prevent console noise/duplication.
-        is_plugin_mode = len(root_logger.handlers) > 0
+    # File sink (production default) — native rotation/retention; enqueue makes
+    # it safe for the pipeline's worker threads.
+    if log_file and log_file.strip().lower() not in ("none", "off", ""):
+        log_path = Path(log_file)
+        if not log_path.is_absolute():
+            log_path = project_root / log_path
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        _loguru_logger.add(
+            str(log_path),
+            level=level,
+            format=_LOGURU_FILE_FORMAT,
+            rotation="10 MB",
+            retention=5,
+            enqueue=True,
+            backtrace=False,
+            diagnose=diagnose,
+        )
 
-        if is_plugin_mode:
-            # Plugin Mode: Configure specific package loggers only and isolate them
-            # We configure the top-level packages that we own
-            packages_to_configure = [
-                "omero_screen",
-                "cellview",
-                "omero_utils",
-                "omero_screen_napari",
-            ]
+    # Console sink (opt-in) — reuse progress.py's shared Rich Console so logs
+    # and the live progress display don't clobber each other.
+    if console:
+        _loguru_logger.add(
+            RichHandler(console=get_console()),
+            level=level,
+            format="{message}",
+            backtrace=False,
+            diagnose=diagnose,
+        )
 
-            for pkg_name in packages_to_configure:
-                pkg_logger = logging.getLogger(pkg_name)
-                pkg_logger.setLevel(getattr(logging, LOG_LEVEL, logging.DEBUG))
-                pkg_logger.propagate = (
-                    False  # Stop bubbling to Napari root logger
-                )
+    # Redirect third-party stdlib logging into loguru — unless a host (napari)
+    # owns the root logger, in which case leave it alone.
+    if not plugin:
+        logging.basicConfig(
+            handlers=[_InterceptHandler()], level=0, force=True
+        )
+    for lib in _NOISY_LIBRARIES:
+        logging.getLogger(lib).setLevel(logging.WARNING)
 
-                # Clear existing handlers to avoid duplication if re-run (though _LOGGING_CONFIGURED protects us)
-                pkg_logger.handlers.clear()
+    _CONFIGURED = True
 
-                for h in handlers:
-                    pkg_logger.addHandler(h)
 
-        else:
-            # Standalone Mode: Configure Root Logger
-            root_logger.setLevel(getattr(logging, LOG_LEVEL, logging.DEBUG))
-            root_logger.propagate = False
+def configure_logging_once(**kwargs: Any) -> None:
+    """Configure logging only if no entry point has configured it yet.
 
-            # Suppress external logs
-            logging.getLogger("omero").setLevel(logging.WARNING)
-            logging.getLogger("omero").propagate = True
-
-            for h in handlers:
-                # Avoid adding duplicate handlers if they somehow exist
-                if h not in root_logger.handlers:
-                    root_logger.addHandler(h)
-
-        # Common suppressions (apply to all modes)
-        logging.getLogger("numba").setLevel(logging.WARNING)
-        logging.getLogger("matplotlib").setLevel(logging.WARNING)
-        logging.getLogger("omero").setLevel(logging.WARNING)
-        logging.getLogger("fontTools").setLevel(logging.WARNING)
-        logging.getLogger("cellpose").setLevel(logging.WARNING)
-
-    return logger
+    For activation points that may fire repeatedly and aren't the sole entry
+    (e.g. a napari widget ``__init__``): the first call configures, later calls
+    are no-ops, and an earlier explicit ``configure_logging()`` from a ``main()``
+    always wins.
+    """
+    if not _CONFIGURED:
+        configure_logging(**kwargs)
 
 
 def get_console() -> Console:
@@ -334,6 +318,27 @@ def get_console() -> Console:
         Rich console
     """
     return _console
+
+
+def is_level_enabled(level: str = "DEBUG") -> bool:
+    """Return whether any configured sink would emit at ``level``.
+
+    loguru has no public ``isEnabledFor``; this inspects the active sinks'
+    minimum level. Use it to guard expensive, level-gated computation (e.g.
+    building a diagnostic string only when DEBUG logging is on). Falls back to
+    ``True`` if the level can't be determined, so guarded work is never wrongly
+    skipped.
+
+    Args:
+        level: loguru level name (default ``"DEBUG"``).
+    """
+    try:
+        # ``_core.min_level`` is the lowest level across active sinks (loguru
+        # internal; not in the public type stub).
+        core = _loguru_logger._core  # type: ignore[attr-defined]
+        return bool(core.min_level <= _loguru_logger.level(level).no)
+    except (AttributeError, ValueError):
+        return True
 
 
 def getenv_as_int(name: str, default: int) -> int:

@@ -29,15 +29,14 @@ temp-file + rename to survive crashes mid-write.
 from __future__ import annotations
 
 import json
-import logging
 import os
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from omero_screen_napari.zarr_cache.paths import registry_path
+from loguru import logger
 
-logger = logging.getLogger(__name__)
+from omero_screen_napari.zarr_cache.paths import registry_path
 
 
 def _now_iso() -> str:
@@ -82,7 +81,7 @@ def load_registry() -> dict[int, ZarrPlateEntry]:
             raw = json.load(fh)
     except (OSError, json.JSONDecodeError):
         logger.warning(
-            "Zarr registry %s could not be read; treating as empty", path
+            f"Zarr registry {path} could not be read; treating as empty"
         )
         return {}
     plates = raw.get("plates", {})

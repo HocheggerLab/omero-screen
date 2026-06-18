@@ -15,13 +15,12 @@ import os
 from collections.abc import Callable
 from typing import Any
 
+from loguru import logger
 from omero.gateway import BlitzGateway
-from omero_screen.config import get_logger
 
 from omero_utils.message import OmeroConnectionError, log_connection_success
 
 # Initialize logger with the module's name
-logger = get_logger(__name__)
 SUCCESS_STYLE = "bold green"
 
 
@@ -62,9 +61,7 @@ def omero_connect(func: Callable[..., Any]) -> Callable[..., Any]:
                 )
 
             logger.debug(
-                "Connecting to Omero at host: %s, username: %s",
-                host,
-                username,
+                f"Connecting to Omero at host: {host}, username: {username}"
             )
             conn = BlitzGateway(username, password, host=host)
             conn.connect()

@@ -8,13 +8,11 @@ from typing import Optional
 
 import duckdb
 import pandas as pd
+from loguru import logger
 from rich.console import Console
 
 from cellview.utils.error_classes import MeasurementError
 from cellview.utils.state import CellViewState, CellViewStateCore
-from omero_screen.config import get_logger
-
-logger = get_logger(__name__)
 
 # Trackastra nucleus-tracking columns added by omero-screen when --track is
 # enabled. Migrated onto legacy measurements tables by
@@ -51,7 +49,7 @@ class MeasurementsManager:
         self.state = (
             state if state is not None else CellViewState.get_instance()
         )
-        self.logger = get_logger(__name__)
+        self.logger = logger
 
     def import_measurements(self) -> None:
         """Import measurements from the state dataframe into the database.
@@ -132,7 +130,7 @@ class MeasurementsManager:
             raise MeasurementError("No DataFrame available in state")
         if self.state.condition_id_map is None:
             raise MeasurementError("No condition_id_map available in state")
-        self.logger.debug("measurment_cols: %s", measurement_cols)
+        self.logger.debug(f"measurment_cols: {measurement_cols}")
 
         # Add any missing dynamic columns to the measurements table
         self._ensure_dynamic_columns_exist(measurement_cols)
@@ -176,7 +174,7 @@ class MeasurementsManager:
         if "label" in self.state.df.columns:
             self.state.df["label"] = self.state.df["label"].astype(str)
 
-        self.logger.info("df columns: %s", self.state.df.columns)
+        self.logger.info(f"df columns: {self.state.df.columns}")
         # Bulk insert using DuckDB's COPY FROM
         # Register the DataFrame as a DuckDB table
         try:
@@ -219,7 +217,7 @@ class MeasurementsManager:
             }  # row[1] is column name
 
             self.logger.debug(
-                "Existing columns from PRAGMA table_info: %s", existing_columns
+                f"Existing columns from PRAGMA table_info: {existing_columns}"
             )
 
             # Collect columns to add with their SQL types
@@ -257,9 +255,7 @@ class MeasurementsManager:
             for col, dtype in columns_to_add:
                 try:
                     self.logger.info(
-                        "Adding missing column to measurements table: %s (%s)",
-                        col,
-                        dtype,
+                        f"Adding missing column to measurements table: {col} ({dtype})"
                     )
                     self.db_conn.execute(
                         f'ALTER TABLE measurements ADD COLUMN "{col}" {dtype}'
@@ -267,8 +263,7 @@ class MeasurementsManager:
                 except duckdb.CatalogException as e:
                     if "already exists" in str(e):
                         self.logger.warning(
-                            "Column %s already exists (likely from previous partial import), continuing",
-                            col,
+                            f"Column {col} already exists (likely from previous partial import), continuing"
                         )
                     else:
                         raise

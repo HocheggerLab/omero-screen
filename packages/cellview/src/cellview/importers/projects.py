@@ -7,6 +7,7 @@ table.
 from typing import Literal, Optional, cast
 
 import duckdb
+from loguru import logger
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.table import Table
@@ -14,9 +15,6 @@ from rich.table import Table
 from cellview.utils.error_classes import DBError, StateError
 from cellview.utils.state import CellViewState, CellViewStateCore
 from cellview.utils.ui import CellViewUI
-from omero_screen.config import get_logger
-
-logger = get_logger(__name__)
 
 JustifyMethod = Literal["default", "left", "center", "right", "full"]
 
@@ -44,7 +42,7 @@ class ProjectManager:
         """
         self.db_conn: duckdb.DuckDBPyConnection = db_conn
         self.console = Console()
-        self.logger = get_logger(__name__)
+        self.logger = logger
         # Support both dependency injection and backward compatibility with singleton
         self.state = (
             state if state is not None else CellViewState.get_instance()

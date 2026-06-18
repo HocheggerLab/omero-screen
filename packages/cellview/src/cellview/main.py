@@ -263,6 +263,13 @@ def main() -> None:
 
     Dispatches to the appropriate handler based on the CLI subcommand.
     """
+    from omero_screen.config import configure_logging
+
+    # Configure logging once, at the entry point (file @ INFO, console off —
+    # CellView's user output goes through its Rich UI). Tune with
+    # $OMERO_SCREEN_LOG_LEVEL / $OMERO_SCREEN_LOG_FILE.
+    configure_logging()
+
     conn = None
     try:
         args = parse_args()

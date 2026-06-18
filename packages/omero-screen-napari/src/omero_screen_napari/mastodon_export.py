@@ -27,11 +27,11 @@ Main Functions:
 from __future__ import annotations
 
 import json
-import logging
 import math
 from pathlib import Path
 
 import polars as pl
+from loguru import logger
 
 from omero_screen_napari.tracks_loader import (
     CENTROID_X_COL,
@@ -42,8 +42,6 @@ from omero_screen_napari.tracks_loader import (
     has_tracks,
 )
 from omero_screen_napari.zarr_cache import plate_zarr_path
-
-logger = logging.getLogger("omero-screen-napari")
 
 #: Default base directory for the per-well export README folders.
 DEFAULT_EXPORT_BASE = Path.home() / "mastodon_exports"
@@ -130,9 +128,7 @@ def write_plate_tracks_csvs(plate_id: int) -> list[Path]:
         plate_data, _ = export_polars_lf(plate_id, conn)
     except Exception as exc:  # noqa: BLE001 — best-effort; log and bail
         logger.info(
-            "No Mastodon tracks CSV for plate %s (CellView unavailable: %s)",
-            plate_id,
-            exc,
+            f"No Mastodon tracks CSV for plate {plate_id} (CellView unavailable: {exc})"
         )
         return []
 
@@ -147,9 +143,7 @@ def write_plate_tracks_csvs(plate_id: int) -> list[Path]:
             continue  # well has no tracked rows / not cached — skip
     if written:
         logger.info(
-            "Wrote %d Mastodon tracks CSV(s) for plate %s",
-            len(written),
-            plate_id,
+            f"Wrote {len(written):d} Mastodon tracks CSV(s) for plate {plate_id}"
         )
     return written
 

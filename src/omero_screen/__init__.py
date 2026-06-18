@@ -19,7 +19,9 @@ warnings.filterwarnings(
     module=r"requests(\..*)?",
 )
 
-from .config import get_logger, set_env_vars  # noqa: E402
+from loguru import logger  # noqa: E402
+
+from .config import set_env_vars  # noqa: E402
 
 
 @dataclass
@@ -93,7 +95,5 @@ if path is not None and os.path.exists(path):
                         merged[name.lower()] = prof
                 default_config.CHANNEL_SEG_PROFILES = merged
     except Exception as e:  # noqa: BLE001
-        get_logger(__name__).error(
-            "Failed to load configuration '%s': %s", path, e
-        )
+        logger.error(f"Failed to load configuration '{path}': {e}")
         raise e

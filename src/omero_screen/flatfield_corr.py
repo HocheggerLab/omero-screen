@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 from ezomero import get_image
+from loguru import logger
 from omero.gateway import (
     BlitzGateway,
     DatasetWrapper,
@@ -30,7 +31,6 @@ from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 from typing_extensions import Generator
 
 from omero_screen.aggregator import ImageAggregator
-from omero_screen.config import get_logger
 from omero_screen.constants import OmeroScreenNS
 from omero_screen.general_functions import scale_img
 
@@ -40,8 +40,6 @@ from omero_screen.general_functions import scale_img
 #     scale_img,
 # )
 from .metadata_parser import MetadataParser
-
-logger = get_logger(__name__)
 
 matplotlib.use(
     "Agg"
@@ -75,7 +73,7 @@ def flatfieldcorr(
     for image in dataset.listChildren():
         if image.getName() == image_name:
             image_id = image.getId()
-            logger.info("Image %s already exists in the dataset.", image_name)
+            logger.info(f"Image {image_name} already exists in the dataset.")
             image_dict = load_image_to_dict(conn, image_id)
             break  # stop the loop once the image is found
     # If the image is not already present, generate it
@@ -84,7 +82,7 @@ def flatfieldcorr(
             conn, plate, meta_data.channel_data, dataset_id
         )
         upload_images(conn, dataset, image_name, image_dict)
-        logger.info("Uploaded %s to dataset %s", image_name, dataset.getName())
+        logger.info(f"Uploaded {image_name} to dataset {dataset.getName()}")
     # If no flatfield correction masks found, raise an error
     if len(image_dict) == 0:
         raise ValueError("No flatfield correction masks found")
@@ -138,7 +136,7 @@ def upload_images(
     image = conn.createImageFromNumpySeq(
         plane_gen(), image_name, 1, channel_number, 1, dataset=dataset
     )
-    logger.info("Created image with ID: %s", image.getId())
+    logger.info(f"Created image with ID: {image.getId()}")
     # Create a dictionary of channel names
     channel_dict = {
         f"channel_{i}": name for i, name in enumerate(channel_names)
@@ -215,7 +213,7 @@ def generate_corr_dict(
         Dictionary containing channel names and corresponding flatfield correction masks.
     """
     logger.info(
-        "Assembling Flatfield Correction Masks for %d Channels", len(channels)
+        f"Assembling Flatfield Correction Masks for {len(channels):d} Channels"
     )
     corr_dict = {}
     img_list = random_imgs(plate)

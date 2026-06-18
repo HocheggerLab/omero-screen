@@ -30,9 +30,7 @@ from rich.progress import (
 from rich.table import Table
 from rich.text import Text
 
-from omero_screen.config import get_console, get_logger
-
-logger = get_logger(__name__)
+from omero_screen.config import get_console
 
 # Sentinel used when no ScreenProgress instance is active
 _NOOP = object()

@@ -29,7 +29,6 @@ from __future__ import annotations
 # call is typed, so disabling just this one code here is precise enough.
 # mypy: disable-error-code="no-untyped-call"
 import contextlib
-import logging
 import os
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -42,6 +41,7 @@ import dask.array as da
 import numpy as np
 import numpy.typing as npt
 from dask.delayed import delayed
+from loguru import logger
 from omero.gateway import BlitzGateway, WellWrapper
 from omero_utils.images import (
     fetch_stitched_field_masks_trange,
@@ -68,8 +68,6 @@ from omero_screen_napari.zarr_cache.eviction import (
 from omero_screen_napari.zarr_cache.paths import plate_zarr_path
 from omero_screen_napari.zarr_cache.registry import ZarrPlateEntry, upsert
 from omero_screen_napari.zarr_cache.writer import PlateZarrWriter
-
-logger = logging.getLogger(__name__)
 
 # Timepoints stitched per lazy dask block. The build never holds more than a
 # few blocks at once (bounded by the dask scheduler), so this is the
@@ -606,10 +604,7 @@ def build_plate_zarr(
         well_map.pop(pos, None)
     if empty_wells:
         logger.info(
-            "Plate %s: skipping %d empty well(s): %s",
-            plate_id,
-            len(empty_wells),
-            empty_wells,
+            f"Plate {plate_id}: skipping {len(empty_wells):d} empty well(s): {empty_wells}"
         )
     all_wells = sorted(well_map.keys())
     if not all_wells:
@@ -626,9 +621,7 @@ def build_plate_zarr(
         dropped = [w for w in requested if w in empty_wells]
         if dropped:
             logger.info(
-                "Plate %s: requested wells dropped as empty: %s",
-                plate_id,
-                dropped,
+                f"Plate {plate_id}: requested wells dropped as empty: {dropped}"
             )
     else:
         target_wells = all_wells
@@ -645,10 +638,7 @@ def build_plate_zarr(
         skipped = [w for w in target_wells if w in already_built]
         if skipped:
             logger.info(
-                "Plate %s: %d well(s) already in zarr cache, skipping: %s",
-                plate_id,
-                len(skipped),
-                skipped,
+                f"Plate {plate_id}: {len(skipped):d} well(s) already in zarr cache, skipping: {skipped}"
             )
         target_wells = remaining
 
@@ -684,9 +674,7 @@ def build_plate_zarr(
     )
     evicted = enforce_size_cap(extra_bytes=estimated)
     if evicted:
-        logger.info(
-            "Evicted %d plates to make room: %s", len(evicted), evicted
-        )
+        logger.info(f"Evicted {len(evicted):d} plates to make room: {evicted}")
 
     flatfield_dict = _load_flatfield_dict(
         conn, ff_mask_id, channel_data, plate_id=plate_id
@@ -736,14 +724,12 @@ def build_plate_zarr(
         for well_pos in target_wells:
             if well_pos not in well_objs:
                 logger.warning(
-                    "Well %s requested but not present on plate %s; skipping",
-                    well_pos,
-                    plate_id,
+                    f"Well {well_pos} requested but not present on plate {plate_id}; skipping"
                 )
                 continue
             well_obj = well_objs[well_pos]
             logger.info(
-                "Building zarr for well %s of plate %s", well_pos, plate_id
+                f"Building zarr for well {well_pos} of plate {plate_id}"
             )
 
             # Build lazy dask arrays — image + labels stitched per timepoint
@@ -767,9 +753,7 @@ def build_plate_zarr(
                 # abort so partially-stitched plates still build for the
                 # wells that *do* qualify.
                 logger.warning(
-                    "Skipping well %s: not processed in stitched mode (%s)",
-                    well_pos,
-                    e,
+                    f"Skipping well {well_pos}: not processed in stitched mode ({e})"
                 )
                 continue
 
@@ -800,9 +784,7 @@ def build_plate_zarr(
         )
     )
     logger.info(
-        "Finished zarr build for plate %s: %d wells",
-        plate_id,
-        len(target_wells),
+        f"Finished zarr build for plate {plate_id}: {len(target_wells):d} wells"
     )
 
     # If the plate carries Trackastra tracks in CellView, drop a Mastodon
@@ -814,6 +796,6 @@ def build_plate_zarr(
 
         write_plate_tracks_csvs(plate_id)
     except Exception:  # noqa: BLE001 — cache build must not fail on this
-        logger.debug(
-            "Track CSV write skipped for plate %s", plate_id, exc_info=True
+        logger.opt(exception=True).debug(
+            f"Track CSV write skipped for plate {plate_id}"
         )

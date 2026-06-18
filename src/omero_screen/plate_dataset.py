@@ -16,6 +16,7 @@ Typical usage:
 """
 
 import omero
+from loguru import logger
 from omero.gateway import (
     BlitzGateway,
     BlitzObjectWrapper,
@@ -24,10 +25,7 @@ from omero.gateway import (
 from omero_utils.map_anns import add_map_annotations, parse_annotations
 from omero_utils.message import PlateDataError, log_success
 
-from omero_screen.config import get_logger
 from omero_screen.constants import OmeroScreenNS
-
-logger = get_logger(__name__)
 
 SUCCESS_STYLE = "bold cyan"
 
@@ -122,10 +120,7 @@ class PlateDataset:
         if self.conn.getObject("Dataset", dataset_id) is not None:
             return dataset_id
         logger.warning(
-            "Plate %s is annotated with dataset %s which no longer exists; "
-            "recreating the dataset.",
-            self.plate_id,
-            dataset_id,
+            f"Plate {self.plate_id} is annotated with dataset {dataset_id} which no longer exists; recreating the dataset."
         )
         return None
 
@@ -241,9 +236,5 @@ class PlateDataset:
                 self.conn.deleteObject(extra._obj)
         except Exception as exc:  # noqa: BLE001 - non-fatal cache update
             logger.warning(
-                "Could not update stale Dataset annotation on plate %s "
-                "(dataset %s is valid for this run): %s",
-                self.plate_id,
-                dataset_id,
-                exc,
+                f"Could not update stale Dataset annotation on plate {self.plate_id} (dataset {dataset_id} is valid for this run): {exc}"
             )

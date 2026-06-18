@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from omero_screen.config import get_logger
+from loguru import logger
 from qtpy.QtWidgets import (
     QComboBox,
     QDialog,
@@ -31,8 +31,6 @@ if TYPE_CHECKING:
     from omero_screen_napari.gallery_userdata import UserData
     from omero_screen_napari.omero_data import OmeroData
     from omero_screen_napari.trainingdata_db.database import TrainingDB
-
-logger = get_logger(__name__)
 
 
 class DirectLoadDialog(QDialog):  # type: ignore[misc]

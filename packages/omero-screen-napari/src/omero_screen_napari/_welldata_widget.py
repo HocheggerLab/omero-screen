@@ -13,13 +13,13 @@ from typing import Any, Optional
 
 import numpy as np
 import polars as pl
+from loguru import logger
 from magicgui import magic_factory
 from napari.layers import Image
 from napari.qt.threading import GeneratorWorker, create_worker
 from napari.utils import notifications
 from napari.utils import progress as napari_progress
 from napari.viewer import Viewer
-from omero_screen.config import get_logger
 from omero_utils.stitching import (
     has_valid_positions,
     recompose_split_labels,
@@ -65,7 +65,6 @@ from omero_screen_napari.zarr_cache import (
 )
 
 # Logging
-logger = get_logger(__name__)
 
 
 class MetadataWidget(QWidget):  # type: ignore
@@ -297,9 +296,7 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
                 evict_zarr_plate(plate_id)
             except Exception as exc:  # noqa: BLE001 — best-effort cleanup
                 logger.warning(
-                    "Failed to evict zarr cache for plate %d: %s",
-                    plate_id,
-                    exc,
+                    f"Failed to evict zarr cache for plate {plate_id:d}: {exc}"
                 )
             self.refresh()
 
@@ -322,10 +319,7 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
                 return
         except Exception as e:  # noqa: BLE001 — surface the failure, then fall back
             logger.warning(
-                "Could not determine stitched-mode for plate %d "
-                "(falling back to diskcache): %s",
-                plate_id,
-                e,
+                f"Could not determine stitched-mode for plate {plate_id:d} (falling back to diskcache): {e}"
             )
 
         start_cache_worker(plate_id)
@@ -396,6 +390,9 @@ _cached_plates_selector_ref: CachedPlatesSelector | None = None
 
 def well_widget_combined() -> QWidget:  # type: ignore
     """Combine the well and stitched data widgets with a Plate Info button."""
+    from omero_screen_napari._logging import init_plugin_logging
+
+    init_plugin_logging()
     global _stitch_widget_ref, _cached_plates_selector_ref
     from omero_screen_napari._plate_info_dialog import PlateInfoDialog
 
@@ -473,10 +470,7 @@ def _open_plate_info(
                 return
         except Exception as exc:  # noqa: BLE001 — fall back, never block
             logger.warning(
-                "Could not determine stitched-mode for plate %d "
-                "(falling back to diskcache): %s",
-                plate_id,
-                exc,
+                f"Could not determine stitched-mode for plate {plate_id:d} (falling back to diskcache): {exc}"
             )
         start_cache_worker(plate_id)
         if _cached_plates_selector_ref is not None:
@@ -566,9 +560,7 @@ def welldata_widget(
         # napari directly — no background worker, lazy chunk loads.
         if plate_zarr_path(plate_num).exists():
             logger.info(
-                "Loading plate %d from zarr cache (wells=%s)",
-                plate_num,
-                well_pos_list,
+                f"Loading plate {plate_num:d} from zarr cache (wells={well_pos_list})"
             )
             loaded = load_plate_to_viewer(
                 viewer, plate_num, well_pos_input=well_pos_list
@@ -608,14 +600,12 @@ def welldata_widget(
                 return
         except Exception as exc:  # noqa: BLE001 — safety net only
             logger.debug(
-                "Stitched-mode probe failed for plate %d (ignored): %s",
-                plate_num,
-                exc,
+                f"Stitched-mode probe failed for plate {plate_num:d} (ignored): {exc}"
             )
 
         if _is_already_loaded(omero_data, plate_num, well_pos_list, images):
             logger.info(
-                "Plate %d already in memory, skipping reload", plate_num
+                f"Plate {plate_num:d} already in memory, skipping reload"
             )
             _display_plate(viewer)
         else:
@@ -654,14 +644,13 @@ def _display_plate(viewer: Viewer) -> None:
                 omero_data.image_positions[j : j + n_per_well]
             ):
                 logger.warning(
-                    "Unable to stitch well %s from stage positions",
-                    omero_data.well_pos_list[i],
+                    f"Unable to stitch well {omero_data.well_pos_list[i]} from stage positions"
                 )
                 stitch = False
                 break
 
     if stitch:
-        logger.info("Auto-stitching %d well(s) from stage positions", n_wells)
+        logger.info(f"Auto-stitching {n_wells} well(s) from stage positions")
         stitched_imgs: list[np.ndarray[Any, np.dtype[Any]]] = []
         stitched_lbls: list[np.ndarray[Any, np.dtype[Any]]] = []
 
@@ -729,7 +718,7 @@ def _display_plate(viewer: Viewer) -> None:
         # For multi-well, each slider position = one well
         iw_override = 1 if n_wells > 1 else None
     else:
-        logger.info("Displaying %d well(s)", n_wells)
+        logger.info(f"Displaying {n_wells} well(s)")
         clear_viewer_layers(viewer)
         add_image_to_viewer(viewer)
         set_color_maps(viewer)
@@ -804,14 +793,12 @@ def start_zarr_build_worker(
         if not _active_cache_stop_flag.is_set():
             if _active_cache_plate_id == plate_id:
                 logger.info(
-                    "Zarr build already running for plate %d — skipping",
-                    plate_id,
+                    f"Zarr build already running for plate {plate_id:d} — skipping"
                 )
                 return
             if _active_cache_plate_id != 0:
                 logger.info(
-                    "Cancelling cache worker for plate %d",
-                    _active_cache_plate_id,
+                    f"Cancelling cache worker for plate {_active_cache_plate_id:d}"
                 )
                 _active_cache_stop_flag.set()
 
@@ -835,15 +822,11 @@ def start_zarr_build_worker(
                 requested = set(wells)
                 target_wells = [w for w in target_wells if w in requested]
                 logger.info(
-                    "Zarr build for plate %d restricted to %d selected "
-                    "well(s): %s",
-                    plate_id,
-                    len(target_wells),
-                    sorted(target_wells),
+                    f"Zarr build for plate {plate_id:d} restricted to {len(target_wells):d} selected well(s): {sorted(target_wells)}"
                 )
         except Exception as exc:  # noqa: BLE001 — surface and bail
             logger.error(
-                "Failed to plan zarr build for plate %d: %s", plate_id, exc
+                f"Failed to plan zarr build for plate {plate_id:d}: {exc}"
             )
             notifications.show_error(f"Zarr build planning failed: {exc}")
             omero_conn.close(hard=False)
@@ -962,9 +945,7 @@ def start_zarr_build_worker(
 
         def on_finished() -> None:
             logger.info(
-                "Zarr build finished for plate %d (%d wells)",
-                plate_id,
-                len(completed),
+                f"Zarr build finished for plate {plate_id:d} ({len(completed):d} wells)"
             )
             stop_flag.set()
             if pbr:
@@ -976,7 +957,7 @@ def start_zarr_build_worker(
                 _cached_plates_selector_ref.refresh()
 
         def on_error(exc: BaseException) -> None:
-            logger.error("Zarr build error for plate %d: %s", plate_id, exc)
+            logger.error(f"Zarr build error for plate {plate_id}: {exc}")
             stop_flag.set()
             if pbr:
                 pbr[0].set_description(f"Zarr build error: {exc}")
@@ -996,7 +977,7 @@ def start_zarr_build_worker(
         _active_cache_plate_id = plate_id
         _active_cache_stop_flag = stop_flag
 
-    logger.info("Started zarr build worker for plate %d", plate_id)
+    logger.info(f"Started zarr build worker for plate {plate_id}")
 
 
 def start_cache_worker(plate_id: int) -> None:
@@ -1016,8 +997,7 @@ def start_cache_worker(plate_id: int) -> None:
     # Already fully cached (metadata + all images) — skip
     if is_plate_fully_cached(plate_id):
         logger.info(
-            "Plate %d fully cached — skipping background download",
-            plate_id,
+            f"Plate {plate_id:d} fully cached — skipping background download"
         )
         return
 
@@ -1031,15 +1011,13 @@ def start_cache_worker(plate_id: int) -> None:
             # Same plate ID -> already downloading this plate.
             if _active_cache_plate_id == plate_id:
                 logger.info(
-                    "Cache worker already running for plate %d — skipping",
-                    plate_id,
+                    f"Cache worker already running for plate {plate_id:d} — skipping"
                 )
                 return
             # Non-zero plate ID -> already downloading another plate.
             if _active_cache_plate_id != 0:
                 logger.info(
-                    "Cancelling cache worker for plate %d",
-                    _active_cache_plate_id,
+                    f"Cancelling cache worker for plate {_active_cache_plate_id:d}"
                 )
                 _active_cache_stop_flag.set()
 
@@ -1067,7 +1045,7 @@ def start_cache_worker(plate_id: int) -> None:
         worker.stop_flag = stop_flag
 
         def on_finished() -> Any:
-            logger.info("Cache worker finished for plate %d", plate_id)
+            logger.info(f"Cache worker finished for plate {plate_id}")
             # Signal the download has ended. No lock required.
             stop_flag.set()
             if pbr:
@@ -1078,7 +1056,7 @@ def start_cache_worker(plate_id: int) -> None:
             return None
 
         def on_error(exc: BaseException) -> None:
-            logger.error("Cache worker error for plate %d: %s", plate_id, exc)
+            logger.error(f"Cache worker error for plate {plate_id}: {exc}")
             # Stop the download. No lock required.
             stop_flag.set()
             if pbr:
@@ -1103,7 +1081,7 @@ def start_cache_worker(plate_id: int) -> None:
             _prev_done = done
 
         def on_aborted() -> None:
-            logger.warning("Cache worker aborted for plate %d", plate_id)
+            logger.warning(f"Cache worker aborted for plate {plate_id}")
             # Stop the download. No lock required.
             stop_flag.set()
 
@@ -1123,7 +1101,7 @@ def start_cache_worker(plate_id: int) -> None:
         _active_cache_stop_flag = stop_flag
         # End-of with _active_lock
 
-    logger.info("Started cache worker for plate %d", plate_id)
+    logger.info(f"Started cache worker for plate {plate_id}")
 
 
 def get_active_download() -> int:
@@ -1142,8 +1120,7 @@ def _stop_active_download() -> None:
             and not _active_cache_stop_flag.is_set()
         ):
             logger.info(
-                "Cancelling cache worker for plate %d",
-                _active_cache_plate_id,
+                f"Cancelling cache worker for plate {_active_cache_plate_id:d}"
             )
             _active_cache_stop_flag.set()
 
@@ -1183,16 +1160,12 @@ def start_data_worker(
             # A download is running, or never started when description is empty.
             if _data_description == description:
                 logger.info(
-                    "Data worker already running for plate %d — skipping",
-                    plate_id,
+                    f"Data worker already running for plate {plate_id:d} — skipping"
                 )
                 return
             if _data_description != "":
                 old_plate = _data_description[: _data_description.index(":")]
-                logger.info(
-                    "Cancelling data worker for plate %s",
-                    old_plate,
-                )
+                logger.info(f"Cancelling data worker for plate {old_plate}")
                 _data_stop_flag.set()
 
         # From here we are committed to starting a new download.
@@ -1223,7 +1196,7 @@ def start_data_worker(
         worker.stop_flag = stop_flag
 
         def on_finished() -> Any:
-            logger.info("Data worker finished for plate %d", plate_id)
+            logger.info(f"Data worker finished for plate {plate_id}")
             if pbr:
                 pbr[0].set_description(f"Plate {plate_id} loaded")
                 pbr[0].close()
@@ -1235,7 +1208,7 @@ def start_data_worker(
                     _display_plate(viewer)
 
         def on_error(exc: BaseException) -> None:
-            logger.error("Data worker error for plate %d: %s", plate_id, exc)
+            logger.error(f"Data worker error for plate {plate_id}: {exc}")
             if pbr:
                 pbr[0].set_description(f"Data error: {exc}")
                 pbr[0].close()
@@ -1259,7 +1232,7 @@ def start_data_worker(
             _prev_done = done
 
         def on_aborted() -> None:
-            logger.warning("Data worker aborted for plate %d", plate_id)
+            logger.warning(f"Data worker aborted for plate {plate_id}")
             if pbr:
                 pbr[0].set_description(f"Plate {plate_id} cancelled")
                 pbr[0].close()
@@ -1277,7 +1250,7 @@ def start_data_worker(
         _data_stop_flag = stop_flag
         # End-of with _active_lock
 
-    logger.info("Started data worker for plate %d", plate_id)
+    logger.info(f"Started data worker for plate {plate_id}")
 
 
 def clear_viewer_layers(viewer: Viewer) -> None:
@@ -1352,7 +1325,7 @@ def _extract_classifier_data(
         return result if any(result.values()) else None
     except Exception:
         logger.warning(
-            "Could not extract classifier data for well %s", well_pos
+            f"Could not extract classifier data for well {well_pos}"
         )
         return None
 

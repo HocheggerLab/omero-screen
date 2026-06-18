@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 import numpy as np
 import numpy.typing as npt
+from loguru import logger
 from omero.gateway import BlitzGateway
 from omero.model import (
     ImageI,
@@ -29,7 +30,6 @@ from omero.model import (
 )
 from omero.model.enums import UnitsLength
 from omero.rtypes import rint, rstring
-from omero_screen.config import get_logger
 from skimage.draw import ellipse
 from typing_extensions import Generator
 
@@ -256,8 +256,6 @@ def cleanup_plate(conn: BlitzGateway, plate: PlateI) -> None:
             deleteChildren=True,
             wait=True,
         )
-        get_logger(__name__).info(
-            "Successfully deleted plate %s", plate.getId()
-        )
+        logger.info(f"Successfully deleted plate {plate.getId()}")
     except Exception as e:  # noqa: BLE001
-        get_logger(__name__).error("Failed to delete plate: %s", e)
+        logger.error(f"Failed to delete plate: {e}")

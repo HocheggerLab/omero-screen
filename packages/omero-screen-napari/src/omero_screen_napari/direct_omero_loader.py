@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from loguru import logger
 from omero.gateway import BlitzGateway
-from omero_screen.config import get_logger
 from omero_utils import omero_connect
 
 from omero_screen_napari.crop_pipeline import (
@@ -30,8 +30,6 @@ from omero_screen_napari.session_utils import apply_masks_to_crops
 if TYPE_CHECKING:
     from omero_screen_napari.gallery_userdata import UserData
     from omero_screen_napari.omero_data import OmeroData
-
-logger = get_logger(__name__)
 
 
 def _load_cellview_well_slice(
@@ -70,10 +68,7 @@ def _load_cellview_well_slice(
         df = lf.collect().to_pandas()
     except Exception as exc:  # noqa: BLE001
         logger.warning(
-            "CellView export failed for plate %d well %s (%s)",
-            plate_id,
-            well_id,
-            exc,
+            f"CellView export failed for plate {plate_id:d} well {well_id} ({exc})"
         )
         return None
     finally:
@@ -81,10 +76,7 @@ def _load_cellview_well_slice(
 
     if df.empty:
         logger.warning(
-            "CellView has no rows for plate %d well %s at t=%d",
-            plate_id,
-            well_id,
-            timepoint,
+            f"CellView has no rows for plate {plate_id:d} well {well_id} at t={timepoint:d}"
         )
         return None
     return df
@@ -457,9 +449,7 @@ def _filter_cellview_df(
     if cellcycle != "All" and "cell_cycle" in filtered.columns:
         filtered = filtered[filtered["cell_cycle"] == cellcycle]
         logger.info(
-            "Cell cycle filter '%s': %d cells remaining",
-            cellcycle,
-            len(filtered),
+            f"Cell cycle filter '{cellcycle}': {len(filtered):d} cells remaining"
         )
     if (
         classifier_column
@@ -468,10 +458,7 @@ def _filter_cellview_df(
     ):
         filtered = filtered[filtered[classifier_column] == classifier_class]
         logger.info(
-            "Classifier filter '%s=%s': %d cells remaining",
-            classifier_column,
-            classifier_class,
-            len(filtered),
+            f"Classifier filter '{classifier_column}={classifier_class}': {len(filtered):d} cells remaining"
         )
     return filtered
 
@@ -497,7 +484,7 @@ def _run_crop_pipeline(
     run (matching the legacy per-image fallback at run granularity).
     """
     if centroids is None or centroids.empty:
-        logger.warning("No centroids after filtering for well %s", well_id)
+        logger.warning(f"No centroids after filtering for well {well_id}")
         return CropResult()
 
     def _omero_source() -> OmeroSource:
@@ -505,12 +492,10 @@ def _run_crop_pipeline(
 
     try:
         source: Any = ZarrSource(plate_id, well_id, intensities=intensities)
-        logger.info("Direct loader: using zarr fast path for well %s", well_id)
+        logger.info(f"Direct loader: using zarr fast path for well {well_id}")
     except CropSourceError as exc:
         logger.info(
-            "Zarr unavailable (%s); using OMERO loader for well %s",
-            exc,
-            well_id,
+            f"Zarr unavailable ({exc}); using OMERO loader for well {well_id}"
         )
         source = _omero_source()
 
@@ -525,8 +510,7 @@ def _run_crop_pipeline(
         return pipeline.run()
     except CropSourceError as exc:
         logger.warning(
-            "Zarr source failed mid-run (%s); falling back to OMERO loader",
-            exc,
+            f"Zarr source failed mid-run ({exc}); falling back to OMERO loader"
         )
         return CropPipeline(
             source=_omero_source(),

@@ -14,6 +14,7 @@ from typing import Any, Literal, Optional
 
 import duckdb
 import pandas as pd
+from loguru import logger
 from omero.gateway import BlitzGateway, PlateWrapper, TagAnnotationWrapper
 from omero_utils.attachments import get_file_attachments, parse_csv_data
 from omero_utils.omero_connect import omero_connect
@@ -23,9 +24,6 @@ from rich.table import Table
 
 from cellview.utils.error_classes import DataError, DBError, StateError
 from cellview.utils.ui import CellViewUI
-from omero_screen.config import get_logger
-
-logger = get_logger(__name__)
 
 JustifyMethod = Literal["default", "left", "center", "right", "full"]
 
@@ -1298,7 +1296,7 @@ class CellViewStateCore:
             if col not in measurement_cols:
                 measurement_cols.append(col)
 
-        self.logger.debug("Found measurement columns: %s", measurement_cols)
+        self.logger.debug(f"Found measurement columns: {measurement_cols}")
         return measurement_cols
 
     def _trim_df(self, measurement_cols: list[str]) -> pd.DataFrame:
@@ -1381,7 +1379,7 @@ class CellViewStateCore:
                 if channel not in channels:
                     channels.append(channel)
 
-        self.logger.debug("Found channels: %s", channels)
+        self.logger.debug(f"Found channels: {channels}")
         return channels
 
     def _validate_channels(self, channels: list[str]) -> None:
@@ -1402,7 +1400,7 @@ class CellViewStateCore:
             )
 
         # Log discovered channels for info
-        self.logger.info("Discovered channels: %s", channels)
+        self.logger.info(f"Discovered channels: {channels}")
 
         # Update state channels dynamically based on discovered channels.
         # These columns record the *actual* fluorophore names on the

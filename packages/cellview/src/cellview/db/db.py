@@ -7,12 +7,10 @@ import os
 from pathlib import Path
 
 import duckdb
+from loguru import logger
 
 from cellview.utils.error_classes import DBError
 from cellview.utils.ui import CellViewUI
-from omero_screen.config import get_logger
-
-logger = get_logger(__name__)
 
 
 class CellViewDB:

@@ -8,7 +8,7 @@ image counts, timepoints, and label availability.
 from collections.abc import Callable
 from typing import Any
 
-from omero_screen.config import get_logger
+from loguru import logger
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
     QCheckBox,
@@ -31,9 +31,6 @@ from omero_screen_napari.plate_cache import (
     get_well_cache_status,
     is_plate_cached,
 )
-
-logger = get_logger(__name__)
-
 
 # --------------- Data helpers (testable without Qt) ---------------
 
@@ -250,7 +247,7 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
             )
         except Exception as e:
             logger.exception(
-                "Failed to load plate info for %d: %s", plate_id, e
+                f"Failed to load plate info for {plate_id:d}: {e}"
             )
             self._show_error(str(e))
             return

@@ -89,6 +89,9 @@ TEST_FUNCTIONS = {
 
 def main() -> int:
     """Main entry point for the integration tests"""
+    from omero_screen.config import configure_logging
+
+    configure_logging(console=True)
     if args.test not in TEST_FUNCTIONS:
         print(f"\nERROR: Unknown test: {args.test}")
         print("Choose from: ", list(TEST_FUNCTIONS.keys()))

@@ -6,11 +6,11 @@ The plugin can be run from napari as Aligned Plate Widget under Plugins.
 import re
 
 import numpy as np
+from loguru import logger
 from magicgui import magic_factory
 from magicgui.widgets import Container
 from napari.layers import Image
 from napari.viewer import Viewer
-from omero_screen.config import get_logger
 
 from omero_screen_napari._welldata_widget import (
     add_label_layers,
@@ -23,11 +23,12 @@ from omero_screen_napari.welldata_api import (
     parse_omero_data,
 )
 
-logger = get_logger(__name__)
-
 
 def aligned_plate_widget_gui() -> Container:  # type: ignore[type-arg]
     """This function combines the widgets into a single widget."""
+    from omero_screen_napari._logging import init_plugin_logging
+
+    init_plugin_logging()
     # Call the magic factories to get the widget instances
     aligned_plate_widget_instance = aligned_plate_widget()
     return Container(
@@ -63,7 +64,7 @@ def aligned_plate_widget(
         int(plate_id), sample_alignments=sample_alignments
     )
     plates = alignments["plate"].unique()
-    logger.info("Loaded alignments for plates: %s", plates)
+    logger.info(f"Loaded alignments for plates: {plates}")
 
     all_channels: set[str] = set()
 
@@ -98,7 +99,7 @@ def aligned_plate_widget(
             )
         # Translation maps plate_id to plate_other so negate
         trans = (-df.iloc[0]["x"], -df.iloc[0]["y"])
-        logger.info("Plate %d %s translation %s", plate_other, well_pos, trans)
+        logger.info(f"Plate {plate_other} {well_pos} translation {trans}")
 
         # Filter channels already added to the viewer (e.g duplicate alignment channel)
         _add_image_to_viewer(viewer, all_channels, trans)
@@ -115,9 +116,7 @@ def _add_image_to_viewer(
 ) -> None:
     num_channels = omero_data.images.shape[-1]
     logger.debug(
-        "The images shape is %s (%s)",
-        omero_data.images.shape,
-        omero_data.images.dtype,
+        f"The images shape is {omero_data.images.shape} ({omero_data.images.dtype})"
     )
     channel_names: dict[int, str] = {
         int(value): key for key, value in omero_data.channel_data.items()

@@ -6,12 +6,10 @@ These classes provide rich-formatted error messages and structured error handlin
 from pathlib import Path
 from typing import Any, Optional
 
+from loguru import logger
 from rich.text import Text
 
 from cellview.utils.ui import CellViewUI, Colors
-from omero_screen.config import get_logger
-
-logger = get_logger(__name__)
 
 
 class CellViewError(Exception):
@@ -46,11 +44,8 @@ class CellViewError(Exception):
         """Display the error message with standardized formatting."""
         # Log the error to the file first
         if self.show_traceback:
-            self.logger.error(
-                "%s: %s",
-                self.__class__.__name__,
-                self.message,
-                exc_info=True,  # This includes the traceback
+            self.logger.opt(exception=True).error(
+                f"{self.__class__.__name__}: {self.message}"
             )
 
         # Create error message

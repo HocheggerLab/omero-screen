@@ -15,7 +15,6 @@ Axes / chunking decisions are documented in the Stage 2 plan note.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import shutil
 from collections.abc import Callable, Iterable
@@ -25,6 +24,7 @@ import dask.array as da
 import numpy as np
 import zarr
 from dask.callbacks import Callback
+from loguru import logger
 from numpy.typing import NDArray
 from ome_zarr.scale import Scaler
 from ome_zarr.writer import (
@@ -38,8 +38,6 @@ from omero_screen_napari.zarr_cache.paths import (
     plate_zarr_path,
     plate_zarr_tmp_path,
 )
-
-logger = logging.getLogger(__name__)
 
 # Image/label arrays may be eager numpy or lazy dask (streamed block-by-block
 # by ome-zarr's write_image/write_labels). Both support .ndim/.shape/.astype.
@@ -302,7 +300,7 @@ class PlateZarrWriter:
                 try:
                     progress_cb(frac)
                 except Exception:  # progress is best-effort, never fatal
-                    logger.debug("progress_cb raised", exc_info=True)
+                    logger.opt(exception=True).debug("progress_cb raised")
 
         if image_tcyx.ndim != 4:
             raise ValueError(
@@ -461,7 +459,7 @@ class PlateZarrWriter:
         else:
             os.rename(tmp_well_dir, final_well_dir)
 
-        logger.info("Wrote well %s to %s", well, final_well_dir)
+        logger.info(f"Wrote well {well} to {final_well_dir}")
 
     # ------------------------------------------------------------------
     # Teardown

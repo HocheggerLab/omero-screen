@@ -14,12 +14,12 @@ current well's metadata (cell line / condition / timepoint).
 
 from __future__ import annotations
 
-import logging
 import re
 from typing import Any
 
 import dask.array as da
 import numpy as np
+from loguru import logger
 from omero_screen.config import getenv_as_int
 
 from omero_screen_napari.zarr_cache.reader import (
@@ -27,9 +27,6 @@ from omero_screen_napari.zarr_cache.reader import (
     plate_info,
     read_well,
 )
-
-logger = logging.getLogger(__name__)
-
 
 # Opportunistic dask cache: caches *decoded* array results (not just raw
 # chunk bytes like the reader's LRUStoreCache), so replaying a timelapse,
@@ -51,12 +48,11 @@ def _ensure_dask_cache() -> None:
         Cache(cache_bytes).register()  # type: ignore[no-untyped-call]
         _dask_cache_registered = True
         logger.info(
-            "Registered dask opportunistic cache (%d MB)", cache_bytes >> 20
+            f"Registered dask opportunistic cache ({cache_bytes >> 20:d} MB)"
         )
     except Exception:  # pragma: no cover - cache is a perf optimisation only
-        logger.warning(
+        logger.opt(exception=True).warning(
             "Could not register dask cache; playback may be laggier",
-            exc_info=True,
         )
 
 
@@ -86,11 +82,12 @@ def _ensure_async_slicing() -> None:
         )
         _async_enabled = True
         logger.info(
-            "napari async slicing = %s",
-            get_settings().experimental.async_,
+            f"napari async slicing = {get_settings().experimental.async_}"
         )
     except Exception:  # pragma: no cover - perf optimisation only
-        logger.warning("Could not toggle napari async slicing", exc_info=True)
+        logger.opt(exception=True).warning(
+            "Could not toggle napari async slicing"
+        )
 
 
 # Channel colormap rotation — first four match the omero-screen palette.
@@ -127,10 +124,7 @@ def load_plate_to_viewer(
     target_wells = _resolve_well_list(well_pos_input, available)
     if not target_wells:
         logger.warning(
-            "No wells matched '%s' in zarr cache for plate %d (available: %s)",
-            well_pos_input,
-            plate_id,
-            available,
+            f"No wells matched '{well_pos_input}' in zarr cache for plate {plate_id:d} (available: {available})"
         )
         return []
 
@@ -168,9 +162,7 @@ def load_plate_to_viewer(
 
     viewer.reset_view()
     logger.info(
-        "Loaded %d well(s) from zarr cache for plate %d",
-        len(target_wells),
-        plate_id,
+        f"Loaded {len(target_wells):d} well(s) from zarr cache for plate {plate_id:d}"
     )
     return target_wells
 
@@ -195,15 +187,13 @@ def _resolve_well_list(well_pos_input: str, available: list[str]) -> list[str]:
     valid = [item for item in items if _WELL_RE.match(item)]
     if len(valid) != len(items):
         bad = set(items) - set(valid)
-        logger.warning("Ignoring malformed well labels: %s", sorted(bad))
+        logger.warning(f"Ignoring malformed well labels: {sorted(bad)}")
     available_set = set(available)
     resolved = sorted(w for w in valid if w in available_set)
     missing = [w for w in valid if w not in available_set]
     if missing:
         logger.warning(
-            "Wells not present in zarr cache: %s (available: %s)",
-            missing,
-            available,
+            f"Wells not present in zarr cache: {missing} (available: {available})"
         )
     return resolved
 
@@ -326,9 +316,7 @@ def _intensities_from_canvas(
         return out
     except Exception as exc:  # noqa: BLE001
         logger.warning(
-            "Failed to derive intensities from zarr canvas: %s "
-            "(falling back to CellView)",
-            exc,
+            f"Failed to derive intensities from zarr canvas: {exc} (falling back to CellView)"
         )
         return None
 
@@ -491,12 +479,7 @@ def _populate_singleton(
     )
 
     logger.info(
-        "Populated omero_data singleton from zarr load: plate=%d wells=%s "
-        "image_ids=%s channels=%s",
-        plate_id,
-        target_wells,
-        omero_data.image_ids,
-        list(channel_data),
+        f"Populated omero_data singleton from zarr load: plate={plate_id:d} wells={target_wells} image_ids={omero_data.image_ids} channels={list(channel_data)}"
     )
 
 

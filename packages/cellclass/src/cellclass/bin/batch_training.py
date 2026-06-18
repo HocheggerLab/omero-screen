@@ -28,9 +28,9 @@ def run(args: argparse.Namespace) -> None:
     import re
     import subprocess
 
-    logging.basicConfig(
-        format="[%(asctime)s] %(levelname)s - %(message)s", level=logging.INFO
-    )
+    from cellclass._logging import configure_logging
+
+    configure_logging(logging.INFO)
 
     # Load the training settings
     logging.info(f"Loading training settings: {args.batch}")

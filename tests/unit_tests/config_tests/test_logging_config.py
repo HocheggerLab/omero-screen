@@ -1,171 +1,162 @@
+"""Tests for the pure-loguru logging configuration in ``omero_screen.config``.
+
+Logging is now configured once at an application entry point via
+``configure_logging()`` (no ``get_logger`` seam). These tests assert the sink
+architecture (file-only by default, console opt-in), the
+argument > env-var > default resolution, the stdlib ``InterceptHandler`` /
+plugin-mode behaviour, and third-party suppression.
+"""
+
 import logging
-import os
 
 import pytest
+from loguru import logger as loguru_logger
 
-from omero_screen.config import get_logger, set_env_vars, validate_env_vars
-
-
-@pytest.fixture
-def clean_logger():
-    """Fixture to clean logger handlers before and after tests"""
-    root_logger = logging.getLogger()
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
-    yield
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
+import omero_screen.config as config
+from omero_screen.config import (
+    _InterceptHandler,
+    _NOISY_LIBRARIES,
+    configure_logging,
+    configure_logging_once,
+    is_level_enabled,
+)
 
 
 @pytest.fixture
-def clean_env():
-    """Fixture to clean environment variables before each test"""
-    # Store original environment variables
-    env_vars = [
-        "LOG_LEVEL",
-        "LOG_FILE_PATH",
-        "ENABLE_CONSOLE_LOGGING",
-        "ENABLE_FILE_LOGGING",
-    ]
-    original_env = {key: os.environ.get(key) for key in env_vars}
-
-    # Clean up environment variables
-    for key in env_vars:
-        if key in os.environ:
-            del os.environ[key]
-
+def reset_logging():
+    """Reset loguru sinks, the configured flag and the stdlib root per test."""
+    root = logging.getLogger()
+    saved_handlers = root.handlers[:]
+    saved_flag = config._CONFIGURED
+    config._CONFIGURED = False
+    loguru_logger.remove()
     yield
-
-    # Restore original environment variables
-    for key, value in original_env.items():
-        if value is not None:
-            os.environ[key] = value
-        else:
-            os.environ.pop(key, None)
+    loguru_logger.remove()
+    config._CONFIGURED = saved_flag
+    root.handlers[:] = saved_handlers
 
 
-def test_validate_env_vars_all_present(test_env_files, monkeypatch, clean_env):
-    """Test when all required environment variables are present"""
-
-    def mock_find_project_root():
-        return test_env_files
-
-    monkeypatch.setattr("omero_screen.config.find_project_root", mock_find_project_root)
-
-    set_env_vars()  # This will load from .env.development by default
-    validate_env_vars()  # Should not raise any exception
+def _n_sinks() -> int:
+    return len(loguru_logger._core.handlers)
 
 
-def test_validate_env_vars_missing_vars(clean_env):
-    """Test when required environment variables are missing"""
-    with pytest.raises(OSError) as exc_info:
-        validate_env_vars()
-    assert "LOG_LEVEL" in str(exc_info.value)
-    assert "LOG_FILE_PATH" in str(exc_info.value)
+# --------------------------------------------------------------------------- #
+# Sinks                                                                       #
+# --------------------------------------------------------------------------- #
 
 
-def test_get_logger_hierarchy(
-    test_env_files, monkeypatch, clean_env, clean_logger
+def test_default_is_file_only(tmp_path, reset_logging):
+    """Production default: exactly one (file) sink, no console."""
+    configure_logging(log_file=str(tmp_path / "app.log"))
+    assert _n_sinks() == 1
+
+
+def test_console_adds_second_sink(tmp_path, reset_logging):
+    """console=True adds a second sink alongside the file sink."""
+    configure_logging(log_file=str(tmp_path / "app.log"), console=True)
+    assert _n_sinks() == 2
+
+
+def test_log_file_none_disables_file_sink(reset_logging):
+    """log_file='none' disables the file sink (console only here)."""
+    configure_logging(log_file="none", console=True)
+    assert _n_sinks() == 1
+
+
+def test_file_is_created(tmp_path, reset_logging):
+    """The file sink opens its target immediately."""
+    target = tmp_path / "app.log"
+    configure_logging(log_file=str(target))
+    assert target.exists()
+
+
+def test_configure_logging_is_idempotent_in_effect(tmp_path, reset_logging):
+    """Re-running configure_logging() re-applies, not accumulates, sinks."""
+    configure_logging(log_file=str(tmp_path / "app.log"), console=True)
+    configure_logging(log_file=str(tmp_path / "app.log"), console=True)
+    assert _n_sinks() == 2
+
+
+def test_configure_logging_once_is_noop_after_configured(
+    tmp_path, reset_logging
 ):
-    """Test that loggers form proper hierarchy"""
-
-    def mock_find_project_root():
-        return test_env_files
-
-    monkeypatch.setattr("omero_screen.config.find_project_root", mock_find_project_root)
-
-    set_env_vars()  # Load development environment
-
-    # Get loggers at different levels
-    root_logger = logging.getLogger()
-    screen_logger = get_logger("screen")
-    utils_logger = get_logger("utils")
-
-    # Verify hierarchy
-    assert screen_logger.name == "screen"
-    assert utils_logger.name == "utils"
-
-    # Verify handlers are only on root logger
-    assert len(root_logger.handlers) > 0, "Root logger should have handlers"
-    assert len(screen_logger.handlers) == 0, (
-        "Child logger should not have handlers"
-    )
-    assert len(utils_logger.handlers) == 0, (
-        "Child logger should not have handlers"
-    )
+    """configure_logging_once() does nothing once configured."""
+    configure_logging(log_file=str(tmp_path / "app.log"))
+    configure_logging_once(console=True)  # would add console if it ran
+    assert _n_sinks() == 1
 
 
-def test_get_logger_single_configuration(
-    test_env_files, monkeypatch, clean_env, clean_logger
-):
-    """Test that logger configuration happens only once"""
-
-    def mock_find_project_root():
-        return test_env_files
-
-    monkeypatch.setattr("omero_screen.config.find_project_root", mock_find_project_root)
-
-    set_env_vars()  # Load development environment
-
-    # Get the same logger multiple times
-    _logger1 = get_logger("omero.test")
-    _logger2 = get_logger("omero.test")
-    root_logger = logging.getLogger()
-
-    # Verify that handlers were only added once
-    assert len(root_logger.handlers) > 0
-    initial_handler_count = len(root_logger.handlers)
-
-    # Get another logger
-    _logger3 = get_logger("omero.another")
-
-    # Verify no new handlers were added
-    assert len(root_logger.handlers) == initial_handler_count
+# --------------------------------------------------------------------------- #
+# Level resolution: argument > env var > default                             #
+# --------------------------------------------------------------------------- #
 
 
-def test_get_logger_with_console(
-    test_env_files, monkeypatch, clean_env, clean_logger
-):
-    """Test logger with console logging enabled"""
+def test_default_level_is_info(tmp_path, reset_logging):
+    configure_logging(log_file=str(tmp_path / "app.log"))
+    assert is_level_enabled("INFO") is True
+    assert is_level_enabled("DEBUG") is False
 
-    def mock_find_project_root():
-        return test_env_files
 
-    monkeypatch.setattr("omero_screen.config.find_project_root", mock_find_project_root)
+def test_level_argument(tmp_path, reset_logging):
+    configure_logging(level="WARNING", log_file=str(tmp_path / "app.log"))
+    assert is_level_enabled("WARNING") is True
+    assert is_level_enabled("INFO") is False
 
-    # Use development environment which has console logging enabled
-    set_env_vars()
 
-    root_logger = logging.getLogger()
+def test_env_var_sets_level(tmp_path, monkeypatch, reset_logging):
+    monkeypatch.setenv("OMERO_SCREEN_LOG_LEVEL", "ERROR")
+    configure_logging(log_file=str(tmp_path / "app.log"))
+    assert is_level_enabled("ERROR") is True
+    assert is_level_enabled("WARNING") is False
 
-    # Verify console handler is present
+
+def test_argument_overrides_env_var(tmp_path, monkeypatch, reset_logging):
+    monkeypatch.setenv("OMERO_SCREEN_LOG_LEVEL", "ERROR")
+    configure_logging(level="DEBUG", log_file=str(tmp_path / "app.log"))
+    assert is_level_enabled("DEBUG") is True
+
+
+def test_env_var_sets_log_file(tmp_path, monkeypatch, reset_logging):
+    target = tmp_path / "from_env.log"
+    monkeypatch.setenv("OMERO_SCREEN_LOG_FILE", str(target))
+    configure_logging()
+    assert target.exists()
+
+
+# --------------------------------------------------------------------------- #
+# stdlib interception / plugin mode / suppression                            #
+# --------------------------------------------------------------------------- #
+
+
+def test_standalone_installs_intercept_handler(tmp_path, reset_logging):
+    logging.getLogger().handlers.clear()
+    configure_logging(log_file=str(tmp_path / "app.log"))
     assert any(
-        isinstance(h, logging.StreamHandler)
-        and not isinstance(h, logging.FileHandler)
-        for h in root_logger.handlers
+        isinstance(h, _InterceptHandler)
+        for h in logging.getLogger().handlers
     )
 
 
-def test_get_logger_message_propagation(
-    test_env_files, monkeypatch, clean_env, clean_logger, tmp_path
-):
-    """Test that messages from child loggers reach the root logger's handlers"""
+def test_plugin_mode_skips_intercept_handler(tmp_path, reset_logging):
+    logging.getLogger().handlers.clear()
+    configure_logging(log_file=str(tmp_path / "app.log"), plugin=True)
+    assert not any(
+        isinstance(h, _InterceptHandler)
+        for h in logging.getLogger().handlers
+    )
 
-    def mock_find_project_root():
-        return test_env_files
 
-    monkeypatch.setattr("omero_screen.config.find_project_root", mock_find_project_root)
+def test_noisy_libraries_pinned_to_warning(tmp_path, reset_logging):
+    configure_logging(log_file=str(tmp_path / "app.log"))
+    for lib in _NOISY_LIBRARIES:
+        assert logging.getLogger(lib).level == logging.WARNING
 
-    set_env_vars()  # Load development environment
 
-    # Create loggers at different levels
-    child_logger = get_logger("omero.test.child")
+# --------------------------------------------------------------------------- #
+# is_level_enabled guard                                                      #
+# --------------------------------------------------------------------------- #
 
-    # Log a message
-    test_message = "Test message from child"
-    child_logger.debug(test_message)
 
-    # Since we're using development environment, console logging is enabled
-    # We can verify the message was logged by checking the handlers
-    root_logger = logging.getLogger()
-    assert len(root_logger.handlers) > 0
+def test_is_level_enabled_reflects_debug(tmp_path, reset_logging):
+    configure_logging(level="DEBUG", log_file=str(tmp_path / "app.log"))
+    assert is_level_enabled("DEBUG") is True

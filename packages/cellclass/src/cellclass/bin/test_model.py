@@ -33,14 +33,12 @@ def run(args: argparse.Namespace) -> None:
     from torch.utils.data import DataLoader
     from torchvision.transforms.v2 import Compose, Resize, ToDtype
 
+    from cellclass._logging import configure_logging
     from cellclass.datasets import ROIDataset
     from cellclass.models import create_model
     from cellclass.testing import test_epoch
 
-    logging.basicConfig(
-        format="[%(asctime)s] %(levelname)s - %(message)s",
-        level=args.log_level,
-    )
+    configure_logging(args.log_level)
 
     start_time = time.time()
 

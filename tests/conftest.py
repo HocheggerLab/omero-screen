@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 from collections.abc import Generator
@@ -22,6 +23,32 @@ from omero_utils.omero_plate import (
     create_basic_plate,
     create_well_with_image,
 )
+
+
+@pytest.fixture
+def caplog(caplog: pytest.LogCaptureFixture) -> Generator[
+    pytest.LogCaptureFixture, None, None
+]:
+    """Route loguru output into pytest's ``caplog``.
+
+    loguru bypasses the standard library's root logger, so pytest's built-in
+    ``caplog`` does not see records emitted through the global ``loguru`` logger.
+    This override adds pytest's capture handler directly as a loguru sink for the
+    duration of the test — directly rather than via stdlib propagation, to avoid
+    a feedback loop with the InterceptHandler.
+    """
+    from loguru import logger as loguru_logger
+
+    handler_id = loguru_logger.add(
+        caplog.handler,
+        level=0,
+        format="{message}",
+        filter=lambda record: True,
+    )
+    try:
+        yield caplog
+    finally:
+        loguru_logger.remove(handler_id)
 
 
 @pytest.fixture
@@ -64,7 +91,6 @@ def test_env_files(tmp_path) -> Generator[Path, None, None]:
     LOG_FILE_PATH=/tmp/omero_screen.log
     ENABLE_CONSOLE_LOGGING=true
     ENABLE_FILE_LOGGING=true
-    LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(message)s
     LOG_MAX_BYTES=1048576
     LOG_BACKUP_COUNT=5
     """.strip()

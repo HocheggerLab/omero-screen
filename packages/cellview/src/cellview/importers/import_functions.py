@@ -9,6 +9,7 @@ import contextlib
 from typing import Optional, Union
 
 import duckdb
+from loguru import logger
 
 from cellview.db.clean_up import clean_up_db
 from cellview.db.db import CellViewDB
@@ -20,9 +21,6 @@ from cellview.importers.projects import select_or_create_project
 from cellview.importers.repeats import create_new_repeat
 from cellview.utils.state import CellViewState, CellViewStateCore
 from cellview.utils.ui import CellViewUI
-from omero_screen.config import get_logger
-
-logger = get_logger(__name__)
 
 ui = CellViewUI()
 

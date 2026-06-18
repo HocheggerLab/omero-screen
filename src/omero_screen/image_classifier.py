@@ -9,7 +9,6 @@ metadata JSON file.
 """
 
 import json
-import logging
 import pathlib
 from collections.abc import Sequence
 from random import randrange
@@ -20,14 +19,13 @@ import numpy.typing as npt
 import pandas as pd
 import skimage.transform
 import torch
+from loguru import logger
 from omero.gateway import BlitzGateway
 from skimage.measure import regionprops
 from tqdm import tqdm
 
 from omero_screen.metadata_parser import NUCLEUS_ALIASES, ROLE_SUFFIXES
 from omero_screen.torch import get_device
-
-logger = logging.getLogger("omero-screen")
 
 
 def _resolve_nucleus_fallback(
@@ -112,7 +110,7 @@ class ImageClassifier:
         active_channels, class_options = self._extract_channels(meta_filename)
 
         if active_channels:
-            logger.info("Active Channels: %s", active_channels)
+            logger.info(f"Active Channels: {active_channels}")
         else:
             logger.warning("No active channels found.")
             return None, None, None
@@ -156,11 +154,11 @@ class ImageClassifier:
                 conn.getObjects("OriginalFile", attributes={"name": file_name})
             )
             if not files:
-                logger.warning("File '%s' not found in OMERO.", file_name)
+                logger.warning(f"File '{file_name}' not found in OMERO.")
                 return None
             if len(files) != 1:
                 logger.warning(
-                    "Multiple files with name '%s' found in OMERO.", file_name
+                    f"Multiple files with name '{file_name}' found in OMERO."
                 )
                 return None
 
@@ -169,7 +167,7 @@ class ImageClassifier:
             with open(local_path, "wb") as f:
                 for chunk in attachment.getFileInChunks():
                     f.write(chunk)
-            logger.info("Downloaded model file to %s", local_path)
+            logger.info(f"Downloaded model file to {local_path}")
             return local_path
 
         # Already cached
@@ -196,21 +194,18 @@ class ImageClassifier:
                     self.crop_size = img_shape[-1]
                     self.input_shape = tuple(input_shape[-2:])
                     logger.info(
-                        "Active channels extracted: %s", str(active_channels)
+                        f"Active channels extracted: {str(active_channels)}"
                     )
-                    logger.info("Class options: %s", class_options)
-                    logger.info("Crop Size: %s", self.crop_size)
-                    logger.info("Input shape: %s", self.input_shape)
+                    logger.info(f"Class options: {class_options}")
+                    logger.info(f"Crop Size: {self.crop_size}")
+                    logger.info(f"Input shape: {self.input_shape}")
                     return active_channels, class_options
                 else:
                     logger.warning(
-                        "Metadata file '%s' does not contain required information.",
-                        meta_filename,
+                        f"Metadata file '{meta_filename}' does not contain required information."
                     )
-        except Exception as e:
-            logger.exception(
-                "Error reading metadata file '%s'", meta_filename, e
-            )
+        except Exception:
+            logger.exception(f"Error reading metadata file '{meta_filename}'")
         return [], []
 
     def select_channels(self, image_data: dict[str, npt.NDArray[Any]]) -> bool:
@@ -241,12 +236,11 @@ class ImageClassifier:
                     self.selected_channels.append(resolved)
                 else:
                     logger.warning(
-                        "Channel '%s' not found in image data", channel
+                        f"Channel '{channel}' not found in image data"
                     )
                     return False
             logger.info(
-                "Selected channels for classification: %s",
-                str(self.active_channels),
+                f"Selected channels for classification: {str(self.active_channels)}"
             )
             return True
         return False
@@ -315,10 +309,7 @@ class ImageClassifier:
             subset="Cyto_ID", keep="first"
         )
         logger.info(
-            "t=%d: Classification of %d cyto IDs (%d items)",
-            t,
-            len(image_df),
-            len(original_image_df),
+            f"t={t:d}: Classification of {len(image_df):d} cyto IDs ({len(original_image_df):d} items)"
         )
 
         img_size = (
@@ -581,7 +572,7 @@ class ImageClassifier:
         label_id = cropped_label[cy, cx]
         if label_id == 0:
             # This should not happen, log it so the user can investigate
-            logger.warning("No label at %d,%d", cx, cy)
+            logger.warning(f"No label at {cx},{cy}")
             # Find closest label
             dmin = np.prod(np.array(cropped_label.shape))
             dmin = dmin**2

@@ -4,9 +4,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
+from loguru import logger
 from magicgui import magicgui
 from magicgui.widgets import Container, Label
-from omero_screen.config import get_logger
 from qtpy.QtWidgets import QMessageBox
 
 from omero_screen_napari.gallery_userdata_singleton import (
@@ -18,8 +18,6 @@ from omero_screen_napari.trainingdata_db.database import TrainingDB
 if TYPE_CHECKING:
     from omero_screen_napari.gallery_userdata import UserData
     from omero_screen_napari.omero_data import OmeroData
-
-logger = get_logger(__name__)
 
 
 def setup_training_widget(
@@ -286,7 +284,7 @@ class MetaDataSaver:
                 self.classifier_name, self.omero_data.plate_id, well
             )
         except Exception as exc:
-            logger.warning("Could not query used centroids: %s", exc)
+            logger.warning(f"Could not query used centroids: {exc}")
             excluded = set()
 
         parse_crops_into_omero_data(

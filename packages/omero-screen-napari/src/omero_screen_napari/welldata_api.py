@@ -23,6 +23,7 @@ from cellview.db.db import CellViewDB
 from cellview.importers.import_functions import import_data
 from cellview.utils.state import CellViewStateCore, clean_agg_data
 from cellview.utils.ui import CellViewUI
+from loguru import logger
 from omero.gateway import (
     BlitzGateway,
     FileAnnotationWrapper,
@@ -31,7 +32,6 @@ from omero.gateway import (
     PlateWrapper,
     WellWrapper,
 )
-from omero_screen.config import get_logger
 from omero_screen.constants import OmeroScreenNS
 from omero_utils import omero_connect
 from omero_utils.attachments import get_file_attachments
@@ -62,7 +62,6 @@ from omero_screen_napari.omero_image import get_image
 from omero_screen_napari.utils import correct_channel_order
 
 # Initialize logger with the module's name
-logger = get_logger(__name__)
 
 
 @omero_connect
@@ -108,9 +107,7 @@ def parse_omero_data(
                 well_image_parser(omero_data, well_pos, conn, options)
         except Exception as e:  # noqa: BLE001
             logger.error(
-                "Error parsing plate data: %s\n%s",
-                e,
-                "".join(traceback.format_exception(None, e, e.__traceback__)),
+                f"Error parsing plate data: {e}\n{''.join(traceback.format_exception(None, e, e.__traceback__))}"
             )
             if not hasattr(sys, "ps1") and "pytest" not in sys.modules:
                 # Show QMessageBox only in GUI mode
@@ -153,7 +150,7 @@ def parse_plate_data(
             omero_data, plate_id, well_pos, image_input, conn, time=time
         )
         user_input.parse_data()
-        logger.info("Loaded data for plate with ID %s", plate_id)
+        logger.info(f"Loaded data for plate with ID {plate_id}")
         cellview_parser = CellViewParser(omero_data, options)
         cellview_parser.parse_data()
         channel_parser = ChannelDataParser(omero_data)
@@ -173,7 +170,7 @@ def parse_plate_data(
 
     else:
         logger.info(
-            "Plate data for plate %s already exists. Skip reload.", plate_id
+            f"Plate data for plate {plate_id} already exists. Skip reload."
         )
         user_input = UserInput(
             omero_data, plate_id, well_pos, image_input, conn, time=time
@@ -260,7 +257,7 @@ class UserInput:
         """
         self._plate = self._conn.getObject("Plate", self._plate_id)
         if not self._plate:
-            logger.error("Plate with ID %s does not exist.", self._plate_id)
+            logger.error(f"Plate with ID {self._plate_id} does not exist.")
             raise ValueError(f"Plate with ID {self._plate_id} does not exist.")
         else:
             self._omero_data.plate = self._plate
@@ -282,8 +279,7 @@ class UserInput:
             self._omero_data.screen_dataset = dataset
         else:
             logger.error(
-                "The plate %s has not been assigned a dataset.",
-                omero_data.plate_name,
+                f"The plate {omero_data.plate_name} has not been assigned a dataset."
             )
             raise ValueError(
                 f"The plate {omero_data.plate_name} has not been assigned a dataset."
@@ -316,8 +312,7 @@ class UserInput:
         for item in self._well_pos_list:
             if not pattern.match(item):
                 logger.error(
-                    "Invalid well input format: '%s'. Must be A-H followed by 1-12.",
-                    item,
+                    f"Invalid well input format: '{item}'. Must be A-H followed by 1-12."
                 )
                 raise ValueError(
                     f"Invalid well input format: '{item}'. Must be A-H followed by 1-12."
@@ -339,8 +334,7 @@ class UserInput:
             or re.match(r"^(\d+(-\d+)?)(,\s*\d+(-\d+)?)*$", index)
         ):
             logger.error(
-                "Image input '%s' doesn't match any of the expected patterns 'All, 1-3, 1'.",
-                index,
+                f"Image input '{index}' doesn't match any of the expected patterns 'All, 1-3, 1'."
             )
             raise ValueError(
                 f"Image input '{index}' doesn't match any of the expected patterns 'All, 1-3, 1'."
@@ -371,8 +365,7 @@ class UserInput:
 
         if not (time.lower() == "all" or re.match(r"^\d+(-\d+)?$", time)):
             logger.error(
-                "Image time '%s' doesn't match any of the expected patterns 'All, 1-3, 1'.",
-                time,
+                f"Image time '{time}' doesn't match any of the expected patterns 'All, 1-3, 1'."
             )
             raise ValueError(
                 f"Image time '{time}' doesn't match any of the expected patterns 'All, 1-3, 1'."
@@ -393,7 +386,7 @@ class UserInput:
             end = start
 
         if end < start:
-            logger.error("Invalid time range: %s-%s.", start, end)
+            logger.error(f"Invalid time range: {start}-{end}.")
             raise ValueError(f"Invalid time range: {start}-{end}.")
 
         # Get image dimensions
@@ -412,10 +405,10 @@ class UserInput:
             raise ValueError("No plate found, unable to parse image time.")
         # Validate. Change start to zero-based indexing.
         if end > xyzct[0]:
-            logger.error("Invalid end time: %s > %s.", end, xyzct[0])
+            logger.error(f"Invalid end time: {end} > {xyzct[0]}.")
             raise ValueError(f"Invalid end time: {end} > {xyzct[0]}.")
         if start < 1:
-            logger.error("Invalid start time: %s < 1.", start)
+            logger.error(f"Invalid start time: {start} < 1.")
             raise ValueError(f"Invalid start time: {start} < 1.")
 
         start -= 1
@@ -466,13 +459,12 @@ class CellViewParser:
         # Skip cellview loading if option is set (e.g., for aligned plates where data already loaded)
         if "skip_cellview" in self._options:
             logger.info(
-                "Skipping cellview data loading for plate %s (option set)",
-                self._plate_id,
+                f"Skipping cellview data loading for plate {self._plate_id} (option set)"
             )
             return
 
         logger.info(
-            "Loading data from CellView database for plate %s", self._plate_id
+            f"Loading data from CellView database for plate {self._plate_id}"
         )
         try:
             # Step 1: Get or create database connection
@@ -510,8 +502,7 @@ class CellViewParser:
             try:
                 if lf.limit(1).collect().is_empty():
                     logger.error(
-                        "No data found for plate %s in CellView database after import.",
-                        self._plate_id,
+                        f"No data found for plate {self._plate_id} in CellView database after import."
                     )
                     raise ValueError(
                         f"No data found for plate {self._plate_id} in CellView database after import."
@@ -529,7 +520,7 @@ class CellViewParser:
             logger.info("Data loaded successfully from CellView.")
 
         except Exception as e:
-            logger.error("Error loading data from CellView: %s", e)
+            logger.error(f"Error loading data from CellView: {e}")
             raise ValueError(f"Error loading data from CellView: {e}") from e
 
     # ================== Database Management Methods ==================
@@ -1558,8 +1549,7 @@ class ChannelDataParser:
         self._tidy_up_channel_data()
         self._omero_data.channel_data = self._channel_data
         logger.debug(
-            "Channel data: %s loaded to omero_data.channel_data",
-            self._channel_data,
+            f"Channel data: {self._channel_data} loaded to omero_data.channel_data"
         )  # noqa: G004
 
     def _get_map_ann(self) -> None:
@@ -1576,7 +1566,7 @@ class ChannelDataParser:
 
         if not map_annotations:
             logger.error(
-                "No MapAnnotations found for plate %s.", self._plate_id
+                f"No MapAnnotations found for plate {self._plate_id}."
             )  # noqa: G004
             raise ValueError(
                 f"No MapAnnotations found for plate {self._plate_id}."
@@ -1599,8 +1589,7 @@ class ChannelDataParser:
             return
 
         logger.error(
-            "No nucleus channel information found for plate %s.",
-            self._plate_id,
+            f"No nucleus channel information found for plate {self._plate_id}."
         )  # noqa: G004
         raise ValueError(
             f"No nucleus channel information found for plate {self._omero_data.plate_id}."
@@ -1660,7 +1649,7 @@ class FlatfieldMaskParser:
         """Gets flatfieldmasks from project linked to screen"""
 
         flatfield_mask_name = f"{self._omero_data.plate_id}_flatfield_masks"
-        logger.debug("Flatfield mask name: %s", flatfield_mask_name)  # noqa: G004
+        logger.debug(f"Flatfield mask name: {flatfield_mask_name}")
         flatfield_mask_found = False
         for image in self._omero_data.screen_dataset.listChildren():
             image_name = image.getName()
@@ -1678,8 +1667,7 @@ class FlatfieldMaskParser:
                 break  # Exit the loop once the flatfield mask is found
         if not flatfield_mask_found:
             logger.error(
-                "No flatfieldmasks found in dataset %s.",
-                self._omero_data.screen_dataset,
+                f"No flatfieldmasks found in dataset {self._omero_data.screen_dataset}."
             )  # noqa: G004
             raise ValueError(
                 "No flatfieldmasks found in dataset %s.",
@@ -1699,8 +1687,7 @@ class FlatfieldMaskParser:
         ]
         if not map_annotations:
             logger.error(
-                "No Flatfield Mask Channel info found in datset %s.",
-                self._omero_data.screen_dataset,
+                f"No Flatfield Mask Channel info found in datset {self._omero_data.screen_dataset}."
             )  # noqa: G004
             raise ValueError(
                 f"No Flatfield Mask Channel info found in datset {self._omero_data.screen_dataset}."
@@ -1713,7 +1700,7 @@ class FlatfieldMaskParser:
                 if value.lower().strip() in ["dapi", "hoechst", "rfp"]:
                     self._flatfield_channels = dict(ann_value)
                     logger.debug(
-                        "Flatfield mask channels: %s", self._flatfield_channels
+                        f"Flatfield mask channels: {self._flatfield_channels}"
                     )
                     return
         # If no matching annotation is found, raise a specific exception
@@ -1738,9 +1725,7 @@ class FlatfieldMaskParser:
             pass
 
         logger.debug(
-            "Flatfield channels: %s, channel data %s",
-            self._flatfield_channels.values(),
-            omero_data.channel_data.keys(),
+            f"Flatfield channels: {self._flatfield_channels.values()}, channel data {omero_data.channel_data.keys()}"
         )  # noqa: G004
         channel_check = True
         for key, value in self._flatfield_channels.items():
@@ -1833,8 +1818,7 @@ class ScaleIntensityParser:
                     target_cols = cell_cols
                 else:
                     logger.debug(
-                        "Cell intensity columns for channel '%s' exist but contain only nulls, falling back to nucleus columns.",
-                        channel,
+                        f"Cell intensity columns for channel '{channel}' exist but contain only nulls, falling back to nucleus columns."
                     )
 
             # Fallback to nucleus columns if cell columns don't work
@@ -1843,10 +1827,7 @@ class ScaleIntensityParser:
                     target_cols = nucleus_cols
                 else:
                     logger.error(
-                        "Neither cell nor nucleus intensity columns found for channel '%s'. Expected %s or %s.",
-                        channel,
-                        cell_cols,
-                        nucleus_cols,
+                        f"Neither cell nor nucleus intensity columns found for channel '{channel}'. Expected {cell_cols} or {nucleus_cols}."
                     )
                     raise ValueError(
                         f"Neither cell nor nucleus intensity columns found for channel '{channel}'."
@@ -1865,9 +1846,7 @@ class ScaleIntensityParser:
             # Verify values are not None
             if max_value[0, 0] is None or min_value[0, 0] is None:
                 logger.error(
-                    "Intensity values for channel '%s' are null even in %s columns.",
-                    channel,
-                    "nucleus" if target_cols == nucleus_cols else "cell",
+                    f"Intensity values for channel '{channel}' are null even in {'nucleus' if target_cols == nucleus_cols else 'cell'} columns."
                 )
                 raise ValueError(
                     f"Intensity values for channel '{channel}' contain only nulls."
@@ -1922,7 +1901,7 @@ class PixelSizeParser:
                 image = well.getImage(0)  # Attempt to get the first image
                 image_list.append(image)
             except Exception as e:  # Catches any exception raised by getImage(0)  # noqa: BLE001
-                logger.error("Unable to retrieve image from well %s: %s", i, e)
+                logger.error(f"Unable to retrieve image from well {i}: {e}")
                 raise ValueError(
                     f"Unable to retrieve image from well {i}: {e}"
                 ) from e
@@ -1999,7 +1978,7 @@ class WellDataParser:
             self._omero_data.well_list.append(self._well)
             self._omero_data.well_id_list.append(int(self._well_id))
         else:
-            logger.error("Problem with loading well %s data.", self._well_pos)
+            logger.error(f"Problem with loading well {self._well_pos} data.")
             raise ValueError(
                 f"Problem with loading well {self._well_pos} data."
             )
@@ -2007,7 +1986,7 @@ class WellDataParser:
         if self._metadata:
             self._omero_data.well_metadata_list.append(self._metadata)
         else:
-            logger.error("No metadata found for well %s.", self._well_pos)
+            logger.error(f"No metadata found for well {self._well_pos}.")
             raise ValueError(f"No metadata found for well {self._well_pos}.")
 
         # Skip loading CSV data if cellview was skipped (aligned plates)
@@ -2019,7 +1998,7 @@ class WellDataParser:
                 )
             else:
                 logger.error(
-                    "No well csv data found for well %s.", self._well_pos
+                    f"No well csv data found for well {self._well_pos}."
                 )
                 raise ValueError(
                     f"No well csv data found for well {self._well_pos}."
@@ -2040,12 +2019,12 @@ class WellDataParser:
             if well.getWellPos() == self._well_pos:
                 self._well = well
                 self._well_id = well.getId()
-                logger.info("Well %s retrieved", self._well_pos)
+                logger.info(f"Well {self._well_pos} retrieved")
                 well_found = True
                 break
         if not well_found:
             logger.error(
-                "Well with position %s does not exist.", self._well_pos
+                f"Well with position {self._well_pos} does not exist."
             )  # Raise an error if the well was not found  # Raise an error if the well was not found
             raise ValueError(
                 f"Well with position {self._well_pos} does not exist."
@@ -2069,16 +2048,13 @@ class WellDataParser:
                     break
                 else:
                     logger.error(
-                        "No metadata with cell line name found for well %s",
-                        self._well_pos,
+                        f"No metadata with cell line name found for well {self._well_pos}"
                     )
                     raise ValueError(
                         f"No metadata with cell line name found for well {self._well_pos}"
                     )
         if not self._metadata:
-            logger.error(
-                "No map annotations found for well %s", self._well_pos
-            )
+            logger.error(f"No map annotations found for well {self._well_pos}")
             raise ValueError(
                 f"No map annotations found for well {self._well_pos}"
             )
@@ -2144,8 +2120,7 @@ class ImageParser:
             self._omero_data.images = new_images
             self._omero_data.image_ids = self._image_ids
             logger.debug(
-                "Images loaded to empty omero_data.images, new shape: %s",
-                self._omero_data.images.shape,
+                f"Images loaded to empty omero_data.images, new shape: {self._omero_data.images.shape}"
             )
         else:
             self._omero_data.images = np.concatenate(
@@ -2154,7 +2129,7 @@ class ImageParser:
             self._omero_data.image_ids.extend(self._image_ids)
 
         logger.debug(
-            "Images shape after processing: %s", self._omero_data.images.shape
+            f"Images shape after processing: {self._omero_data.images.shape}"
         )
 
     def _parse_labels(self) -> None:
@@ -2165,20 +2140,18 @@ class ImageParser:
         """
         self._collect_labels()
         if self._omero_data.labels.size == 0:
-            logger.debug("Labels shape: %s", self._label_arrays[0].shape)
+            logger.debug(f"Labels shape: {self._label_arrays[0].shape}")
             self._omero_data.labels = np.stack(self._label_arrays, axis=0)
 
             logger.debug(
-                "Labels loaded to empty omero_data.labels, new shape: %s",
-                self._omero_data.labels.shape,
+                f"Labels loaded to empty omero_data.labels, new shape: {self._omero_data.labels.shape}"
             )
         else:
             self._omero_data.labels = np.concatenate(
                 (self._omero_data.labels, self._label_arrays), axis=0
             )
             logger.debug(
-                "Labels added to omero_data.labels, new shape: %s",
-                self._omero_data.labels.shape,
+                f"Labels added to omero_data.labels, new shape: {self._omero_data.labels.shape}"
             )
 
     def _collect_images(self) -> None:
@@ -2186,11 +2159,11 @@ class ImageParser:
         Collects images and image arrays for the well and adds the to the image_ids and image_arrays list.
         """
 
-        logger.info("Collecting images for well %s", self._well.getWellPos())
+        logger.info(f"Collecting images for well {self._well.getWellPos()}")
         start, length = _get_crop(self._omero_data)
         tstart, tend = None, None
         if start and length:
-            logger.info("Using crop: %s - %s", start, length)
+            logger.info(f"Using crop: {start} - {length}")
             # Crop supports only time
             tstart, tend = start[-1], start[-1] + length[-1]
 
@@ -2198,9 +2171,7 @@ class ImageParser:
             if image := self._well.getImage(index):
                 if mip_id := self.check_mip(image):
                     logger.info(
-                        "Image with index %s has Z-stacks, looking for MIP with id %s.",
-                        index,
-                        mip_id,
+                        f"Image with index {index} has Z-stacks, looking for MIP with id {mip_id}."
                     )
                     image_array = get_image(
                         self._conn,
@@ -2220,16 +2191,12 @@ class ImageParser:
                 flatfield_corrected_image = self._flatfield_correct_image(
                     image_array
                 )
-                logger.debug(
-                    "Image shape: %s", flatfield_corrected_image.shape
-                )
+                logger.debug(f"Image shape: {flatfield_corrected_image.shape}")
                 self._image_arrays.append(flatfield_corrected_image)
                 self._image_ids.append(image.getId())
             else:
                 logger.error(
-                    "Image with index %s not found in well %s",
-                    index,
-                    self._well.getWellPos(),
+                    f"Image with index {index} not found in well {self._well.getWellPos()}"
                 )
                 raise ValueError(
                     f"Image with index {index} not found in well {self._well.getWellPos()}"
@@ -2272,7 +2239,7 @@ class ImageParser:
         corrected_array = image_array / self._omero_data.flatfield_masks
         if len(corrected_array.shape) == 2:
             corrected_array = corrected_array[..., np.newaxis]
-        logger.debug("Corrected image shape: %s", corrected_array.shape)
+        logger.debug(f"Corrected image shape: {corrected_array.shape}")
         return corrected_array  # type: ignore
 
     def _check_label_data(self) -> None:
@@ -2280,7 +2247,7 @@ class ImageParser:
             int(image.getName().split("_")[0])
             for image in self._omero_data.screen_dataset.listChildren()
         ]
-        logger.debug("Label names: %s", label_names)
+        logger.debug(f"Label names: {label_names}")
         all_images_in_labels = all(
             name in label_names for name in self._image_ids
         )
@@ -2419,7 +2386,7 @@ def get_plate_alignments(
             with open(tmp_path, "wb") as file_on_disk:
                 for chunk in original_file.asFileObj():
                     file_on_disk.write(chunk)
-            logger.info("Parsing CSV alignment file: %s", filename)
+            logger.info(f"Parsing CSV alignment file: {filename}")
             df = pd.read_csv(tmp_path)
     if df is None:
         raise Exception(

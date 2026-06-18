@@ -29,11 +29,10 @@ def run(args: argparse.Namespace) -> None:
     import numpy as np
     import torch
 
+    from cellclass._logging import configure_logging
     from cellclass.models import create_model
 
-    logging.basicConfig(
-        format="[%(asctime)s] %(levelname)s - %(message)s", level=logging.INFO
-    )
+    configure_logging(logging.INFO)
 
     device = torch.device("cpu")
 

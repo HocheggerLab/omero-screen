@@ -5,7 +5,7 @@ import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
-from omero_screen.config import get_logger
+from loguru import logger
 from skimage import exposure
 from skimage.measure import find_contours
 
@@ -27,8 +27,6 @@ from omero_screen_napari.crop_pipeline import (  # noqa: F401
 )
 from omero_screen_napari.gallery_userdata import UserData
 from omero_screen_napari.omero_data import OmeroData
-
-logger = get_logger(__name__)
 
 
 def show_gallery(
@@ -88,15 +86,12 @@ def parse_crops_into_omero_data(
     (:class:`RandomImageParser`) is unchanged.
     """
     logger.info(
-        "Parsing crops for well %s using segmentation %s",
-        user_data.well,
-        user_data.segmentation,
+        f"Parsing crops for well {user_data.well} using segmentation {user_data.segmentation}"
     )
     centroids = _filter_well_centroids(omero_data, user_data)
     if centroids.empty:
         logger.warning(
-            "No centroids for well %s after filtering; no crops generated.",
-            user_data.well,
+            f"No centroids for well {user_data.well} after filtering; no crops generated."
         )
         omero_data.cropped_images = []
         omero_data.cropped_labels = []
@@ -118,8 +113,7 @@ def parse_crops_into_omero_data(
         # run granularity: if the zarr store can't serve a crop mid-run,
         # redo the whole well from the in-memory fields.
         logger.warning(
-            "Crop source failed mid-run (%s); retrying from in-memory fields",
-            exc,
+            f"Crop source failed mid-run ({exc}); retrying from in-memory fields"
         )
         result = CropPipeline(
             source=WelldataSource(omero_data),
@@ -133,7 +127,7 @@ def parse_crops_into_omero_data(
     omero_data.cropped_images = result.crops
     omero_data.cropped_labels = result.labels
     omero_data.cropped_cell_meta = result.cell_meta
-    logger.info("Generated %d crops", len(result.crops))
+    logger.info(f"Generated {len(result.crops)} crops")
 
 
 def _make_gallery_source(
@@ -153,7 +147,7 @@ def _make_gallery_source(
             return ZarrSource(omero_data.plate_id, user_data.well, intensities)
         except CropSourceError as exc:
             logger.info(
-                "Zarr source unavailable (%s); using in-memory fields", exc
+                f"Zarr source unavailable ({exc}); using in-memory fields"
             )
     return WelldataSource(omero_data)
 
@@ -168,8 +162,7 @@ def _select_cellcycledata(df: pl.DataFrame, cellcycle: str) -> pl.DataFrame:
         return df
     if "cell_cycle" not in df.columns:
         logger.error(
-            "'cell_cycle' column not found in data. Available columns: %s",
-            df.columns[:10],
+            f"'cell_cycle' column not found in data. Available columns: {df.columns[:10]}"
         )
         raise ValueError(
             "Cell cycle data not found. Cannot filter by cell cycle."
@@ -201,9 +194,7 @@ def _select_classifierdata(
         if value in df[col].unique().to_list():
             return df.filter(pl.col(col) == value)
     logger.warning(
-        "Classifier filter '%s' not found in any classifier column: %s",
-        value,
-        classifier_cols,
+        f"Classifier filter '{value}' not found in any classifier column: {classifier_cols}"
     )
     return df
 
@@ -242,15 +233,11 @@ def _filter_well_centroids(
         common_ids = metadata_ids.intersection(loaded_ids)
         if not common_ids:
             logger.warning(
-                "No intersection between requested well (%s) images and "
-                "loaded images. Loaded IDs: %s...",
-                user_data.well,
-                list(loaded_ids)[:5],
+                f"No intersection between requested well ({user_data.well}) images and loaded images. Loaded IDs: {list(loaded_ids)[:5]}..."
             )
         elif len(common_ids) < len(metadata_ids):
             logger.info(
-                "Processing %d images (subset of well) that are loaded.",
-                len(common_ids),
+                f"Processing {len(common_ids):d} images (subset of well) that are loaded."
             )
         df = df.filter(pl.col("image_id").is_in(common_ids))
 
@@ -263,10 +250,7 @@ def _filter_well_centroids(
             df = df_tp
         else:
             logger.info(
-                "No rows for timepoint %d (well %s); falling back to all "
-                "timepoints",
-                tp,
-                user_data.well,
+                f"No rows for timepoint {tp:d} (well {user_data.well}); falling back to all timepoints"
             )
 
     return df.to_pandas()
@@ -321,13 +305,11 @@ class RandomImageParser:
                     )  # Handle '3.0' strings if any
                 except ValueError:
                     logger.error(
-                        "Channel index %s for %s is not a valid number.",
-                        val,
-                        channel_name,
+                        f"Channel index {val} for {channel_name} is not a valid number."
                     )
             else:
                 logger.warning(
-                    "Channel %s not found in channel_data map.", channel_name
+                    f"Channel {channel_name} not found in channel_data map."
                 )
 
         # selected_crops stores only the selected channels (no RGB padding) for training data
@@ -537,10 +519,7 @@ class ParseGallery:
         for i, img in enumerate(self._omero_data.selected_images):
             if img.shape != first_shape:
                 logger.error(
-                    "Image %d has shape %s, expected %s",
-                    i,
-                    img.shape,
-                    first_shape,
+                    f"Image {i:d} has shape {img.shape}, expected {first_shape}"
                 )
                 raise ValueError(
                     f"All gallery images must have the same shape. "

@@ -4,15 +4,12 @@ from enum import Enum
 from typing import Any, Literal, Optional
 
 import duckdb
+from loguru import logger
 from rich.console import Console
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
-
-from omero_screen.config import get_logger
-
-logger = get_logger(__name__)
 
 # Define justify method type to match Rich's expected values
 JustifyMethod = Literal["default", "left", "center", "right", "full"]

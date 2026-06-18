@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from omero_screen.config import get_logger
+from loguru import logger
 
 from omero_screen_napari.gallery_api import (
     draw_contours,
@@ -18,8 +18,6 @@ from omero_screen_napari.gallery_api import (
 if TYPE_CHECKING:
     from omero_screen_napari.gallery_userdata import UserData
     from omero_screen_napari.omero_data import OmeroData
-
-logger = get_logger(__name__)
 
 
 def parse_npy_file(
@@ -92,9 +90,7 @@ def parse_npy_file(
                 # channels in sequential order — use 0..n-1 for display.
                 channels_int = list(range(n_selected))
                 logger.info(
-                    "Crops already channel-extracted (%d channels); using "
-                    "sequential indices",
-                    n_selected,
+                    f"Crops already channel-extracted ({n_selected:d} channels); using sequential indices"
                 )
             else:
                 # Old format: crops contain all OMERO channels — resolve

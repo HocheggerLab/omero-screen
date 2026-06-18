@@ -49,6 +49,7 @@ dependencies = [
     "sphinxcontrib-video>=0.4.2",
     "sphinx-rtd-theme>=3.0.2",
     "trackastra>=0.5.3",
+    "loguru>=0.7.3",
 ]
 
 [project.scripts]

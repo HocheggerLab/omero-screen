@@ -1,18 +1,16 @@
 """Module for parsing well level experimental conditions from omero screen csv files."""
 
-import logging
 from typing import Optional
 
 import duckdb
 import pandas as pd
+from loguru import logger
 from rich.console import Console
 
 from cellview.utils.error_classes import DataError
 from cellview.utils.state import CellViewState, CellViewStateCore
-from omero_screen.config import get_logger
 
 # Initialize logger with the module's name
-logger = get_logger(__name__)
 SUCCESS_STYLE = "bold green"
 
 
@@ -43,9 +41,9 @@ class ConditionManager:
         self.state = (
             state if state is not None else CellViewState.get_instance()
         )
-        self.logger: logging.Logger = get_logger(__name__)
+        self.logger = logger
         self.logger.debug(
-            "State initialized with repeat_id: %s", self.state.repeat_id
+            f"State initialized with repeat_id: {self.state.repeat_id}"
         )
         self.console = Console()
         self.per_well_constant_cols: list[str] = [
@@ -164,8 +162,7 @@ class ConditionManager:
             self.db_conn.commit()
 
             self.logger.info(
-                "Successfully populated conditions table with %d wells",
-                len(conditions_dict),
+                f"Successfully populated conditions table with {len(conditions_dict):d} wells"
             )
 
         except duckdb.Error as e:
@@ -202,7 +199,7 @@ class ConditionManager:
 
         # Create a dictionary with well as key and condition_id as value
         condition_id_map = {row[0]: row[1] for row in result}
-        self.logger.debug("Final condition_id_map: %s", condition_id_map)
+        self.logger.debug(f"Final condition_id_map: {condition_id_map}")
         self.state.condition_id_map = condition_id_map
         return condition_id_map
 
@@ -244,7 +241,7 @@ class ConditionManager:
             col for col in per_well_constant_cols if col not in exclude_cols
         ]
 
-        self.logger.info("Well variable: %s", well_variable)
+        self.logger.info(f"Well variable: {well_variable}")
         return well_variable
 
     def _populate_condition_variables_table(
@@ -293,11 +290,12 @@ class ConditionManager:
                     )
 
             self.logger.info(
-                "Successfully populated condition_variables table with %d variables",
-                sum(
-                    len(variable_conditions)
-                    for variable_conditions in well_variables.values()
-                ),
+                f"Successfully populated condition_variables table with {
+                    sum(
+                        len(variable_conditions)
+                        for variable_conditions in well_variables.values()
+                    ):d
+                } variables"
             )
 
         except duckdb.Error as e:
