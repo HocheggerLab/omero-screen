@@ -29,6 +29,7 @@ def count_plot(
     title: str | None = None,
     colors: Any = COLOR,
     save: bool = False,
+    save_stats: bool = False,
     dpi: int = 300,
     tight_layout: bool = False,
     file_format: str = "pdf",
@@ -40,6 +41,7 @@ def count_plot(
     within_group_spacing: float = 0.2,
     between_group_gap: float = 0.5,
     x_label: bool = True,
+    paired: bool = True,
 ) -> tuple[Figure, Axes]:
     """Plot normalized or absolute counts with optional grouping.
 
@@ -80,6 +82,9 @@ def count_plot(
     ^^^^^^^^^^^^^^^^^
     group_size : int, default=1
         The number of conditions to group together.
+    paired : bool, default=True
+        Use a paired t-test (ttest_rel, matched by plate_id) for significance;
+        set False for the unpaired ttest_ind.
     within_group_spacing : float, default=0.2
         The spacing between conditions within a group.
     between_group_gap : float, default=0.5
@@ -107,6 +112,9 @@ def count_plot(
     ^^^^^^^^^^^^
     save : bool, default=False
         Whether to save the plot.
+    save_stats : bool, default=False
+        Write {title}_stats.csv and {title}_medians.csv to ``path`` (independent
+        of ``save``; works when plotting onto a provided/composed ``axes``).
     path : Path | None, default=None
         The path to save the plot.
     file_format : str, default="pdf"
@@ -127,6 +135,7 @@ def count_plot(
         size_units=size_units,
         dpi=dpi,
         save=save,
+        save_stats=save_stats,
         file_format=file_format,
         tight_layout=tight_layout,
         path=path,
@@ -145,6 +154,7 @@ def count_plot(
         between_group_gap=between_group_gap,
         show_x_labels=x_label,
         rotation=45,
+        paired=paired,
     )
 
     # Use simplified CountPlot class

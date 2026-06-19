@@ -1,4 +1,27 @@
-"""Module for statistical analysis functions."""
+"""Statistical analysis for the plots.
+
+The convention across every plot is a **replicate-level** comparison:
+
+1. collapse the per-cell data to **one median per repeat** (``plate_id``) per
+   condition, then
+2. compare each condition to the **first condition in its group** with a
+   Student's t-test — **paired** (``scipy.stats.ttest_rel``, the default,
+   aligned on the plates present in both conditions) or, optionally, unpaired
+   (``ttest_ind``).
+
+``group_size == 1`` means every condition is compared to the overall first
+condition (the control); ``group_size > 1`` compares each condition to the first
+condition of its own group.
+
+The compute step (:func:`compute_significance`) returns both the per-repeat
+medians and the test results so callers can annotate the axes
+(:func:`annotate_significance`) and export both tables to CSV
+(:func:`write_stats_csv`).
+"""
+
+import warnings
+from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -6,50 +29,30 @@ from loguru import logger
 from matplotlib.axes import Axes
 from scipy import stats
 
-# Initialize logger with the module's name
 
+@dataclass
+class StatResult:
+    """One condition-vs-reference comparison.
 
-def calculate_pvalues(
-    df: pd.DataFrame, conditions: list[str], condition_col: str, column: str
-) -> list[float]:
-    """Calculate p-values for each condition against the first condition."""
-    df2 = df[df[condition_col].isin(conditions)]
-    count_list = [
-        df2[df2[condition_col] == condition][column].tolist()
-        for condition in conditions
-    ]
-    logger.debug(f"count_list: {count_list}")
+    Attributes:
+        reference: The reference condition (first in the group).
+        condition: The condition compared against the reference.
+        condition_index: Index of ``condition`` within the full conditions list
+            (used to position the on-plot marker).
+        n_pairs: Number of repeats used in the test (paired: shared plates).
+        p_value: The t-test p-value.
+        significance: Star marker derived from ``p_value`` (``ns``/``*``/...).
+        test: Which test produced the value
+            (``paired_t``/``unpaired_t``/``ns_insufficient``).
+    """
 
-    pvalues = []
-    for data in count_list[1:]:
-        try:
-            # Check for sufficient variance and sample size
-            if len(count_list[0]) < 2 or len(data) < 2:
-                logger.warning(
-                    "Insufficient sample size for t-test, setting p-value to 1.0"
-                )
-                pvalues.append(1.0)
-            elif np.var(count_list[0]) == 0 and np.var(data) == 0:
-                # Both groups have zero variance - no meaningful difference
-                pvalues.append(1.0)
-            else:
-                import warnings
-
-                with warnings.catch_warnings():
-                    warnings.filterwarnings(
-                        "ignore",
-                        category=RuntimeWarning,
-                        message=".*catastrophic cancellation.*",
-                    )
-                    p_value = stats.ttest_ind(count_list[0], data).pvalue
-                    pvalues.append(p_value)
-        except (ValueError, RuntimeError, stats.LinAlgError) as e:
-            logger.warning(
-                f"Error in t-test calculation: {e}, setting p-value to 1.0"
-            )
-            pvalues.append(1.0)
-
-    return pvalues
+    reference: str
+    condition: str
+    condition_index: int
+    n_pairs: int
+    p_value: float
+    significance: str
+    test: str
 
 
 def get_significance_marker(p: float) -> str:
@@ -65,35 +68,276 @@ def get_significance_marker(p: float) -> str:
             return "***"
 
 
-def set_significance_marks(
-    axes: Axes,
+def _pvalue_from_medians(
+    ref: pd.Series, cond: pd.Series, paired: bool
+) -> tuple[float, int, str]:
+    """Compute a t-test p-value between two per-repeat median series.
+
+    Args:
+        ref: Reference condition medians, indexed by repeat (plate_id).
+        cond: Compared condition medians, indexed by repeat (plate_id).
+        paired: If True, align on shared repeats and use ``ttest_rel``;
+            otherwise use ``ttest_ind`` on all medians.
+
+    Returns:
+        Tuple of (p_value, n, test_name).
+    """
+    if paired:
+        shared = ref.index.intersection(cond.index)
+        a = ref.loc[shared].to_numpy(dtype=float)
+        b = cond.loc[shared].to_numpy(dtype=float)
+        n = len(shared)
+        if n < 2:
+            logger.warning(
+                "Paired t-test needs >=2 shared repeats; got "
+                f"{n}, setting p-value to 1.0"
+            )
+            return 1.0, n, "ns_insufficient"
+        diff = b - a
+        if np.all(diff == 0):
+            # Identical series - no difference, ttest_rel would return NaN.
+            return 1.0, n, "paired_t"
+        if np.var(diff) == 0:
+            # Perfectly consistent non-zero difference across repeats -> the
+            # maximally significant case (ttest_rel t -> inf).
+            return 0.0, n, "paired_t"
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                category=RuntimeWarning,
+                message=".*catastrophic cancellation.*",
+            )
+            p = float(stats.ttest_rel(a, b).pvalue)
+        return (p if not np.isnan(p) else 1.0), n, "paired_t"
+
+    a = ref.to_numpy(dtype=float)
+    b = cond.to_numpy(dtype=float)
+    n = min(len(a), len(b))
+    if len(a) < 2 or len(b) < 2:
+        logger.warning(
+            "Unpaired t-test needs >=2 repeats per group, setting p-value to 1.0"
+        )
+        return 1.0, n, "ns_insufficient"
+    if np.var(a) == 0 and np.var(b) == 0:
+        # Both constant: significant only if the constants differ.
+        return (1.0 if np.mean(a) == np.mean(b) else 0.0), n, "unpaired_t"
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            category=RuntimeWarning,
+            message=".*catastrophic cancellation.*",
+        )
+        p = float(stats.ttest_ind(a, b).pvalue)
+    return (p if not np.isnan(p) else 1.0), n, "unpaired_t"
+
+
+def compute_significance(
     df: pd.DataFrame,
     conditions: list[str],
     condition_col: str,
-    y_col: str,
-    y_max: float,
+    value_col: str,
+    *,
+    group_size: int = 1,
+    repeat_col: str = "plate_id",
+    paired: bool = True,
+) -> tuple[pd.DataFrame, list[StatResult]]:
+    """Compute replicate-level significance for a plot.
+
+    Aggregates ``value_col`` to one median per ``repeat_col`` per condition,
+    then compares each condition to the first condition of its group.
+
+    Args:
+        df: Data containing ``condition_col``, ``value_col`` and ``repeat_col``.
+            May be per-cell or already per-repeat; it is reduced to per-repeat
+            medians either way.
+        conditions: Ordered conditions to compare.
+        condition_col: Column holding the condition labels.
+        value_col: Column holding the measurement to test.
+        group_size: Conditions per group (1 = all vs the overall first).
+        repeat_col: Column identifying a biological repeat (default plate_id).
+        paired: Use a paired t-test aligned on shared repeats (default True).
+
+    Returns:
+        Tuple of (per-repeat medians DataFrame, list of StatResult).
+    """
+    df2 = df[df[condition_col].isin(conditions)]
+    if df2.empty or repeat_col not in df2.columns:
+        return pd.DataFrame(columns=[repeat_col, condition_col, value_col]), []
+
+    medians = (
+        df2.groupby([repeat_col, condition_col])[value_col]
+        .median()
+        .reset_index()
+    )
+    by_cond = {
+        cond: medians[medians[condition_col] == cond].set_index(repeat_col)[
+            value_col
+        ]
+        for cond in conditions
+    }
+
+    results: list[StatResult] = []
+    # group_size <= 1 means a single group spanning all conditions (everything
+    # vs the overall first/control); >1 splits into consecutive windows, each
+    # compared to its own first condition.
+    gs = group_size if group_size and group_size > 1 else len(conditions)
+    for group_start in range(0, len(conditions), gs):
+        group = conditions[group_start : group_start + gs]
+        if len(group) < 2:
+            continue
+        reference = group[0]
+        ref_series = by_cond.get(reference)
+        for offset, condition in enumerate(group[1:], start=1):
+            idx = group_start + offset
+            cond_series = by_cond.get(condition)
+            if (
+                ref_series is None
+                or cond_series is None
+                or len(ref_series) == 0
+                or len(cond_series) == 0
+            ):
+                p, n, test = 1.0, 0, "ns_insufficient"
+            else:
+                p, n, test = _pvalue_from_medians(
+                    ref_series, cond_series, paired
+                )
+            results.append(
+                StatResult(
+                    reference=reference,
+                    condition=condition,
+                    condition_index=idx,
+                    n_pairs=n,
+                    p_value=p,
+                    significance=get_significance_marker(p),
+                    test=test,
+                )
+            )
+
+    logger.info(
+        f"significance ({'paired' if paired else 'unpaired'}): "
+        f"{[(r.condition, round(r.p_value, 4), r.significance) for r in results]}"
+    )
+    return medians, results
+
+
+def annotate_significance(
+    axes: Axes,
+    results: list[StatResult],
+    x_positions: list[float],
+    y: float,
+    *,
+    fontsize: int = 6,
 ) -> None:
-    """Set the significance marks on the axes."""
-    pvalues = calculate_pvalues(df, conditions, condition_col, y_col)
-    logger.info(f"pvalues: {pvalues}")
-    for i, _ in enumerate(conditions[1:], start=1):
-        p_value = pvalues[i - 1]  # Adjust index for p-values list
-        significance = get_significance_marker(p_value)
+    """Draw significance markers from ``results`` at the given x positions."""
+    for result in results:
+        if 0 <= result.condition_index < len(x_positions):
+            axes.annotate(
+                result.significance,
+                xy=(x_positions[result.condition_index], y),
+                xycoords="data",
+                ha="center",
+                va="bottom",
+                fontsize=fontsize,
+            )
 
-        # Find the midpoint of the bar
-        x = i
 
-        y = y_max
-
-        # Annotate the significance marker
-        axes.annotate(
-            significance,
-            xy=(x, y),
-            xycoords="data",
-            ha="center",
-            va="bottom",
-            fontsize=6,
+def stats_results_to_dataframe(
+    results: list[StatResult],
+    *,
+    value_label: str,
+    extra: dict[str, str] | None = None,
+) -> pd.DataFrame:
+    """Convert StatResults into a tidy p-value table for CSV export."""
+    rows: list[dict[str, object]] = []
+    for result in results:
+        row: dict[str, object] = {"feature": value_label}
+        if extra:
+            row.update(extra)
+        row.update(
+            {
+                "reference": result.reference,
+                "condition": result.condition,
+                "n_pairs": result.n_pairs,
+                "p_value": result.p_value,
+                "significance": result.significance,
+                "test": result.test,
+            }
         )
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def medians_to_dataframe(
+    medians: pd.DataFrame,
+    *,
+    repeat_col: str,
+    condition_col: str,
+    value_col: str,
+    value_label: str,
+    extra: dict[str, str] | None = None,
+) -> pd.DataFrame:
+    """Convert the per-repeat medians frame into a tidy table for CSV export."""
+    out = medians.rename(
+        columns={
+            repeat_col: "plate_id",
+            condition_col: "condition",
+            value_col: "value",
+        }
+    ).copy()
+    out.insert(0, "feature", value_label)
+    extra_cols = list(extra.keys()) if extra else []
+    for key, val in (extra or {}).items():
+        out[key] = val
+    return out[["feature", *extra_cols, "plate_id", "condition", "value"]]
+
+
+def write_stats_csv(
+    df: pd.DataFrame, path: Path, fig_id: str, kind: str
+) -> None:
+    """Write a stats/medians table next to a saved figure.
+
+    Args:
+        df: The table to write.
+        path: Output directory (same as the figure's).
+        fig_id: Figure id (sanitised title); the file is ``{fig_id}_{kind}.csv``.
+        kind: ``"stats"`` (p-values) or ``"medians"``.
+    """
+    if df.empty:
+        return
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+    out_path = path / f"{fig_id}_{kind}.csv"
+    df.to_csv(out_path, index=False)
+    logger.info(f"Saved {kind} table to {out_path}")
+
+
+# ---------------------------------------------------------------------------
+# Backwards-compatible wrappers (compute + annotate). Existing callers ignore
+# the return value; they now receive the StatResult list so the plot builders
+# can capture it for CSV export.
+# ---------------------------------------------------------------------------
+
+
+def calculate_pvalues(
+    df: pd.DataFrame,
+    conditions: list[str],
+    condition_col: str,
+    column: str,
+    *,
+    repeat_col: str = "plate_id",
+    paired: bool = True,
+) -> list[float]:
+    """Calculate p-values for each condition against the first condition."""
+    _, results = compute_significance(
+        df,
+        conditions,
+        condition_col,
+        column,
+        group_size=1,
+        repeat_col=repeat_col,
+        paired=paired,
+    )
+    return [r.p_value for r in results]
 
 
 def calculate_grouped_pvalues(
@@ -102,80 +346,108 @@ def calculate_grouped_pvalues(
     condition_col: str,
     column: str,
     group_size: int = 2,
+    *,
+    repeat_col: str = "plate_id",
+    paired: bool = True,
 ) -> list[tuple[int, float]]:
-    """Calculate p-values within each group against the first condition of that group.
+    """Calculate within-group p-values against each group's first condition."""
+    _, results = compute_significance(
+        df,
+        conditions,
+        condition_col,
+        column,
+        group_size=group_size,
+        repeat_col=repeat_col,
+        paired=paired,
+    )
+    return [(r.condition_index, r.p_value) for r in results]
 
-    Args:
-        df: DataFrame containing the data
-        conditions: List of all conditions
-        condition_col: Column name containing condition values
-        column: Column name for the data to compare
-        group_size: Number of conditions per group
 
-    Returns:
-        List of tuples (condition_index, p_value) for non-reference conditions
-    """
-    df_filtered = df[df[condition_col].isin(conditions)]
-    results = []
+def set_significance_marks(
+    axes: Axes,
+    df: pd.DataFrame,
+    conditions: list[str],
+    condition_col: str,
+    y_col: str,
+    y_max: float,
+    *,
+    repeat_col: str = "plate_id",
+    paired: bool = True,
+) -> list[StatResult]:
+    """Annotate significance (all conditions vs the first) and return results."""
+    _, results = compute_significance(
+        df,
+        conditions,
+        condition_col,
+        y_col,
+        group_size=1,
+        repeat_col=repeat_col,
+        paired=paired,
+    )
+    x_positions = [float(i) for i in range(len(conditions))]
+    annotate_significance(axes, results, x_positions, y_max)
+    return results
 
-    for group_start in range(0, len(conditions), group_size):
-        group_conditions = conditions[group_start : group_start + group_size]
 
-        if len(group_conditions) < 2:
-            continue
+def set_grouped_within_significance_marks(
+    axes: Axes,
+    df: pd.DataFrame,
+    conditions: list[str],
+    condition_col: str,
+    y_col: str,
+    y_max: float,
+    group_size: int = 2,
+    x_positions: list[float] | None = None,
+    *,
+    repeat_col: str = "plate_id",
+    paired: bool = True,
+) -> list[StatResult]:
+    """Annotate within-group significance and return results."""
+    if x_positions is None:
+        x_positions = [float(i) for i in range(len(conditions))]
+    elif not isinstance(x_positions, list):
+        x_positions = list(x_positions)
+    _, results = compute_significance(
+        df,
+        conditions,
+        condition_col,
+        y_col,
+        group_size=group_size,
+        repeat_col=repeat_col,
+        paired=paired,
+    )
+    annotate_significance(axes, results, x_positions, y_max)
+    return results
 
-        # Get reference data (first condition in group)
-        reference_condition = group_conditions[0]
-        reference_data = df_filtered[
-            df_filtered[condition_col] == reference_condition
-        ][column].tolist()
 
-        # Compare other conditions in group to reference
-        for i, condition in enumerate(group_conditions[1:], start=1):
-            condition_data = df_filtered[
-                df_filtered[condition_col] == condition
-            ][column].tolist()
-
-            if len(reference_data) > 0 and len(condition_data) > 0:
-                try:
-                    # Check for sufficient variance and sample size
-                    if len(reference_data) < 2 or len(condition_data) < 2:
-                        logger.warning(
-                            f"Insufficient sample size for t-test: {reference_condition} vs {condition}"
-                        )
-                        p_value = 1.0
-                    elif (
-                        np.var(reference_data) == 0
-                        and np.var(condition_data) == 0
-                    ):
-                        # Both groups have zero variance - no meaningful difference
-                        p_value = 1.0
-                    else:
-                        import warnings
-
-                        with warnings.catch_warnings():
-                            warnings.filterwarnings(
-                                "ignore",
-                                category=RuntimeWarning,
-                                message=".*catastrophic cancellation.*",
-                            )
-                            p_value = stats.ttest_ind(
-                                reference_data, condition_data
-                            ).pvalue
-
-                    global_index = group_start + i
-                    results.append((global_index, p_value))
-                except (ValueError, RuntimeError, stats.LinAlgError) as e:
-                    logger.warning(
-                        f"Error in t-test calculation for {reference_condition} vs {condition}: {e}"
-                    )
-                    global_index = group_start + i
-                    results.append((global_index, 1.0))
-            else:
-                logger.warning(
-                    f"No data found for comparison: {reference_condition} vs {condition}"
-                )
-
+def set_significance_marks_adaptive(
+    axes: Axes,
+    df: pd.DataFrame,
+    conditions: list[str],
+    condition_col: str,
+    y_col: str,
+    y_max: float,
+    group_size: int = 1,
+    x_positions: list[float] | None = None,
+    *,
+    repeat_col: str = "plate_id",
+    paired: bool = True,
+) -> list[StatResult]:
+    """Annotate significance, adapting to group_size, and return results."""
+    if x_positions is None:
+        x_positions = [float(i) for i in range(len(conditions))]
+    elif not isinstance(x_positions, list):
+        x_positions = list(x_positions)
+    _, results = compute_significance(
+        df,
+        conditions,
+        condition_col,
+        y_col,
+        group_size=group_size,
+        repeat_col=repeat_col,
+        paired=paired,
+    )
+    annotate_significance(axes, results, x_positions, y_max)
     return results
 
 
@@ -188,42 +460,52 @@ def set_grouped_significance_marks(
     y_max: float,
     group_size: int = 2,
     x_positions: list[float] | None = None,
-) -> None:
-    """Sets significance marks on the axes.
+    *,
+    repeat_col: str = "plate_id",
+    paired: bool = True,
+) -> list[StatResult]:
+    """Annotate significance between adjacent conditions within each group.
 
-    For each group of group_size in conditions, perform pairwise t-tests between adjacent conditions in the group
-    and annotate the significance above the midpoint between the two columns being compared.
-    Optionally, provide x_positions for custom x-axis placement.
-    Parameters:
-    axes: Axes
-    df: pd.DataFrame
-    conditions: list[str]
-    condition_col: str
-    y_col: str
-    y_max: float
+    Legacy helper (sequential pairwise within a group). Uses the same
+    replicate-level paired test and annotates at the midpoint between the two
+    columns being compared.
     """
     n = len(conditions)
     if x_positions is None:
         x_positions = [float(i) for i in range(n)]
     elif not isinstance(x_positions, list):
         x_positions = list(x_positions)
+
+    df2 = df[df[condition_col].isin(conditions)]
+    medians = (
+        df2.groupby([repeat_col, condition_col])[y_col].median().reset_index()
+        if not df2.empty and repeat_col in df2.columns
+        else pd.DataFrame(columns=[repeat_col, condition_col, y_col])
+    )
+    by_cond = {
+        cond: medians[medians[condition_col] == cond].set_index(repeat_col)[
+            y_col
+        ]
+        for cond in conditions
+    }
+
+    results: list[StatResult] = []
     for group_start in range(0, n, group_size):
-        group_conds = conditions[group_start : group_start + group_size]
+        group = conditions[group_start : group_start + group_size]
         group_xs = x_positions[group_start : group_start + group_size]
-        for i in range(len(group_conds) - 1):
-            cond1 = group_conds[i]
-            cond2 = group_conds[i + 1]
-            x1 = group_xs[i]
-            x2 = group_xs[i + 1]
-            # Get data for each condition
-            data1 = df[df[condition_col] == cond1][y_col]
-            data2 = df[df[condition_col] == cond2][y_col]
-            # Perform t-test (TtestResult object)
-            ttest = stats.ttest_ind(data1, data2)
-            p_value = float(ttest.pvalue)
-            significance = get_significance_marker(p_value)
-            # Annotate at midpoint
-            x_mid = (x1 + x2) / 2
+        for i in range(len(group) - 1):
+            left, right = by_cond.get(group[i]), by_cond.get(group[i + 1])
+            if (
+                left is None
+                or right is None
+                or len(left) == 0
+                or len(right) == 0
+            ):
+                p, npairs, test = 1.0, 0, "ns_insufficient"
+            else:
+                p, npairs, test = _pvalue_from_medians(left, right, paired)
+            significance = get_significance_marker(p)
+            x_mid = (group_xs[i] + group_xs[i + 1]) / 2
             axes.annotate(
                 significance,
                 xy=(x_mid, y_max),
@@ -232,96 +514,15 @@ def set_grouped_significance_marks(
                 va="bottom",
                 fontsize=6,
             )
-
-
-def set_grouped_within_significance_marks(
-    axes: Axes,
-    df: pd.DataFrame,
-    conditions: list[str],
-    condition_col: str,
-    y_col: str,
-    y_max: float,
-    group_size: int = 2,
-    x_positions: list[float] | None = None,
-) -> None:
-    """Set significance marks comparing conditions within each group to the group's first condition.
-
-    Args:
-        axes: Matplotlib axes object
-        df: DataFrame containing the data
-        conditions: List of all conditions
-        condition_col: Column name containing condition values
-        y_col: Column name for the data to compare
-        y_max: Y-axis maximum for positioning marks
-        group_size: Number of conditions per group
-        x_positions: Optional custom x-axis positions
-    """
-    if x_positions is None:
-        x_positions = [float(i) for i in range(len(conditions))]
-    elif not isinstance(x_positions, list):
-        x_positions = list(x_positions)
-
-    # Get p-values for within-group comparisons
-    pvalue_results = calculate_grouped_pvalues(
-        df, conditions, condition_col, y_col, group_size
-    )
-
-    logger.info(f"grouped pvalues: {pvalue_results}")
-
-    # Annotate significance marks
-    for condition_index, p_value in pvalue_results:
-        significance = get_significance_marker(p_value)
-        x = x_positions[condition_index]
-
-        axes.annotate(
-            significance,
-            xy=(x, y_max),
-            xycoords="data",
-            ha="center",
-            va="bottom",
-            fontsize=6,
-        )
-
-
-def set_significance_marks_adaptive(
-    axes: Axes,
-    df: pd.DataFrame,
-    conditions: list[str],
-    condition_col: str,
-    y_col: str,
-    y_max: float,
-    group_size: int = 1,
-    x_positions: list[float] | None = None,
-) -> None:
-    """Adaptively set significance marks based on group_size.
-
-    - If group_size = 1: Use traditional comparison (all vs first condition)
-    - If group_size > 1: Use within-group comparison (each condition vs group reference)
-
-    Args:
-        axes: Matplotlib axes object
-        df: DataFrame containing the data
-        conditions: List of all conditions
-        condition_col: Column name containing condition values
-        y_col: Column name for the data to compare
-        y_max: Y-axis maximum for positioning marks
-        group_size: Number of conditions per group
-        x_positions: Optional custom x-axis positions
-    """
-    if group_size == 1:
-        # Traditional behavior: compare all to first condition
-        set_significance_marks(
-            axes, df, conditions, condition_col, y_col, y_max
-        )
-    else:
-        # New behavior: compare within groups to group reference
-        set_grouped_within_significance_marks(
-            axes,
-            df,
-            conditions,
-            condition_col,
-            y_col,
-            y_max,
-            group_size,
-            x_positions,
-        )
+            results.append(
+                StatResult(
+                    reference=group[i],
+                    condition=group[i + 1],
+                    condition_index=group_start + i + 1,
+                    n_pairs=npairs,
+                    p_value=p,
+                    significance=significance,
+                    test=test,
+                )
+            )
+    return results

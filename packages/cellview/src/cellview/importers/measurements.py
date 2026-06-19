@@ -174,7 +174,7 @@ class MeasurementsManager:
         if "label" in self.state.df.columns:
             self.state.df["label"] = self.state.df["label"].astype(str)
 
-        self.logger.info(f"df columns: {self.state.df.columns}")
+        self.logger.info("df columns: {}", self.state.df.columns)
         # Bulk insert using DuckDB's COPY FROM
         # Register the DataFrame as a DuckDB table
         try:

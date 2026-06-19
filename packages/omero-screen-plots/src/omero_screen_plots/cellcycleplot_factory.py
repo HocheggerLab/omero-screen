@@ -15,7 +15,10 @@ from numpy.typing import NDArray
 
 from omero_screen_plots.base import BasePlotBuilder, BasePlotConfig
 from omero_screen_plots.colors import COLOR
-from omero_screen_plots.stats import set_significance_marks
+from omero_screen_plots.stats import (
+    annotate_significance,
+    compute_significance,
+)
 from omero_screen_plots.utils import (
     selector_val_filter,
 )
@@ -497,13 +500,26 @@ class StandardCellCyclePlot(BaseCellCyclePlot):
 
             # Add significance marks if we have enough replicates
             if self.config.show_significance and data.plate_id.nunique() >= 3:
-                set_significance_marks(
-                    ax,
+                medians_df, results = compute_significance(
                     df_phase,
                     conditions,
                     condition_col,
                     "percent",
+                    group_size=getattr(self.config, "group_size", 1),
+                    paired=self.config.paired,
+                )
+                annotate_significance(
+                    ax,
+                    results,
+                    [float(j) for j in range(len(conditions))],
                     ax.get_ylim()[1] * 0.93,
+                )
+                self._record_stats(
+                    medians_df,
+                    results,
+                    value_label=display_phase,
+                    condition_col=condition_col,
+                    value_col="percent",
                 )
 
             # Format this subplot using display name for title
@@ -859,7 +875,46 @@ class StackedCellCyclePlot(BaseCellCyclePlot):
                 stacking_phases, display_mapping, color_mapping
             )
 
+        # Capture per-phase significance for CSV export (no on-plot marks: the
+        # stacked bars have no natural single position for a star). Written to
+        # {title}_stats.csv / {title}_medians.csv by save_figure when save=True.
+        self._record_phase_stats(
+            data, conditions, condition_col, data_phases, display_mapping
+        )
+
         return self
+
+    def _record_phase_stats(
+        self,
+        data: pd.DataFrame,
+        conditions: list[str],
+        condition_col: str,
+        data_phases: list[str],
+        display_mapping: dict[str, str],
+    ) -> None:
+        """Compute per-phase condition-vs-first stats and store for CSV export."""
+        if data["plate_id"].nunique() < 3:
+            return
+        for phase in data_phases:
+            df_phase = data[
+                (data.cell_cycle == phase)
+                & (data[condition_col].isin(conditions))
+            ]
+            medians_df, results = compute_significance(
+                df_phase,
+                conditions,
+                condition_col,
+                "percent",
+                group_size=self.config.group_size,
+                paired=self.config.paired,
+            )
+            self._record_stats(
+                medians_df,
+                results,
+                value_label=display_mapping.get(phase, phase),
+                condition_col=condition_col,
+                value_col="percent",
+            )
 
     def _get_x_positions_for_stacked(
         self, conditions: list[str]

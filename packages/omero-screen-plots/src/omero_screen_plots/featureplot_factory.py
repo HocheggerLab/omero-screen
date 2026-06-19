@@ -13,7 +13,10 @@ from matplotlib.figure import Figure
 
 from omero_screen_plots.base import BasePlotBuilder, BasePlotConfig
 from omero_screen_plots.colors import COLOR
-from omero_screen_plots.stats import set_significance_marks_adaptive
+from omero_screen_plots.stats import (
+    annotate_significance,
+    compute_significance,
+)
 from omero_screen_plots.utils import (
     finalize_plot_with_title,
     grouped_x_positions,
@@ -279,8 +282,16 @@ class BaseFeaturePlot(BasePlotBuilder):
         """Build the specific feature plot type. Implemented by subclasses."""
 
     def _get_x_positions(self, conditions: list[str]) -> list[float]:
-        """Get x positions for plotting based on grouping configuration."""
-        if self.config.group_size > 1:
+        """Get x positions for plotting based on grouping configuration.
+
+        Uses grouped_x_positions whenever bars are drawn manually (grouped, or
+        triplicate mode) so between_group_gap controls the spacing. The plain
+        seaborn box/violin layout (group_size==1, no triplicates) is categorical
+        and keeps integer positions so the overlays stay aligned.
+        """
+        if self.config.group_size > 1 or getattr(
+            self.config, "show_triplicates", False
+        ):
             return grouped_x_positions(
                 len(conditions),
                 group_size=self.config.group_size,
@@ -384,15 +395,21 @@ class BaseFeaturePlot(BasePlotBuilder):
             # Use the exact same approach for both box and violin plots
             y_top = self.ax.get_ylim()[1] * 0.93
 
-            set_significance_marks_adaptive(
-                self.ax,
+            medians_df, results = compute_significance(
                 df_median,
                 conditions,
                 condition_col,
                 feature,
-                y_top,
                 group_size=self.config.group_size,
-                x_positions=x_positions,
+                paired=self.config.paired,
+            )
+            annotate_significance(self.ax, results, x_positions, y_top)
+            self._record_stats(
+                medians_df,
+                results,
+                value_label=feature,
+                condition_col=condition_col,
+                value_col=feature,
             )
 
     def _format_axes(
@@ -1154,17 +1171,21 @@ class NormFeaturePlot(BaseFeaturePlot):
         # Filter for positive category only (that's what we're comparing)
         positive_data = data[data["category"] == "positive"]
 
-        # Use the existing set_significance_marks_adaptive function
-        # It will use calculate_pvalues internally with the "percent" column
         y_max = 98  # Position marks just below the top for percentage plots
 
-        set_significance_marks_adaptive(
-            self.ax,
+        medians_df, results = compute_significance(
             positive_data,
             conditions,
             condition_col,
             "percent",  # This is the column with proportion data
-            y_max,
             group_size=self.config.group_size,
-            x_positions=x_positions,
+            paired=self.config.paired,
+        )
+        annotate_significance(self.ax, results, x_positions, y_max)
+        self._record_stats(
+            medians_df,
+            results,
+            value_label=f"{feature} (% positive)",
+            condition_col=condition_col,
+            value_col="percent",
         )

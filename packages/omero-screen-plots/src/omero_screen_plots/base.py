@@ -32,6 +32,14 @@ class BasePlotConfig:
     title: str | None = None
     colors: list[str] = field(default_factory=list)
 
+    # Statistics: paired t-test (matched repeats) by default; set False for
+    # the unpaired ttest_ind.
+    paired: bool = True
+    # Write {title}_stats.csv / {title}_medians.csv to ``path``. Independent of
+    # ``save`` so it works when plotting onto a shared/composed figure
+    # (axes=..., save=False) — just provide a ``path``.
+    save_stats: bool = False
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for kwargs."""
         return {k: v for k, v in self.__dict__.items() if v is not None}
@@ -102,6 +110,9 @@ class BasePlotBuilder(ABC):
         self.ax: Axes | None = None
         self.axes_provided: bool = False
         self._filename: str | None = None
+        # Captured statistics for CSV export (see _record_stats / save_figure).
+        self._stats_tables: list[pd.DataFrame] = []
+        self._median_tables: list[pd.DataFrame] = []
 
     def create_figure(self, axes: Axes | None = None) -> "BasePlotBuilder":
         """Create or use existing figure."""
@@ -146,11 +157,65 @@ class BasePlotBuilder(ABC):
             )
         return self
 
+    def _record_stats(
+        self,
+        medians_df: pd.DataFrame,
+        results: list[Any],
+        *,
+        value_label: str,
+        condition_col: str,
+        value_col: str,
+        repeat_col: str = "plate_id",
+        extra: dict[str, str] | None = None,
+    ) -> None:
+        """Capture stats + medians tables for later CSV export.
+
+        Called by builders after computing significance. The tables are written
+        to ``{title}_stats.csv`` / ``{title}_medians.csv`` by ``save_figure``.
+        """
+        from omero_screen_plots.stats import (
+            medians_to_dataframe,
+            stats_results_to_dataframe,
+        )
+
+        if results:
+            self._stats_tables.append(
+                stats_results_to_dataframe(
+                    results, value_label=value_label, extra=extra
+                )
+            )
+        if medians_df is not None and not medians_df.empty:
+            self._median_tables.append(
+                medians_to_dataframe(
+                    medians_df,
+                    repeat_col=repeat_col,
+                    condition_col=condition_col,
+                    value_col=value_col,
+                    value_label=value_label,
+                    extra=extra,
+                )
+            )
+
     def save_figure(self, filename: str | None = None) -> "BasePlotBuilder":
-        """Save figure if configured."""
-        if self.config.save and self.config.path and self.fig is not None:
-            # Use filename from finalize_plot if not provided
-            final_filename = filename or self._filename or "plot"
+        """Save the figure (if ``save``) and stats CSVs (if ``save``/``save_stats``).
+
+        Both outputs go to ``config.path``. Stats export is independent of the
+        figure save so it works on a composed figure (``axes=...``, ``save=False``)
+        — set ``save_stats=True`` and a ``path``.
+        """
+        final_filename = filename or self._filename or "plot"
+        # Don't write the figure when embedded in a caller-provided axes — the
+        # caller owns the composed figure (and its saving). Stats CSVs are still
+        # exported, so save_stats works for composed/multi-panel figures.
+        # Builders track this on either `axes_provided` (base) or
+        # `_axes_provided` (feature/count/cellcycle subclasses).
+        embedded = getattr(self, "_axes_provided", False) or self.axes_provided
+        if (
+            self.config.save
+            and self.config.path
+            and self.fig is not None
+            and not embedded
+        ):
             save_fig(
                 self.fig,
                 self.config.path,
@@ -159,7 +224,36 @@ class BasePlotBuilder(ABC):
                 fig_extension=self.config.file_format,
                 resolution=self.config.dpi,
             )
+        if self.config.save or self.config.save_stats:
+            self._save_stats_tables(final_filename)
         return self
+
+    def _save_stats_tables(self, fig_id: str) -> None:
+        """Write captured p-value and median tables to ``config.path``."""
+        if not self.config.path:
+            if self._stats_tables or self._median_tables:
+                from loguru import logger
+
+                logger.warning(
+                    "save_stats requested but no `path` set; stats CSV not written."
+                )
+            return
+        from omero_screen_plots.stats import write_stats_csv
+
+        if self._stats_tables:
+            write_stats_csv(
+                pd.concat(self._stats_tables, ignore_index=True),
+                self.config.path,
+                fig_id,
+                "stats",
+            )
+        if self._median_tables:
+            write_stats_csv(
+                pd.concat(self._median_tables, ignore_index=True),
+                self.config.path,
+                fig_id,
+                "medians",
+            )
 
     def create_subplots(
         self,

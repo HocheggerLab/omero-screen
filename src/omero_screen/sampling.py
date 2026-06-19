@@ -60,7 +60,7 @@ def segmentation_samples(
     logger.info(f"Processing plate {plate_id}")
     metadata = MetadataParser(conn, plate_id)
     metadata.manage_metadata()
-    logger.debug(f"Channel Metadata: {metadata.channel_data}")
+    logger.debug("Channel Metadata: {}", metadata.channel_data)
     dataset_id = PlateDataset(conn, plate_id).dataset_id
 
     channels = _get_segmentation_channels(metadata)

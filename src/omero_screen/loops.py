@@ -122,7 +122,7 @@ def plate_loop(
     with bench.stage("metadata_parsing"):
         metadata = MetadataParser(conn, plate_id)
         metadata.manage_metadata()
-    logger.debug(f"Channel Metadata: {str(metadata.channel_data)}")
+    logger.debug("Channel Metadata: {}", metadata.channel_data)
 
     # Validate cell line required for segmentation model
     for cell_line in set(metadata.well_data["cell_line"]):
@@ -154,8 +154,10 @@ def plate_loop(
         )
         return df_final, None, df_quality_control, None
 
-    logger.debug(f"Final data sample: {df_final.head()}")
-    logger.debug(f"Final data columns: {df_final.columns}")
+    logger.opt(lazy=True).debug(
+        "Final data sample: {}", lambda: df_final.head()
+    )
+    logger.debug("Final data columns: {}", df_final.columns)
 
     # check conditions for cell cycle analysis
     logger.info("Performing cell cycle analysis")

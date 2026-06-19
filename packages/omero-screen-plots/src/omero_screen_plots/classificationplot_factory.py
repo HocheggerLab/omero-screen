@@ -12,6 +12,10 @@ from omero_screen_plots.base import (
     BasePlotConfig,
 )
 from omero_screen_plots.colors import COLOR
+from omero_screen_plots.stats import (
+    annotate_significance,
+    compute_significance,
+)
 from omero_screen_plots.utils import (
     grouped_x_positions,
 )
@@ -31,6 +35,12 @@ class ClassificationPlotConfig(BasePlotConfig):
     within_group_spacing: float = 0.6
     between_group_gap: float = 0.7
     show_boxes: bool = True
+
+    # Significance settings
+    show_significance: bool = True
+    # Class whose condition-vs-reference test is annotated on the plot
+    # (default = first class in `classes`); both CSVs cover every class.
+    stats_class: str | None = None
 
     # Stacked mode settings
     bar_width: float = 0.75
@@ -282,17 +292,15 @@ class ClassificationPlotBuilder(BasePlotBuilder):
         repeat_ids = sorted(df_class["plate_id"].unique())[:n_repeats]
         n_conditions = len(conditions)
 
-        # Calculate x positions based on grouping
-        if self.config.group_size > 1:
-            x_base_positions = grouped_x_positions(
-                n_conditions,
-                group_size=self.config.group_size,
-                within_group_spacing=self.config.within_group_spacing,
-                between_group_gap=self.config.between_group_gap,
-            )
-        else:
-            # No grouping: use simple sequential positions
-            x_base_positions = list(range(n_conditions))
+        # Triplicate bars are drawn manually, so always use grouped_x_positions
+        # (group_size==1 => between_group_gap controls the gap between every
+        # condition's triplicate cluster, consistent with the other plots).
+        x_base_positions = grouped_x_positions(
+            n_conditions,
+            group_size=self.config.group_size,
+            within_group_spacing=self.config.within_group_spacing,
+            between_group_gap=self.config.between_group_gap,
+        )
 
         bar_width = self.config.repeat_offset * 1.05
 
@@ -431,5 +439,80 @@ class ClassificationPlotBuilder(BasePlotBuilder):
             self.build_stacked_plot(
                 plot_data, std_data, conditions, classes, condition_col
             )
+
+        return self
+
+    def add_significance(
+        self,
+        df: pd.DataFrame,
+        conditions: list[str],
+        classes: list[str],
+        condition_col: str,
+        class_col: str,
+    ) -> "ClassificationPlotBuilder":
+        """Add per-class significance: condition vs first-in-group, paired by plate.
+
+        Computes the per-plate percentage of each class and runs the
+        replicate-level t-test for **every** class (recorded for CSV export).
+        On-plot stars are only drawn when a **single** class is plotted — with a
+        stacked multi-class bar it is ambiguous which class a star refers to,
+        so the markers are omitted (the CSV still has all comparisons).
+        """
+        assert self.ax is not None
+        if not self.config.show_significance:
+            return self
+        if df["plate_id"].nunique() < 3:
+            return self
+
+        # Per-plate class percentages (one row per plate/condition/class).
+        counts = (
+            df.groupby(["plate_id", condition_col, class_col])
+            .size()
+            .reset_index(name="n")
+        )
+        counts["percentage"] = (
+            counts["n"]
+            / counts.groupby(["plate_id", condition_col])["n"].transform("sum")
+            * 100
+        )
+
+        # On-plot stars only make sense for a single class; multi-class stacked
+        # bars are exported to CSV but not annotated.
+        annotate_on_plot = len(classes) == 1
+        focus_class = self.config.stats_class or classes[0]
+        group_size = getattr(self.config, "group_size", 1)
+        n = len(conditions)
+        # Match the bar layout: triplicate bars are drawn at grouped positions
+        # (gap-aware); the stacked single-bar layout is categorical.
+        if self.config.show_triplicates:
+            x_positions = grouped_x_positions(
+                n,
+                group_size=group_size,
+                within_group_spacing=self.config.within_group_spacing,
+                between_group_gap=self.config.between_group_gap,
+            )
+        else:
+            x_positions = [float(i) for i in range(n)]
+        y = self.ax.get_ylim()[1] * 0.95
+
+        for cls in classes:
+            cls_df = counts[counts[class_col] == cls]
+            medians_df, results = compute_significance(
+                cls_df,
+                conditions,
+                condition_col,
+                "percentage",
+                group_size=group_size,
+                paired=self.config.paired,
+            )
+            self._record_stats(
+                medians_df,
+                results,
+                value_label=str(cls),
+                condition_col=condition_col,
+                value_col="percentage",
+            )
+            if annotate_on_plot and cls == focus_class:
+                annotate_significance(self.ax, results, x_positions, y)
 
         return self

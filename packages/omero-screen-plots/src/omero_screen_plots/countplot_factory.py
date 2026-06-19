@@ -12,7 +12,10 @@ from matplotlib.figure import Figure
 
 from omero_screen_plots.base import BasePlotBuilder, BasePlotConfig
 from omero_screen_plots.colors import COLOR
-from omero_screen_plots.stats import set_significance_marks_adaptive
+from omero_screen_plots.stats import (
+    annotate_significance,
+    compute_significance,
+)
 from omero_screen_plots.utils import (
     finalize_plot_with_title,
     grouped_x_positions,
@@ -308,7 +311,11 @@ class CountPlot(BasePlotBuilder):
             else "count"
         )
 
-        # Get x positions for grouping
+        # Get x positions for grouping. Use grouped_x_positions whenever bars
+        # are drawn manually (grouped, or triplicate mode) so between_group_gap
+        # controls the spacing; fall back to integer positions only for the
+        # seaborn-drawn single-bar layout (group_size==1, no triplicates), which
+        # places bars categorically and must stay aligned with the overlays.
         x_positions = (
             grouped_x_positions(
                 len(conditions),
@@ -316,7 +323,7 @@ class CountPlot(BasePlotBuilder):
                 within_group_spacing=self.config.within_group_spacing,
                 between_group_gap=self.config.between_group_gap,
             )
-            if self.config.group_size > 1
+            if self.config.group_size > 1 or self.config.show_triplicates
             else [float(i) for i in range(len(conditions))]
         )
 
@@ -363,17 +370,26 @@ class CountPlot(BasePlotBuilder):
                 x_positions,
             )
 
-        # Add significance marks if enough replicates (mean bar modes only)
-        if not self.config.show_triplicates and data.plate_id.nunique() >= 3:
-            set_significance_marks_adaptive(
-                self.ax,
+        # Add significance marks if enough replicates (both mean-bar and
+        # triplicate modes; stars sit above each condition's group centre).
+        if data.plate_id.nunique() >= 3:
+            medians_df, results = compute_significance(
                 data,
                 conditions,
                 condition_col,
                 count_col,
-                self.ax.get_ylim()[1] * 0.93,
                 group_size=self.config.group_size,
-                x_positions=x_positions,
+                paired=self.config.paired,
+            )
+            annotate_significance(
+                self.ax, results, x_positions, self.ax.get_ylim()[1] * 0.93
+            )
+            self._record_stats(
+                medians_df,
+                results,
+                value_label=count_col.replace("_", " ").title(),
+                condition_col=condition_col,
+                value_col=count_col,
             )
 
         # Format axes

@@ -41,8 +41,13 @@ def classification_plot(
     within_group_spacing: float = 0.2,
     between_group_gap: float = 0.4,
     show_boxes: bool = True,
+    # Significance settings
+    show_significance: bool = True,
+    stats_class: str | None = None,
+    paired: bool = True,
     # Save settings
     save: bool = False,
+    save_stats: bool = False,
     path: Optional[Path] = None,
     file_format: str = "pdf",
     tight_layout: bool = True,
@@ -118,11 +123,23 @@ def classification_plot(
         Whether to draw a box around each condition's triplicate bars (only
         applies when show_triplicates=True). Set False for a cleaner look when
         the bars do not sum to 100% (e.g. a single class selected).
+    show_significance : bool, default=True
+        Whether to compute significance (condition vs the first in the group,
+        paired by plate). Exports a p-value and a medians CSV when save=True.
+    stats_class : str | None, default=None
+        Which class's comparison to annotate on the plot (default = the first
+        class in ``classes``). Both CSV tables always cover every class.
+    paired : bool, default=True
+        Use a paired t-test (ttest_rel, matched by plate_id); set False for the
+        unpaired ttest_ind.
 
     Save Options
     ^^^^^^^^^^^^
     save : bool, default=False
         Whether to save the plot
+    save_stats : bool, default=False
+        Write {title}_stats.csv and {title}_medians.csv to ``path`` (independent
+        of ``save``; works when plotting onto a provided/composed ``axes``).
     path : Path | None, default=None
         Path to save the plot
     file_format : str, default="pdf"
@@ -161,6 +178,7 @@ def classification_plot(
         title=title,
         colors=colors,
         save=save,
+        save_stats=save_stats,
         path=path,
         file_format=file_format,
         tight_layout=tight_layout,
@@ -175,6 +193,9 @@ def classification_plot(
         within_group_spacing=within_group_spacing,
         between_group_gap=between_group_gap,
         show_boxes=show_boxes,
+        show_significance=show_significance,
+        stats_class=stats_class,
+        paired=paired,
     )
 
     # Initialize data processor
@@ -264,6 +285,11 @@ def classification_plot(
             condition_col=condition_col,
             class_col=class_col,
         )
+
+    # Significance (both modes) — uses the raw filtered data for per-plate %
+    builder.add_significance(
+        filtered_df, conditions, classes, condition_col, class_col
+    )
 
     # Generate default title if none provided
     default_title = "Classification Analysis"

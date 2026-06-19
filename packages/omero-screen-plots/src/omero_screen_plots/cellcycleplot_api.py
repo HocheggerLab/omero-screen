@@ -27,6 +27,7 @@ def cellcycle_plot(
     size_units: str = "cm",
     colors: list[str] | None = None,
     save: bool = True,
+    save_stats: bool = False,
     path: Optional[Path] = None,
     tight_layout: bool = False,
     file_format: str = "pdf",
@@ -37,6 +38,7 @@ def cellcycle_plot(
     cc_phases: bool = True,
     show_subG1: bool = False,
     show_plate_legend: bool = False,
+    paired: bool = True,
 ) -> tuple[Figure, list[Axes]]:
     """Plot cell cycle phases in a 2x2 subplot grid with statistical analysis.
 
@@ -72,6 +74,9 @@ def cellcycle_plot(
         Whether to include Sub-G1/<2N phase in the plot.
     show_significance : bool, default=True
         Whether to show significance marks (requires ≥3 plates).
+    paired : bool, default=True
+        Use a paired t-test (ttest_rel, matched by plate_id) per phase; set
+        False for the unpaired ttest_ind.
     show_repeat_points : bool, default=True
         Whether to show individual repeat points.
     show_plate_legend : bool, default=False
@@ -97,6 +102,9 @@ def cellcycle_plot(
     ^^^^^^^^^^^^
     save : bool, default=True
         Whether to save the figure.
+    save_stats : bool, default=False
+        Write {title}_stats.csv and {title}_medians.csv to ``path`` (independent
+        of ``save``; works when plotting onto a provided/composed ``axes``).
     path : Optional[Path], default=None
         Path to save the figure.
     file_format : str, default="pdf"
@@ -142,6 +150,7 @@ def cellcycle_plot(
         size_units=size_units,
         dpi=dpi,
         save=save,
+        save_stats=save_stats,
         file_format=file_format,
         tight_layout=tight_layout,
         path=path,
@@ -153,6 +162,7 @@ def cellcycle_plot(
         cc_phases=cc_phases,
         show_subG1=show_subG1,
         show_plate_legend=show_plate_legend,
+        paired=paired,
     )
 
     # Use StandardCellCyclePlot class
@@ -178,6 +188,7 @@ def cellcycle_stacked(
     size_units: str = "cm",
     colors: list[str] | None = None,
     save: bool = False,
+    save_stats: bool = False,
     path: Path | None = None,
     tight_layout: bool = False,
     file_format: str = "pdf",
@@ -193,6 +204,7 @@ def cellcycle_stacked(
     group_size: int = 1,
     within_group_spacing: float = 0.2,
     between_group_gap: float = 0.5,
+    paired: bool = True,
     # Bar options
     bar_width: float = 0.5,
     repeat_offset: float = 0.18,
@@ -251,6 +263,11 @@ def cellcycle_stacked(
     ^^^^^^^^^^^^^^^^^
     group_size : int, default=1
         Number of conditions per group on the x-axis (1 = no grouping).
+    paired : bool, default=True
+        Use a paired t-test (ttest_rel, matched by plate_id) per phase for the
+        exported stats; set False for the unpaired ttest_ind. The stacked plot
+        draws no on-plot stars — stats are written to {title}_stats.csv /
+        {title}_medians.csv when save=True.
     within_group_spacing : float, default=0.2
         Spacing between bars within a group.
     between_group_gap : float, default=0.5
@@ -279,6 +296,9 @@ def cellcycle_stacked(
     ^^^^^^^^^^^^
     save : bool, default=False
         Whether to save the figure.
+    save_stats : bool, default=False
+        Write {title}_stats.csv and {title}_medians.csv to ``path`` (independent
+        of ``save``; works when plotting onto a provided/composed ``axes``).
     path : Path | None, default=None
         Path to save the figure.
     file_format : str, default="pdf"
@@ -333,6 +353,7 @@ def cellcycle_stacked(
         size_units=size_units,
         dpi=dpi,
         save=save,
+        save_stats=save_stats,
         file_format=file_format,
         tight_layout=tight_layout,
         path=path,
@@ -349,6 +370,7 @@ def cellcycle_stacked(
         group_size=group_size,
         within_group_spacing=within_group_spacing,
         between_group_gap=between_group_gap,
+        paired=paired,
         # Bar options
         bar_width=bar_width,
         repeat_offset=repeat_offset,
