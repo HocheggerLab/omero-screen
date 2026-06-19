@@ -1,6 +1,47 @@
+"""Tests for the CellView DuckDB connection, schema, and path resolution."""
+
+from pathlib import Path
+
 import duckdb
 import pytest
 from cellview.db import CellViewDB
+
+
+class TestDefaultDBPathResolution:
+    """Default DB path honours TEST_DATABASE and DATABASE_PATH env vars."""
+
+    def test_test_database_takes_precedence(self, monkeypatch):
+        """TEST_DATABASE=true wins over DATABASE_PATH."""
+        monkeypatch.setenv("TEST_DATABASE", "true")
+        monkeypatch.setenv("DATABASE_PATH", "/data/prod.duckdb")
+        assert (
+            CellViewDB._default_db_path()
+            == Path.home() / ".cellview" / "cellview-test.duckdb"
+        )
+
+    def test_database_path_env_is_honoured(self, monkeypatch):
+        """DATABASE_PATH (e.g. loaded from .env.{ENV}) sets the DB location."""
+        monkeypatch.delenv("TEST_DATABASE", raising=False)
+        monkeypatch.setenv("DATABASE_PATH", "/data/prod.duckdb")
+        assert CellViewDB._default_db_path() == Path("/data/prod.duckdb")
+
+    def test_database_path_expands_user(self, monkeypatch):
+        """A ~ in DATABASE_PATH is expanded."""
+        monkeypatch.delenv("TEST_DATABASE", raising=False)
+        monkeypatch.setenv("DATABASE_PATH", "~/.cellview/cellview.duckdb")
+        assert (
+            CellViewDB._default_db_path()
+            == Path.home() / ".cellview" / "cellview.duckdb"
+        )
+
+    def test_default_when_no_env(self, monkeypatch):
+        """Falls back to ~/.cellview/cellview.duckdb when nothing is set."""
+        monkeypatch.delenv("TEST_DATABASE", raising=False)
+        monkeypatch.delenv("DATABASE_PATH", raising=False)
+        assert (
+            CellViewDB._default_db_path()
+            == Path.home() / ".cellview" / "cellview.duckdb"
+        )
 
 
 class TestCellViewDBConnection:

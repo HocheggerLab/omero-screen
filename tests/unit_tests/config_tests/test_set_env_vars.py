@@ -1,3 +1,5 @@
+"""Tests for omero_screen.config.set_env_vars and project-root discovery."""
+
 import os
 
 import pytest
@@ -80,6 +82,9 @@ def test_no_config_files_error(tmp_path, monkeypatch, clean_env):
         return tmp_path
 
     monkeypatch.setattr("omero_screen.config.find_project_root", mock_find_project_root)
+    # Also neutralise the package-relative fallback root so no real .env on
+    # disk is discovered.
+    monkeypatch.setattr("omero_screen.config.project_root", tmp_path)
 
     with pytest.raises(OSError) as exc_info:
         set_env_vars()
@@ -89,6 +94,32 @@ def test_no_config_files_error(tmp_path, monkeypatch, clean_env):
     assert "Current environment: development" in error_msg
     assert str(tmp_path / ".env.development") in error_msg
     assert str(tmp_path / ".env") in error_msg
+
+
+def test_package_root_fallback_when_cwd_has_no_config(
+    tmp_path, monkeypatch, clean_env
+):
+    """Config falls back to the package root when the cwd repo has no .env."""
+    # cwd-discovered root: a different repo with no omero-screen config.
+    other_repo = tmp_path / "other_repo"
+    other_repo.mkdir()
+    # package-relative root: where our .env.{env} actually lives.
+    package_root = tmp_path / "omero_screen_repo"
+    package_root.mkdir()
+    (package_root / ".env.production").write_text(
+        "HOST=prod-host\nDATABASE_PATH=/data/prod.duckdb"
+    )
+
+    monkeypatch.setattr(
+        "omero_screen.config.find_project_root", lambda: other_repo
+    )
+    monkeypatch.setattr("omero_screen.config.project_root", package_root)
+    os.environ["ENV"] = "production"
+
+    set_env_vars()
+
+    assert os.getenv("HOST") == "prod-host"
+    assert os.getenv("DATABASE_PATH") == "/data/prod.duckdb"
 
 
 def test_find_project_root_with_override(monkeypatch, tmp_path):

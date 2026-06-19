@@ -24,6 +24,8 @@ def count_plot(
     selector_val: str | None = None,
     plot_type: PlotType = PlotType.NORMALISED,
     show_triplicates: bool = False,
+    show_boxes: bool = True,
+    repeat_offset: float = 0.18,
     title: str | None = None,
     colors: Any = COLOR,
     save: bool = False,
@@ -67,6 +69,12 @@ def count_plot(
     show_triplicates : bool, default=False
         If True, show individual bars per replicate plate instead of the
         mean bar with overlay points.
+    show_boxes : bool, default=True
+        Whether to draw boxes around triplicates (only applies when
+        show_triplicates=True).
+    repeat_offset : float, default=0.18
+        Offset between replicate bars (only applies when
+        show_triplicates=True).
 
     Grouping & Layout
     ^^^^^^^^^^^^^^^^^
@@ -130,6 +138,8 @@ def count_plot(
         else [colors],
         plot_type=plot_type,
         show_triplicates=show_triplicates,
+        show_boxes=show_boxes,
+        repeat_offset=repeat_offset,
         group_size=group_size,
         within_group_spacing=within_group_spacing,
         between_group_gap=between_group_gap,

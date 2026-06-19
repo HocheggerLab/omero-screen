@@ -5,22 +5,20 @@ focusing on testing the main API functions, class-based architecture, and error
 handling without validating visual output.
 """
 
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
 import pytest
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from pathlib import Path
-from unittest.mock import patch
-
 from omero_screen_plots.classificationplot_api import classification_plot
 from omero_screen_plots.classificationplot_factory import (
-    ClassificationPlotConfig,
     ClassificationDataProcessor,
     ClassificationPlotBuilder,
+    ClassificationPlotConfig,
 )
 from omero_screen_plots.colors import COLOR
-from omero_screen_plots.utils import COLORS
 
 
 @pytest.fixture
@@ -319,6 +317,43 @@ class TestClassificationPlotBasicFunctionality:
         # Should still create a valid plot with grouping
         assert len(ax.patches) > 0
 
+    @staticmethod
+    def _boxes(ax: Axes):
+        """The unfilled triplicate grouping boxes (facecolor='none', alpha 0)."""
+        return [p for p in ax.patches if p.get_facecolor()[3] == 0]
+
+    @patch('matplotlib.pyplot.show')
+    def test_box_height_hugs_bars_for_single_class(
+        self, mock_show, classification_data
+    ):
+        """A single low-percentage class gets a box that hugs the bars."""
+        _, ax = classification_plot(
+            df=classification_data,
+            classes=["collapsed"],  # rare class, well under 100%
+            conditions=["control", "treatment1", "treatment2"],
+            show_triplicates=True,
+            selector_col=None,
+            save=False,
+        )
+        boxes = self._boxes(ax)
+        assert len(boxes) == 3
+        # Box tops track the (low) bar tops rather than the 100% axis limit.
+        assert all(0 < b.get_height() < 50 for b in boxes)
+
+    @patch('matplotlib.pyplot.show')
+    def test_boxes_can_be_disabled(self, mock_show, classification_data):
+        """show_boxes=False removes the triplicate grouping boxes."""
+        _, ax = classification_plot(
+            df=classification_data,
+            classes=["normal", "micronuclei", "collapsed"],
+            conditions=["control", "treatment1", "treatment2"],
+            show_triplicates=True,
+            show_boxes=False,
+            selector_col=None,
+            save=False,
+        )
+        assert self._boxes(ax) == []
+
     @patch('matplotlib.pyplot.show')
     def test_classification_plot_custom_colors(self, mock_show, classification_data):
         """Test classification_plot with custom colors."""
@@ -381,6 +416,22 @@ class TestClassificationPlotBasicFunctionality:
         y_min, y_max = ax.get_ylim()
         assert y_min >= 0
         assert y_max <= 80
+
+    @patch('matplotlib.pyplot.show')
+    def test_y_limits_applied_in_triplicates_mode(
+        self, mock_show, classification_data
+    ):
+        """y_lim must be honoured in triplicate mode, not forced to (0, 100)."""
+        _, ax = classification_plot(
+            df=classification_data,
+            classes=["normal", "micronuclei", "collapsed"],
+            conditions=["control", "treatment1", "treatment2"],
+            show_triplicates=True,
+            y_lim=(0, 80),
+            selector_col=None,
+            save=False,
+        )
+        assert ax.get_ylim() == (0, 80)
 
     @patch('matplotlib.pyplot.show')
     def test_classification_plot_without_legend(self, mock_show, classification_data):
@@ -985,7 +1036,6 @@ class TestClassificationPlotErrorMessages:
 
     def test_informative_error_messages(self, classification_data):
         """Test that error messages are informative and helpful."""
-
         # Test missing condition column error message
         with pytest.raises(ValueError) as exc_info:
             classification_plot(

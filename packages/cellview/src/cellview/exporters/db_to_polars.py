@@ -226,6 +226,22 @@ class PlateParserPolars:
             logger.error(f"No measurements found for plate {plate_id}")
             return pl.DataFrame(), variable_names
 
+        # Guard against measurement readouts (e.g. ``*_background``) that may
+        # have leaked into condition_variables on import in older DBs. The
+        # measurements table is the source of truth, so drop any condition-side
+        # column that also exists in measurements (other than the join keys);
+        # otherwise the join below would disambiguate them with a ``_right``
+        # suffix.
+        join_keys = {"well", "well_id"}
+        overlap = [
+            col
+            for col in conditions_df.columns
+            if col in measurements_df.columns and col not in join_keys
+        ]
+        if overlap:
+            conditions_df = conditions_df.drop(overlap)
+            variable_names = [v for v in variable_names if v not in overlap]
+
         # Merge measurements with condition variables
         # Using left join similar to original logic
         df = measurements_df.join(

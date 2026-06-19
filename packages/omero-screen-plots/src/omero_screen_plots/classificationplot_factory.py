@@ -30,6 +30,7 @@ class ClassificationPlotConfig(BasePlotConfig):
     group_size: int = 2
     within_group_spacing: float = 0.6
     between_group_gap: float = 0.7
+    show_boxes: bool = True
 
     # Stacked mode settings
     bar_width: float = 0.75
@@ -332,29 +333,49 @@ class ClassificationPlotBuilder(BasePlotBuilder):
         self.ax.set_xticklabels(conditions, rotation=45, ha="right")
         self.ax.set_xlabel("")
         self.ax.set_ylabel("Percentage")
-        self.ax.set_ylim(0, 100)
+        self.ax.set_ylim(self.config.y_lim)
 
-        # Draw triplicate boxes
-        y_min = 0
-        y_max_box = 100
-        for cond_idx, _ in enumerate(conditions):
-            trip_xs = [
-                x_base_positions[cond_idx]
-                + (rep_idx - 1) * self.config.repeat_offset
-                for rep_idx in range(n_repeats)
-            ]
-            left = min(trip_xs) - bar_width / 2
-            right = max(trip_xs) + bar_width / 2
-            rect = Rectangle(
-                (left, y_min),
-                width=right - left,
-                height=y_max_box - y_min,
-                linewidth=0.5,
-                edgecolor="black",
-                facecolor="none",
-                zorder=10,
-            )
-            self.ax.add_patch(rect)
+        # Draw triplicate boxes (hugging the actual stacked bar tops rather
+        # than a fixed 100% — otherwise a box around a subset of classes that
+        # does not sum to 100% leaves a large empty rectangle).
+        if self.config.show_boxes:
+            y_min = 0
+            for cond_idx, cond in enumerate(conditions):
+                trip_xs = [
+                    x_base_positions[cond_idx]
+                    + (rep_idx - 1) * self.config.repeat_offset
+                    for rep_idx in range(n_repeats)
+                ]
+                # Tallest stacked total across this condition's repeats,
+                # restricted to the classes actually plotted (df_class holds
+                # every class, which would always sum to 100%).
+                cond_data = df_class[
+                    (df_class[condition_col] == cond)
+                    & (df_class[class_col].isin(classes))
+                ]
+                y_max_box = max(
+                    (
+                        cond_data[cond_data["plate_id"] == plate_id][
+                            "percentage"
+                        ].sum()
+                        for plate_id in repeat_ids
+                    ),
+                    default=0,
+                )
+                if y_max_box <= y_min:
+                    continue
+                left = min(trip_xs) - bar_width / 2
+                right = max(trip_xs) + bar_width / 2
+                rect = Rectangle(
+                    (left, y_min),
+                    width=right - left,
+                    height=y_max_box - y_min,
+                    linewidth=0.5,
+                    edgecolor="black",
+                    facecolor="none",
+                    zorder=10,
+                )
+                self.ax.add_patch(rect)
 
         # Add legend for classes
         if self.config.show_legend:

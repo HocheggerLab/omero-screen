@@ -55,6 +55,17 @@ class CountPlotConfig(BasePlotConfig):
     show_x_labels: bool = True
     rotation: int = 45
 
+    # Triplicate-specific settings (kept in sync with the feature and
+    # cell-cycle plots so triplicate bars look identical across plot types).
+    repeat_offset: float = 0.18
+    max_repeats: int = 3
+    bar_alpha: float = 0.9
+    bar_edgecolor: str = "white"
+    bar_linewidth: float = 0.2
+    show_boxes: bool = True
+    box_linewidth: float = 0.5
+    box_color: str = "black"
+
 
 class CountPlot(BasePlotBuilder):
     """Simplified count plot implementation combining config, processing, and plotting."""
@@ -312,29 +323,9 @@ class CountPlot(BasePlotBuilder):
         assert self.ax is not None
 
         if self.config.show_triplicates:
-            # One bar per plate_id per condition, side-by-side
-            plate_ids = sorted(data["plate_id"].unique())
-            n_plates = len(plate_ids)
-            bar_width = 0.6 / max(n_plates, 1)
-            offsets = [
-                (i - (n_plates - 1) / 2) * bar_width for i in range(n_plates)
-            ]
-            for plate_idx, plate_id in enumerate(plate_ids):
-                plate_data = data[data["plate_id"] == plate_id]
-                for cond_idx, condition in enumerate(conditions):
-                    cond_data = plate_data[
-                        plate_data[condition_col] == condition
-                    ]
-                    if not cond_data.empty:
-                        self.ax.bar(
-                            x_positions[cond_idx] + offsets[plate_idx],
-                            cond_data[count_col].iloc[0],
-                            width=bar_width * 0.9,
-                            color=COLOR.BLUE.value,
-                            edgecolor="black",
-                            linewidth=0.5,
-                            alpha=0.6 + 0.2 * plate_idx,
-                        )
+            self._build_triplicate_bars(
+                data, conditions, condition_col, count_col, x_positions
+            )
         elif self.config.group_size > 1:
             # Manual bar creation for grouped layout
             for idx, condition in enumerate(conditions):
@@ -389,6 +380,97 @@ class CountPlot(BasePlotBuilder):
         self._format_axes(conditions, count_col, x_positions)
 
         return self
+
+    def _build_triplicate_bars(
+        self,
+        data: pd.DataFrame,
+        conditions: list[str],
+        condition_col: str,
+        count_col: str,
+        x_positions: list[float],
+    ) -> None:
+        """Draw one bar per replicate plate, matching the feature/cell-cycle plots.
+
+        All replicate bars share a single colour and touch each other within a
+        condition (``repeat_offset`` spacing, ``repeat_offset`` width); the
+        replicates are grouped by a surrounding box rather than by a per-plate
+        alpha gradient, so the layout is identical to the other triplicate plots.
+        """
+        assert self.ax is not None
+        repeat_offset = self.config.repeat_offset
+        max_repeats = self.config.max_repeats
+
+        # Available plates, capped at max_repeats for consistent spacing.
+        plate_ids = sorted(data["plate_id"].unique())[:max_repeats]
+
+        for cond_idx, condition in enumerate(conditions):
+            base_x = x_positions[cond_idx]
+            rep_x_positions = self._repeat_x_positions(base_x)
+            for rep_idx, plate_id in enumerate(plate_ids):
+                cond_data = data[
+                    (data[condition_col] == condition)
+                    & (data["plate_id"] == plate_id)
+                ]
+                if not cond_data.empty:
+                    self.ax.bar(
+                        rep_x_positions[rep_idx],
+                        cond_data[count_col].iloc[0],
+                        width=repeat_offset,
+                        color=COLOR.BLUE.value,
+                        edgecolor=self.config.bar_edgecolor,
+                        linewidth=self.config.bar_linewidth,
+                        alpha=self.config.bar_alpha,
+                    )
+
+        # Draw boxes around each condition's triplicate group.
+        if self.config.show_boxes and len(plate_ids) > 1:
+            self._draw_triplicate_boxes(
+                data, conditions, condition_col, count_col, x_positions
+            )
+
+    def _repeat_x_positions(self, base_x: float) -> list[float]:
+        """Return the centred x positions for ``max_repeats`` replicate bars."""
+        max_repeats = self.config.max_repeats
+        if max_repeats == 1:
+            return [base_x]
+        return [
+            base_x
+            + (rep_idx - (max_repeats - 1) / 2) * self.config.repeat_offset
+            for rep_idx in range(max_repeats)
+        ]
+
+    def _draw_triplicate_boxes(
+        self,
+        data: pd.DataFrame,
+        conditions: list[str],
+        condition_col: str,
+        count_col: str,
+        x_positions: list[float],
+    ) -> None:
+        """Draw a box around each condition's triplicate bars."""
+        from matplotlib.patches import Rectangle
+
+        assert self.ax is not None
+        half_width = self.config.repeat_offset / 2
+        for cond_idx, condition in enumerate(conditions):
+            cond_data = data[data[condition_col] == condition]
+            if cond_data.empty:
+                continue
+            rep_x_positions = self._repeat_x_positions(x_positions[cond_idx])
+            left = min(rep_x_positions) - half_width
+            right = max(rep_x_positions) + half_width
+            height = cond_data[count_col].max()
+            self.ax.add_patch(
+                Rectangle(
+                    (left, 0),
+                    width=right - left,
+                    height=height,
+                    linewidth=self.config.box_linewidth,
+                    edgecolor=self.config.box_color,
+                    facecolor="none",
+                    zorder=10,
+                )
+            )
 
     def _format_axes(
         self, conditions: list[str], count_col: str, x_positions: list[float]

@@ -40,6 +40,7 @@ def classification_plot(
     repeat_offset: float = 0.18,
     within_group_spacing: float = 0.2,
     between_group_gap: float = 0.4,
+    show_boxes: bool = True,
     # Save settings
     save: bool = False,
     path: Optional[Path] = None,
@@ -113,6 +114,10 @@ def classification_plot(
         Spacing within groups
     between_group_gap : float, default=0.4
         Gap between groups
+    show_boxes : bool, default=True
+        Whether to draw a box around each condition's triplicate bars (only
+        applies when show_triplicates=True). Set False for a cleaner look when
+        the bars do not sum to 100% (e.g. a single class selected).
 
     Save Options
     ^^^^^^^^^^^^
@@ -169,6 +174,7 @@ def classification_plot(
         repeat_offset=repeat_offset,
         within_group_spacing=within_group_spacing,
         between_group_gap=between_group_gap,
+        show_boxes=show_boxes,
     )
 
     # Initialize data processor

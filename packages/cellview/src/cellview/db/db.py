@@ -30,17 +30,31 @@ class CellViewDB:
         """
         self.ui = CellViewUI()
         if db_path is None:
-            if os.getenv("TEST_DATABASE") == "true":
-                self.db_path = (
-                    Path.home() / ".cellview" / "cellview-test.duckdb"
-                )
-            else:
-                self.db_path = Path.home() / ".cellview" / "cellview.duckdb"
+            self.db_path = self._default_db_path()
         else:
             self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn: duckdb.DuckDBPyConnection | None = None
         self.logger = logger
+
+    @staticmethod
+    def _default_db_path() -> Path:
+        """Resolve the default database path from the environment.
+
+        Resolution order:
+            1. ``TEST_DATABASE=true`` → ``~/.cellview/cellview-test.duckdb``
+            2. ``DATABASE_PATH`` (set directly or loaded from ``.env.{ENV}``)
+            3. ``~/.cellview/cellview.duckdb``
+
+        ``DATABASE_PATH`` is honoured so that an ``ENV``-selected ``.env`` file
+        (e.g. ``ENV=production``) controls which DuckDB CellView opens, even when
+        CellView is imported as a library from another repository.
+        """
+        if os.getenv("TEST_DATABASE") == "true":
+            return Path.home() / ".cellview" / "cellview-test.duckdb"
+        if database_path := os.getenv("DATABASE_PATH"):
+            return Path(database_path).expanduser()
+        return Path.home() / ".cellview" / "cellview.duckdb"
 
     def _is_initialized(self) -> bool:
         """Check if the database has been initialized with tables.

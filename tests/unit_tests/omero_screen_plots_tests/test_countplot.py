@@ -5,16 +5,19 @@ focusing on testing the main API functions and error handling without validating
 visual output.
 """
 
-import numpy as np
+from unittest.mock import patch
+
 import pandas as pd
 import pytest
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from unittest.mock import patch
-
+from matplotlib.patches import Rectangle
 from omero_screen_plots.countplot_api import count_plot
-from omero_screen_plots.countplot_factory import CountPlot, CountPlotConfig, PlotType
-
+from omero_screen_plots.countplot_factory import (
+    CountPlot,
+    CountPlotConfig,
+    PlotType,
+)
 
 
 class TestCountPlotBasicFunctionality:
@@ -459,6 +462,81 @@ class TestCountPlotFactory:
         assert "Count" in ax.get_ylabel()
 
 
+
+
+class TestCountPlotTriplicates:
+    """Triplicate mode must match the feature/cell-cycle plot styling.
+
+    The bars share a single colour and are grouped by a surrounding box,
+    rather than the old per-plate alpha gradient with gaps between bars.
+    """
+
+    CONDITIONS = ["control", "treatment1", "treatment2"]
+
+    def _triplicate_axes(self, data, **kwargs) -> Axes:
+        config = CountPlotConfig(
+            plot_type=PlotType.ABSOLUTE, show_triplicates=True, **kwargs
+        )
+        _, ax = CountPlot(config).create_plot(
+            df=data,
+            norm_control="control",
+            conditions=self.CONDITIONS,
+            selector_col=None,
+        )
+        return ax
+
+    @staticmethod
+    def _bars(ax: Axes) -> list[Rectangle]:
+        """Filled value bars (boxes are drawn with facecolor='none', alpha 0)."""
+        return [p for p in ax.patches if p.get_facecolor()[3] > 0]
+
+    @staticmethod
+    def _boxes(ax: Axes) -> list[Rectangle]:
+        """The unfilled grouping boxes around each triplicate."""
+        return [p for p in ax.patches if p.get_facecolor()[3] == 0]
+
+    @patch("matplotlib.pyplot.show")
+    def test_one_bar_per_plate_per_condition(
+        self, mock_show, synthetic_plate_data
+    ):
+        """One value bar is drawn per plate per condition."""
+        ax = self._triplicate_axes(synthetic_plate_data)
+        n_plates = synthetic_plate_data["plate_id"].nunique()
+        assert len(self._bars(ax)) == n_plates * len(self.CONDITIONS)
+
+    @patch("matplotlib.pyplot.show")
+    def test_all_bars_share_single_colour(
+        self, mock_show, synthetic_plate_data
+    ):
+        """All replicate bars share one colour (no per-plate alpha gradient)."""
+        bars = self._bars(self._triplicate_axes(synthetic_plate_data))
+        # No alpha gradient: every bar is the same colour at the same alpha.
+        assert len({p.get_facecolor() for p in bars}) == 1
+        assert all(p.get_alpha() in (None, 0.9) for p in bars)
+
+    @patch("matplotlib.pyplot.show")
+    def test_boxes_drawn_by_default(self, mock_show, synthetic_plate_data):
+        """A grouping box is drawn around each condition's triplicate."""
+        ax = self._triplicate_axes(synthetic_plate_data)
+        assert len(self._boxes(ax)) == len(self.CONDITIONS)
+
+    @patch("matplotlib.pyplot.show")
+    def test_boxes_can_be_disabled(self, mock_show, synthetic_plate_data):
+        """show_boxes=False suppresses the grouping boxes."""
+        ax = self._triplicate_axes(synthetic_plate_data, show_boxes=False)
+        assert self._boxes(ax) == []
+
+    @patch("matplotlib.pyplot.show")
+    def test_bars_touch_at_repeat_offset(
+        self, mock_show, synthetic_plate_data
+    ):
+        """Bar width equals repeat_offset so replicate bars touch."""
+        offset = 0.18
+        ax = self._triplicate_axes(synthetic_plate_data, repeat_offset=offset)
+        # Bars touch: width equals the offset between adjacent bar centres.
+        assert all(
+            p.get_width() == pytest.approx(offset) for p in self._bars(ax)
+        )
 
 
 class TestCountPlotSpecialCases:

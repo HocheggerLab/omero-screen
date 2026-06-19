@@ -8,7 +8,6 @@ stored on ``repeats.nucleus_channel``.
 from __future__ import annotations
 
 import pytest
-
 from cellview.exporters.db_to_pandas import export_pandas_df
 from cellview.exporters.db_to_polars import export_polars_lf
 

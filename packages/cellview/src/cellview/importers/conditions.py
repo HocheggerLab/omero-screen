@@ -237,8 +237,17 @@ class ConditionManager:
             "cell_line",
             "timepoint",
         }
+        # Exclude measurement readouts that can be constant per well but are
+        # not experimental condition variables. Background columns are the
+        # canonical case: they are per-image constants (see
+        # ``State._find_measurement_cols``) and live in the measurements
+        # table. When a well's background happens to be constant across its
+        # images they would otherwise be misclassified here and stored in
+        # condition_variables too, causing ``_x``/``_y`` collisions on export.
         well_variable = [
-            col for col in per_well_constant_cols if col not in exclude_cols
+            col
+            for col in per_well_constant_cols
+            if col not in exclude_cols and not col.endswith("_background")
         ]
 
         self.logger.info(f"Well variable: {well_variable}")

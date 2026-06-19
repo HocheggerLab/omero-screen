@@ -123,23 +123,43 @@ def set_env_vars() -> None:
     Raises:
         OSError: If no configuration file is found and required environment variables are missing.
     """
-    # Determine the project root using robust discovery
-    project_root = find_project_root()
-
     # Get environment, defaulting to development
     env = os.getenv("ENV", "development").lower()
 
-    # Try environment-specific file first
-    env_specific_path = project_root / f".env.{env}"
-    if env_specific_path.exists():
-        load_dotenv(env_specific_path, override=True)
-        return
+    # Candidate roots to search, in priority order:
+    #   1. explicit OMERO_SCREEN_PROJECT_ROOT override
+    #   2. cwd-based discovery (find_project_root) — local config wins
+    #   3. the package-relative root as a fallback
+    # The package-relative fallback lets importing omero-screen (or CellView)
+    # as a library from *another* repository — e.g. an analysis notebook in a
+    # different checkout — still load our .env.{env}. Without it,
+    # find_project_root() resolves to that other repo and the configuration is
+    # silently missed (or import fails outright when OMERO vars are unset).
+    candidate_roots: list[Path] = []
+    if override := os.environ.get("OMERO_SCREEN_PROJECT_ROOT"):
+        override_path = Path(override)
+        if override_path.exists():
+            candidate_roots.append(override_path.resolve())
+    candidate_roots.append(find_project_root())
+    # ``project_root`` is the module-level package-relative root.
+    if project_root.name != "site-packages":
+        candidate_roots.append(project_root)
 
-    # Fall back to default .env file
-    default_env_path = project_root / ".env"
-    if default_env_path.exists():
-        load_dotenv(default_env_path, override=True)
-        return
+    # Load the first .env.{env} (or .env) found across the candidate roots.
+    seen: set[Path] = set()
+    for root in candidate_roots:
+        if root in seen:
+            continue
+        seen.add(root)
+        for env_path in (root / f".env.{env}", root / ".env"):
+            if env_path.exists():
+                load_dotenv(env_path, override=True)
+                return
+
+    # Retain the previous diagnostics' notion of a single project root.
+    diagnostics_root = candidate_roots[-1]
+    env_specific_path = diagnostics_root / f".env.{env}"
+    default_env_path = diagnostics_root / ".env"
 
     # If no files found, check for required environment variables. Logging is
     # not listed: it is configured in code with safe defaults (see
@@ -160,14 +180,14 @@ def set_env_vars() -> None:
         [
             "No configuration found!",
             f"Current environment: {env}",
-            f"Project root detected as: {project_root}",
+            f"Project root detected as: {diagnostics_root}",
             "Tried looking for:",
             f"  - {env_specific_path}",
             f"  - {default_env_path}",
             "And checked environment variables for:",
             f"  - {', '.join(required_vars)}",
             "\nSolutions:",
-            f"  1. Create a .env.{env} file in {project_root}",
+            f"  1. Create a .env.{env} file in {diagnostics_root}",
             "  2. Set OMERO_SCREEN_PROJECT_ROOT=/path/to/your/omero-screen",
             "  3. Set all required environment variables directly",
         ]

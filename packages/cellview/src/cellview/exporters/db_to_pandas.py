@@ -176,6 +176,21 @@ class PlateParser:
         if measurements_df.empty:
             self.ui.error(f"No measurements found for plate {plate_id}")
             return pd.DataFrame(), variable_names
+        # Guard against measurement readouts (e.g. ``*_background``) that may
+        # have leaked into condition_variables on import in older DBs. The
+        # measurements table is the source of truth, so drop any condition-side
+        # column that also exists in measurements (other than the join keys);
+        # otherwise the merge below would disambiguate them with ``_x``/``_y``
+        # suffixes.
+        join_keys = {"well", "well_id"}
+        overlap = [
+            col
+            for col in conditions_df.columns
+            if col in measurements_df.columns and col not in join_keys
+        ]
+        if overlap:
+            conditions_df = conditions_df.drop(columns=overlap)
+            variable_names = [v for v in variable_names if v not in overlap]
         # Merge measurements with condition variables
         df = pd.merge(
             measurements_df, conditions_df, on=["well", "well_id"], how="left"
