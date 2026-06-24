@@ -1268,6 +1268,7 @@ def _add_welldata(
     """
     # Import here to avoid pulling matplotlib/seaborn at module import time
     # when only running segmentation-mode pipelines.
+    import matplotlib.pyplot as plt
     from omero_screen_plots import well_qc_plot
 
     logger.debug(
@@ -1293,6 +1294,11 @@ def _add_welldata(
                 continue
             delete_file_attachment(conn, well, ends_with=f"{well_pos}.png")
             attach_figure(conn, fig, well, well_pos)
+            # Release the figure: pyplot retains every figure created via
+            # plt.figure() until explicitly closed, so on a large plate the
+            # per-well QC figures otherwise accumulate ("More than 20 figures
+            # have been opened" warning) and leak memory.
+            plt.close(fig)
             attached += 1
         else:
             logger.warning(

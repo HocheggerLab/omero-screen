@@ -193,11 +193,29 @@ def delete_file_attachment(
             name = ann.getFile().getName()
             delete = name is not None and name.endswith(ends_with)
         if delete:
-            # Get the link first
+            # Get the link first. Deleting an annotation/link can fail if it is
+            # owned by another user or left orphaned by an interrupted run (the
+            # server raises a delete GraphException). Such a leftover
+            # intermediate file must never abort the caller, so log and skip it.
             links = list(ann.getParentLinks(obj.OMERO_CLASS))
             for link in links:
-                conn.deleteObject(link._obj)  # Delete the link
-            conn.deleteObject(ann._obj)  # Then delete the annotation
+                try:
+                    conn.deleteObject(link._obj)  # Delete the link
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        f"Could not delete annotation link {link.getId()} "
+                        f"on {obj.OMERO_CLASS} {obj.getId()} "
+                        f"(likely owned by another user or orphaned); "
+                        f"skipping: {exc}"
+                    )
+                    continue
+            try:
+                conn.deleteObject(ann._obj)  # Then delete the annotation
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    f"Could not delete file annotation {ann.getId()} "
+                    f"on {obj.OMERO_CLASS} {obj.getId()}; skipping: {exc}"
+                )
 
 
 def attach_figure(
