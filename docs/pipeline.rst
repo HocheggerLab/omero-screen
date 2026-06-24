@@ -91,8 +91,42 @@ When *not* to use ``--stitch``:
 
 The downstream napari widgets detect stitched-mode plates automatically (by
 looking for ``_stitched_segmentation`` images in the dataset) and load the
-masks correctly without further configuration. See
-:doc:`omero-screen-napari/welldata_widget` for the cache-backend split.
+masks correctly without further configuration. Stitched plates are also the
+ones that can be cached as OME-Zarr for interactive whole-plate browsing — see
+:doc:`caching`.
+
+
+.. _streaming-stitch:
+
+Streaming the stitch (host-RAM control)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Flatfield-corrected fields are held as ``float32`` (not ``float64``), which
+already halves the resident canvas. For long multi-channel timelapses, however,
+even holding *all* fields plus the canvas at once can exceed the host-RAM
+budget. The ``--stream-stitch`` path avoids this by stitching **one timepoint at
+a time**: peak memory becomes *canvas + one frame's fields* instead of *all
+fields + canvas*, at the cost of ``n_fields × T`` OMERO reads instead of
+``n_fields``.
+
+Streaming is **auto-enabled** when the estimated non-streaming peak would exceed
+a safety fraction of the available host RAM:
+
+* The RAM budget is read from the job's cgroup limit when present (so a SLURM
+  job's real ceiling is used), falling back to total physical RAM. If neither is
+  readable the pipeline declines to auto-stream rather than guess.
+* The estimated peak is ``≈ 2.5 ×`` the float32 canvas (all raw fields + canvas
+  + a transient), and streaming switches on when that exceeds ``70 %`` of the
+  budget. The estimate is logged on every stitched well.
+
+Force the choice with ``--stream-stitch`` / ``--no-stream-stitch`` (or the
+environment variable ``OMERO_SCREEN_STITCH_STREAMING=1|0``). Both require
+``--stitch``.
+
+.. note::
+
+   Feature extraction still holds the full canvas in memory (the remaining
+   "Peak-B" work); streaming currently bounds only the stitching stage.
 
 
 .. _channel-seg-profiles:
@@ -176,6 +210,28 @@ Linking modes are selected with ``--track-mode``:
   requires the optional ``motile`` solver stack.
 
 
+.. _tracking-memory:
+
+Tracking memory (GPU VRAM)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Trackastra's attention is a dense ``(heads, N, N)`` matrix whose memory scales
+as ``N²``, where ``N ≈ window × detections_per_frame``. A dense well over a long
+window can therefore exhaust GPU VRAM. The pipeline manages this automatically:
+
+* By default tracking runs on the GPU and, from a calibrated estimate of the
+  per-window detection count, **auto-reduces the temporal window** to fit the
+  free VRAM (logged as ``Auto-reduced temporal window X → Y``). A diagnostic
+  line reports frames, objects-per-frame, the effective window, and the
+  resulting detections-per-window.
+* ``--track-window N`` forces a specific window (overriding the auto-fit).
+* ``--track-device cpu`` runs the *identical* computation in host RAM — slower,
+  but with no VRAM ceiling and the full window preserved. This is the
+  accuracy-first escape hatch for the densest wells.
+* ``--track-batch-size N`` (default 4) bounds how many windows are scored per
+  forward pass; lower it if you still hit CUDA OOM.
+
+
 Command Line Interface
 ----------------------
 
@@ -246,6 +302,12 @@ The main entry point for running the analysis pipeline against one or more plate
      - Run segmentation on a stitched whole-well canvas instead of per-field.
        See :ref:`stitched-mode` for when to use this. Required for live-cell
        time-lapse plates and for the OME-Zarr napari cache backend.
+   * - ``--stream-stitch`` / ``--no-stream-stitch``
+     - auto
+     - Stitch one timepoint at a time to bound host RAM on long multi-channel
+       timelapses. Auto-enabled when the estimated peak exceeds the host-RAM
+       budget; force on/off with the flag. Requires ``--stitch``. See
+       :ref:`streaming-stitch`.
    * - ``--track [MODEL]``
      - off
      - Track nuclei across time with Trackastra (see :ref:`temporal-tracking`).
@@ -255,6 +317,22 @@ The main entry point for running the analysis pipeline against one or more plate
    * - ``--track-mode MODE``
      - greedy
      - Trackastra linking mode: ``greedy``, ``greedy_nodiv``, or ``ilp``.
+   * - ``--track-device {cpu,cuda}``
+     - auto
+     - Force the tracking device. Auto-detects CUDA, else CPU (Apple MPS falls
+       back to CPU). Use ``cpu`` when a dense well exceeds GPU VRAM — same
+       computation, no VRAM ceiling, no loss of accuracy, just slower. See
+       :ref:`tracking-memory`.
+   * - ``--track-window N``
+     - model default
+     - Override Trackastra's temporal window (frames per attention window). A
+       smaller window cuts GPU memory roughly quadratically at the cost of
+       temporal context; the default keeps the model's trained window (and is
+       auto-reduced on GPU only if needed to fit VRAM).
+   * - ``--track-batch-size N``
+     - 4
+     - Attention windows scored per forward pass. Caps GPU memory during
+       tracking; lower it if you hit CUDA OOM. (Trackastra's own default is 16.)
 
 **Examples**
 
@@ -354,7 +432,15 @@ sbatch_omero_screen
      - Override all segmentation models with a single model name.
    * - ``--stitch``
      - Run stitched whole-well segmentation.
+   * - ``--stream-stitch`` / ``--no-stream-stitch``
+     - Force timepoint-streaming of the stitch on/off (default: auto).
    * - ``--track [MODEL]``
      - Track nuclei across time with Trackastra (requires ``--stitch``).
    * - ``--track-mode MODE``
      - Trackastra linking mode (``greedy`` / ``greedy_nodiv`` / ``ilp``).
+   * - ``--track-device {cpu,cuda}``
+     - Force the tracking device (default: auto-detect).
+   * - ``--track-window N``
+     - Override Trackastra's temporal window.
+   * - ``--track-batch-size N``
+     - Attention windows scored per forward pass (default: 4).

@@ -97,23 +97,32 @@ The cache persists between Napari sessions — you do not need to re-download wh
 
 ### Where the caches live on disk
 
+The cache root is `~/omero-cache` by default (a *visible* folder, so the
+OME-Zarr stores can also be opened directly by Fiji/Mastodon). Override it with
+`OMERO_SCREEN_CACHE_PATH`.
+
 ```
-~/.cache/omero_screen/
+~/omero-cache/
 ├── images/    # disk cache: per-image TCZYX pixel blobs (diskcache + sqlite index)
 ├── plates/    # disk cache: plate metadata + well layout
 └── zarr/      # OME-Zarr cache: one plate_<id>.zarr directory per cached plate
     └── registry.json    # tracks last-accessed times for LRU eviction
 ```
 
+> **Note:** The default location moved from the old hidden `~/.cache/omero_screen`
+> to the visible `~/omero-cache`. On the first run after upgrading you may see a
+> one-time log line noting this; rebuild plates in the new location (the old
+> folder can then be deleted), or set `OMERO_SCREEN_CACHE_PATH` to keep the old path.
+
 Size limits are configurable via environment variables:
 - `OMERO_SCREEN_IMAGE_CACHE_SIZE_LIMIT` (default **20 GiB**, for the legacy disk cache; raw bytes)
 - `OMERO_SCREEN_ZARR_MAX_GB` (default **100 GiB**, for the OME-Zarr cache; integer GiB, clamped to a 10 GiB minimum)
 
-When a new build would exceed its cap, the least-recently-accessed plate is evicted automatically.
+When a new build would exceed its cap, the least-recently-accessed plate is evicted automatically. For the full set of cache environment variables, layout, and eviction/pinning rules, see the [Local Caching & Interactive Viewing](https://hocheggerlab.github.io/omero-screen/caching.html) guide.
 
 > **Tip:** For large plates (>20 wells), start the cache download while you work on the first few wells. By the time you need the later wells, they will already be on disk.
 
-> **Tip:** If you suspect orphan files (e.g. after a crash), `rm -rf ~/.cache/omero_screen` is always safe — all three caches rebuild on demand.
+> **Tip:** If you suspect orphan files (e.g. after a crash), `rm -rf ~/omero-cache` is always safe — all three caches rebuild on demand.
 
 ### Disk cache vs OME-Zarr — which is "better"?
 
@@ -135,15 +144,14 @@ If your well contains images named in a way that suggests a grid (e.g. position 
 
 | Parameter | Default | What it controls |
 |-----------|---------|-----------------|
-| **Rotation** | 0.15 | Angle correction in degrees to account for slight camera rotation between positions |
-| **Precise Rotation** | off | Uses sub-pixel rotation for higher accuracy (slower) |
-| **Overlap X / Y** | 7 % | How much adjacent tiles overlap. Match this to your microscope's acquisition settings |
-| **Edge** | 7 px | Pixels to trim from each tile edge to remove illumination artefacts |
-| **Mode** | reflect | How to fill any gaps at the image boundary |
+| **Stitch** | on | Whether to stitch the loaded fields into a single canvas. |
+| **Overlap X / Y** | 7 | Tile overlap in **pixels** along each axis. Match this to your microscope's acquisition overlap. |
+| **Translate X / Y** | −3 / 3 | Fine pixel offset applied between tiles to correct small residual misalignment (range −20…20). |
+| **Edge** | 7 | Edge-blending width in **pixels** at tile seams, to hide illumination steps. |
 
 After loading your well, fill in the stitching parameters and click **Enter** in the stitching panel. The stitched composite appears as a new layer in the viewer.
 
-> **Tip:** If the stitched image looks misaligned, try adjusting the Overlap X/Y values by 1–2 % in each direction. Most Operetta/Opera systems use 7–10 % overlap.
+> **Tip:** If the stitched image looks misaligned, nudge **Translate X / Y** by 1–2 pixels at a time, then adjust **Overlap X / Y** if seams remain. These defaults match typical Operetta/Opera acquisitions.
 
 ---
 

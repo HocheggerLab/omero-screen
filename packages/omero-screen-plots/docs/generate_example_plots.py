@@ -1028,7 +1028,7 @@ def classification_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
             class_col="classifier",
             selector_col="cell_line",
             selector_val="MCF10A",
-            display_mode="stacked",
+            show_triplicates=False,
             title="Cell Morphology Classification - Stacked",
             fig_size=(8, 6),
             save=True,
@@ -1046,7 +1046,7 @@ def classification_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
             class_col="classifier",
             selector_col="cell_line",
             selector_val="MCF10A",
-            display_mode="triplicates",
+            show_triplicates=True,
             group_size=1,
             title="Cell Morphology Classification - Triplicates",
             fig_size=(10, 6),
@@ -1065,7 +1065,7 @@ def classification_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
             class_col="classifier",
             selector_col="cell_line",
             selector_val="MCF10A",
-            display_mode="triplicates",
+            show_triplicates=True,
             group_size=2,
             within_group_spacing=0.2,
             between_group_gap=0.4,
@@ -1089,7 +1089,7 @@ def classification_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
             class_col="classifier",
             selector_col="cell_line",
             selector_val="MCF10A",
-            display_mode="stacked",
+            show_triplicates=False,
             colors=custom_colors,
             title="classification_colors",
             fig_size=(8, 6),
@@ -1111,7 +1111,7 @@ def classification_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
             class_col="classifier",
             selector_col="cell_line",
             selector_val="MCF10A",
-            display_mode="stacked",
+            show_triplicates=False,
             colors=custom_colors,
             show_legend=False,
             axes=axes[0]
@@ -1127,7 +1127,7 @@ def classification_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
             class_col="classifier",
             selector_col="cell_line",
             selector_val="MCF10A",
-            display_mode="triplicates",
+            show_triplicates=True,
             group_size=1,
             colors=custom_colors,
             show_legend=False,
@@ -1144,7 +1144,7 @@ def classification_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
             class_col="classifier",
             selector_col="cell_line",
             selector_val="MCF10A",
-            display_mode="triplicates",
+            show_triplicates=True,
             group_size=2,
             colors=custom_colors,
             axes=axes[2]
@@ -1175,7 +1175,7 @@ def classification_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
             class_col=class_col,
             selector_col="cell_line",
             selector_val="MCF10A",
-            display_mode="stacked",
+            show_triplicates=False,
             colors=[COLOR.LIGHT_BLUE.value, COLOR.BLUE.value, COLOR.GREY.value],
             title="Dynamic Classification Column",
             fig_size=(8, 6),
@@ -1194,7 +1194,7 @@ def classification_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
             class_col="classifier",
             selector_col="cell_line",
             selector_val="MCF10A",
-            display_mode="stacked",
+            show_triplicates=False,
             bar_width=0.5,  # Narrow bars
             title="Bar Width Customization",
             fig_size=(6, 6),
@@ -1213,7 +1213,7 @@ def classification_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
             class_col="classifier",
             selector_col="cell_line",
             selector_val="MCF10A",
-            display_mode="stacked",
+            show_triplicates=False,
             y_lim=(70, 100),  # Focused view on 70-100%
             title="Y-axis Range Customization",
             fig_size=(8, 6),
@@ -1232,7 +1232,7 @@ def classification_plot_examples(df: pd.DataFrame, static_dir: Path) -> None:
             class_col="classifier",
             selector_col="cell_line",
             selector_val="MCF10A",
-            display_mode="stacked",
+            show_triplicates=False,
             show_legend=True,
             legend_bbox=(0.5, 1.15),  # Top center position
             title="Legend Position Customization",
@@ -1301,6 +1301,26 @@ def combplot_examples(df: pd.DataFrame, static_dir: Path) -> None:
             title="combplot_feature_nucleus",
             cell_number=3000,
             fig_size=(6, 7),
+            save=True,
+            path=static_dir,
+            file_format="svg"
+        )
+        plt.close(fig)
+
+        # Example 3b: stacked multi-feature combplot (EdU + two feature rows)
+        print("  - combplot feature stacked (multi-feature)")
+        fig, axes = combplot_feature(
+            df=df,
+            conditions=conditions,
+            feature=[
+                "intensity_mean_p21_nucleus",
+                "area_cell",
+            ],
+            threshold=[5000, None],  # one threshold per feature; None disables it
+            selector_col="cell_line",
+            selector_val="MCF10A",
+            title="combplot_feature_stacked",
+            cell_number=2000,
             save=True,
             path=static_dir,
             file_format="svg"

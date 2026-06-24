@@ -45,7 +45,8 @@ Fills in (or leave **Well** blank to use the currently-loaded well), then click
 |-------|---------------|
 | **Well** | Well position, e.g. `B2`. Blank = the loaded well. |
 | **Color by** | `track_id` (rainbow) or `cell_cycle` (if cell-cycle analysis ran). |
-| **Tail length** | How many past frames trail behind each track head. |
+| **Tail length** | How many past frames trail behind each track head (default 10). |
+| **Show divisions (lineage)** | Off by default. When on, the division lineage graph is passed to the Tracks layer so mother→daughter links are drawn. Building the graph for thousands of divisions can briefly freeze the UI, so it is opt-in. |
 
 A napari **Tracks** layer appears, overlaid on the nuclei. The track positions
 are scaled to match the image, so they sit directly on the cells. Scrub the

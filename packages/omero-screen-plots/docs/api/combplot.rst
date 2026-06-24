@@ -23,10 +23,12 @@ Overview
 
 The combplot module offers two distinct visualization approaches:
 
-**combplot_feature**: Creates a 3-row grid layout for feature analysis
+**combplot_feature**: Creates a vertically stacked grid layout for feature analysis. The number of rows grows with the number of features supplied (``2 + n_features`` rows):
   - Top row: DNA content histograms
-  - Middle row: DNA vs EdU scatter plots with cell cycle phases
-  - Bottom row: DNA vs custom feature scatter plots with threshold coloring
+  - Second row: DNA vs EdU scatter plots with cell cycle phases
+  - One additional row per feature: DNA vs feature scatter plots with optional threshold coloring
+
+  Passing a single ``feature`` string reproduces the classic three-row layout (histogram → EdU → feature). Passing a list of features stacks one scatter row per feature underneath the EdU row, sharing the DNA-content x-axis.
 
 **combplot_cellcycle**: Creates a 2-row grid with integrated barplot
   - Top row: DNA content histograms
@@ -96,6 +98,36 @@ Compare control vs treatment with nuclear intensity::
     )
 
 .. image:: ../_static/combplot_feature_nucleus.svg
+
+Stacked Multi-Feature Analysis
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Pass a **list** of features to stack one scatter row per feature beneath the
+EdU row. The grid height grows automatically, and each feature can take its own
+threshold (use ``None`` to disable colouring for a given row)::
+
+    fig, axes = combplot_feature(
+        df=df,
+        conditions=['control', 'cond01', 'cond02', 'cond03'],
+        feature=[
+            "intensity_mean_p21_nucleus",
+            "area_cell",
+        ],
+        threshold=[5000, None],   # one threshold per feature; None disables it
+        selector_col="cell_line",
+        selector_val="MCF10A",
+        title="Stacked feature analysis",
+        cell_number=2000,
+        save=True,
+        file_format="svg",
+    )
+
+A scalar ``threshold`` (or ``threshold=None``) is broadcast to every feature
+row, so ``threshold=None`` plots all feature rows in a single colour. When
+``fig_size`` is left as ``None`` the figure height scales with the number of
+rows (matching the classic ``(10, 7)`` default for a single feature).
+
+.. image:: ../_static/combplot_feature_stacked.svg
 
 Cell Cycle Distribution Analysis
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -171,11 +203,26 @@ The ``cell_number`` parameter controls sampling for scatter plots only::
 Multiple Feature Comparison
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Compare different features side by side::
+Stack several features in a single figure by passing aligned lists of features
+and thresholds. Each feature becomes its own scatter row underneath the shared
+EdU row::
+
+    fig, axes = combplot_feature(
+        df=df,
+        conditions=['control', 'treatment'],
+        feature=["intensity_mean_p21_nucleus", "area_nucleus"],
+        threshold=[5000, 500],   # aligned with ``feature``; lengths must match
+        selector_val="MCF10A",
+        title="Multi-feature comparison",
+    )
+
+If you would rather produce one figure per feature (for example to save them as
+separate files), loop over the features and call ``combplot_feature`` with a
+single feature each time::
 
     features = [
         ("intensity_mean_p21_nucleus", 5000),
-        ("area_nucleus", 500)
+        ("area_nucleus", 500),
     ]
 
     for feature, threshold in features:
@@ -186,7 +233,7 @@ Compare different features side by side::
             threshold=threshold,
             selector_val="MCF10A",
             title=f"{feature} Analysis",
-            fig_size=(6, 7)
+            fig_size=(6, 7),
         )
 
 Custom Error Bar Control

@@ -86,7 +86,8 @@ default (override with ``OMERO_SCREEN_CACHE_PATH``). For a tracked plate, a
 cache is built, so a well is ready for Mastodon with no extra step. The cache is
 size-bounded and evicts least-recently-used plates — **Pin** a plate in the
 Tracks Widget before a long curation session so it is not reclaimed, and
-**Unpin** it when finished.
+**Unpin** it when finished. See :doc:`caching` for the cache layout, the full
+set of environment variables, and the eviction/pinning rules.
 
 **Open the image.** In Fiji:
 
