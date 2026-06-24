@@ -1,11 +1,12 @@
 """Combined plot APIs using modern plotting functions."""
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.gridspec import GridSpec
 
@@ -17,18 +18,101 @@ from omero_screen_plots.utils import (
     selector_val_filter,
 )
 
+# Column holding the normalised EdU intensity used for the cell-cycle scatter.
+EDU_COL = "intensity_mean_EdU_nucleus_norm"
+
+
+def _plot_dna_histogram(
+    ax: Axes,
+    data: pd.DataFrame,
+    dna_col: str,
+    condition: str,
+    is_first_column: bool,
+) -> None:
+    """Draw a log-scaled DNA-content histogram on the given axes.
+
+    Shared by the top row of both combplot variants.
+
+    Args:
+        ax: Target matplotlib axes.
+        data: Single-condition slice of the (already filtered) data.
+        dna_col: Name of the normalised DNA-content column.
+        condition: Condition name, used as the column title.
+        is_first_column: Whether this is the left-most column (keeps the y-axis).
+    """
+    sns.histplot(data=data, x=dna_col, ax=ax, color="steelblue")
+    ax.set_xscale("log", base=2)
+    ax.set_xlim(1, 16)
+    ax.set_title(condition, fontsize=6, weight="regular")
+    ax.set_xlabel("")
+    ax.xaxis.set_visible(False)
+    if is_first_column:
+        ax.set_ylabel("Freq.", fontsize=6)
+    else:
+        ax.yaxis.set_visible(False)
+    ax.tick_params(axis="both", which="major", labelsize=6)
+
+
+def _plot_edu_scatter(
+    ax: Axes,
+    data: pd.DataFrame,
+    condition: str,
+    condition_col: str,
+    dna_col: str,
+    edu_limits: tuple[float, float],
+    is_first_column: bool,
+) -> None:
+    """Draw a DNA-vs-EdU scatter coloured by cell-cycle phase.
+
+    Shared by the EdU row of both combplot variants.
+
+    Args:
+        ax: Target matplotlib axes.
+        data: Single-condition (sampled) slice of the data.
+        condition: Condition name.
+        condition_col: Column holding the condition labels.
+        dna_col: Name of the normalised DNA-content column (x-axis).
+        edu_limits: (min, max) y-limits shared across conditions.
+        is_first_column: Whether this is the left-most column (keeps the y-axis).
+    """
+    scatter_plot(
+        df=data,
+        conditions=condition,
+        condition_col=condition_col,
+        x_feature=dna_col,
+        y_feature=EDU_COL,
+        hue="cell_cycle",
+        size=2,
+        alpha=1.0,
+        x_scale="log",
+        y_scale="log",
+        x_limits=(1, 16),
+        y_limits=edu_limits,
+        kde_overlay=True,
+        kde_alpha=0.1,
+        vline=3,
+        hline=3,
+        axes=ax,
+        save=False,
+    )
+    ax.set_xlabel("")
+    if is_first_column:
+        ax.set_ylabel("norm. EdU int.", fontsize=6)
+    else:
+        ax.yaxis.set_visible(False)
+
 
 def combplot_feature(
     df: pd.DataFrame,
     conditions: list[str],
-    feature: str,
-    threshold: float,
+    feature: Union[str, list[str]],
+    threshold: Union[float, list[Optional[float]], None] = None,
     condition_col: str = "condition",
     selector_col: Optional[str] = "cell_line",
     selector_val: Optional[str] = None,
     title: Optional[str] = None,
     cell_number: Optional[int] = 3000,
-    fig_size: tuple[float, float] = (10, 7),
+    fig_size: Optional[tuple[float, float]] = None,
     size_units: str = "cm",
     save: bool = True,
     path: Optional[Path] = None,
@@ -37,10 +121,17 @@ def combplot_feature(
 ) -> tuple[Figure, list[Any]]:
     """Create a combined plot with histograms and scatter plots for feature analysis.
 
-    Creates a 3×n_conditions grid layout:
-    - Top row: DNA content histograms for each condition
-    - Middle row: DNA vs EdU scatter plots with cell cycle phases
-    - Bottom row: DNA vs custom feature scatter plots with threshold coloring
+    Creates a ``(2 + n_features)×n_conditions`` grid layout that grows
+    vertically with the number of features supplied:
+
+    - Top row: DNA content histograms for each condition.
+    - Second row: DNA vs EdU scatter plots with cell cycle phases.
+    - One additional row per feature: DNA vs feature scatter plots with
+      optional threshold colouring.
+
+    Passing a single ``feature`` string reproduces the classic three-row
+    layout (histogram → EdU → feature); passing a list of features stacks one
+    scatter row per feature underneath the EdU row.
 
     Parameters
     ----------
@@ -59,10 +150,14 @@ def combplot_feature(
 
     Plot Configuration
     ^^^^^^^^^^^^^^^^^^
-    feature : str
-        Feature column name for bottom row scatter plots.
-    threshold : float
-        Threshold value for feature coloring (below=blue, above=red).
+    feature : str | list[str]
+        Feature column name(s) for the stacked scatter rows. A single string
+        creates one feature row; a list creates one row per entry, in order.
+    threshold : float | list[float | None] | None, default=None
+        Threshold value(s) for feature colouring (below=blue, above=red).
+        A scalar (or ``None``) is applied to every feature row; a list must
+        match the length of ``feature``, with ``None`` entries disabling the
+        threshold for that row.
     cell_number : Optional[int], default=3000
         Number of cells to sample per condition for plotting.
 
@@ -70,8 +165,10 @@ def combplot_feature(
     ^^^^^^^^^^^^^^^^
     title : Optional[str], default=None
         Plot title. If None, generates default title.
-    fig_size : tuple[float, float], default=(10, 7)
-        Figure size as (width, height).
+    fig_size : Optional[tuple[float, float]], default=None
+        Figure size as (width, height). When ``None`` the height scales with
+        the number of rows (matching the classic ``(10, 7)`` default for a
+        single feature).
     size_units : str, default="cm"
         Units for fig_size ("cm" or "inches").
 
@@ -93,15 +190,54 @@ def combplot_feature(
 
     Examples:
     --------
+    Classic single-feature layout:
+
     >>> fig, axes = combplot_feature(
     ...     df=data,
     ...     conditions=["control", "treatment1", "treatment2"],
     ...     feature="intensity_mean_p21_nucleus",
     ...     threshold=5000,
     ...     selector_col="cell_line",
-    ...     selector_val="MCF10A"
+    ...     selector_val="MCF10A",
+    ... )
+
+    Stack several features as extra rows (one threshold per feature, ``None``
+    to disable):
+
+    >>> fig, axes = combplot_feature(
+    ...     df=data,
+    ...     conditions=["control", "treatment1"],
+    ...     feature=[
+    ...         "intensity_mean_p21_nucleus",
+    ...         "intensity_mean_p53_nucleus",
+    ...         "area_cell",
+    ...     ],
+    ...     threshold=[5000, 3000, None],
+    ...     selector_col="cell_line",
+    ...     selector_val="MCF10A",
     ... )
     """
+    # Normalise feature/threshold into aligned lists.
+    features = [feature] if isinstance(feature, str) else list(feature)
+    if not features:
+        raise ValueError("At least one feature must be provided")
+    if isinstance(threshold, list):
+        if len(threshold) != len(features):
+            raise ValueError(
+                f"threshold list length ({len(threshold)}) must match the "
+                f"number of features ({len(features)})"
+            )
+        thresholds: list[Optional[float]] = threshold
+    else:
+        thresholds = [threshold] * len(features)
+    n_features = len(features)
+
+    # Default figure size: width fixed, height grows with the number of rows.
+    # Row height-ratios are [1, 3, 3, ...] so total units = 1 + 3*(1 + n).
+    # For a single feature this reproduces the historical (10, 7) default.
+    if fig_size is None:
+        fig_size = (10.0, float(1 + 3 * (1 + n_features)))
+
     # Convert size to inches if needed
     if size_units == "cm":
         fig_size = (fig_size[0] / 2.54, fig_size[1] / 2.54)
@@ -117,42 +253,39 @@ def combplot_feature(
     # integrated_int_DAPI_norm; new plates: integrated_int_{fluorophore}_norm).
     dna_col = find_dna_norm_column(df)
 
-    # Create figure with GridSpec layout
+    # Create figure with GridSpec layout: histogram + EdU + one row per feature.
     n_conditions = len(conditions)
+    n_rows = 2 + n_features
     fig = plt.figure(figsize=fig_size)
-    gs = GridSpec(3, n_conditions, height_ratios=[1, 3, 3], hspace=0.05)
+    gs = GridSpec(
+        n_rows,
+        n_conditions,
+        height_ratios=[1] + [3] * (1 + n_features),
+        hspace=0.05,
+    )
     axes = []
 
-    # Calculate y-limits for consistency
-    edu_max = df["intensity_mean_EdU_nucleus_norm"].quantile(0.99) * 1.5
-    edu_min = df["intensity_mean_EdU_nucleus_norm"].quantile(0.01) * 0.8
-    feature_max = df[feature].quantile(0.99) * 1.5
-    feature_min = df[feature].quantile(0.01) * 0.8
+    # Calculate y-limits for consistency across conditions (full, unsampled data).
+    edu_limits = (
+        df[EDU_COL].quantile(0.01) * 0.8,
+        df[EDU_COL].quantile(0.99) * 1.5,
+    )
+    feature_limits = [
+        (df[f].quantile(0.01) * 0.8, df[f].quantile(0.99) * 1.5)
+        for f in features
+    ]
 
     # Plot for each condition
     for i, condition in enumerate(conditions):
+        is_first = i == 0
         # Filter data for this condition
         condition_data = df_filtered[df_filtered[condition_col] == condition]
 
-        # Row 1: Histogram of DNA content (use full data, no sampling)
+        # Row 0: Histogram of DNA content (use full data, no sampling)
         ax_hist = fig.add_subplot(gs[0, i])
-        # Use seaborn histplot directly, then set log scale after
-        sns.histplot(
-            data=condition_data,
-            x=dna_col,
-            ax=ax_hist,
-            color="steelblue",
+        _plot_dna_histogram(
+            ax_hist, condition_data, dna_col, condition, is_first
         )
-        ax_hist.set_xscale("log", base=2)
-        ax_hist.set_xlim(1, 16)
-        ax_hist.set_title(condition, fontsize=6, weight="regular")
-        ax_hist.set_xlabel("")
-        ax_hist.xaxis.set_visible(False)
-        if i == 0:
-            ax_hist.set_ylabel("Freq.", fontsize=6)
-        else:
-            ax_hist.yaxis.set_visible(False)
-        ax_hist.tick_params(axis="both", which="major", labelsize=6)
         axes.append(ax_hist)
 
         # Sample data for scatter plots only
@@ -163,58 +296,46 @@ def combplot_feature(
         else:
             condition_data_sampled = condition_data
 
-        # Row 2: DNA vs EdU scatter plot with cell cycle phases
+        # Row 1: DNA vs EdU scatter plot with cell cycle phases
         ax_scatter_edu = fig.add_subplot(gs[1, i])
-        scatter_plot(
-            df=condition_data_sampled,
-            conditions=condition,
-            condition_col=condition_col,
-            x_feature=dna_col,
-            y_feature="intensity_mean_EdU_nucleus_norm",
-            hue="cell_cycle",
-            size=2,
-            alpha=1,
-            x_scale="log",
-            y_scale="log",
-            x_limits=(1, 16),
-            y_limits=(edu_min, edu_max),
-            kde_overlay=True,
-            kde_alpha=0.1,
-            vline=3,
-            hline=3,
-            axes=ax_scatter_edu,
-            save=False,
+        _plot_edu_scatter(
+            ax_scatter_edu,
+            condition_data_sampled,
+            condition,
+            condition_col,
+            dna_col,
+            edu_limits,
+            is_first,
         )
-        ax_scatter_edu.set_xlabel("")
-        if i == 0:
-            ax_scatter_edu.set_ylabel("norm. EdU int.", fontsize=6)
-        else:
-            ax_scatter_edu.yaxis.set_visible(False)
         axes.append(ax_scatter_edu)
 
-        # Row 3: DNA vs custom feature scatter plot with threshold coloring
-        ax_scatter_feature = fig.add_subplot(gs[2, i])
-        scatter_plot(
-            df=condition_data_sampled,
-            conditions=condition,
-            condition_col=condition_col,
-            x_feature=dna_col,
-            y_feature=feature,
-            threshold=threshold,
-            size=2,
-            alpha=1,
-            x_scale="log",
-            x_limits=(1, 16),
-            y_limits=(feature_min, feature_max),
-            axes=ax_scatter_feature,
-            save=False,
-        )
-        ax_scatter_feature.set_xlabel("")
-        if i == 0:
-            ax_scatter_feature.set_ylabel(feature, fontsize=6)
-        else:
-            ax_scatter_feature.yaxis.set_visible(False)
-        axes.append(ax_scatter_feature)
+        # Rows 2..n: one DNA vs feature scatter per feature, with optional
+        # threshold colouring.
+        for j, (feat, feat_threshold, (feat_min, feat_max)) in enumerate(
+            zip(features, thresholds, feature_limits, strict=False)
+        ):
+            ax_scatter_feature = fig.add_subplot(gs[2 + j, i])
+            scatter_plot(
+                df=condition_data_sampled,
+                conditions=condition,
+                condition_col=condition_col,
+                x_feature=dna_col,
+                y_feature=feat,
+                threshold=feat_threshold,
+                size=2,
+                alpha=1,
+                x_scale="log",
+                x_limits=(1, 16),
+                y_limits=(feat_min, feat_max),
+                axes=ax_scatter_feature,
+                save=False,
+            )
+            ax_scatter_feature.set_xlabel("")
+            if is_first:
+                ax_scatter_feature.set_ylabel(feat, fontsize=6)
+            else:
+                ax_scatter_feature.yaxis.set_visible(False)
+            axes.append(ax_scatter_feature)
 
     # Set common x-axis label
     fig.text(0.5, -0.07, "norm. DNA content", ha="center", fontsize=6)
@@ -347,33 +468,22 @@ def combplot_cellcycle(
     axes = []
 
     # Calculate y-limits for consistency
-    edu_max = df["intensity_mean_EdU_nucleus_norm"].quantile(0.99) * 1.5
-    edu_min = df["intensity_mean_EdU_nucleus_norm"].quantile(0.01) * 0.8
+    edu_limits = (
+        df[EDU_COL].quantile(0.01) * 0.8,
+        df[EDU_COL].quantile(0.99) * 1.5,
+    )
 
     # Plot histograms and scatter plots for each condition
     for i, condition in enumerate(conditions):
+        is_first = i == 0
         # Filter data for this condition
         condition_data = df_filtered[df_filtered[condition_col] == condition]
 
-        # Row 1: Histogram of DNA content (use full data, no sampling)
+        # Row 0: Histogram of DNA content (use full data, no sampling)
         ax_hist = fig.add_subplot(gs[0, i])
-        # Use seaborn histplot directly, then set log scale after
-        sns.histplot(
-            data=condition_data,
-            x=dna_col,
-            ax=ax_hist,
-            color="steelblue",
+        _plot_dna_histogram(
+            ax_hist, condition_data, dna_col, condition, is_first
         )
-        ax_hist.set_xscale("log", base=2)
-        ax_hist.set_xlim(1, 16)
-        ax_hist.set_title(condition, fontsize=6, weight="regular")
-        ax_hist.set_xlabel("")
-        ax_hist.xaxis.set_visible(False)
-        if i == 0:
-            ax_hist.set_ylabel("Freq.", fontsize=6)
-        else:
-            ax_hist.yaxis.set_visible(False)
-        ax_hist.tick_params(axis="both", which="major", labelsize=6)
         axes.append(ax_hist)
 
         # Sample data for scatter plot only
@@ -384,33 +494,17 @@ def combplot_cellcycle(
         else:
             condition_data_sampled = condition_data
 
-        # Row 2: DNA vs EdU scatter plot with cell cycle phases
+        # Row 1: DNA vs EdU scatter plot with cell cycle phases
         ax_scatter = fig.add_subplot(gs[1, i])
-        scatter_plot(
-            df=condition_data_sampled,
-            conditions=condition,
-            condition_col=condition_col,
-            x_feature=dna_col,
-            y_feature="intensity_mean_EdU_nucleus_norm",
-            hue="cell_cycle",
-            size=2,
-            alpha=1.0,
-            x_scale="log",
-            y_scale="log",
-            x_limits=(1, 16),
-            y_limits=(edu_min, edu_max),
-            kde_overlay=True,
-            kde_alpha=0.1,
-            vline=3,
-            hline=3,
-            axes=ax_scatter,
-            save=False,
+        _plot_edu_scatter(
+            ax_scatter,
+            condition_data_sampled,
+            condition,
+            condition_col,
+            dna_col,
+            edu_limits,
+            is_first,
         )
-        ax_scatter.set_xlabel("")  # Remove x-label
-        if i == 0:
-            ax_scatter.set_ylabel("norm. EdU int.", fontsize=6)
-        else:
-            ax_scatter.yaxis.set_visible(False)
         axes.append(ax_scatter)
 
     # Add cell cycle stacked barplot in the last column
