@@ -26,7 +26,7 @@ from napari.utils import notifications
 from napari.viewer import Viewer
 from qtpy.QtWidgets import QFileDialog
 
-from omero_screen_napari.mastodon_export import export_well_for_mastodon
+from omero_screen_napari.mastodon_export import export_well_ctc
 from omero_screen_napari.omero_data_singleton import omero_data
 from omero_screen_napari.tracks_loader import (
     export_track_csv,
@@ -268,17 +268,19 @@ def export_track_widget(
     )
 
 
-@magic_factory(call_button="Export well for Mastodon")
+@magic_factory(call_button="Export well for Mastodon (CTC)")
 def mastodon_export_widget(
     viewer: Viewer,
     well: str = "",
 ) -> None:
-    """Write the Mastodon tracks CSV + README for a well.
+    """Write a Cell Tracking Challenge bundle for a well, for Mastodon curation.
 
-    Produces ``~/mastodon_exports/plate_<id>_<well>/README.txt`` and a
-    ``tracks.csv`` beside the cached well image (no image copy — Mastodon opens
-    the cache in place; the README has the exact paths). This does **not** pin
-    the plate; use the Pin button if you'll curate over time.
+    Produces ``~/mastodon_exports/plate_<id>_<well>_ctc/`` containing per-frame
+    ``mask*.tif`` label images (from the cached zarr), ``res_track.txt`` (the
+    lineage), ``manifest.json`` (for the CellView round-trip) and a README with
+    the exact Mastodon CTC-import steps. Lineages — divisions included — survive
+    this path, unlike Mastodon's CSV importer. This does **not** pin the plate;
+    use the Pin button if you'll curate over time.
 
     Args:
         viewer: Active napari viewer (unused; kept for the magicgui binding).
@@ -302,16 +304,16 @@ def mastodon_export_widget(
         return
 
     try:
-        paths = export_well_for_mastodon(int(plate_id), well_id, plate_data)
+        paths = export_well_ctc(int(plate_id), well_id, plate_data)
     except (KeyError, ValueError, FileNotFoundError) as exc:
-        notifications.show_warning(f"Mastodon export failed: {exc}")
+        notifications.show_warning(f"CTC export failed: {exc}")
         return
 
     notifications.show_info(
-        f"Exported well {well_id}. README: {paths['readme']}. "
+        f"Exported well {well_id} as a CTC bundle. README: {paths['readme']}. "
         f"Pin the plate (button below) if curating over time."
     )
-    logger.info(f"Mastodon export written to {paths['dir']}")
+    logger.info(f"CTC bundle written to {paths['dir']}")
 
 
 @magic_factory(call_button="Pin plate (protect from eviction)")

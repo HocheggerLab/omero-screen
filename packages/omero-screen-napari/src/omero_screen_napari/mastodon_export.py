@@ -1,37 +1,47 @@
-"""Export a tracked well's lineage for curation in Mastodon (Fiji).
+"""Export a tracked well as a Cell Tracking Challenge (CTC) bundle for Mastodon.
 
-The OME-Zarr cache now lives in a visible folder (``~/omero-cache`` by
-default) and is written one-timepoint-per-chunk, so Mastodon can open a well's
-image group *directly* — no image copy or symlink. This module therefore only
-needs to write a Mastodon CSV-importer file for the tracks (beside the cached
-image) and a README with the exact paths to paste into Fiji plus the column
-mapping.
+Mastodon's plain *CSV* importer creates spots but **no links**, so it cannot
+preserve tracks — and its label-image importer cannot create *division* links.
+Only Mastodon's **CTC importer** rebuilds full lineages (including divisions),
+because it reads the parent relationships from a ``res_track.txt`` file. So to
+curate our tracks in Mastodon we export a CTC bundle, not a CSV.
 
-Protecting a plate from eviction during curation is a separate, explicit
-choice: the napari Tracks widget has Pin / Unpin buttons. Export does not pin —
-caching a plate doesn't mean you're curating it.
+A bundle is one folder per well containing:
 
-Track model translation (CellView is *track-level*, Mastodon CSV is
-*spot-level*): each ``(track_id, timepoint)`` row becomes one spot with a
-unique id; a spot links to the same track's most-recent earlier frame (which
-bridges segmentation gaps); a daughter's first spot links to its parent
-track's last spot (the division); founders' first spots use ``parent_id = -1``.
-Coordinates are scaled to physical units (µm) to match the image.
+* ``mask000.tif`` … ``mask{T-1}.tif`` — one nucleus label image per frame,
+  read straight from the cached OME-Zarr (no OMERO round-trip). Pixel value =
+  the track's CTC label.
+* ``res_track.txt`` — the CTC track table, four space-separated integers per
+  track: ``L B E P`` (label, begin frame, end frame, parent label; ``0`` =
+  founder). See :func:`build_ctc_export`.
+* ``manifest.json`` — a sidecar mapping each CTC label back to the original
+  CellView ``track_id`` plus per-frame centroids, so corrected tracks can later
+  be reconciled into CellView (the curated ``track_id`` / ``parent_track_id``
+  columns). The CTC→CellView return trip itself is a separate, future step.
+
+Track labels are renumbered ``1..N`` in begin-frame order (CTC-canonical, and
+the same scheme used for both the TIFFs and ``res_track.txt`` so they always
+agree). Coordinates in the manifest are pixel centroids, matching CellView's
+``centroid-0-nuc`` / ``centroid-1-nuc``.
 
 Main Functions:
-    - export_well_for_mastodon: write the tracks CSV + README for one well.
-    - write_plate_tracks_csvs: best-effort per-well CSVs at cache-build time.
-    - build_mastodon_csv: pure track-level -> spot-level CSV translation.
+    - export_well_ctc: write a well's full CTC bundle (masks + txt + manifest).
+    - build_ctc_export: pure track-level -> CTC table + relabel map + manifest.
+    - relabel_mask: remap a label frame's pixel values via the relabel map.
 """
 
 from __future__ import annotations
 
 import json
-import math
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+import numpy as np
 import polars as pl
+import tifffile
 from loguru import logger
+from numpy.typing import NDArray
 
 from omero_screen_napari.tracks_loader import (
     CENTROID_X_COL,
@@ -41,20 +51,37 @@ from omero_screen_napari.tracks_loader import (
     TRACK_ID_COL,
     has_tracks,
 )
-from omero_screen_napari.zarr_cache import plate_zarr_path
+from omero_screen_napari.zarr_cache import plate_zarr_path, read_well
 
-#: Default base directory for the per-well export README folders.
+#: Default base directory for the per-well CTC export folders.
 DEFAULT_EXPORT_BASE = Path.home() / "mastodon_exports"
 
-_AREA_COL = "area_nucleus"
+#: Sidecar format version, so a future reconciliation reader can branch on it.
+MANIFEST_VERSION = 1
+
+
+@dataclass
+class CtcExport:
+    """Pure, file-free description of a well's CTC export.
+
+    Attributes:
+        track_table: ``L B E P`` rows, one per track, sorted by ``L`` — the
+            ``res_track.txt`` content.
+        relabel: Maps the original CellView ``track_id`` to its CTC label
+            (``1..N``); ``0`` maps to ``0`` (background / untracked).
+        manifest: Round-trip sidecar (see :func:`build_ctc_export`).
+    """
+
+    track_table: pl.DataFrame
+    relabel: dict[int, int]
+    manifest: dict[str, Any]
 
 
 def _well_image_group(plate_id: int, well: str) -> Path:
     """Resolve ``<cache>/plate_<id>.zarr/<row>/<col>/0`` for a well.
 
-    This is the multiscale image group Mastodon opens directly — it carries
-    its own ``.zgroup`` / ``.zattrs`` and (for caches built with the current
-    writer) one-timepoint-per-chunk data.
+    This is the multiscale image group Mastodon opens directly for the picture;
+    the CTC bundle (masks + txt) is written to a separate export folder.
     """
     if not well or len(well) < 2:
         raise ValueError(f"Well {well!r} must look like 'B2'.")
@@ -68,99 +95,33 @@ def _well_image_group(plate_id: int, well: str) -> Path:
     return group
 
 
-def _pixel_size_um(well_group: Path) -> float:
-    """Read y/x pixel size (µm) from the well's OME-Zarr multiscale metadata."""
-    meta = json.loads((well_group / ".zattrs").read_text())
-    scale = meta["multiscales"][0]["datasets"][0]["coordinateTransformations"][
-        0
-    ]["scale"]  # [t, c, y, x]
-    return float(scale[-1])
+def build_ctc_export(plate_data: pl.LazyFrame, well: str) -> CtcExport:
+    """Translate a well's track rows into a CTC table + relabel map + manifest.
 
+    The CTC ``res_track.txt`` layout is one row per track, four space-separated
+    integers ``L B E P``:
 
-def well_tracks_csv_path(plate_id: int, well: str) -> Path:
-    """Where a well's Mastodon ``tracks.csv`` lives — beside its image group.
+        L   track label (``1..N``)
+        B   begin frame — first (0-based) timepoint the track appears
+        E   end frame   — last timepoint the track appears
+        P   parent track label (``0`` for a founder)
 
-    Co-locating it with the cached image (``<row>/<col>/tracks.csv``, a
-    sibling of the ``0`` multiscale group) makes a cached well self-sufficient
-    for Mastodon: open the image group, import the sibling CSV.
-    """
-    return _well_image_group(plate_id, well).parent / "tracks.csv"
+    Labels are reassigned ``1..N`` in begin-frame order (ties broken by the
+    original ``track_id``) and parents remapped to the new labels, so ``B`` is
+    non-decreasing and every parent label is smaller than its daughters'. The
+    same ``relabel`` map is applied to the mask TIFFs (:func:`relabel_mask`) so
+    the images and the table always agree.
 
-
-def write_well_tracks_csv(
-    plate_id: int,
-    well: str,
-    plate_data: pl.LazyFrame,
-    pixel_size: float | None = None,
-) -> Path:
-    """Write a well's Mastodon tracks CSV into the cache, return its path.
-
-    Raises:
-        KeyError: If the plate has no track columns.
-        ValueError: If the well has no tracked rows.
-        FileNotFoundError: If the well image is not cached.
-    """
-    well_group = _well_image_group(plate_id, well)
-    px = pixel_size if pixel_size is not None else _pixel_size_um(well_group)
-    csv = build_mastodon_csv(plate_data, well, px)
-    out = well_group.parent / "tracks.csv"
-    csv.write_csv(out)
-    return out
-
-
-def write_plate_tracks_csvs(plate_id: int) -> list[Path]:
-    """Write a tracks CSV beside every cached, tracked well of a plate.
-
-    Best-effort and side-effect-only: pulls the plate's measurements from
-    CellView and writes one ``tracks.csv`` per cached well that has track
-    data. Returns the CSV paths written (empty if CellView is unavailable,
-    the plate isn't imported, or it carries no tracks). Never raises — it is
-    called from the zarr-cache build, which must not fail on a missing or
-    track-free CellView.
-    """
-    from omero_screen_napari.zarr_cache import cached_wells
-
-    try:
-        from cellview.db.db import CellViewDB
-        from cellview.exporters.db_to_polars import export_polars_lf
-
-        conn = CellViewDB().connect()
-        plate_data, _ = export_polars_lf(plate_id, conn)
-    except Exception as exc:  # noqa: BLE001 — best-effort; log and bail
-        logger.info(
-            f"No Mastodon tracks CSV for plate {plate_id} (CellView unavailable: {exc})"
-        )
-        return []
-
-    if not has_tracks(plate_data):
-        return []
-
-    written: list[Path] = []
-    for well in cached_wells(plate_id):
-        try:
-            written.append(write_well_tracks_csv(plate_id, well, plate_data))
-        except (KeyError, ValueError, FileNotFoundError):
-            continue  # well has no tracked rows / not cached — skip
-    if written:
-        logger.info(
-            f"Wrote {len(written):d} Mastodon tracks CSV(s) for plate {plate_id}"
-        )
-    return written
-
-
-def build_mastodon_csv(
-    plate_data: pl.LazyFrame, well: str, pixel_size: float
-) -> pl.DataFrame:
-    """Translate a well's track-level rows into a Mastodon spot CSV.
+    The manifest records, per CTC label, the original ``track_id`` /
+    ``parent_track_id`` and the per-frame pixel centroids — enough to map a
+    later Mastodon correction back onto CellView rows by position.
 
     Args:
         plate_data: CellView measurements LazyFrame for the plate.
         well: Well position to export.
-        pixel_size: µm per pixel, applied to x, y and the spot radius.
 
     Returns:
-        DataFrame with columns ``id, parent_id, x, y, z, frame, radius, label``
-        ready for Mastodon's CSV Importer.
+        A :class:`CtcExport`.
 
     Raises:
         KeyError: If the plate has no track columns.
@@ -170,14 +131,7 @@ def build_mastodon_csv(
         raise KeyError(
             "plate_data has no track_id column — run the pipeline with --track."
         )
-    cols = [
-        TRACK_ID_COL,
-        PARENT_COL,
-        TIME_COL,
-        CENTROID_Y_COL,
-        CENTROID_X_COL,
-        _AREA_COL,
-    ]
+    cols = [TRACK_ID_COL, PARENT_COL, TIME_COL, CENTROID_Y_COL, CENTROID_X_COL]
     df = (
         plate_data.filter(pl.col("well") == well)
         .select(cols)
@@ -187,124 +141,227 @@ def build_mastodon_csv(
     if df.height == 0:
         raise ValueError(f"No tracked rows for well {well!r}.")
 
-    rows = df.to_dicts()
-    # Unique spot id per (track_id, timepoint), and the inverse lookup.
-    spot_id: dict[tuple[int, int], int] = {
-        (int(r[TRACK_ID_COL]), int(r[TIME_COL])): i for i, r in enumerate(rows)
-    }
-    # Sorted frames per track, to resolve gap-bridged and division parents.
-    track_frames: dict[int, list[int]] = {}
-    for tid, t in spot_id:
-        track_frames.setdefault(tid, []).append(t)
-    for frames in track_frames.values():
-        frames.sort()
+    per_track = (
+        df.group_by(TRACK_ID_COL)
+        .agg(
+            B=pl.col(TIME_COL).min(),
+            E=pl.col(TIME_COL).max(),
+            # parent_track_id is constant within a track; max() ignores any
+            # stray 0 so a daughter keeps its real (non-zero) parent.
+            parent=pl.col(PARENT_COL).max(),
+        )
+        .sort(["B", TRACK_ID_COL])
+    )
 
-    out: list[dict[str, float | int]] = []
-    for r in rows:
-        tid = int(r[TRACK_ID_COL])
-        t = int(r[TIME_COL])
-        earlier_same = [f for f in track_frames[tid] if f < t]
-        if earlier_same:
-            # Link to the same track's most-recent earlier frame (bridges
-            # segmentation gaps so a gapped track stays one track).
-            pid = spot_id[(tid, max(earlier_same))]
-        elif int(r[PARENT_COL]) != 0:
-            # Division: link the daughter's first spot to the parent track's
-            # last spot before this frame.
-            parent_tid = int(r[PARENT_COL])
-            cand = [f for f in track_frames.get(parent_tid, []) if f < t]
-            pid = spot_id[(parent_tid, max(cand))] if cand else -1
-        else:
-            pid = -1  # founder, first frame
-        radius_px = math.sqrt(float(r[_AREA_COL]) / math.pi)
-        out.append(
+    orig_ids = [int(o) for o in per_track[TRACK_ID_COL].to_list()]
+    relabel: dict[int, int] = {o: i + 1 for i, o in enumerate(orig_ids)}
+    relabel[0] = 0
+
+    begins = [int(b) for b in per_track["B"].to_list()]
+    ends = [int(e) for e in per_track["E"].to_list()]
+    parents = [int(p) for p in per_track["parent"].to_list()]
+
+    track_table = pl.DataFrame(
+        {
+            "L": [relabel[o] for o in orig_ids],
+            "B": begins,
+            "E": ends,
+            "P": [relabel.get(p, 0) for p in parents],
+        },
+        schema={"L": pl.Int64, "B": pl.Int64, "E": pl.Int64, "P": pl.Int64},
+    )
+
+    # Per-track per-frame centroids for the round-trip sidecar.
+    centroids: dict[int, list[dict[str, float | int]]] = {}
+    for row in df.iter_rows(named=True):
+        centroids.setdefault(int(row[TRACK_ID_COL]), []).append(
             {
-                "id": spot_id[(tid, t)],
-                "parent_id": pid,
-                "x": float(r[CENTROID_X_COL]) * pixel_size,
-                "y": float(r[CENTROID_Y_COL]) * pixel_size,
-                "z": 0.0,
-                "frame": t,
-                "radius": radius_px * pixel_size,
-                "label": tid,
+                "t": int(row[TIME_COL]),
+                "y": float(row[CENTROID_Y_COL]),
+                "x": float(row[CENTROID_X_COL]),
             }
         )
-    return pl.DataFrame(out)
+    manifest_tracks = {
+        str(relabel[o]): {
+            "track_id": o,
+            "parent_track_id": parents[i],
+            "begin": begins[i],
+            "end": ends[i],
+            "frames": centroids.get(o, []),
+        }
+        for i, o in enumerate(orig_ids)
+    }
+    manifest = {
+        "version": MANIFEST_VERSION,
+        "well": well,
+        "label_scheme": "relabel_1_to_n_by_begin_frame",
+        "centroid_units": "pixels",
+        "centroid_axes": "yx",
+        "n_tracks": len(orig_ids),
+        "tracks": manifest_tracks,
+    }
+    return CtcExport(
+        track_table=track_table, relabel=relabel, manifest=manifest
+    )
+
+
+def _mask_dtype(max_label: int) -> type[np.unsignedinteger[Any]]:
+    """Smallest unsigned int that holds ``max_label`` (CTC masks are integer)."""
+    return np.uint16 if max_label <= np.iinfo(np.uint16).max else np.uint32
+
+
+def relabel_mask(
+    mask: NDArray[Any],
+    relabel: dict[int, int],
+    dtype: type[np.unsignedinteger[Any]] = np.uint16,
+) -> NDArray[Any]:
+    """Remap a label image's pixel values via ``relabel`` (a lookup table).
+
+    Background (``0``) stays ``0``, and any label **not** in ``relabel`` maps to
+    ``0`` — so nuclei that carry no track (e.g. border-clipped cells dropped
+    from the measurements) do not leak into the CTC masks as spurious spots.
+
+    Args:
+        mask: 2-D label frame (``track_id`` per pixel, as cached in the zarr).
+        relabel: ``track_id -> CTC label`` map (from :func:`build_ctc_export`).
+        dtype: Output integer dtype.
+
+    Returns:
+        The remapped frame, ``dtype``.
+    """
+    arr = np.asarray(mask)
+    max_in = int(arr.max()) if arr.size else 0
+    lut = np.zeros(max_in + 1, dtype=dtype)
+    for old, new in relabel.items():
+        if 0 <= old <= max_in:
+            lut[old] = new
+    remapped: NDArray[Any] = lut[arr]
+    return remapped
+
+
+def write_ctc_masks(
+    nuclei_tyx: Any, relabel: dict[int, int], out_dir: Path
+) -> list[Path]:
+    """Write per-frame ``maskTTT.tif`` label images from a ``(T,Y,X)`` array.
+
+    Reads one timepoint at a time (the zarr is chunked per timepoint), remaps
+    its labels to the CTC scheme, and writes a compressed TIFF. File index ==
+    frame index, so it lines up with the ``B``/``E`` frames in
+    ``res_track.txt``.
+
+    Returns the mask paths written, in frame order.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dtype = _mask_dtype(max(relabel.values(), default=0))
+    paths: list[Path] = []
+    n_t = int(nuclei_tyx.shape[0])
+    for t in range(n_t):
+        frame = relabel_mask(np.asarray(nuclei_tyx[t]), relabel, dtype)
+        path = out_dir / f"mask{t:03d}.tif"
+        tifffile.imwrite(path, frame, compression="zlib")
+        paths.append(path)
+    return paths
 
 
 _README = """\
-Mastodon import — plate {plate_id} well {well}
-================================================
+Mastodon CTC import — plate {plate_id} well {well}
+==================================================
 
-The omero-cache is an LRU cache. If you will curate this well over time,
-click "Pin plate" in the napari Tracks widget first so it is not evicted
+This folder is a Cell Tracking Challenge (CTC) bundle:
+    mask000.tif … mask{last:03d}.tif   per-frame nucleus label images
+    res_track.txt                      lineage table (L B E P)
+    manifest.json                      CellView round-trip metadata — keep it,
+                                       do not edit
+
+Why CTC and not a CSV: Mastodon's CSV importer creates spots but NOT links, so
+it loses every track and lineage. The CTC importer below rebuilds full
+lineages, divisions included, from res_track.txt.
+
+The omero-cache is an LRU cache. If you will curate this well over time, click
+"Pin plate" in the napari Tracks widget first so it is not evicted
 mid-curation; "Unpin plate" when you are done.
 
-1. Fiji → Plugins → Tracking → Mastodon → "new from OME-NGFF…"
+1. Open the image. Fiji → Plugins → Tracking → Mastodon → "new from OME-NGFF…"
    Paste this image path (it opens directly — no copy was made):
        {image_path}
    → Detect datasets → click the listed row → OK → save the BDV XML anywhere.
+   Press P for the side panel to adjust per-channel contrast.
 
-2. The image opens in BigDataViewer. Press P for the side panel to adjust
-   per-channel contrast; 1 / 2 switch channels; F toggles a fused overlay.
+2. Import the tracks. Main Mastodon window → File → Import → "Import from
+   CellTrackingChallenge". Choose this folder:
+       {out_dir}
+   filename pattern mask%03d.tif (3-digit, 0-based). Mastodon reads
+   res_track.txt for the parent / division links.
 
-3. Load the tracks: main Mastodon window → File → Import → CSV Importer →
-   choose this CSV (it sits next to the image):
-       {csv_path}
-   and map the columns:
-       X=x  Y=y  Z=z  Frame=frame  ID=id  Parent ID=parent_id
-       Radius (column)=radius  Label=label
-   Default Radius: 10 (only used if the radius column is blank).
+3. Link the views: click the same group-lock number (e.g. 1) in BOTH the
+   BigDataViewer and TrackScheme windows; double-click a spot to navigate.
 
-4. Link the views: click the same group-lock number (e.g. 1) in BOTH the
-   BigDataViewer and TrackScheme windows. Then double-click a spot to navigate.
+4. When done, export back to CTC (File → Export → CellTrackingChallenge) and
+   keep manifest.json with it — that is what a later step uses to reconcile the
+   corrected tracks into CellView's curated track_id / parent_track_id columns.
 
-{n_spots} spots, {n_tracks} tracks, {n_div} division(s). pixel size {px:.4f} µm.
+{n_tracks} tracks, {n_div} division(s), {n_frames} frames. Labels are
+renumbered 1..N by begin frame, so they do NOT match the raw CellView
+track_id (manifest.json holds the mapping).
 """
 
 
-def export_well_for_mastodon(
+def export_well_ctc(
     plate_id: int,
     well: str,
     plate_data: pl.LazyFrame,
     out_base: Path | None = None,
-    pixel_size: float | None = None,
 ) -> dict[str, Path]:
-    """Write the Mastodon tracks CSV (beside the cached image) and a README.
+    """Write a well's full CTC bundle and a guided-import README.
 
-    No image data is copied: Mastodon opens the cached well image group in
-    place (see :func:`_well_image_group`). Pinning the plate against eviction
-    is a separate, explicit step (the Pin button) — export does not pin.
+    Produces ``mask*.tif`` (from the cached zarr nuclei labels), ``res_track.txt``,
+    ``manifest.json`` and ``README.txt`` under
+    ``<out_base>/plate_<id>_<well>_ctc/``. No OMERO round-trip — the masks come
+    straight from the cache.
 
     Args:
         plate_id: Plate to export from.
         well: Well position (e.g. ``"B2"``).
         plate_data: CellView measurements LazyFrame (``omero_data.plate_data``).
-        out_base: Base directory for the README folder; defaults to
+        out_base: Base directory for the export folder; defaults to
             :data:`DEFAULT_EXPORT_BASE`.
-        pixel_size: µm/pixel override; defaults to the cache's metadata.
 
     Returns:
-        Mapping with ``dir``, ``image``, ``csv`` and ``readme`` paths. ``image``
-        and ``csv`` both live in the cache well dir (not copied); ``readme``
-        is the guided-import note under ``out_base``.
+        Mapping with ``dir``, ``res_track``, ``manifest`` and ``readme`` paths.
+
+    Raises:
+        KeyError: If the plate has no track columns.
+        ValueError: If the well has no tracked rows.
+        FileNotFoundError: If the well's nuclei labels are not cached.
     """
+    export = build_ctc_export(plate_data, well)
+
     well_group = _well_image_group(plate_id, well)
-    px = pixel_size if pixel_size is not None else _pixel_size_um(well_group)
+    nuclei = read_well(plate_id, well)["nuclei"]
+    if not nuclei:
+        raise FileNotFoundError(
+            f"No cached nuclei labels for plate {plate_id} well {well}. Build "
+            f"the zarr cache first (Welldata widget → Cache Plate)."
+        )
+    nuclei_tyx = nuclei[0]  # level-0 full-resolution (T, Y, X)
 
     base = out_base or DEFAULT_EXPORT_BASE
-    out_dir = base / f"plate_{plate_id}_{well}"
+    out_dir = base / f"plate_{plate_id}_{well}_ctc"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write the CSV next to the cached image (same location the build uses),
-    # so there is a single canonical tracks.csv per well.
-    csv = build_mastodon_csv(plate_data, well, px)
-    csv_path = well_group.parent / "tracks.csv"
-    csv.write_csv(csv_path)
+    mask_paths = write_ctc_masks(nuclei_tyx, export.relabel, out_dir)
+
+    res_track = out_dir / "res_track.txt"
+    export.track_table.write_csv(
+        res_track, separator=" ", include_header=False
+    )
+
+    manifest_path = out_dir / "manifest.json"
+    manifest_path.write_text(json.dumps(export.manifest, indent=2))
 
     n_div = (
-        csv.filter(pl.col("parent_id") != -1)
-        .group_by("parent_id")
+        export.track_table.filter(pl.col("P") != 0)
+        .group_by("P")
         .len()
         .filter(pl.col("len") > 1)
         .height
@@ -315,16 +372,20 @@ def export_well_for_mastodon(
             plate_id=plate_id,
             well=well,
             image_path=well_group,
-            csv_path=csv_path,
-            n_spots=csv.height,
-            n_tracks=csv["label"].n_unique(),
+            out_dir=out_dir,
+            last=max(len(mask_paths) - 1, 0),
+            n_tracks=export.manifest["n_tracks"],
             n_div=n_div,
-            px=px,
+            n_frames=len(mask_paths),
         )
+    )
+    logger.info(
+        f"Wrote CTC bundle for plate {plate_id} well {well}: "
+        f"{len(mask_paths)} masks, {export.manifest['n_tracks']} tracks -> {out_dir}"
     )
     return {
         "dir": out_dir,
-        "image": well_group,
-        "csv": csv_path,
+        "res_track": res_track,
+        "manifest": manifest_path,
         "readme": readme_path,
     }

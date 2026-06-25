@@ -79,7 +79,7 @@ hierarchy:
            │       │   └── labels/
            │       │       ├── nuclei/   # nucleus label mask (uint32), same pyramid
            │       │       └── cells/    # cell label mask (uint32), if available
-           │       └── tracks.csv    # written for tracked wells (see below)
+           │       └── ...
            └── ...
 
 Each well image is a ``(T, C, Y, X)`` array. Storage details, all
@@ -130,11 +130,11 @@ frames. To keep long multi-channel timelapses within a laptop's RAM during the
 build, wells are stitched and written in blocks of timepoints
 (``OMERO_SCREEN_CACHE_BLOCK``, default 4) rather than all at once.
 
-For a **tracked** timelapse (``--stitch --track``; see :ref:`tracking`), a
-``tracks.csv`` is written automatically next to each well's image group
-(``<row>/<col>/tracks.csv``) when the cache is built, so the well is immediately
-ready to open in Mastodon. See :ref:`mastodon-curation` for the curation
-walkthrough.
+For a **tracked** timelapse (``--stitch --track``; see :ref:`tracking`), the
+cached nucleus label mask carries each cell's ``track_id`` as its pixel value.
+From this the Tracks widget exports a Cell Tracking Challenge bundle (per-frame
+mask TIFFs + ``res_track.txt``) on demand for curation in Mastodon. See
+:ref:`mastodon-curation` for the walkthrough.
 
 
 Configuration

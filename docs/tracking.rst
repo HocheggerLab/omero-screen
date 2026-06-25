@@ -26,10 +26,13 @@ The workflow at a glance
    cellview import-plate                   (2) tracks land in CellView
         ▼
    napari — Tracks Widget                  (3) view & export
-        │  overlay tracks, inspect lineages (arboretum), export per-track CSV
+        │  overlay tracks, inspect lineages (arboretum), export a CTC bundle
         ▼
    Mastodon (Fiji)                         (4) manual curation
-        open the cached OME-Zarr well + tracks.csv, correct by hand
+        │  open the cached OME-Zarr well, import the CTC bundle, correct by hand
+        ▼
+   reconcile into CellView                 (5) round-trip (planned)
+        corrected res_track.txt → curated track_id / parent_track_id
 
 
 1. Generate tracks
@@ -65,8 +68,9 @@ are queryable alongside intensities, areas, and cell-cycle phase.
 
 Open the well with the **Welldata Widget**, then the **Tracks Widget** to overlay
 the tracks, inspect a single lineage tree (via the bundled *napari-arboretum*
-plugin), export one track's full time-course as CSV, or prepare a well for
-Mastodon. Pinning protects a plate from cache eviction while you curate.
+plugin), export one track's full time-course as CSV, or export the well as a
+**CTC bundle for Mastodon** (the *Export well for Mastodon (CTC)* button).
+Pinning protects a plate from cache eviction while you curate.
 
 See :doc:`omero-screen-napari/tracks_widget` for the step-by-step guide.
 
@@ -77,17 +81,37 @@ See :doc:`omero-screen-napari/tracks_widget` for the step-by-step guide.
 ---------------------
 
 Automated tracking is never perfect, so tracks are hand-corrected in Mastodon, a
-mature Fiji track-editing tool. OmeroScreen makes the cached well directly
-openable — no file conversion or image copy.
+mature Fiji track-editing tool.
 
-**The cache.** Cached plates live in a visible folder, ``~/omero-cache`` by
-default (override with ``OMERO_SCREEN_CACHE_PATH``). For a tracked plate, a
-``tracks.csv`` is written automatically next to each well's image when the
-cache is built, so a well is ready for Mastodon with no extra step. The cache is
-size-bounded and evicts least-recently-used plates — **Pin** a plate in the
+.. important::
+
+   **Use the CTC importer, not the CSV importer.** Mastodon's plain CSV importer
+   creates spots but **no links**, so it silently drops every track and lineage
+   — and its label-image importer cannot create *division* links. Only the
+   `Cell Tracking Challenge <https://celltrackingchallenge.net/>`_ importer
+   rebuilds full lineages (divisions included), because it reads the parent
+   relationships from ``res_track.txt``. That is why OmeroScreen exports a CTC
+   bundle.
+
+**Export the bundle.** In the Tracks Widget, click **Export well for Mastodon
+(CTC)**. This writes ``~/mastodon_exports/plate_<id>_<well>_ctc/`` containing:
+
+* ``mask000.tif`` … ``mask<T-1>.tif`` — one nucleus label image per frame, read
+  straight from the cached OME-Zarr (no OMERO round-trip). Each cell's pixel
+  value is its CTC track label.
+* ``res_track.txt`` — the lineage table, four integers per track ``L B E P``
+  (label, begin frame, end frame, parent label; ``0`` = founder). Labels are
+  renumbered ``1..N`` in begin-frame order, and the masks use the same labels.
+* ``manifest.json`` — maps each CTC label back to the original CellView
+  ``track_id`` plus per-frame centroids, for the round-trip below. Keep it; do
+  not edit it.
+* ``README.txt`` — the exact import steps with the paths filled in.
+
+The cache (``~/omero-cache`` by default, override with ``OMERO_SCREEN_CACHE_PATH``)
+is size-bounded and evicts least-recently-used plates — **Pin** a plate in the
 Tracks Widget before a long curation session so it is not reclaimed, and
-**Unpin** it when finished. See :doc:`caching` for the cache layout, the full
-set of environment variables, and the eviction/pinning rules.
+**Unpin** it when finished. See :doc:`caching` for the cache layout and the
+eviction/pinning rules.
 
 **Open the image.** In Fiji:
 
@@ -105,37 +129,32 @@ set of environment variables, and the eviction/pinning rules.
    per-channel contrast; ``1`` / ``2`` switch channels; ``F`` toggles a fused
    overlay.
 
-**Import the tracks.** In the main Mastodon window: **File → Import → CSV
-Importer**, choose the ``tracks.csv`` sitting next to the image group
-(``…/<row>/<col>/tracks.csv``), and map the columns:
-
-.. list-table::
-   :widths: 30 70
-   :header-rows: 1
-
-   * - Mastodon field
-     - CSV column
-   * - X / Y / Z
-     - ``x`` / ``y`` / ``z``
-   * - Frame
-     - ``frame``
-   * - ID / Parent ID
-     - ``id`` / ``parent_id``
-   * - Radius (column)
-     - ``radius``
-   * - Label
-     - ``label``
-
-Set a default **Radius** of ``10`` (used only if the radius column is blank).
+**Import the tracks.** In the main Mastodon window: **File → Import → Import
+from CellTrackingChallenge**. Choose the exported bundle folder, set the
+filename pattern to ``mask%03d.tif`` (3-digit, 0-based), and Mastodon reads
+``res_track.txt`` for the parent / division links.
 
 **Link the views.** Click the same group-lock number (e.g. ``1``) in *both* the
 BigDataViewer and TrackScheme windows, then double-click a spot to navigate
 between the views. Save your work as a ``.mastodon`` project in a stable
-location **outside** the cache (e.g. next to the README in
-``~/mastodon_exports/``) so it is not lost if the plate is later evicted.
+location **outside** the cache so it is not lost if the plate is later evicted.
+
+
+.. _ctc-roundtrip:
+
+5. Reconcile corrections into CellView (planned)
+------------------------------------------------
+
+When done, export the corrected tracks back to CTC (**File → Export →
+CellTrackingChallenge**). CellView already separates the frozen Trackastra
+output (``track_id_raw`` / ``parent_track_id_raw``) from the curated "current
+best" (``track_id`` / ``parent_track_id``), so the plan is to map each corrected
+spot back onto its CellView row — by per-frame centroid, using ``manifest.json``
+as the anchor — and write the corrections into the curated columns, leaving the
+``*_raw`` columns as the audit trail.
 
 .. note::
 
-   The reverse trip — feeding corrected Mastodon tracks back into CellView — is
-   planned but not yet implemented. For now the curated ``.mastodon`` project is
+   This reverse trip is **not yet implemented**. For now the corrected CTC
+   export (kept with its ``manifest.json``) and the ``.mastodon`` project are
    the record of corrections.

@@ -84,22 +84,26 @@ To pull one track's full measurement time-course out for downstream analysis
 
 The CSV contains every measurement column for that single track across time.
 
-## Export well for Mastodon
+## Export well for Mastodon (CTC)
 
-Prepares a well for manual curation in Mastodon:
+Prepares a well for manual curation in Mastodon as a Cell Tracking Challenge
+bundle:
 
 1. Optionally set the **Well**.
-2. Click **Export well for Mastodon**.
+2. Click **Export well for Mastodon (CTC)**.
 
-This writes `tracks.csv` next to the cached well image and a `README.txt` (in
-`~/mastodon_exports/plate_<id>_<well>/`) with the exact paths and click-by-click
-import steps. No image is copied — Mastodon opens the cached image in place. See
-the {doc}`../tracking` overview for the full Mastodon walkthrough.
+This writes `~/mastodon_exports/plate_<id>_<well>_ctc/` containing per-frame
+`mask*.tif` label images (from the cached zarr — no image copy), `res_track.txt`
+(the lineage), `manifest.json` (for the CellView round-trip) and a `README.txt`
+with the exact CTC-import steps. Import it via Mastodon's **Import from
+CellTrackingChallenge** — this preserves lineages and divisions, which the CSV
+importer does not. See the {doc}`../tracking` overview for the full walkthrough.
 
 ```{note}
-The cache auto-writes `tracks.csv` for every tracked well when the OME-Zarr is
-built, so a well is often already Mastodon-ready without this step. The button
-also (re)writes the README and refreshes the CSV.
+Use the CTC importer, **not** Mastodon's CSV importer: the CSV importer creates
+spots but no links, so it silently drops every track. The bundle is written on
+demand per well (not at cache-build time), since it includes a per-frame TIFF
+stack.
 ```
 
 ## Pin / Unpin plate
