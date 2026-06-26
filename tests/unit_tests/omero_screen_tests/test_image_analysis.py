@@ -1,13 +1,146 @@
 """Unit tests for image_analysis module with mocked Cellpose and synthetic data."""
 
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pytest
-from unittest.mock import MagicMock, Mock, patch
 
 from omero_screen.image_analysis import (
+    IDENTITY_FEATURES,
+    MORPHOLOGY_FEATURES,
     Image,
+    ImageProperties,
     get_cell_model,
+    normalize_featureset,
 )
+
+
+class TestNormalizeFeatureset:
+    """The config-driven intensity/morphology split."""
+
+    def test_structured_form_used_verbatim(self):
+        """The explicit structured config is used as given."""
+        cfg = {
+            "intensity": ["intensity_mean", "intensity_std"],
+            "morphology": ["area", "solidity"],
+        }
+        intensity, morphology = normalize_featureset(cfg)
+        assert "intensity_mean" in intensity
+        assert "intensity_std" in intensity
+        assert morphology == ["area", "solidity"]
+
+    def test_identity_features_are_added_to_intensity(self):
+        """label/centroid are auto-included in the per-channel group."""
+        intensity, morphology = normalize_featureset(
+            {"intensity": ["intensity_mean"], "morphology": ["area"]}
+        )
+        for ident in IDENTITY_FEATURES:
+            assert ident in intensity
+            assert ident not in morphology
+
+    def test_identity_not_duplicated_when_listed(self):
+        """Explicitly listing identity features does not duplicate them."""
+        intensity, _ = normalize_featureset(
+            {"intensity": ["label", "centroid", "intensity_mean"]}
+        )
+        assert intensity.count("label") == 1
+        assert intensity.count("centroid") == 1
+
+    def test_legacy_flat_list_is_classified(self):
+        """A flat list is split via the built-in morphology set."""
+        intensity, morphology = normalize_featureset(
+            ["label", "area", "intensity_mean", "solidity", "centroid"]
+        )
+        assert morphology == ["area", "solidity"]
+        assert "intensity_mean" in intensity
+        assert "label" in intensity and "centroid" in intensity
+
+    def test_morphology_only_or_intensity_only(self):
+        """Missing keys default to empty lists."""
+        intensity, morphology = normalize_featureset({"morphology": ["area"]})
+        assert morphology == ["area"]
+        # only identity in the intensity group
+        assert set(intensity) == set(IDENTITY_FEATURES)
+
+
+class TestFeatureClassification:
+    """Naming rules in ImageProperties._edit_properties.
+
+    Intensity features are per-channel (carry a channel token); mask-only
+    geometry is channel-independent (no token), so it dedups to one column per
+    segment in ``_combine_channels``. The morphology membership is passed in
+    (config-derived), not read from a hard-coded table.
+    """
+
+    FEATURES = [
+        "label",
+        "centroid",
+        "intensity_mean",
+        "intensity_std",
+        "area",
+        "solidity",
+        "perimeter",
+    ]
+    MORPH = frozenset({"area", "solidity", "perimeter"})
+
+    def test_intensity_features_carry_channel_token(self):
+        """Intensity features are named {feature}_{channel}_{segment}."""
+        rename = ImageProperties._edit_properties(
+            "DAPI", "nucleus", self.FEATURES, self.MORPH
+        )
+        assert rename["intensity_mean"] == "intensity_mean_DAPI_nucleus"
+        assert rename["intensity_std"] == "intensity_std_DAPI_nucleus"
+
+    def test_morphology_features_are_channel_independent(self):
+        """Geometry is named {feature}_{segment} with no channel token."""
+        rename = ImageProperties._edit_properties(
+            "DAPI", "nucleus", self.FEATURES, self.MORPH
+        )
+        # No channel token -> identical name across channels -> dedups to one.
+        assert rename["area"] == "area_nucleus"
+        assert rename["solidity"] == "solidity_nucleus"
+        assert rename["perimeter"] == "perimeter_nucleus"
+
+    def test_label_and_centroid_are_not_renamed(self):
+        """Label (join key) and centroid are left untouched."""
+        rename = ImageProperties._edit_properties(
+            "Tub", "cell", self.FEATURES, self.MORPH
+        )
+        assert "label" not in rename
+        assert "centroid" not in rename
+
+    def test_classification_follows_passed_morphology_set(self):
+        """Naming follows the supplied set, not a global table."""
+        # Treat 'area' as intensity by omitting it from the morphology set.
+        rename = ImageProperties._edit_properties(
+            "DAPI", "nucleus", ["intensity_mean", "area"], frozenset()
+        )
+        assert rename["area"] == "area_DAPI_nucleus"
+        assert rename["intensity_mean"] == "intensity_mean_DAPI_nucleus"
+
+    def test_same_morphology_name_across_channels(self):
+        """Every channel yields the same geometry column name, enabling dedup."""
+        for token in ("DAPI", "Tub", "EdU"):
+            rename = ImageProperties._edit_properties(
+                token, "cell", self.FEATURES, self.MORPH
+            )
+            assert rename["area"] == "area_cell"
+            assert rename["solidity"] == "solidity_cell"
+
+    def test_registry_matches_proposed_features(self):
+        """All proposed geometry features are in the legacy classifier set."""
+        for feat in (
+            "area",
+            "area_convex",
+            "solidity",
+            "eccentricity",
+            "extent",
+            "perimeter",
+            "axis_major_length",
+            "axis_minor_length",
+            "equivalent_diameter_area",
+        ):
+            assert feat in MORPHOLOGY_FEATURES
 
 
 class TestGetCellModel:
@@ -160,8 +293,8 @@ class TestImageInitialization:
 
         # Mock Cellpose model
         mock_model_instance = MagicMock()
-        mock_model_instance.eval.return_value = (
-            np.zeros((512, 512), dtype=np.uint32)
+        mock_model_instance.eval.return_value = np.zeros(
+            (512, 512), dtype=np.uint32
         )
         mock_segmentation.return_value = mock_model_instance
 
@@ -211,8 +344,8 @@ class TestImageInitialization:
         mock_conn.getObject.return_value = mock_dataset
 
         mock_model_instance = MagicMock()
-        mock_model_instance.eval.return_value = (
-            np.zeros((512, 512), dtype=np.uint32)
+        mock_model_instance.eval.return_value = np.zeros(
+            (512, 512), dtype=np.uint32
         )
         mock_segmentation.return_value = mock_model_instance
 
@@ -256,8 +389,8 @@ class TestImageInitialization:
         mock_conn.getObject.return_value = mock_dataset
 
         mock_model_instance = MagicMock()
-        mock_model_instance.eval.return_value = (
-            np.zeros((512, 512), dtype=np.uint32)
+        mock_model_instance.eval.return_value = np.zeros(
+            (512, 512), dtype=np.uint32
         )
         mock_segmentation.return_value = mock_model_instance
 
@@ -300,8 +433,8 @@ class TestImageInitialization:
         mock_conn.getObject.return_value = mock_dataset
 
         mock_model_instance = MagicMock()
-        mock_model_instance.eval.return_value = (
-            np.zeros((512, 512), dtype=np.uint32)
+        mock_model_instance.eval.return_value = np.zeros(
+            (512, 512), dtype=np.uint32
         )
         mock_segmentation.return_value = mock_model_instance
 
@@ -390,9 +523,7 @@ class TestImageSegmentation:
             synthetic_mask[y : y + 20, x : x + 20] = i + 1
 
         mock_model_instance = MagicMock()
-        mock_model_instance.eval.return_value = (
-            synthetic_mask
-        )
+        mock_model_instance.eval.return_value = synthetic_mask
         mock_segmentation.return_value = mock_model_instance
 
         img = Image(
@@ -526,12 +657,12 @@ class TestImageSegmentation:
         mock_get_image.return_value = (None, mock_setup["synthetic_data"])
 
         mock_model_instance = MagicMock()
-        mock_model_instance.eval.return_value = (
-            np.zeros((256, 256), dtype=np.uint32)
+        mock_model_instance.eval.return_value = np.zeros(
+            (256, 256), dtype=np.uint32
         )
         mock_segmentation.return_value = mock_model_instance
 
-        img = Image(
+        Image(
             conn=mock_setup["conn"],
             well=mock_setup["well"],
             image_obj=mock_setup["image_obj"],

@@ -1601,10 +1601,19 @@ class CellViewStateCore:
             _known_suffixes = ("_background",)
             renames: dict[str, str] = {}
             for col in self.df.columns:
-                if not any(
-                    col.startswith(p) for p in _known_prefixes
-                ) and not any(col.endswith(s) for s in _known_suffixes):
-                    renames[col] = f"classifier_{col}"
+                if any(col.startswith(p) for p in _known_prefixes) or any(
+                    col.endswith(s) for s in _known_suffixes
+                ):
+                    continue
+                # A classifier output is a categorical class label (string); a
+                # measurement is numeric. Only non-numeric unknown columns are
+                # treated as legacy classifier outputs. This keeps numeric
+                # morphology features (e.g. ``solidity_nucleus``,
+                # ``area_convex_cell``) from being misfiled as a classifier and
+                # cast to text — they flow through as FLOAT measurements.
+                if pd.api.types.is_numeric_dtype(self.df[col]):
+                    continue
+                renames[col] = f"classifier_{col}"
             if renames:
                 self.df.rename(columns=renames, inplace=True)
                 classifier_cols = list(renames.values())

@@ -10,12 +10,21 @@
   },
   "FEATURELIST": {
     "intensity": [
+      "intensity_mean",
       "intensity_max",
       "intensity_min",
-      "intensity_mean"
+      "intensity_std"
     ],
     "morphology": [
-      "area"
+      "area",
+      "area_convex",
+      "equivalent_diameter_area",
+      "axis_major_length",
+      "axis_minor_length",
+      "solidity",
+      "eccentricity",
+      "extent",
+      "perimeter"
     ]
   }
 }

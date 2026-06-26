@@ -169,6 +169,48 @@ Override by setting ``OMERO_SCREEN_CONFIG`` to a JSON file with a
 Cellpose parameters — fixed-cell pipelines are unaffected.
 
 
+.. _feature-list:
+
+Extracted features
+------------------
+
+The features measured per region are governed by ``FEATURELIST``, which
+declares the per-channel / per-mask split **in the config itself** — so a user
+can design a feature set in JSON without editing source. The structured form
+has two groups:
+
+.. code-block:: json
+
+   {
+     "FEATURELIST": {
+       "intensity":  ["intensity_mean", "intensity_max", "intensity_min", "intensity_std"],
+       "morphology": ["area", "solidity", "eccentricity", "extent", "perimeter",
+                      "area_convex", "axis_major_length", "axis_minor_length",
+                      "equivalent_diameter_area"]
+     }
+   }
+
+* ``intensity`` features read the pixel data, so they are measured **per
+  channel** and named ``{feature}_{channel}_{segment}``.
+* ``morphology`` features read only the label mask, so they are identical
+  across channels and measured **once per segment** — on the channel that
+  segmented that mask (nucleus channel for the nucleus segment, cell channel
+  for cell/cyto) — and named ``{feature}_{segment}``.
+* ``label`` and ``centroid`` are identity columns and are added automatically;
+  you do not list them.
+
+A richer, cell-state-oriented set ships as a committed JSON at
+``src/data/omero_screen_config_full.json``; select it with the override
+mechanism::
+
+   OMERO_SCREEN_CONFIG=src/data/omero_screen_config_full.json omero-screen <plate_id> --env production
+
+Feature names must be valid ``skimage.measure.regionprops`` properties.
+``area`` and ``intensity_mean`` are **required** (they back the integrated-
+intensity column) and validated at load time. A legacy flat ``FEATURELIST``
+list is still accepted and classified automatically.
+
+
 .. _temporal-tracking:
 
 Temporal Tracking

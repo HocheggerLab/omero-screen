@@ -45,6 +45,75 @@ from omero_screen.segmentation import (
     apply_seg_profile,
 )
 
+# Identity columns: cheap, channel-independent, and required on every channel
+# pass. ``label`` is the per-segment join key; ``centroid`` (expanded by
+# regionprops to ``centroid-0``/``centroid-1``) gives position for stitched
+# image_id assignment and cross-round alignment. They are always measured with
+# the per-channel (intensity) group and are never given a channel token.
+IDENTITY_FEATURES: tuple[str, ...] = ("label", "centroid")
+
+# Default classification used ONLY when a config supplies a legacy *flat*
+# feature list (no explicit intensity/morphology split). Features named here
+# are treated as mask-only geometry; everything else as per-channel intensity.
+# The preferred config form states the split explicitly (see
+# ``normalize_featureset``), so this set is a backward-compatibility shim, not
+# the primary mechanism.
+MORPHOLOGY_FEATURES: frozenset[str] = frozenset(
+    {
+        "area",
+        "area_convex",
+        "equivalent_diameter_area",
+        "axis_major_length",
+        "axis_minor_length",
+        "solidity",
+        "eccentricity",
+        "extent",
+        "perimeter",
+    }
+)
+
+# A feature configuration is either the explicit structured form
+# ``{"intensity": [...], "morphology": [...]}`` or a legacy flat list.
+FeatureConfig = list[str] | dict[str, list[str]]
+
+
+def normalize_featureset(
+    featurelist: FeatureConfig,
+) -> tuple[list[str], list[str]]:
+    """Split a feature configuration into per-channel and per-mask groups.
+
+    The split is taken from the config data itself, not from a hard-coded
+    source-side table, so a JSON author has full control without editing code.
+
+    Two input forms are accepted:
+
+    * **Structured** (preferred): ``{"intensity": [...], "morphology": [...]}``.
+      Used verbatim.
+    * **Legacy flat list**: classified against :data:`MORPHOLOGY_FEATURES`.
+
+    The identity columns in :data:`IDENTITY_FEATURES` (``label``, ``centroid``)
+    are always ensured in the intensity group — they are measured on every
+    channel pass as the join key / position — and never in the morphology group.
+
+    Args:
+        featurelist: The feature configuration (structured dict or flat list).
+
+    Returns:
+        A ``(intensity, morphology)`` pair of feature-name lists. ``intensity``
+        is measured per channel; ``morphology`` once per segment.
+    """
+    if isinstance(featurelist, dict):
+        intensity = list(featurelist.get("intensity", []))
+        morphology = list(featurelist.get("morphology", []))
+    else:
+        intensity = [f for f in featurelist if f not in MORPHOLOGY_FEATURES]
+        morphology = [f for f in featurelist if f in MORPHOLOGY_FEATURES]
+    # Identity columns belong to the per-channel group only.
+    morphology = [f for f in morphology if f not in IDENTITY_FEATURES]
+    intensity = [f for f in intensity if f not in IDENTITY_FEATURES]
+    intensity = [*IDENTITY_FEATURES, *intensity]
+    return intensity, morphology
+
 
 class Image:
     """Generates corrected images and segmentation masks for microscopy data.
@@ -562,7 +631,7 @@ class ImageProperties:
         well: WellWrapper,
         image_obj: Image,
         meta_data: MetadataParser,
-        featurelist: list[str] = default_config.FEATURELIST,
+        featurelist: FeatureConfig = default_config.FEATURELIST,
         image_classifier: None | list[ImageClassifier] = None,
     ):
         """Initializes the ImageProperties object for feature extraction and data aggregation.
@@ -571,7 +640,9 @@ class ImageProperties:
             well (WellWrapper): OMERO WellWrapper object for the current well.
             image_obj (Image): Image object containing segmentation masks and corrected images.
             meta_data (MetadataParser): Metadata parser with channel and plate information.
-            featurelist (list[str], optional): List of features to extract from segmented regions. Defaults to default_config.FEATURELIST.
+            featurelist: Feature configuration — structured ``{"intensity": [...],
+                "morphology": [...]}`` or a legacy flat list. Defaults to
+                ``default_config.FEATURELIST``.
             image_classifier (optional): Optional image classifier(s) for additional processing. Defaults to None.
         """
         self._well = well
@@ -662,7 +733,7 @@ class ImageProperties:
             list(overlay_all.items()), columns=["label", "Cyto_ID"]
         )
 
-    def _combine_channels(self, featurelist: list[str]) -> pd.DataFrame:
+    def _combine_channels(self, featurelist: FeatureConfig) -> pd.DataFrame:
         """Combines feature measurements from different channels into a single DataFrame.
 
         This method processes the segmented masks for each channel and combines the measurements into a single DataFrame.
@@ -670,8 +741,21 @@ class ImageProperties:
         Returns:
             pd.DataFrame: DataFrame containing feature measurements for all regions and channels.
         """
+        # The intensity/morphology split comes from the config (see
+        # ``normalize_featureset``). Morphology is measured once per segment
+        # (routed to the channel that segmented the mask, in ``_channel_data``);
+        # intensity is measured for every channel.
+        intensity, morphology = normalize_featureset(featurelist)
+        if morphology and self._image.c_mask is not None:
+            # Cell/cyto geometry is owned by the cell channel; fail loud if the
+            # resolved cell-channel name is not among the channels we iterate,
+            # otherwise cell geometry would silently never be measured.
+            assert self._image._cell_channel in self._meta_data.channel_data, (
+                f"Cell channel '{self._image._cell_channel}' not in "
+                f"channels {list(self._meta_data.channel_data)}"
+            )
         channel_data = [
-            self._channel_data(channel, featurelist)
+            self._channel_data(channel, intensity, morphology)
             for channel in self._meta_data.channel_data
         ]
         props_data = pd.concat(channel_data, axis=1, join="inner")
@@ -727,18 +811,40 @@ class ImageProperties:
         )
 
     def _channel_data(
-        self, channel: str, featurelist: list[str]
+        self, channel: str, intensity: list[str], morphology: list[str]
     ) -> pd.DataFrame:
         """Processes the segmented masks for a specific channel and combines the measurements into a single DataFrame.
 
-        This method extracts quantitative features from the segmented masks for a given channel and combines them with the overlay DataFrame.
+        Intensity features are measured for this channel on every segment.
+        Morphology (mask-only geometry) is measured only when ``channel`` is the
+        channel that segmented the relevant mask — the nucleus channel for the
+        nucleus segment, the cell channel for the cell/cyto segments — so each
+        segment's geometry is computed exactly once across the channel loop.
+
+        Args:
+            channel: Channel name being processed.
+            intensity: Per-channel intensity feature names (measured here).
+            morphology: Mask-only geometry feature names (measured only on the
+                owning segmentation channel).
 
         Returns:
             pd.DataFrame: DataFrame containing feature measurements for the given channel.
         """
         channel_token = self._feature_channel_token(channel)
+        # Names that must be rendered channel-independent (``{feature}_{segment}``)
+        # rather than per-channel, passed down to ``_edit_properties``.
+        morphology_names = frozenset(morphology)
+        # Nucleus geometry is owned by the nucleus channel.
+        nucleus_features = intensity + (
+            morphology if channel == self._image._nucleus_channel else []
+        )
         nucleus_data = self._get_properties(
-            self._image.n_mask, channel, channel_token, "nucleus", featurelist
+            self._image.n_mask,
+            channel,
+            channel_token,
+            "nucleus",
+            nucleus_features,
+            morphology_names,
         )
         # merge channel data, outer merge combines all area columns into 1
         if self._image.c_mask is not None:
@@ -751,6 +857,8 @@ class ImageProperties:
             # ``nucleus_channel``) can find it for DNA-content normalisation.
             # Legacy DAPI plates keep the historical ``integrated_int_DAPI``
             # column name; non-DAPI plates get ``integrated_int_{channel}``.
+            # ``area_nucleus`` is present because nucleus geometry is owned by
+            # this channel (see ``nucleus_features`` above).
             nucleus_data[f"integrated_int_{channel_token}"] = (
                 nucleus_data[f"intensity_mean_{channel_token}_nucleus"]
                 * nucleus_data["area_nucleus"]
@@ -760,15 +868,25 @@ class ImageProperties:
             self._image.c_mask is not None
             and self._image.cyto_mask is not None
         ):
+            # Cell and cyto geometry is owned by the cell channel.
+            cell_features = intensity + (
+                morphology if channel == self._image._cell_channel else []
+            )
             cell_data = self._get_properties(
-                self._image.c_mask, channel, channel_token, "cell", featurelist
+                self._image.c_mask,
+                channel,
+                channel_token,
+                "cell",
+                cell_features,
+                morphology_names,
             )
             cyto_data = self._get_properties(
                 self._image.cyto_mask,
                 channel,
                 channel_token,
                 "cyto",
-                featurelist,
+                cell_features,
+                morphology_names,
             )
             merge_1 = self._outer_merge(
                 cell_data, cyto_data, ["label", "timepoint"]
@@ -787,6 +905,7 @@ class ImageProperties:
         channel_token: str,
         segment: str,
         featurelist: list[str],
+        morphology_names: frozenset[str],
     ) -> pd.DataFrame:
         """Measure selected features for each segmented cell in given channel.
 
@@ -797,6 +916,8 @@ class ImageProperties:
                 the nuclei role (canonical), otherwise ``strip_role_suffix(channel)``.
             segment: Segment label (``nucleus`` / ``cell`` / ``cyto``).
             featurelist: List of regionprops features to extract.
+            morphology_names: Feature names to render channel-independent
+                (``{feature}_{segment}``); the rest get a channel token.
 
         Returns:
             pd.DataFrame: DataFrame containing feature measurements for the given channel.
@@ -816,7 +937,7 @@ class ImageProperties:
                 )
                 data = pd.DataFrame(props)
                 feature_dict = self._edit_properties(
-                    channel_token, segment, featurelist
+                    channel_token, segment, featurelist, morphology_names
                 )
                 data = data.rename(columns=feature_dict)
                 data["timepoint"] = t  # Add timepoint for all channels
@@ -834,7 +955,7 @@ class ImageProperties:
             )
             data = pd.DataFrame(props)
             feature_dict = self._edit_properties(
-                channel_token, segment, featurelist
+                channel_token, segment, featurelist, morphology_names
             )
             data = data.rename(columns=feature_dict)
             data["timepoint"] = 0  # Add timepoint 0 for single timepoint data
@@ -853,28 +974,43 @@ class ImageProperties:
 
     @staticmethod
     def _edit_properties(
-        channel_token: str, segment: str, featurelist: list[str]
+        channel_token: str,
+        segment: str,
+        featurelist: list[str],
+        morphology_names: frozenset[str],
     ) -> dict[str, str]:
         """Build the rename map from regionprops column names to feature column names.
+
+        Classification is by feature name, driven by the config-derived
+        ``morphology_names`` (not a hard-coded table):
+
+        * identity features (:data:`IDENTITY_FEATURES`) are left untouched —
+          ``label`` is the join key; ``centroid`` is expanded by regionprops to
+          ``centroid-0``/``centroid-1``, which are channel-independent.
+        * morphology features (those in ``morphology_names``) are named
+          ``{feature}_{segment}`` — channel-independent geometry.
+        * everything else is a per-channel intensity feature, named
+          ``{feature}_{channel_token}_{segment}``.
 
         Args:
             channel_token: Token used in the feature column name (canonical ``DAPI``
                 for the nuclei role; suffix-stripped channel name otherwise).
             segment: Segment label (``nucleus`` / ``cell`` / ``cyto``).
-            featurelist: List of regionprops feature names; the first two
-                (``label``, ``area``) are handled specially.
+            featurelist: List of regionprops feature names.
+            morphology_names: Feature names to render channel-independent.
 
         Returns:
             dict[str, str]: Dictionary mapping regionprops column names to their
             final feature column names.
         """
-        feature_dict = {
-            feature: f"{feature}_{channel_token}_{segment}"
-            for feature in featurelist[2:]
-        }
-        feature_dict["area"] = (
-            f"area_{segment}"  # the area is the same for each channel
-        )
+        feature_dict: dict[str, str] = {}
+        for feature in featurelist:
+            if feature in IDENTITY_FEATURES:
+                continue
+            if feature in morphology_names:
+                feature_dict[feature] = f"{feature}_{segment}"
+            else:
+                feature_dict[feature] = f"{feature}_{channel_token}_{segment}"
         return feature_dict
 
     def _outer_merge(

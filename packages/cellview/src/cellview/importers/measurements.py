@@ -250,6 +250,20 @@ class MeasurementsManager:
                     # --track. The static schema also declares them on
                     # fresh DBs; this branch migrates legacy DBs.
                     columns_to_add.append((col, "INTEGER"))
+                elif (
+                    self.state.df is not None
+                    and col in self.state.df.columns
+                    and pd.api.types.is_numeric_dtype(self.state.df[col])
+                ):
+                    # Any other numeric measurement — e.g. morphology features
+                    # named ``{feature}_{segment}`` (``solidity_nucleus``,
+                    # ``area_convex_cell``, ``perimeter_cyto``). Stored as FLOAT
+                    # so new regionprops features need no schema change.
+                    if not self._validate_measurement_column_name(col):
+                        raise MeasurementError(
+                            f"Invalid measurement column name format: {col}"
+                        )
+                    columns_to_add.append((col, "FLOAT"))
 
             # Add missing columns
             for col, dtype in columns_to_add:
@@ -313,6 +327,24 @@ class MeasurementsManager:
         import re
 
         pattern = r"^[\w\-]+_background$"
+        return bool(re.match(pattern, column_name))
+
+    def _validate_measurement_column_name(self, column_name: str) -> bool:
+        """Validate that a generic measurement column name is safe for SQL DDL.
+
+        Used for numeric measurement columns that match no specific prefix
+        (e.g. morphology features such as ``solidity_nucleus``). Mirrors the
+        character set allowed for intensity columns.
+
+        Args:
+            column_name: The column name to validate
+
+        Returns:
+            True if the column name is valid, False otherwise
+        """
+        import re
+
+        pattern = r"^[\w\-\(\)\.]+$"
         return bool(re.match(pattern, column_name))
 
 

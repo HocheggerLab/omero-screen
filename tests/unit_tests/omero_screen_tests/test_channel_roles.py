@@ -347,19 +347,27 @@ class TestEditPropertiesNaming:
     """Feature column name construction uses the channel token, not the raw name."""
 
     def test_emits_canonical_dapi_columns(self):
+        """Nucleus DAPI columns use the canonical channel token."""
         from omero_screen.image_analysis import ImageProperties
 
         feature_dict = ImageProperties._edit_properties(
-            "DAPI", "nucleus", ["label", "area", "intensity_mean"]
+            "DAPI",
+            "nucleus",
+            ["label", "area", "intensity_mean"],
+            frozenset({"area"}),
         )
         assert feature_dict["intensity_mean"] == "intensity_mean_DAPI_nucleus"
         assert feature_dict["area"] == "area_nucleus"
 
     def test_emits_stripped_cell_columns(self):
+        """Cell columns use the suffix-stripped channel token, no duplication."""
         from omero_screen.image_analysis import ImageProperties
 
         feature_dict = ImageProperties._edit_properties(
-            "CellMask", "cell", ["label", "area", "intensity_mean"]
+            "CellMask",
+            "cell",
+            ["label", "area", "intensity_mean"],
+            frozenset({"area"}),
         )
         assert feature_dict["intensity_mean"] == "intensity_mean_CellMask_cell"
         # No suffix duplication (the bug the refactor prevents).

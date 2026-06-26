@@ -40,15 +40,20 @@ class DefaultConfig:
         }
     )
 
-    FEATURELIST: list[str] = field(
-        default_factory=lambda: [
-            "label",
-            "area",
-            "intensity_max",
-            "intensity_min",
-            "intensity_mean",
-            "centroid",
-        ]
+    # Feature configuration. The structured form states the per-channel /
+    # per-mask split explicitly: ``intensity`` features are measured for every
+    # channel; ``morphology`` (mask-only geometry) once per segment. ``label``
+    # and ``centroid`` are identity columns and added automatically. A legacy
+    # flat list is also accepted (see ``image_analysis.normalize_featureset``).
+    FEATURELIST: dict[str, list[str]] | list[str] = field(
+        default_factory=lambda: {
+            "intensity": [
+                "intensity_max",
+                "intensity_min",
+                "intensity_mean",
+            ],
+            "morphology": ["area"],
+        }
     )
 
     # Channel-name → segmentation-profile overrides.
@@ -67,6 +72,39 @@ class DefaultConfig:
     )
 
 
+# Feature names the downstream pipeline structurally depends on: the
+# integrated-intensity column is ``intensity_mean`` × ``area`` of the nucleus,
+# so both must be measured. ``label`` and ``centroid`` are identity columns
+# added automatically by ``normalize_featureset`` and so are not required here.
+REQUIRED_FEATURES: tuple[str, ...] = ("area", "intensity_mean")
+
+
+def _validate_featurelist(features: dict[str, list[str]] | list[str]) -> None:
+    """Validate an override FEATURELIST, raising on a pipeline-breaking omission.
+
+    Accepts either the structured form (``{"intensity": [...],
+    "morphology": [...]}``) or a legacy flat list.
+
+    Args:
+        features: Candidate feature config loaded from an OMERO_SCREEN_CONFIG file.
+
+    Raises:
+        ValueError: If any structurally-required feature is missing.
+    """
+    if isinstance(features, dict):
+        present = set(features.get("intensity", [])) | set(
+            features.get("morphology", [])
+        )
+    else:
+        present = set(features)
+    missing = [f for f in REQUIRED_FEATURES if f not in present]
+    if missing:
+        raise ValueError(
+            f"FEATURELIST is missing required feature(s) {missing}; "
+            f"these are needed by the analysis pipeline. Got: {features}"
+        )
+
+
 # Create a singleton instance of DefaultConfig
 default_config = DefaultConfig()
 
@@ -82,7 +120,8 @@ if path is not None and os.path.exists(path):
             if isinstance(models, dict):
                 default_config.MODEL_DICT = models
             features = data.get("FEATURELIST", None)
-            if isinstance(features, list):
+            if isinstance(features, dict | list):
+                _validate_featurelist(features)
                 default_config.FEATURELIST = features
             profiles = data.get("CHANNEL_SEG_PROFILES", None)
             if isinstance(profiles, dict):
