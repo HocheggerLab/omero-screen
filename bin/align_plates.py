@@ -94,17 +94,14 @@ def main() -> None:
 
     if args.gallery > 0:
         import math
-        import random
 
+        from loguru import logger
         from omero_utils.attachments import (
             attach_figure,
             delete_file_attachment,
         )
 
-        from omero_screen.config import get_logger
         from omero_screen.gallery_figure import create_gallery
-
-        logger = get_logger(__name__)
 
     # Same seed for all sampling for convenience
     if args.seed is None:
@@ -127,19 +124,19 @@ def main() -> None:
             seed=args.seed,
             threshold=args.threshold,
             tolerance=args.tolerance,
-            output_alignments=args.gallery > 0,
+            n_examples=args.gallery**2 if args.gallery > 0 else 0,
             iqr=args.iqr,
         )
         if examples is not None:
             plate = conn.getObject("Plate", plate_id)
-            for plate_other, images in zip(plate_ids, examples, strict=False):
+            # align_plates returns one (already bounded) list of example
+            # images per repeat plate, in plate_ids order.
+            for plate_other, images in zip(plate_ids, examples, strict=True):
+                if not images:
+                    continue
                 n = len(images)
-                if n > args.gallery**2:
-                    n = args.gallery**2
-                    random.seed(a=args.seed)
-                    images = random.sample(images, n)
                 name = f"alignment_{plate_other}"
-                logger.info("Saving gallery: %s", name)
+                logger.info("Saving gallery: {}", name)
                 fig = create_gallery(
                     images, math.ceil(math.sqrt(n)), show_contours=False
                 )

@@ -256,7 +256,7 @@ def align_plates(
     threshold: float = 100,
     tolerance: float = 5,
     seed: int | None = None,
-    output_alignments: bool = False,
+    n_examples: int = 0,
     iqr: float = 1.5,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[list[npt.NDArray[Any]]] | None]:
     """Align plates in 2D using the specified channel.
@@ -281,7 +281,10 @@ def align_plates(
         threshold: Distance threshold for alignments
         tolerance: Distance threshold for all alignments to the centroid
         seed: Seed for random selection of well samples
-        output_alignments: Set to True to return the alignment images
+        n_examples: Maximum number of example alignment images to collect per
+            plate for a QC gallery (0 disables collection). At most one example
+            is kept per well, so memory stays bounded regardless of the number
+            of samples aligned.
         iqr: Factor of inter-quartile range to exclude outliers (zero to ignore)
 
     Returns:
@@ -370,11 +373,16 @@ def align_plates(
         ch2 = _resolve_align_idx(plate_other)
         start_coords2 = start_coords.copy()
         start_coords2[-2] = ch2
-        shifted = []
+        shifted: list[npt.NDArray[Any]] = []
         # Compute the shift for each well
         for well, samples1 in well_samples1.items():
             shifts = []
             samples2 = well_samples2[well]
+            # Collect at most one example alignment image per well, and stop
+            # once we have enough for the plate's gallery. Collecting every
+            # sample of every well retains one (2, Y, X) array per sample and
+            # exhausts host RAM (especially with sample_alignments).
+            collect_example = n_examples > 0 and len(shifted) < n_examples
             # Perform alignment on selected channel
             for idx in selected_indices:
                 _, im1 = get_image(
@@ -407,18 +415,17 @@ def align_plates(
                 image_alignments.append(
                     (plate_other, well, idx, image_id2) + trans
                 )
-                if output_alignments:
+                if collect_example:
                     shifted.append(
                         # Translation is computed as XY for readability but translate requires YX so reverse
                         _translate(
                             im1.squeeze(), im2.squeeze(), (trans[1], trans[0])
                         )
                     )
+                    collect_example = False  # one example per well
                 shifts.append(trans)
                 if len(shifts) >= number_of_alignments:
                     break
-            if output_alignments:
-                examples.append(shifted)
             # Validate alignment. If we skipped all frames use no translation.
             if not shifts:
                 shifts.append((0, 0))
@@ -460,6 +467,9 @@ def align_plates(
                     logger,
                 )
             alignments.append((plate_other, well) + shift)
+        # One gallery entry per plate (kept bounded above).
+        if n_examples > 0:
+            examples.append(shifted)
 
     df = pd.DataFrame(alignments, columns=["plate", "well", "x", "y"])
     sdf = pd.DataFrame(
