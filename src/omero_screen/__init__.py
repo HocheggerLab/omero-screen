@@ -51,6 +51,7 @@ class DefaultConfig:
                 "intensity_max",
                 "intensity_min",
                 "intensity_mean",
+                "intensity_std",
             ],
             "morphology": ["area"],
         }
