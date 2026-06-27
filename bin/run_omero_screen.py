@@ -37,6 +37,15 @@ def main() -> None:
         help="Environment name (requires configuration file .env.{name}).",
     )
     group.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Path to an OMERO_SCREEN_CONFIG JSON (MODEL_DICT / FEATURELIST / "
+        "CHANNEL_SEG_PROFILES). Overrides the OMERO_SCREEN_CONFIG env var. "
+        "Errors if the path does not exist (no silent fallback to defaults).",
+    )
+    group.add_argument(
         "--inference",
         nargs="+",
         type=str,
@@ -169,6 +178,15 @@ def main() -> None:
 
     if args.env:
         os.environ["ENV"] = args.env
+
+    # Point the config loader at the given JSON before any omero_screen import
+    # triggers it (the package __init__ reads OMERO_SCREEN_CONFIG at import).
+    # An explicit flag fails loudly on a bad path rather than silently falling
+    # back to the built-in defaults.
+    if args.config:
+        if not os.path.exists(args.config):
+            parser.error(f"--config file not found: {args.config}")
+        os.environ["OMERO_SCREEN_CONFIG"] = args.config
 
     # Configure logging once, at the entry point. Importing config triggers
     # set_env_vars() (loads .env.{ENV}) so an OMERO_SCREEN_LOG_* override placed
