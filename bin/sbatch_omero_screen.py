@@ -67,6 +67,14 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
             prog_options += f" --track-device {args.track_device}"
         if args.track_window:
             prog_options += f" --track-window {args.track_window}"
+    if args.config:
+        # Resolve to an absolute path now: the job runs from this directory
+        # (bin/), so a relative --config would otherwise resolve against bin/.
+        # Validate at submission time to fail fast rather than after queueing.
+        config_path = os.path.abspath(args.config)
+        if not os.path.exists(config_path):
+            raise Exception(f"Missing config file: {config_path}")
+        prog_options += f" --config {config_path}"
 
     # Create the job file
     script = f"{name}.sh"
@@ -254,6 +262,15 @@ def _parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Environment name (requires configuration file .env.{name}).",
+    )
+    group.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Path to an OMERO_SCREEN_CONFIG JSON (MODEL_DICT / FEATURELIST / "
+        "CHANNEL_SEG_PROFILES). Resolved to an absolute path and validated at "
+        "submission time, then forwarded to omero-screen --config.",
     )
     group.add_argument(
         "--segmentation",
