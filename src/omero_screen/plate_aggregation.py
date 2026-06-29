@@ -983,8 +983,13 @@ def _get_mask_map(
     dataset = conn.getObject("Dataset", dataset_id)
     d = {}
     for image in dataset.listChildren():
-        s = image.getName().removesuffix("_segmentation")
-        if len(s) < len(image.getName()):
+        name = image.getName()
+        s = name.removesuffix("_segmentation")
+        if len(s) < len(name):
+            # Stitched-mode masks are named "{image_id}_stitched_segmentation"
+            # (loops.py); legacy masks are "{image_id}_segmentation". Strip the
+            # optional "_stitched" token so the key is the original image ID.
+            s = s.removesuffix("_stitched")
             d[int(s)] = image
     return d
 
