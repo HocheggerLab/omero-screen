@@ -6,6 +6,7 @@ covered by the manual integration run.
 """
 
 import json
+from pathlib import Path
 
 import numpy as np
 import polars as pl
@@ -16,6 +17,7 @@ from omero_screen_napari.mastodon_export import (
     build_ctc_export,
     export_well_ctc,
     relabel_mask,
+    write_unit_scale_view,
 )
 
 
@@ -235,6 +237,91 @@ def test_export_well_ctc_mask_values_match_res_track(
     manifest = json.loads(paths["manifest"].read_text())
     assert manifest["tracks"]["2"]["track_id"] == 7
     assert manifest["tracks"]["3"]["track_id"] == 8
+
+
+# --- write_unit_scale_view ---------------------------------------------------
+
+
+def _make_image_group(root: Path, pixel_size: float) -> Path:
+    """Write a minimal OME-NGFF image multiscale group with a µm pixel scale."""
+    group = root / "C" / "4" / "0"
+    group.mkdir(parents=True)
+    (group / ".zgroup").write_text(json.dumps({"zarr_format": 2}))
+    attrs = {
+        "multiscales": [
+            {
+                "axes": [
+                    {"name": "t", "type": "time"},
+                    {"name": "c", "type": "channel"},
+                    {"name": "y", "type": "space"},
+                    {"name": "x", "type": "space"},
+                ],
+                "datasets": [
+                    {
+                        "path": "0",
+                        "coordinateTransformations": [
+                            {
+                                "type": "scale",
+                                "scale": [1.0, 1.0, pixel_size, pixel_size],
+                            }
+                        ],
+                    },
+                    {
+                        "path": "1",
+                        "coordinateTransformations": [
+                            {
+                                "type": "scale",
+                                "scale": [
+                                    1.0,
+                                    1.0,
+                                    pixel_size * 2,
+                                    pixel_size * 2,
+                                ],
+                            }
+                        ],
+                    },
+                ],
+            }
+        ]
+    }
+    (group / ".zattrs").write_text(json.dumps(attrs))
+    # Per-level chunk dirs the view should symlink (content is irrelevant here).
+    for lvl in ("0", "1"):
+        (group / lvl).mkdir()
+        (group / lvl / ".zarray").write_text("{}")
+    return group
+
+
+def test_write_unit_scale_view_rescales_and_symlinks(tmp_path) -> None:
+    src = _make_image_group(tmp_path / "cache", 0.5)
+    dst = tmp_path / "bundle" / "mastodon_image"
+
+    out = write_unit_scale_view(src, dst)
+
+    assert out == dst
+    attrs = json.loads((dst / ".zattrs").read_text())
+    scales = [
+        d["coordinateTransformations"][0]["scale"]
+        for d in attrs["multiscales"][0]["datasets"]
+    ]
+    # 0.5 µm/px -> level 0 unit, pyramid kept as 1 / 2.
+    assert scales == [[1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 2.0, 2.0]]
+    # Heavy level dirs are symlinks back to the cache, not copies.
+    assert (dst / "0").is_symlink()
+    assert (dst / "0").resolve() == (src / "0").resolve()
+
+
+def test_write_unit_scale_view_falls_back_without_metadata(tmp_path) -> None:
+    # A group with no .zattrs multiscales must not crash the export.
+    src = tmp_path / "C" / "4" / "0"
+    src.mkdir(parents=True)
+    (src / ".zgroup").write_text(json.dumps({"zarr_format": 2}))
+    dst = tmp_path / "bundle" / "mastodon_image"
+
+    out = write_unit_scale_view(src, dst)
+
+    assert out == src  # fell back to the raw group
+    assert not dst.exists()
 
 
 def test_export_well_ctc_raises_without_cached_labels(

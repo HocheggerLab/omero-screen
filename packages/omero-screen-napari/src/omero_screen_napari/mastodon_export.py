@@ -18,6 +18,13 @@ A bundle is one folder per well containing:
   CellView ``track_id`` plus per-frame centroids, so corrected tracks can later
   be reconciled into CellView (the curated ``track_id`` / ``parent_track_id``
   columns). The CTC→CellView return trip itself is a separate, future step.
+* ``mastodon_image/`` — a metadata-only OME-NGFF view of the well's image at
+  **unit pixel scale** (symlinks into the cache, no pixel copy). Open this in
+  Mastodon, not the raw cache group: the cached image is µm-calibrated, but the
+  CTC importer places spots at raw pixel coordinates, so opening the calibrated
+  image makes the tracks overshoot the picture by ``1 / pixel_size``. The view
+  presents the same pixels at scale 1 so spots land on the nuclei
+  (:func:`write_unit_scale_view`).
 
 Track labels are renumbered ``1..N`` in begin-frame order (CTC-canonical, and
 the same scheme used for both the TIFFs and ``res_track.txt`` so they always
@@ -28,11 +35,13 @@ Main Functions:
     - export_well_ctc: write a well's full CTC bundle (masks + txt + manifest).
     - build_ctc_export: pure track-level -> CTC table + relabel map + manifest.
     - relabel_mask: remap a label frame's pixel values via the relabel map.
+    - write_unit_scale_view: metadata-only unit-scale OME-NGFF view for Mastodon.
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -263,6 +272,65 @@ def write_ctc_masks(
     return paths
 
 
+def write_unit_scale_view(src_group: Path, dst_group: Path) -> Path:
+    """Write a metadata-only OME-NGFF view of an image group at unit scale.
+
+    Mastodon's CTC importer places spots at **raw pixel** coordinates, but our
+    cached OME-NGFF carries the microscope's physical pixel size in its
+    ``coordinateTransformations`` — so Mastodon renders the image in microns
+    and the imported pixel-space spots overshoot the picture by
+    ``1 / pixel_size`` (e.g. a 0.59 µm/px well makes tracks ~1.69× too large).
+
+    This writes a sibling group whose ``.zattrs`` spatial scales are divided by
+    the level-0 pixel size (level 0 → 1, the pyramid kept as 1/2/4…) and
+    **symlinks** the heavy per-level chunk directories — a few KB, no pixel
+    copy. Open this in Mastodon instead of the raw cache group so the picture
+    shares the masks' pixel grid. The napari cache keeps its real µm
+    calibration, untouched.
+
+    Falls back to returning ``src_group`` unchanged (with a warning) if the
+    group has no readable multiscale metadata, so an export never fails here.
+
+    Args:
+        src_group: The cached image multiscale group (``…/<row>/<col>/0``).
+        dst_group: Destination directory for the unit-scale view.
+
+    Returns:
+        The path to open in Mastodon — ``dst_group`` on success, else
+        ``src_group``.
+    """
+    try:
+        attrs = json.loads((src_group / ".zattrs").read_text())
+        multiscale = attrs["multiscales"][0]
+        axes = [a["name"] for a in multiscale["axes"]]
+        xi, yi = axes.index("x"), axes.index("y")
+        datasets = multiscale["datasets"]
+        pixel_size = datasets[0]["coordinateTransformations"][0]["scale"][xi]
+    except (FileNotFoundError, KeyError, IndexError, ValueError) as exc:
+        logger.warning(
+            f"No multiscale metadata at {src_group} ({exc!r}); pointing "
+            f"Mastodon at the raw cache group — tracks may be mis-scaled."
+        )
+        return src_group
+
+    if dst_group.exists() or dst_group.is_symlink():
+        shutil.rmtree(dst_group, ignore_errors=True)
+    dst_group.mkdir(parents=True)
+    shutil.copy(src_group / ".zgroup", dst_group / ".zgroup")
+
+    for dataset in datasets:
+        scale = dataset["coordinateTransformations"][0]["scale"]
+        if pixel_size:
+            scale[xi] = round(scale[xi] / pixel_size, 6)
+            scale[yi] = round(scale[yi] / pixel_size, 6)
+        # Symlink the per-level chunk dir (absolute target) — no pixel copy.
+        (dst_group / dataset["path"]).symlink_to(
+            (src_group / dataset["path"]).resolve(), target_is_directory=True
+        )
+    (dst_group / ".zattrs").write_text(json.dumps(attrs, indent=2))
+    return dst_group
+
+
 _README = """\
 Mastodon CTC import — plate {plate_id} well {well}
 ==================================================
@@ -272,6 +340,10 @@ This folder is a Cell Tracking Challenge (CTC) bundle:
     res_track.txt                      lineage table (L B E P)
     manifest.json                      CellView round-trip metadata — keep it,
                                        do not edit
+    mastodon_image/                    OME-NGFF image to open in Mastodon — a
+                                       metadata-only view (symlinks, no pixel
+                                       copy) of the cached well at UNIT pixel
+                                       scale, so it lines up with the masks
 
 Why CTC and not a CSV: Mastodon's CSV importer creates spots but NOT links, so
 it loses every track and lineage. The CTC importer below rebuilds full
@@ -279,26 +351,41 @@ lineages, divisions included, from res_track.txt.
 
 The omero-cache is an LRU cache. If you will curate this well over time, click
 "Pin plate" in the napari Tracks widget first so it is not evicted
-mid-curation; "Unpin plate" when you are done.
+mid-curation; "Unpin plate" when you are done. (mastodon_image/ symlinks into
+that cache, so the cache must stay present.)
 
 1. Open the image. Fiji → Plugins → Tracking → Mastodon → "new from OME-NGFF…"
-   Paste this image path (it opens directly — no copy was made):
+   Paste this path (opens directly; no pixel copy):
        {image_path}
    → Detect datasets → click the listed row → OK → save the BDV XML anywhere.
-   Press P for the side panel to adjust per-channel contrast.
+   It should report {n_frames} timepoints. Press P for the side panel to
+   adjust per-channel contrast.
 
-2. Import the tracks. Main Mastodon window → File → Import → "Import from
-   CellTrackingChallenge". Choose this folder:
+   IMPORTANT: open mastodon_image/, NOT the raw omero-cache zarr. The cache
+   image carries the microscope's physical pixel size, but the CTC importer
+   places spots at raw PIXEL coordinates — opening the calibrated image makes
+   the tracks overshoot the picture by 1/pixel_size. mastodon_image/ is the
+   same pixels at unit scale, so spots land on the nuclei.
+
+2. Import the tracks. Main Mastodon window → Plugins → Cell Tracking Challenge
+   → "Import from CTC format". In the "From where to import CTC tracking"
+   dropdown choose "CTC: result data" — NOT "View: channel …" (that reads a
+   fluorescence channel as a label image and scatters spurious spots/links
+   everywhere). Set "Import till this time point" to {last}, click OK, then
+   choose this folder:
        {out_dir}
-   filename pattern mask%03d.tif (3-digit, 0-based). Mastodon reads
-   res_track.txt for the parent / division links.
+   Mastodon reads res_track.txt for the parent / division links.
+
+   Do NOT use "Plugins → Imports → Import from instance segmentation": it links
+   by label/overlap and ignores res_track.txt, so divisions are lost.
 
 3. Link the views: click the same group-lock number (e.g. 1) in BOTH the
    BigDataViewer and TrackScheme windows; double-click a spot to navigate.
 
-4. When done, export back to CTC (File → Export → CellTrackingChallenge) and
-   keep manifest.json with it — that is what a later step uses to reconcile the
-   corrected tracks into CellView's curated track_id / parent_track_id columns.
+4. When done, export back to CTC: Plugins → Cell Tracking Challenge → "Export
+   to CTC format". Keep manifest.json with it — that is what a later step uses
+   to reconcile the corrected tracks into CellView's curated track_id /
+   parent_track_id columns.
 
 {n_tracks} tracks, {n_div} division(s), {n_frames} frames. Labels are
 renumbered 1..N by begin frame, so they do NOT match the raw CellView
@@ -315,9 +402,9 @@ def export_well_ctc(
     """Write a well's full CTC bundle and a guided-import README.
 
     Produces ``mask*.tif`` (from the cached zarr nuclei labels), ``res_track.txt``,
-    ``manifest.json`` and ``README.txt`` under
-    ``<out_base>/plate_<id>_<well>_ctc/``. No OMERO round-trip — the masks come
-    straight from the cache.
+    ``manifest.json``, ``README.txt`` and a ``mastodon_image/`` unit-scale image
+    view under ``<out_base>/plate_<id>_<well>_ctc/``. No OMERO round-trip — the
+    masks come straight from the cache.
 
     Args:
         plate_id: Plate to export from.
@@ -327,7 +414,8 @@ def export_well_ctc(
             :data:`DEFAULT_EXPORT_BASE`.
 
     Returns:
-        Mapping with ``dir``, ``res_track``, ``manifest`` and ``readme`` paths.
+        Mapping with ``dir``, ``res_track``, ``manifest``, ``readme`` and
+        ``image`` (the unit-scale OME-NGFF view to open in Mastodon) paths.
 
     Raises:
         KeyError: If the plate has no track columns.
@@ -348,6 +436,9 @@ def export_well_ctc(
     base = out_base or DEFAULT_EXPORT_BASE
     out_dir = base / f"plate_{plate_id}_{well}_ctc"
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Unit-scale image view to open in Mastodon (matches the pixel-space masks).
+    image_view = write_unit_scale_view(well_group, out_dir / "mastodon_image")
 
     mask_paths = write_ctc_masks(nuclei_tyx, export.relabel, out_dir)
 
@@ -371,7 +462,7 @@ def export_well_ctc(
         _README.format(
             plate_id=plate_id,
             well=well,
-            image_path=well_group,
+            image_path=image_view,
             out_dir=out_dir,
             last=max(len(mask_paths) - 1, 0),
             n_tracks=export.manifest["n_tracks"],
@@ -388,4 +479,5 @@ def export_well_ctc(
         "res_track": res_track,
         "manifest": manifest_path,
         "readme": readme_path,
+        "image": image_view,
     }
