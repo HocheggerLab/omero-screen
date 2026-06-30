@@ -1527,8 +1527,10 @@ def _display_stitched(
 
 @magic_factory(
     call_button="Enter",
-    translate_x={"step": 1, "min": -20, "max": 20},
-    translate_y={"step": 1, "min": -20, "max": 20},
+    overlap_x={"step": 1, "min": -50, "max": 50},
+    overlap_y={"step": 1, "min": -50, "max": 50},
+    translate_x={"step": 1, "min": -50, "max": 50},
+    translate_y={"step": 1, "min": -50, "max": 50},
 )
 def stitched_data_widget(
     viewer: Viewer,

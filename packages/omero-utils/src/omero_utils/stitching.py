@@ -219,6 +219,7 @@ def positions_to_grid(
                     cx.append(positions[j][0] - positions[i][0])
                     cy.append(positions[j][1] - positions[i][1])
 
+        logger.debug(positions)
         logger.debug(
             f"Position grid: {grid}; row {np.mean(rx):.3f},{np.mean(ry):.3f} +/- {np.std(rx):.3f},{np.std(ry):.3f}, col {np.mean(cx):.3f},{np.mean(cy):.3f} +/- {np.std(cx):.3f},{np.std(cy):.3f} (raw units)"
         )
