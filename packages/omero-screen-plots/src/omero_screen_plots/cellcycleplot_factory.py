@@ -120,7 +120,7 @@ class BaseCellCyclePlot(BasePlotBuilder):
         self._finalize_plot(selector_val)
 
         # Save if configured
-        self._save_plot()
+        self.save_figure()
 
         assert self.fig is not None and self.axes is not None, (
             "Figure and axes should be created"
@@ -274,29 +274,13 @@ class BaseCellCyclePlot(BasePlotBuilder):
         """Build the specific cell cycle plot type. Implemented by subclasses."""
 
     def _finalize_plot(self, selector_val: str | None) -> None:
-        """Finalize plot with title."""
-        # Generate default title
+        """Finalize plot with the cell-cycle default title."""
         default_title = (
             f"Cellcycle Analysis {selector_val}"
             if selector_val
             else "Cellcycle Analysis"
         )
-
-        # Use provided title, config title, or default
-        title = self.config.title or default_title
-
-        # Use utility function for consistent formatting with feature plots
-        assert self.fig is not None
-        from omero_screen_plots.utils import finalize_plot_with_title
-
-        self._filename = finalize_plot_with_title(
-            self.fig, title, default_title, self.axes_provided
-        )
-
-    def _save_plot(self) -> None:
-        """Save figure using parent's save_figure method."""
-        # Use parent's save_figure method with our filename
-        self.save_figure(self._filename or "cellcycleplot")
+        self.finalize_plot(default_title)
 
 
 class StandardCellCyclePlot(BaseCellCyclePlot):
@@ -720,7 +704,7 @@ class StackedCellCyclePlot(BaseCellCyclePlot):
         self._finalize_plot(selector_val)
 
         # Save if configured
-        self._save_plot()
+        self.save_figure()
 
         assert self.fig is not None and self.ax is not None, (
             "Figure and axes should be created"

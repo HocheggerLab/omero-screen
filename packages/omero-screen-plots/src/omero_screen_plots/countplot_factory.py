@@ -16,7 +16,6 @@ from omero_screen_plots.stats import (
     compute_significance,
 )
 from omero_screen_plots.utils import (
-    finalize_plot_with_title,
     grouped_x_positions,
     show_repeat_points_adaptive,
 )
@@ -124,7 +123,7 @@ class CountPlot(BasePlotBuilder):
         self._finalize_plot(selector_val)
 
         # Save if configured
-        self._save_plot()
+        self.save_figure()
 
         assert self.fig is not None and self.ax is not None, (
             "Figure and axes should be created"
@@ -438,24 +437,10 @@ class CountPlot(BasePlotBuilder):
             self.ax.set_xticklabels([])
 
     def _finalize_plot(self, selector_val: str | None) -> None:
-        """Finalize plot with title."""
-        # Generate default title using class attribute
+        """Finalize plot with the count-specific default title."""
         default_title = (
             f"{self.PLOT_TYPE_NAME}s {selector_val}"
             if selector_val
             else f"{self.PLOT_TYPE_NAME}s"
         )
-
-        # Use provided title, config title, or default
-        title = self.config.title or default_title
-
-        # Use utility function for consistent formatting
-        assert self.fig is not None
-        self._filename = finalize_plot_with_title(
-            self.fig, title, default_title, self.axes_provided
-        )
-
-    def _save_plot(self) -> None:
-        """Save figure using parent's save_figure method."""
-        # Use parent's save_figure method with our filename
-        self.save_figure(self._filename or "countplot")
+        self.finalize_plot(default_title)
