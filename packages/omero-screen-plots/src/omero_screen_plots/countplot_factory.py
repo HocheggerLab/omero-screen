@@ -66,7 +66,6 @@ class CountPlot(BasePlotBuilder):
     def __init__(self, config: CountPlotConfig | None = None):
         """Initialize with configuration."""
         super().__init__(config or CountPlotConfig())
-        self._axes_provided: bool = False
 
     def create_plot(
         self,
@@ -112,8 +111,8 @@ class CountPlot(BasePlotBuilder):
             selector_val,
         )
 
-        # Create figure
-        self._setup_figure(axes)
+        # Create figure (base handles axes-provided vs new figure + the flag)
+        self.create_figure(axes)
 
         # Build plot
         self.build_plot(
@@ -271,17 +270,6 @@ class CountPlot(BasePlotBuilder):
             on=["plate_id", condition_col],
             how="left",
         )
-
-    def _setup_figure(self, axes: Axes | None) -> None:
-        """Setup figure using parent's create_figure method."""
-        if axes:
-            self.fig = axes.figure  # type: ignore[assignment]
-            self.ax = axes
-            self._axes_provided = True
-        else:
-            # Use parent's create_figure method
-            self.create_figure(axes)
-            self._axes_provided = False
 
     def build_plot(
         self, data: pd.DataFrame, **kwargs: Any
@@ -509,7 +497,7 @@ class CountPlot(BasePlotBuilder):
         # Use utility function for consistent formatting
         assert self.fig is not None
         self._filename = finalize_plot_with_title(
-            self.fig, title, default_title, self._axes_provided
+            self.fig, title, default_title, self.axes_provided
         )
 
     def _save_plot(self) -> None:

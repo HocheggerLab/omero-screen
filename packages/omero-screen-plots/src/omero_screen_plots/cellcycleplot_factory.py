@@ -65,7 +65,6 @@ class BaseCellCyclePlot(BasePlotBuilder):
         self.axes: list[Axes] | None = (
             None  # Cell cycle plots use multiple axes
         )
-        self._axes_provided: bool = False  # Track if axes were provided
 
     def create_plot(
         self,
@@ -350,7 +349,7 @@ class BaseCellCyclePlot(BasePlotBuilder):
         from omero_screen_plots.utils import finalize_plot_with_title
 
         self._filename = finalize_plot_with_title(
-            self.fig, title, default_title, self._axes_provided
+            self.fig, title, default_title, self.axes_provided
         )
 
     def _save_plot(self) -> None:
@@ -401,7 +400,7 @@ class StandardCellCyclePlot(BaseCellCyclePlot):
         self.fig, ax_array = plt.subplots(nrows, ncols, figsize=fig_size)
 
         # StandardCellCyclePlot always creates its own figure
-        self._axes_provided = False
+        self.axes_provided = False
 
         # Handle different subplot layouts
         if n_phases <= 4:
@@ -764,8 +763,9 @@ class StackedCellCyclePlot(BaseCellCyclePlot):
             selector_val,
         )
 
-        # Setup figure
-        self._setup_figure(axes)
+        # Setup figure (base handles axes-provided vs new figure + the flag)
+        self.create_figure(axes)
+        self.axes = None  # stacked plot uses a single ax, not the subplot list
 
         # Build plot, passing original df for phase detection
         self.build_plot(
@@ -785,28 +785,6 @@ class StackedCellCyclePlot(BaseCellCyclePlot):
             "Figure and axes should be created"
         )
         return self.fig, self.ax
-
-    def _setup_figure(self, axes: Axes | None) -> None:
-        """Setup figure for stacked plots."""
-        if axes:
-            self.fig = axes.figure
-            self.ax = axes
-            self._axes_provided = True
-        else:
-            # Convert fig_size if needed
-            if self.config.size_units == "cm":
-                fig_size = (
-                    self.config.fig_size[0] / 2.54,
-                    self.config.fig_size[1] / 2.54,
-                )
-            else:
-                fig_size = self.config.fig_size
-
-            self.fig, self.ax = plt.subplots(figsize=fig_size)
-            self._axes_provided = False
-
-        # Set axes to None for compatibility
-        self.axes = None
 
     def build_plot(
         self,
