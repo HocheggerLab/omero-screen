@@ -166,63 +166,14 @@ class BaseFeaturePlot(BasePlotBuilder):
         selector_val: str | None,
     ) -> None:
         """Validate all inputs with improved error messages."""
-        if df.empty:
-            raise ValueError("Input dataframe is empty")
-
-        # Check required columns
-        required_cols = ["plate_id"]
-        if missing_cols := set(required_cols) - set(df.columns):
-            raise ValueError(
-                f"Missing required columns: {missing_cols}. "
-                f"Available columns: {list(df.columns)}"
-            )
-
-        # Check feature column
-        if feature not in df.columns:
-            raise ValueError(
-                f"Feature column '{feature}' not found. "
-                f"Available columns: {list(df.columns)}"
-            )
-
-        # Check condition column
-        if condition_col not in df.columns:
-            raise ValueError(
-                f"Condition column '{condition_col}' not found. "
-                f"Available columns: {list(df.columns)}"
-            )
-
-        # Check conditions exist
-        available_conditions = set(df[condition_col].unique())
-        if missing_conditions := set(conditions) - available_conditions:
-            raise ValueError(
-                f"Conditions not found in data: {missing_conditions}. "
-                f"Available conditions: {sorted(available_conditions)}"
-            )
-
-        # Check selector parameters
-        if selector_col and selector_col not in df.columns:
-            raise ValueError(
-                f"Selector column '{selector_col}' not found. "
-                f"Available columns: {list(df.columns)}"
-            )
-
-        if selector_col and not selector_val:
-            available_values = sorted(df[selector_col].unique())
-            raise ValueError(
-                f"selector_val must be provided when selector_col is specified. "
-                f"Available values in '{selector_col}': {available_values}"
-            )
-
-        if (
-            selector_col
-            and selector_val
-            and selector_val not in df[selector_col].unique()
-        ):
-            available_values = sorted(df[selector_col].unique())
-            raise ValueError(
-                f"Value '{selector_val}' not found in column '{selector_col}'. "
-                f"Available values: {available_values}"
-            )
+        self._validate_common(
+            df,
+            conditions,
+            condition_col,
+            selector_col,
+            selector_val,
+            feature=feature,
+        )
 
     def _process_data(
         self,

@@ -103,6 +103,10 @@ class BaseDataProcessor(ABC):
 class BasePlotBuilder(ABC):
     """Base class for plot builders."""
 
+    # Columns every input DataFrame must contain for this plot type. Subclasses
+    # override with their own requirements; ``_validate_common`` enforces it.
+    REQUIRED_COLUMNS: tuple[str, ...] = ("plate_id",)
+
     def __init__(self, config: BasePlotConfig):
         """Initialize the plot builder."""
         self.config = config
@@ -113,6 +117,76 @@ class BasePlotBuilder(ABC):
         # Captured statistics for CSV export (see _record_stats / save_figure).
         self._stats_tables: list[pd.DataFrame] = []
         self._median_tables: list[pd.DataFrame] = []
+
+    def _validate_common(
+        self,
+        df: pd.DataFrame,
+        conditions: list[str],
+        condition_col: str,
+        selector_col: str | None,
+        selector_val: str | None,
+        *,
+        feature: str | None = None,
+    ) -> None:
+        """Shared input validation for condition-based plots.
+
+        Checks, in order: non-empty df, ``REQUIRED_COLUMNS`` present, the
+        optional ``feature`` column, the condition column exists, the requested
+        conditions exist, and the selector column/value are consistent. Plot
+        types pass ``feature`` when they plot a named feature column, and add
+        any further checks (e.g. ``norm_control``) around this call.
+        """
+        if df.empty:
+            raise ValueError("Input dataframe is empty")
+
+        if missing_cols := set(self.REQUIRED_COLUMNS) - set(df.columns):
+            raise ValueError(
+                f"Missing required columns: {missing_cols}. "
+                f"Available columns: {list(df.columns)}"
+            )
+
+        if feature is not None and feature not in df.columns:
+            raise ValueError(
+                f"Feature column '{feature}' not found. "
+                f"Available columns: {list(df.columns)}"
+            )
+
+        if condition_col not in df.columns:
+            raise ValueError(
+                f"Condition column '{condition_col}' not found. "
+                f"Available columns: {list(df.columns)}"
+            )
+
+        available_conditions = set(df[condition_col].unique())
+        if missing_conditions := set(conditions) - available_conditions:
+            raise ValueError(
+                f"Conditions not found in data: {missing_conditions}. "
+                f"Available conditions: {sorted(available_conditions)}"
+            )
+
+        if selector_col and selector_col not in df.columns:
+            raise ValueError(
+                f"Selector column '{selector_col}' not found. "
+                f"Available columns: {list(df.columns)}"
+            )
+
+        if selector_col and not selector_val:
+            available_values = sorted(df[selector_col].unique())
+            raise ValueError(
+                f"selector_val must be provided when selector_col is specified. "
+                f"Available values in '{selector_col}': {available_values}"
+            )
+
+        if (
+            selector_col
+            and selector_val
+            and selector_val not in df[selector_col].unique()
+        ):
+            available_values = sorted(df[selector_col].unique())
+            raise ValueError(
+                f"Value '{selector_val}' not found in column '{selector_col}'. "
+                f"Available values: {available_values}"
+            )
 
     def create_figure(self, axes: Axes | None = None) -> "BasePlotBuilder":
         """Create or use existing figure."""
