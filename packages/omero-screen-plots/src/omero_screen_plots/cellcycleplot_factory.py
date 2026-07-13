@@ -1,8 +1,7 @@
 """Cell cycle plot factory with unified configuration and base class architecture."""
 
 from abc import abstractmethod
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -26,22 +25,15 @@ from omero_screen_plots.utils import (
 
 @dataclass
 class CellCyclePlotConfig(BasePlotConfig):
-    """Configuration for cell cycle plots."""
+    """Configuration for cell cycle plots.
 
-    # Figure settings
+    Inherits most fields from ``BasePlotConfig``; overrides only ``fig_size``
+    (6x6 cm) and ``save`` (cell cycle plots default to saving).
+    """
+
+    # Overrides of base defaults
     fig_size: tuple[float, float] = (6, 6)
-    size_units: str = "cm"
-    dpi: int = 300
-
-    # Save settings
     save: bool = True
-    file_format: str = "pdf"
-    tight_layout: bool = False
-    path: Path | None = None
-
-    # Display settings
-    title: str | None = None
-    colors: list[str] = field(default_factory=list)
 
     # Cell cycle specific settings
     show_significance: bool = True
