@@ -207,14 +207,11 @@ class BasePlotBuilder(ABC):
         # Don't write the figure when embedded in a caller-provided axes — the
         # caller owns the composed figure (and its saving). Stats CSVs are still
         # exported, so save_stats works for composed/multi-panel figures.
-        # Builders track this on either `axes_provided` (base) or
-        # `_axes_provided` (feature/count/cellcycle subclasses).
-        embedded = getattr(self, "_axes_provided", False) or self.axes_provided
         if (
             self.config.save
             and self.config.path
             and self.fig is not None
-            and not embedded
+            and not self.axes_provided
         ):
             save_fig(
                 self.fig,
