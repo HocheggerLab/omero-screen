@@ -17,7 +17,6 @@ from omero_screen_plots.stats import (
     compute_significance,
 )
 from omero_screen_plots.utils import (
-    finalize_plot_with_title,
     grouped_x_positions,
     prepare_plot_data,
     set_y_limits,
@@ -149,7 +148,7 @@ class BaseFeaturePlot(BasePlotBuilder):
         self._finalize_plot(feature, selector_val)
 
         # Save if configured
-        self._save_plot()
+        self.save_figure()
 
         assert self.fig is not None and self.ax is not None, (
             "Figure and axes should be created"
@@ -366,25 +365,11 @@ class BaseFeaturePlot(BasePlotBuilder):
             self.ax.set_xticklabels([])
 
     def _finalize_plot(self, feature: str, selector_val: str | None) -> None:
-        """Finalize plot with title."""
-        # Generate default title using feature name
+        """Finalize plot with the feature-specific default title."""
         default_title = (
             f"{feature} {selector_val}" if selector_val else feature
         )
-
-        # Use provided title, config title, or default
-        title = self.config.title or default_title
-
-        # Use utility function for consistent formatting
-        assert self.fig is not None
-        self._filename = finalize_plot_with_title(
-            self.fig, title, default_title, self.axes_provided
-        )
-
-    def _save_plot(self) -> None:
-        """Save figure using parent's save_figure method."""
-        # Use parent's save_figure method with our filename
-        self.save_figure(self._filename or "featureplot")
+        self.finalize_plot(default_title)
 
 
 class StandardFeaturePlot(BaseFeaturePlot):
@@ -1058,22 +1043,13 @@ class NormFeaturePlot(BaseFeaturePlot):
             self.ax.set_xticklabels([])
 
     def _finalize_plot(self, feature: str, selector_val: str | None) -> None:
-        """Finalize plot with title."""
-        # Generate default title
+        """Finalize plot with the norm-feature default title."""
         default_title = (
             f"{feature} threshold analysis {selector_val}"
             if selector_val
             else f"{feature} threshold analysis"
         )
-
-        # Use provided title, config title, or default
-        title = self.config.title or default_title
-
-        # Use utility function for consistent formatting
-        assert self.fig is not None
-        self._filename = finalize_plot_with_title(
-            self.fig, title, default_title, self.axes_provided
-        )
+        self.finalize_plot(default_title)
 
     def _add_statistical_elements(
         self,
