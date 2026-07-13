@@ -1,8 +1,7 @@
 """Simplified count plot implementation with single class architecture."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -32,22 +31,10 @@ class PlotType(Enum):
 
 @dataclass
 class CountPlotConfig(BasePlotConfig):
-    """Configuration for count plots."""
+    """Configuration for count plots.
 
-    # Figure settings (inherited from BasePlotConfig)
-    fig_size: tuple[float, float] = (7, 7)
-    size_units: str = "cm"
-    dpi: int = 300
-
-    # Save settings (inherited from BasePlotConfig)
-    save: bool = False
-    file_format: str = "pdf"
-    tight_layout: bool = False
-    path: Path | None = None
-
-    # Display settings (inherited from BasePlotConfig)
-    title: str | None = None
-    colors: list[str] = field(default_factory=list)
+    Figure/save/display fields are inherited unchanged from ``BasePlotConfig``.
+    """
 
     # Count plot specific settings
     plot_type: PlotType = PlotType.NORMALISED

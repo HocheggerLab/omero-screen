@@ -2,8 +2,7 @@
 
 import warnings
 from abc import abstractmethod
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -31,22 +30,14 @@ warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
 
 @dataclass
 class FeaturePlotConfig(BasePlotConfig):
-    """Configuration for feature plots."""
+    """Configuration for feature plots.
 
-    # Figure settings
+    Save/display fields are inherited unchanged from ``BasePlotConfig``; only
+    ``fig_size`` overrides the base default (feature plots default to 5x5 cm).
+    """
+
+    # Figure settings (feature plots use a smaller default than the base 7x7)
     fig_size: tuple[float, float] = (5, 5)
-    size_units: str = "cm"
-    dpi: int = 300
-
-    # Save settings
-    save: bool = False
-    file_format: str = "pdf"
-    tight_layout: bool = False
-    path: Path | None = None
-
-    # Display settings
-    title: str | None = None
-    colors: list[str] = field(default_factory=list)
 
     # Feature plot specific settings
     scale: bool = False
@@ -766,11 +757,10 @@ class NormFeaturePlot(BaseFeaturePlot):
         assert filtered_data is not None, "No data found"
 
         # Normalize by mode within plates (or globally based on config)
-        normalize_by_plate = getattr(self.config, "normalize_by_plate", True)
-        group_column = "plate_id" if normalize_by_plate else None
+        group_column = "plate_id" if self.config.normalize_by_plate else None
 
         # Check if we should save normalization QC plots
-        save_norm_qc = getattr(self.config, "save_norm_qc", False)
+        save_norm_qc = self.config.save_norm_qc
 
         if save_norm_qc and self.config.path:
             # Use normalize_and_plot to generate QC documentation
@@ -794,7 +784,7 @@ class NormFeaturePlot(BaseFeaturePlot):
             )
 
         # Use threshold from config (defaults to 1.5)
-        self._threshold = getattr(self.config, "threshold", 1.5)
+        self._threshold = self.config.threshold
 
         # Apply threshold and calculate proportions
         return self._calculate_threshold_proportions(
@@ -874,9 +864,7 @@ class NormFeaturePlot(BaseFeaturePlot):
         assert self.ax is not None
 
         # Check if we should show triplicates
-        show_triplicates = getattr(self.config, "show_triplicates", False)
-
-        if show_triplicates:
+        if self.config.show_triplicates:
             self._build_triplicate_plot(
                 data, conditions, condition_col, x_positions
             )
@@ -928,7 +916,7 @@ class NormFeaturePlot(BaseFeaturePlot):
                     stds.append(0)
 
             # Check if we should show error bars
-            show_error_bars = getattr(self.config, "show_error_bars", True)
+            show_error_bars = self.config.show_error_bars
 
             self.ax.bar(
                 x_positions,
@@ -963,8 +951,8 @@ class NormFeaturePlot(BaseFeaturePlot):
         categories = ["positive", "negative"]  # Order matters for stacking
 
         # Get triplicate settings
-        repeat_offset = getattr(self.config, "repeat_offset", 0.18)
-        max_repeats = getattr(self.config, "max_repeats", 3)
+        repeat_offset = self.config.repeat_offset
+        max_repeats = self.config.max_repeats
 
         # Get available plate IDs (up to max_repeats)
         plate_ids = sorted(data["plate_id"].unique())[:max_repeats]
@@ -1016,8 +1004,7 @@ class NormFeaturePlot(BaseFeaturePlot):
                 # If rep_idx >= len(plate_ids): plate doesn't exist - leave empty space
 
         # Draw boxes around triplicates if requested
-        show_boxes = getattr(self.config, "show_boxes", True)
-        if show_boxes:
+        if self.config.show_boxes:
             self._draw_triplicate_boxes(
                 data,
                 conditions,
@@ -1051,7 +1038,7 @@ class NormFeaturePlot(BaseFeaturePlot):
                 continue
 
             # Calculate triplicate x positions - always use max_repeats for consistent box size
-            max_repeats = getattr(self.config, "max_repeats", 3)
+            max_repeats = self.config.max_repeats
             if max_repeats == 1:
                 trip_xs = [base_x]
             else:
