@@ -57,6 +57,7 @@ class BaseCellCyclePlot(BasePlotBuilder):
     """Base class for cell cycle plots with common functionality."""
 
     PLOT_TYPE_NAME = "cellcycle"
+    REQUIRED_COLUMNS = ("plate_id", "cell_cycle")
     config: CellCyclePlotConfig  # Type annotation for mypy
 
     def __init__(self, config: CellCyclePlotConfig | None = None):
@@ -90,7 +91,7 @@ class BaseCellCyclePlot(BasePlotBuilder):
             Tuple of (Figure, list of Axes) - differs from other plots
         """
         # Validate inputs
-        self._validate_inputs(
+        self._validate_common(
             df,
             conditions,
             condition_col,
@@ -125,66 +126,6 @@ class BaseCellCyclePlot(BasePlotBuilder):
             "Figure and axes should be created"
         )
         return self.fig, self.axes
-
-    def _validate_inputs(
-        self,
-        df: pd.DataFrame,
-        conditions: list[str],
-        condition_col: str,
-        selector_col: str | None,
-        selector_val: str | None,
-    ) -> None:
-        """Validate all inputs with improved error messages."""
-        if df.empty:
-            raise ValueError("Input dataframe is empty")
-
-        # Check required columns for cell cycle analysis
-        required_cols = ["plate_id", "cell_cycle"]
-        if missing_cols := set(required_cols) - set(df.columns):
-            raise ValueError(
-                f"Missing required columns: {missing_cols}. "
-                f"Available columns: {list(df.columns)}"
-            )
-
-        # Check condition column
-        if condition_col not in df.columns:
-            raise ValueError(
-                f"Condition column '{condition_col}' not found. "
-                f"Available columns: {list(df.columns)}"
-            )
-
-        # Check conditions exist
-        available_conditions = set(df[condition_col].unique())
-        if missing_conditions := set(conditions) - available_conditions:
-            raise ValueError(
-                f"Conditions not found in data: {missing_conditions}. "
-                f"Available conditions: {sorted(available_conditions)}"
-            )
-
-        # Check selector parameters
-        if selector_col and selector_col not in df.columns:
-            raise ValueError(
-                f"Selector column '{selector_col}' not found. "
-                f"Available columns: {list(df.columns)}"
-            )
-
-        if selector_col and not selector_val:
-            available_values = sorted(df[selector_col].unique())
-            raise ValueError(
-                f"selector_val must be provided when selector_col is specified. "
-                f"Available values in '{selector_col}': {available_values}"
-            )
-
-        if (
-            selector_col
-            and selector_val
-            and selector_val not in df[selector_col].unique()
-        ):
-            available_values = sorted(df[selector_col].unique())
-            raise ValueError(
-                f"Value '{selector_val}' not found in column '{selector_col}'. "
-                f"Available values: {available_values}"
-            )
 
     def _process_data(
         self,
@@ -746,7 +687,7 @@ class StackedCellCyclePlot(BaseCellCyclePlot):
             Tuple of (Figure, Axes) - consistent with other plot types
         """
         # Validate inputs
-        self._validate_inputs(
+        self._validate_common(
             df,
             conditions,
             condition_col,
