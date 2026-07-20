@@ -228,7 +228,7 @@ def main() -> None:
         for name, fig in figures.items():
             for ext in ("pdf", "png"):
                 fig.savefig(
-                    dest / f"{name}.{ext}", dpi=200, bbox_inches="tight"
+                    dest / f"{name}.{ext}", dpi=300, bbox_inches="tight"
                 )
             logger.info(f"Saved figure: {dest.name}/{name}")
             if args.attach and plate is not None:

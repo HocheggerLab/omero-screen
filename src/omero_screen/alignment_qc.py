@@ -499,6 +499,15 @@ def summarise(
 
 # Plotting ------------------------------------------------------------------
 
+# Publication sizing. hhlab_style01 sets body text (axis labels, ticks,
+# legend) to 6 pt but titles to 3 pt (the lab normally adds panel labels by
+# hand). For these standalone QC figures we lift the title to a readable 7 pt
+# (applied once in use_lab_style) and size every figure in inches so it drops
+# onto an A4 sheet (usable ~7.5 x 10 in) at native scale — no rescaling in
+# Illustrator, and fonts that already match the rest of the lab's figures.
+TITLE_FONTSIZE = 7
+_PANEL_SIZE = (3.0, 2.1)  # a single standalone QC panel
+
 
 def use_lab_style() -> bool:
     """Apply the shared lab Matplotlib style (Hoechegger lab palette + fonts).
@@ -523,6 +532,11 @@ def use_lab_style() -> bool:
         style = Path(spec.origin).parents[2] / "hhlab_style01.mplstyle"
         if style.exists():
             plt.style.use(str(style))
+            # The sheet sets axes.titlesize to 3 pt (unreadable as a header);
+            # lift QC titles and suptitles to 7 pt so we never need a per-call
+            # fontsize override.
+            plt.rcParams["axes.titlesize"] = TITLE_FONTSIZE
+            plt.rcParams["figure.titlesize"] = TITLE_FONTSIZE
             return True
     return False
 
@@ -538,7 +552,7 @@ def _cycle_colours(n: int) -> Any:
 
 
 def _new_fig(
-    nrows: int = 1, ncols: int = 1, size: tuple[float, float] = (6, 4)
+    nrows: int = 1, ncols: int = 1, size: tuple[float, float] = _PANEL_SIZE
 ) -> tuple[Figure, Any]:
     fig = Figure(figsize=(size[0] * ncols, size[1] * nrows))
     axs = fig.subplots(nrows, ncols, squeeze=False)
@@ -570,7 +584,8 @@ def plot_shift_distribution(
 def plot_shift_vectorfield(alignment_df: pd.DataFrame) -> Figure:
     """Quiver of per-well mean shift laid out on the plate grid, one panel per plate."""
     plates = list(pd.unique(alignment_df["plate"]))
-    fig, axs = _new_fig(1, len(plates), size=(5, 4))
+    # Square-ish per-plate panel so a row of plates still fits A4 width.
+    fig, axs = _new_fig(1, len(plates), size=(2.0, 1.9))
     for ax, plate in zip(axs[0], plates, strict=True):
         grp = alignment_df[alignment_df["plate"] == plate]
         rows, cols, us, vs = [], [], [], []
@@ -789,7 +804,8 @@ def plot_superplot(
     rng = np.random.default_rng(0)
 
     if ax is None:
-        fig, axs = _new_fig(size=(1.6 * max(len(groups), 1) + 3, 4.5))
+        # Width grows with the number of rounds but stays within A4.
+        fig, axs = _new_fig(size=(1.6 + 0.9 * max(len(groups), 1), 2.3))
         ax = axs[0][0]
     else:
         fig = ax.get_figure()
@@ -813,15 +829,23 @@ def plot_superplot(
             if len(vals) > max_points:
                 shown = rng.choice(vals, size=max_points, replace=False)
             x = gi + offsets[ri] + rng.normal(0, 0.02, len(shown))
+            # Rasterize the jittered strip: a per-cell metric is tens of
+            # thousands of points, and as vector each dot is a separate path
+            # that bloats the PDF and chokes Illustrator. rasterized=True bakes
+            # the whole cloud into one image at savefig dpi (300) while the
+            # axes, ticks, labels, medians and error bars stay vector/editable.
+            # Neutral grey cloud so the eye reads the coloured replicate
+            # medians (and the black cross-replicate mean) as the signal.
             ax.scatter(
                 x,
                 shown,
                 s=6,
-                color=colours[ri],
-                alpha=0.15,
+                color="0.6",
+                alpha=0.2,
                 edgecolors="none",
-                label=f"plate {rep}" if gi == 0 else None,
+                rasterized=True,
             )
+            # The replicate median carries the colour and the legend key.
             ax.scatter(
                 gi + offsets[ri],
                 med,
@@ -830,6 +854,7 @@ def plot_superplot(
                 edgecolors="black",
                 linewidths=0.8,
                 zorder=3,
+                label=f"plate {rep}" if gi == 0 else None,
             )
         if rep_medians:
             m = float(np.mean(rep_medians))
@@ -864,18 +889,16 @@ def plot_superplot(
                 transform=ax.transAxes,
                 ha="right",
                 va="top",
-                fontsize=7,
+                fontsize=6,
                 color="grey",
             )
 
     ax.set_xticks(range(len(groups)))
     ax.set_xticklabels([f"round {int(g)}" for g in groups])
     ax.set_ylabel(ylabel or value_col)
-    # Explicit title size: the lab style sets axes.titlesize to 3pt (titles are
-    # normally added as manual panel labels), which is unreadable as a header.
+    # Title size comes from the style (7 pt via use_lab_style); no override.
     ax.set_title(
         title or f"{value_col} across biological replicates",
-        fontsize=9,
         loc="center",
     )
     ax.legend(loc="best")
@@ -908,7 +931,8 @@ def plot_qc_panel(
         The composed three-panel figure.
     """
     unit = "µm" if pixel_size_um else "px"
-    fig = Figure(figsize=(15, 4.6))
+    # Three panels across A4 width (~7.5 in usable).
+    fig = Figure(figsize=(7.2, 2.4))
     axs = fig.subplots(1, 3)
 
     plot_superplot(
