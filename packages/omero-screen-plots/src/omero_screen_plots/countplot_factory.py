@@ -11,10 +11,6 @@ from matplotlib.figure import Figure
 
 from omero_screen_plots.base import BasePlotBuilder, BasePlotConfig
 from omero_screen_plots.colors import COLOR
-from omero_screen_plots.stats import (
-    annotate_significance,
-    compute_significance,
-)
 from omero_screen_plots.utils import (
     draw_triplicate_box,
     grouped_or_range_positions,
@@ -301,23 +297,15 @@ class CountPlot(BasePlotBuilder):
         # Add significance marks if enough replicates (both mean-bar and
         # triplicate modes; stars sit above each condition's group centre).
         if data.plate_id.nunique() >= 3:
-            medians_df, results = compute_significance(
+            self._annotate_and_record_stats(
+                self.ax,
                 data,
                 conditions,
                 condition_col,
                 count_col,
-                group_size=self.config.group_size,
-                paired=self.config.paired,
-            )
-            annotate_significance(
-                self.ax, results, x_positions, self.ax.get_ylim()[1] * 0.93
-            )
-            self._record_stats(
-                medians_df,
-                results,
+                x_positions,
                 value_label=count_col.replace("_", " ").title(),
-                condition_col=condition_col,
-                value_col=count_col,
+                group_size=self.config.group_size,
             )
 
         # Format axes

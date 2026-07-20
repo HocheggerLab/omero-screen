@@ -320,23 +320,15 @@ class BaseFeaturePlot(BasePlotBuilder):
 
         if self.config.show_significance and data.plate_id.nunique() >= 3:
             # Use the exact same approach for both box and violin plots
-            y_top = self.ax.get_ylim()[1] * 0.93
-
-            medians_df, results = compute_significance(
+            self._annotate_and_record_stats(
+                self.ax,
                 df_median,
                 conditions,
                 condition_col,
                 feature,
-                group_size=self.config.group_size,
-                paired=self.config.paired,
-            )
-            annotate_significance(self.ax, results, x_positions, y_top)
-            self._record_stats(
-                medians_df,
-                results,
+                x_positions,
                 value_label=feature,
-                condition_col=condition_col,
-                value_col=feature,
+                group_size=self.config.group_size,
             )
 
     def _format_axes(

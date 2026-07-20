@@ -270,6 +270,52 @@ class BasePlotBuilder(ABC):
                 )
             )
 
+    def _annotate_and_record_stats(
+        self,
+        ax: Axes,
+        stat_df: pd.DataFrame,
+        conditions: list[str],
+        condition_col: str,
+        value_col: str,
+        x_positions: list[float],
+        *,
+        value_label: str,
+        group_size: int = 1,
+        y_top_factor: float = 0.93,
+        extra: dict[str, str] | None = None,
+    ) -> None:
+        """Compute significance, annotate stars on ``ax``, and record for CSV.
+
+        Bundles the identical ``compute_significance -> annotate_significance ->
+        _record_stats`` trio shared by the count, feature and (per-phase)
+        standard cell-cycle plots. The ``nunique >= 3`` replicate gate stays in
+        the caller, since plot types differ on which frame drives the count.
+        """
+        from omero_screen_plots.stats import (
+            annotate_significance,
+            compute_significance,
+        )
+
+        medians_df, results = compute_significance(
+            stat_df,
+            conditions,
+            condition_col,
+            value_col,
+            group_size=group_size,
+            paired=self.config.paired,
+        )
+        annotate_significance(
+            ax, results, x_positions, ax.get_ylim()[1] * y_top_factor
+        )
+        self._record_stats(
+            medians_df,
+            results,
+            value_label=value_label,
+            condition_col=condition_col,
+            value_col=value_col,
+            extra=extra,
+        )
+
     def save_figure(self, filename: str | None = None) -> "BasePlotBuilder":
         """Save the figure (if ``save``) and stats CSVs (if ``save``/``save_stats``).
 
