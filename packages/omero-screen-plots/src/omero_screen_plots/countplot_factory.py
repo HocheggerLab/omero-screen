@@ -16,6 +16,7 @@ from omero_screen_plots.stats import (
     compute_significance,
 )
 from omero_screen_plots.utils import (
+    draw_triplicate_box,
     grouped_x_positions,
     show_repeat_points_adaptive,
 )
@@ -393,28 +394,19 @@ class CountPlot(BasePlotBuilder):
         x_positions: list[float],
     ) -> None:
         """Draw a box around each condition's triplicate bars."""
-        from matplotlib.patches import Rectangle
-
         assert self.ax is not None
-        half_width = self.config.repeat_offset / 2
         for cond_idx, condition in enumerate(conditions):
             cond_data = data[data[condition_col] == condition]
             if cond_data.empty:
                 continue
             rep_x_positions = self._repeat_x_positions(x_positions[cond_idx])
-            left = min(rep_x_positions) - half_width
-            right = max(rep_x_positions) + half_width
-            height = cond_data[count_col].max()
-            self.ax.add_patch(
-                Rectangle(
-                    (left, 0),
-                    width=right - left,
-                    height=height,
-                    linewidth=self.config.box_linewidth,
-                    edgecolor=self.config.box_color,
-                    facecolor="none",
-                    zorder=10,
-                )
+            draw_triplicate_box(
+                self.ax,
+                rep_x_positions,
+                cond_data[count_col].max(),
+                half_width=self.config.repeat_offset / 2,
+                linewidth=self.config.box_linewidth,
+                edgecolor=self.config.box_color,
             )
 
     def _format_axes(

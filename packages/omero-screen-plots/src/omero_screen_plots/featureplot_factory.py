@@ -17,6 +17,7 @@ from omero_screen_plots.stats import (
     compute_significance,
 )
 from omero_screen_plots.utils import (
+    draw_triplicate_box,
     grouped_x_positions,
     prepare_plot_data,
     set_y_limits,
@@ -950,9 +951,6 @@ class NormFeaturePlot(BaseFeaturePlot):
         """Draw boxes around triplicate bars."""
         assert self.ax is not None
 
-        from matplotlib.patches import Rectangle
-
-        y_min = 0
         for cond_idx, condition in enumerate(conditions):
             base_x = x_positions[cond_idx]
 
@@ -984,21 +982,12 @@ class NormFeaturePlot(BaseFeaturePlot):
                 default=100,  # Default to 100% if no data
             )
 
-            # Calculate box bounds
-            left = min(trip_xs) - repeat_offset / 2
-            right = max(trip_xs) + repeat_offset / 2
-
-            # Draw rectangle (following cellcycle approach exactly)
-            rect = Rectangle(
-                (left, y_min),
-                width=right - left,
-                height=y_max_box - y_min,
-                linewidth=0.5,
-                edgecolor="black",
-                facecolor="none",
-                zorder=10,
+            draw_triplicate_box(
+                self.ax,
+                trip_xs,
+                y_max_box,
+                half_width=repeat_offset / 2,
             )
-            self.ax.add_patch(rect)
 
     def _add_threshold_legend(self) -> None:
         """Add legend for positive/negative categories."""
