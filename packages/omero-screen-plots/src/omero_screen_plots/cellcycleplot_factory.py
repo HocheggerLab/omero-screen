@@ -19,6 +19,7 @@ from omero_screen_plots.stats import (
     compute_significance,
 )
 from omero_screen_plots.utils import (
+    draw_triplicate_box,
     selector_val_filter,
 )
 
@@ -964,11 +965,8 @@ class StackedCellCyclePlot(BaseCellCyclePlot):
         condition_col: str,
     ) -> None:
         """Draw boxes around triplicate bars matching original implementation exactly."""
-        from matplotlib.patches import Rectangle
-
         assert self.ax is not None
 
-        y_min = 0
         n_repeats = len(repeat_ids)
         bar_width = (
             self.config.repeat_offset * 1.05
@@ -996,20 +994,14 @@ class StackedCellCyclePlot(BaseCellCyclePlot):
                 default=0,
             )
 
-            y_max_box = trip_max
-            left = min(trip_xs) - bar_width / 2
-            right = max(trip_xs) + bar_width / 2
-
-            rect = Rectangle(
-                (left, y_min),
-                width=right - left,
-                height=y_max_box - y_min,
+            draw_triplicate_box(
+                self.ax,
+                trip_xs,
+                trip_max,
+                half_width=bar_width / 2,
                 linewidth=self.config.box_linewidth,
                 edgecolor=self.config.box_color,
-                facecolor="none",
-                zorder=10,
             )
-            self.ax.add_patch(rect)
 
     def _prepare_stacked_data(
         self, df: pd.DataFrame, conditions: list[str], condition_col: str

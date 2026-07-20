@@ -241,6 +241,52 @@ def grouped_x_positions(
     return x_positions
 
 
+def draw_triplicate_box(
+    ax: Axes,
+    trip_xs: list[float],
+    height: float,
+    *,
+    half_width: float,
+    y_min: float = 0.0,
+    linewidth: float = 0.5,
+    edgecolor: str = "black",
+    zorder: int = 10,
+) -> None:
+    """Draw a single box hugging a condition's triplicate bars.
+
+    The box spans from ``min(trip_xs) - half_width`` to
+    ``max(trip_xs) + half_width`` horizontally and from ``y_min`` to ``height``
+    vertically. Callers compute ``trip_xs``/``height``/``half_width`` themselves
+    so the (deliberately different) per-plot-type triplicate geometry is
+    preserved; this only removes the duplicated Rectangle boilerplate.
+
+    Args:
+        ax: Matplotlib axes to draw on.
+        trip_xs: Bar-centre x positions of the condition's replicate bars.
+        height: Top edge of the box (bar stack height).
+        half_width: Padding added beyond the outermost bar centres.
+        y_min: Bottom edge of the box (default 0).
+        linewidth: Box edge line width.
+        edgecolor: Box edge colour.
+        zorder: Draw order (default 10, above the bars).
+    """
+    from matplotlib.patches import Rectangle
+
+    left = min(trip_xs) - half_width
+    right = max(trip_xs) + half_width
+    ax.add_patch(
+        Rectangle(
+            (left, y_min),
+            width=right - left,
+            height=height - y_min,
+            linewidth=linewidth,
+            edgecolor=edgecolor,
+            facecolor="none",
+            zorder=zorder,
+        )
+    )
+
+
 def convert_size_to_inches(
     fig_size: tuple[float, float], size_units: str = "cm"
 ) -> tuple[float, float]:

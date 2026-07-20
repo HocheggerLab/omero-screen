@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
-from matplotlib.patches import Patch, Rectangle
+from matplotlib.patches import Patch
 
 from omero_screen_plots.base import (
     BaseDataProcessor,
@@ -17,6 +17,7 @@ from omero_screen_plots.stats import (
     compute_significance,
 )
 from omero_screen_plots.utils import (
+    draw_triplicate_box,
     grouped_x_positions,
 )
 
@@ -372,18 +373,13 @@ class ClassificationPlotBuilder(BasePlotBuilder):
                 )
                 if y_max_box <= y_min:
                     continue
-                left = min(trip_xs) - bar_width / 2
-                right = max(trip_xs) + bar_width / 2
-                rect = Rectangle(
-                    (left, y_min),
-                    width=right - left,
-                    height=y_max_box - y_min,
-                    linewidth=0.5,
-                    edgecolor="black",
-                    facecolor="none",
-                    zorder=10,
+                draw_triplicate_box(
+                    self.ax,
+                    trip_xs,
+                    y_max_box,
+                    half_width=bar_width / 2,
+                    y_min=y_min,
                 )
-                self.ax.add_patch(rect)
 
         # Add legend for classes
         if self.config.show_legend:
