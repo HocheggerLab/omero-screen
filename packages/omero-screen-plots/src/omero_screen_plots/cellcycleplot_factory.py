@@ -15,7 +15,6 @@ from numpy.typing import NDArray
 from omero_screen_plots.base import BasePlotBuilder, BasePlotConfig
 from omero_screen_plots.colors import COLOR
 from omero_screen_plots.stats import (
-    annotate_significance,
     compute_significance,
 )
 from omero_screen_plots.utils import (
@@ -417,26 +416,15 @@ class StandardCellCyclePlot(BaseCellCyclePlot):
 
             # Add significance marks if we have enough replicates
             if self.config.show_significance and data.plate_id.nunique() >= 3:
-                medians_df, results = compute_significance(
+                self._annotate_and_record_stats(
+                    ax,
                     df_phase,
                     conditions,
                     condition_col,
                     "percent",
-                    group_size=1,  # standard cellcycle has no grouping
-                    paired=self.config.paired,
-                )
-                annotate_significance(
-                    ax,
-                    results,
                     [float(j) for j in range(len(conditions))],
-                    ax.get_ylim()[1] * 0.93,
-                )
-                self._record_stats(
-                    medians_df,
-                    results,
                     value_label=display_phase,
-                    condition_col=condition_col,
-                    value_col="percent",
+                    group_size=1,  # standard cellcycle has no grouping
                 )
 
             # Format this subplot using display name for title
