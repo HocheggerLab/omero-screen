@@ -476,7 +476,7 @@ class ClassificationPlotBuilder(BasePlotBuilder):
         # bars are exported to CSV but not annotated.
         annotate_on_plot = len(classes) == 1
         focus_class = self.config.stats_class or classes[0]
-        group_size = getattr(self.config, "group_size", 1)
+        group_size = self.config.group_size
         n = len(conditions)
         # Match the bar layout: triplicate bars are drawn at grouped positions
         # (gap-aware); the stacked single-bar layout is categorical.

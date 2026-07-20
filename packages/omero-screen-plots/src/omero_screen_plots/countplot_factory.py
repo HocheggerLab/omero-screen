@@ -17,7 +17,7 @@ from omero_screen_plots.stats import (
 )
 from omero_screen_plots.utils import (
     draw_triplicate_box,
-    grouped_x_positions,
+    grouped_or_range_positions,
     show_repeat_points_adaptive,
 )
 
@@ -246,15 +246,13 @@ class CountPlot(BasePlotBuilder):
         # controls the spacing; fall back to integer positions only for the
         # seaborn-drawn single-bar layout (group_size==1, no triplicates), which
         # places bars categorically and must stay aligned with the overlays.
-        x_positions = (
-            grouped_x_positions(
-                len(conditions),
-                group_size=self.config.group_size,
-                within_group_spacing=self.config.within_group_spacing,
-                between_group_gap=self.config.between_group_gap,
-            )
-            if self.config.group_size > 1 or self.config.show_triplicates
-            else [float(i) for i in range(len(conditions))]
+        x_positions = grouped_or_range_positions(
+            len(conditions),
+            use_grouped=self.config.group_size > 1
+            or self.config.show_triplicates,
+            group_size=self.config.group_size,
+            within_group_spacing=self.config.within_group_spacing,
+            between_group_gap=self.config.between_group_gap,
         )
 
         assert self.ax is not None

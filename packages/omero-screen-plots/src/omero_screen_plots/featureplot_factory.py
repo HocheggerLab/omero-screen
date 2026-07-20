@@ -18,7 +18,7 @@ from omero_screen_plots.stats import (
 )
 from omero_screen_plots.utils import (
     draw_triplicate_box,
-    grouped_x_positions,
+    grouped_or_range_positions,
     prepare_plot_data,
     set_y_limits,
 )
@@ -219,17 +219,14 @@ class BaseFeaturePlot(BasePlotBuilder):
         seaborn box/violin layout (group_size==1, no triplicates) is categorical
         and keeps integer positions so the overlays stay aligned.
         """
-        if self.config.group_size > 1 or getattr(
-            self.config, "show_triplicates", False
-        ):
-            return grouped_x_positions(
-                len(conditions),
-                group_size=self.config.group_size,
-                within_group_spacing=self.config.within_group_spacing,
-                between_group_gap=self.config.between_group_gap,
-            )
-        else:
-            return list(range(len(conditions)))
+        return grouped_or_range_positions(
+            len(conditions),
+            use_grouped=self.config.group_size > 1
+            or self.config.show_triplicates,
+            group_size=self.config.group_size,
+            within_group_spacing=self.config.within_group_spacing,
+            between_group_gap=self.config.between_group_gap,
+        )
 
     def _calculate_median_data(
         self,
