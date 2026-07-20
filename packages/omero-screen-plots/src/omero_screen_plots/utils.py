@@ -287,6 +287,32 @@ def draw_triplicate_box(
     )
 
 
+def grouped_or_range_positions(
+    n_conditions: int,
+    *,
+    use_grouped: bool,
+    group_size: int = 1,
+    within_group_spacing: float = 0.5,
+    between_group_gap: float = 1.0,
+) -> list[float]:
+    """Return per-condition x positions, grouped or plain integer.
+
+    When ``use_grouped`` (manual bars: grouped layout or triplicate mode) the
+    positions come from :func:`grouped_x_positions` so ``between_group_gap``
+    controls the spacing. Otherwise the layout is categorical (seaborn-drawn)
+    and integer positions keep the overlays aligned. This is the single source
+    of the "grouped vs integer" branch shared by the count and feature plots.
+    """
+    if use_grouped:
+        return grouped_x_positions(
+            n_conditions,
+            group_size=group_size,
+            within_group_spacing=within_group_spacing,
+            between_group_gap=between_group_gap,
+        )
+    return [float(i) for i in range(n_conditions)]
+
+
 def convert_size_to_inches(
     fig_size: tuple[float, float], size_units: str = "cm"
 ) -> tuple[float, float]:

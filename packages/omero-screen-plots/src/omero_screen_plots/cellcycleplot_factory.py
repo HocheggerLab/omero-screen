@@ -422,7 +422,7 @@ class StandardCellCyclePlot(BaseCellCyclePlot):
                     conditions,
                     condition_col,
                     "percent",
-                    group_size=getattr(self.config, "group_size", 1),
+                    group_size=1,  # standard cellcycle has no grouping
                     paired=self.config.paired,
                 )
                 annotate_significance(
