@@ -36,6 +36,7 @@ def feature_plot(
     within_group_spacing: float = 0.2,
     between_group_gap: float = 0.5,
     paired: bool = True,
+    normalise_within_plate: bool = True,
     save: bool = True,
     save_stats: bool = False,
     path: Optional[Path] = None,
@@ -85,6 +86,11 @@ def feature_plot(
     paired : bool, default=True
         Use a paired t-test (ttest_rel, matched by plate_id) for significance;
         set False for the unpaired ttest_ind.
+    normalise_within_plate : bool, default=True
+        Test the per-plate log fold-change ln(cond/control) vs 0 rather than the
+        absolute feature difference. Removes a multiplicative plate baseline so
+        significance tracks effect size (suited to area/intensity readouts).
+        Requires ``paired=True``; set False for the legacy absolute test.
     within_group_spacing : float, default=0.2
         The spacing between conditions within a group.
     between_group_gap : float, default=0.5
@@ -160,6 +166,7 @@ def feature_plot(
         show_significance=True,
         show_repeat_points=True,
         paired=paired,
+        normalise_within_plate=normalise_within_plate,
     )
 
     # Use StandardFeaturePlot class
