@@ -7,7 +7,6 @@ import pandas as pd
 from matplotlib.patches import Patch
 
 from omero_screen_plots.base import (
-    BaseDataProcessor,
     BasePlotBuilder,
     BasePlotConfig,
     PlotRequest,
@@ -50,13 +49,18 @@ class ClassificationPlotConfig(BasePlotConfig):
     legend_bbox: tuple[float, float] = (0.95, 1)
 
 
-class ClassificationDataProcessor(BaseDataProcessor):
-    """Processes data for classification plots."""
+class ClassificationDataProcessor:
+    """Processes data for classification plots.
+
+    Standalone helper (previously subclassed the retired ``BaseDataProcessor``);
+    it owns the condition/selector filtering the classification API relies on.
+    """
 
     def __init__(self, df: pd.DataFrame, class_col: str = "Class"):
         """Initialize with dynamic class column."""
+        self.df = df
         self.class_col = class_col
-        super().__init__(df)
+        self.validate_dataframe()
 
     def validate_dataframe(self) -> None:
         """Validate required columns exist."""
@@ -75,6 +79,41 @@ class ClassificationDataProcessor(BaseDataProcessor):
         ]
         if missing_cols:
             raise ValueError(f"Missing required columns: {missing_cols}")
+
+    def filter_data(
+        self,
+        condition_col: str,
+        conditions: list[str],
+        selector_col: str | None = None,
+        selector_val: str | None = None,
+    ) -> pd.DataFrame:
+        """Filter by conditions and an optional selector column/value."""
+        if condition_col not in self.df.columns:
+            raise ValueError(
+                f"Column '{condition_col}' not found in dataframe"
+            )
+
+        filtered = self.df[self.df[condition_col].isin(conditions)].copy()
+
+        if selector_col and selector_val:
+            if selector_col not in filtered.columns:
+                raise ValueError(
+                    f"Column '{selector_col}' not found in dataframe"
+                )
+            if selector_val not in filtered[selector_col].unique():
+                raise ValueError(
+                    f"Value '{selector_val}' not found in column '{selector_col}'"
+                )
+            filtered = filtered[filtered[selector_col] == selector_val]
+        elif selector_col:
+            raise ValueError(
+                f"selector_val for {selector_col} must be provided"
+            )
+
+        if filtered.empty:
+            raise ValueError("No data remaining after filtering")
+
+        return filtered
 
     def quantify_classification(
         self, df: pd.DataFrame, condition_col: str
