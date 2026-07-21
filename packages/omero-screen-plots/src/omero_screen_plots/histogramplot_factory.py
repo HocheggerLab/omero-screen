@@ -11,7 +11,6 @@ from matplotlib.figure import Figure
 from scipy.stats import gaussian_kde
 
 from omero_screen_plots.base import (
-    BaseDataProcessor,
     BasePlotBuilder,
     PlotRequest,
     XYPlotConfig,
@@ -55,41 +54,6 @@ class HistogramPlotConfig(XYPlotConfig):
         # No action needed as names match
 
 
-class HistogramDataProcessor(BaseDataProcessor):
-    """Processes data for histogram plots."""
-
-    def validate_dataframe(self) -> None:
-        """Validate required columns exist."""
-
-    def process_data(self, df: pd.DataFrame, **kwargs: Any) -> pd.DataFrame:
-        """Process data for histogram plot.
-
-        Args:
-            df: Input DataFrame
-            **kwargs:
-                feature: str
-
-        Returns:
-            Processed DataFrame with NaNs removed for the feature
-        """
-        feature = kwargs.get("feature")
-        if not feature:
-            raise ValueError("feature is required")
-
-        if feature not in df.columns:
-            raise ValueError(
-                f"Feature column '{feature}' not found in dataframe"
-            )
-
-        if not pd.api.types.is_numeric_dtype(df[feature]):
-            raise ValueError(
-                f"Feature column '{feature}' must contain numeric data"
-            )
-
-        # Remove NaN values
-        return df.dropna(subset=[feature])
-
-
 class HistogramPlot(BasePlotBuilder):
     """Histogram plot implementation using the base class architecture."""
 
@@ -100,6 +64,23 @@ class HistogramPlot(BasePlotBuilder):
         """Initialize the histogram plot builder."""
         super().__init__(config or HistogramPlotConfig())
         self.config: HistogramPlotConfig = self.config  # Type narrowing
+
+    def _process_data(self, df: pd.DataFrame, feature: str) -> pd.DataFrame:
+        """Validate the feature column is numeric and drop its NaNs.
+
+        Folded in from the former HistogramDataProcessor.
+        """
+        if not feature:
+            raise ValueError("feature is required")
+        if feature not in df.columns:
+            raise ValueError(
+                f"Feature column '{feature}' not found in dataframe"
+            )
+        if not pd.api.types.is_numeric_dtype(df[feature]):
+            raise ValueError(
+                f"Feature column '{feature}' must contain numeric data"
+            )
+        return df.dropna(subset=[feature])
 
     def _validate_inputs(
         self,
@@ -172,9 +153,8 @@ class HistogramPlot(BasePlotBuilder):
         if plot_data is None or plot_data.empty:
             raise ValueError(f"No data found for conditions: {conditions}")
 
-        # Process data (remove NaNs)
-        processor = HistogramDataProcessor(plot_data)
-        processed_data = processor.process_data(plot_data, feature=feature)
+        # Process data (validate feature + remove NaNs)
+        processed_data = self._process_data(plot_data, feature)
 
         if processed_data.empty:
             raise ValueError(

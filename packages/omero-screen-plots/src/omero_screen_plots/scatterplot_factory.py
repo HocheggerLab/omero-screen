@@ -10,7 +10,6 @@ from matplotlib.figure import Figure
 from matplotlib.ticker import FuncFormatter
 
 from omero_screen_plots.base import (
-    BaseDataProcessor,
     BasePlotBuilder,
     PlotRequest,
     XYPlotConfig,
@@ -104,54 +103,6 @@ class ScatterPlotConfig(XYPlotConfig):
     )
 
 
-class ScatterDataProcessor(BaseDataProcessor):
-    """Processes data for scatter plots."""
-
-    def validate_dataframe(self) -> None:
-        """Validate required columns exist."""
-        # Basic validation is handled by prepare_plot_data for now
-        # We can add more specific validation here if needed
-
-    def process_data(self, df: pd.DataFrame, **kwargs: Any) -> pd.DataFrame:
-        """Process data for scatter plot.
-
-        Args:
-            df: Input DataFrame
-            **kwargs:
-                x_feature: str
-                y_feature: str
-                cell_number: int | None
-                random_state: int
-
-        Returns:
-            Processed DataFrame
-        """
-        x_feature = kwargs.get("x_feature")
-        y_feature = kwargs.get("y_feature")
-        cell_number = kwargs.get("cell_number")
-        random_state = kwargs.get("random_state", 42)
-
-        if not x_feature or not y_feature:
-            raise ValueError("x_feature and y_feature are required")
-
-        # Validate features exist
-        if x_feature not in df.columns:
-            raise ValueError(f"x_feature '{x_feature}' not found in dataframe")
-        if y_feature not in df.columns:
-            raise ValueError(f"y_feature '{y_feature}' not found in dataframe")
-
-        data = df.copy()
-
-        # Sample data if cell_number is specified
-        if cell_number and len(data) > cell_number:
-            data = data.sample(
-                n=cell_number,
-                random_state=random_state,
-            )
-
-        return data
-
-
 class ScatterPlot(BasePlotBuilder):
     """Builder for scatter plots."""
 
@@ -159,6 +110,29 @@ class ScatterPlot(BasePlotBuilder):
         """Initialize with specific config type."""
         super().__init__(config)
         self.config: ScatterPlotConfig = config  # Type narrowing
+
+    def _process_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Validate the x/y feature columns and optionally subsample.
+
+        Reads ``x_feature``/``y_feature``/``cell_number``/``random_state`` from
+        the config (folded in from the former ScatterDataProcessor).
+        """
+        x_feature = self.config.x_feature
+        y_feature = self.config.y_feature
+        if not x_feature or not y_feature:
+            raise ValueError("x_feature and y_feature are required")
+        if x_feature not in df.columns:
+            raise ValueError(f"x_feature '{x_feature}' not found in dataframe")
+        if y_feature not in df.columns:
+            raise ValueError(f"y_feature '{y_feature}' not found in dataframe")
+
+        data = df.copy()
+        if self.config.cell_number and len(data) > self.config.cell_number:
+            data = data.sample(
+                n=self.config.cell_number,
+                random_state=self.config.random_state,
+            )
+        return data
 
     def build_plot(
         self, data: pd.DataFrame, request: PlotRequest | None = None
@@ -361,17 +335,9 @@ class ScatterPlot(BasePlotBuilder):
         if self.config.hue and self.config.hue not in df.columns:
             self.config.hue = None
 
-        # Use DataProcessor for further processing
-        # Only process if we have data
+        # Validate features and optionally subsample (only if we have data)
         if not plot_data.empty:
-            processor = ScatterDataProcessor(plot_data)
-            processed_data = processor.process_data(
-                plot_data,
-                x_feature=x_feature,
-                y_feature=y_feature,
-                cell_number=self.config.cell_number,
-                random_state=self.config.random_state,
-            )
+            processed_data = self._process_data(plot_data)
         else:
             processed_data = plot_data
 
