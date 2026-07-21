@@ -42,6 +42,7 @@ def count_plot(
     between_group_gap: float = 0.5,
     x_label: bool = True,
     paired: bool = True,
+    normalise_within_plate: bool = True,
 ) -> tuple[Figure, Axes]:
     """Plot normalized or absolute counts with optional grouping.
 
@@ -85,6 +86,11 @@ def count_plot(
     paired : bool, default=True
         Use a paired t-test (ttest_rel, matched by plate_id) for significance;
         set False for the unpaired ttest_ind.
+    normalise_within_plate : bool, default=True
+        Test the per-plate log fold-change ln(cond/control) vs 0 rather than
+        the absolute count difference. Removes a multiplicative plate baseline
+        so significance tracks effect size, not control stability. Requires
+        ``paired=True``; set False for the legacy absolute-count test.
     within_group_spacing : float, default=0.2
         The spacing between conditions within a group.
     between_group_gap : float, default=0.5
@@ -155,6 +161,7 @@ def count_plot(
         show_x_labels=x_label,
         rotation=45,
         paired=paired,
+        normalise_within_plate=normalise_within_plate,
     )
 
     # Use simplified CountPlot class

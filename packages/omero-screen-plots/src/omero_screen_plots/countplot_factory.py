@@ -37,6 +37,9 @@ class CountPlotConfig(BasePlotConfig):
 
     # Count plot specific settings
     plot_type: PlotType = PlotType.NORMALISED
+    # Test the per-plate log fold-change vs the reference (removes a
+    # multiplicative plate baseline); the default for ratio-scale count data.
+    normalise_within_plate: bool = True
     show_triplicates: bool = False
     group_size: int = 1
     within_group_spacing: float = 0.2
@@ -308,6 +311,7 @@ class CountPlot(BasePlotBuilder):
                 x_positions,
                 value_label=count_col.replace("_", " ").title(),
                 group_size=self.config.group_size,
+                normalise_within_plate=self.config.normalise_within_plate,
             )
 
         # Format axes

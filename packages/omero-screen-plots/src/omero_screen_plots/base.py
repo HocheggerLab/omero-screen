@@ -258,6 +258,7 @@ class BasePlotBuilder(ABC):
         value_label: str,
         group_size: int = 1,
         y_top_factor: float = 0.93,
+        normalise_within_plate: bool = False,
         extra: dict[str, str] | None = None,
     ) -> None:
         """Compute significance, annotate stars on ``ax``, and record for CSV.
@@ -266,6 +267,8 @@ class BasePlotBuilder(ABC):
         _record_stats`` trio shared by the count, feature and (per-phase)
         standard cell-cycle plots. The ``nunique >= 3`` replicate gate stays in
         the caller, since plot types differ on which frame drives the count.
+        ``normalise_within_plate`` forwards to the log fold-change test for
+        ratio-scale readouts (count/feature); leave False for proportions.
         """
         from omero_screen_plots.stats import (
             annotate_significance,
@@ -279,6 +282,7 @@ class BasePlotBuilder(ABC):
             value_col,
             group_size=group_size,
             paired=self.config.paired,
+            normalise_within_plate=normalise_within_plate,
         )
         annotate_significance(
             ax, results, x_positions, ax.get_ylim()[1] * y_top_factor

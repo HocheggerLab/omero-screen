@@ -45,6 +45,10 @@ class FeaturePlotConfig(BasePlotConfig):
     # Feature plot specific settings
     scale: bool = False
     ymax: float | tuple[float, float] | None = None
+    # Test the per-plate log fold-change vs the reference (removes a
+    # multiplicative plate baseline); the default for ratio-scale features
+    # (area, intensities). Guarded against non-positive values.
+    normalise_within_plate: bool = True
     group_size: int = 1
     within_group_spacing: float = 0.2
     between_group_gap: float = 0.5
@@ -334,6 +338,7 @@ class BaseFeaturePlot(BasePlotBuilder):
                 x_positions,
                 value_label=feature,
                 group_size=self.config.group_size,
+                normalise_within_plate=self.config.normalise_within_plate,
             )
 
     def _format_axes(
