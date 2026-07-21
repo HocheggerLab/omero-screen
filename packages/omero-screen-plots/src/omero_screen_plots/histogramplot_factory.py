@@ -605,35 +605,3 @@ class HistogramPlot(BasePlotBuilder):
             ha="left",
             va="bottom",
         )
-
-
-def create_histogram_plot(
-    df: pd.DataFrame,
-    feature: str,
-    condition: str | list[str],
-    condition_col: str = "condition",
-    selector_col: str | None = None,
-    selector_val: str | None = None,
-    axes: Axes | None = None,
-    **kwargs: Any,
-) -> tuple[Figure, Axes | list[Axes]]:
-    """Create histogram plot factory function."""
-    # Map 'feature' to 'x_feature' for config
-    if "x_feature" not in kwargs:
-        kwargs["x_feature"] = feature
-
-    config = HistogramPlotConfig(**kwargs)
-
-    # Override config with explicit args if provided
-    # (Already handled by passing kwargs to config init)
-
-    plot = HistogramPlot(config)
-    return plot.create_plot(
-        df,
-        feature,
-        condition,
-        condition_col,
-        selector_col,
-        selector_val,
-        axes,
-    )
