@@ -138,6 +138,119 @@ class TestComputeSignificance:
         assert all(r.test in ("unpaired_t", "ns_insufficient") for r in results)
 
 
+class TestLogRatioSignificance:
+    """Paired log-ratio test (``normalise_within_plate``) for ratio-scale data.
+
+    Tests a paired one-sample t on ``L_i = ln(cond_i / ref_i)`` — removes a
+    multiplicative plate baseline so significance tracks effect size rather
+    than control stability (see the 2026-07-21 stats-improvement note).
+    """
+
+    def test_flag_off_matches_default(self):
+        """Flag off is identical to the default paired_t path (parity)."""
+        df = _per_plate_frame(
+            {"ctrl": [1000, 800, 1200], "c2": [520, 430, 610]}
+        )
+        _, off = compute_significance(
+            df, ["ctrl", "c2"], "condition", "value",
+            paired=True, normalise_within_plate=False,
+        )
+        _, default = compute_significance(
+            df, ["ctrl", "c2"], "condition", "value", paired=True,
+        )
+        assert off[0].p_value == default[0].p_value
+        assert off[0].test == default[0].test == "paired_t"
+
+    def test_equivalent_to_paired_t_on_log(self):
+        """Log-ratio p equals a paired t-test on the logged medians."""
+        from scipy import stats as sp
+
+        df = _per_plate_frame(
+            {"ctrl": [1000, 800, 1200], "c2": [520, 430, 610]}
+        )
+        _, res = compute_significance(
+            df, ["ctrl", "c2"], "condition", "value",
+            paired=True, normalise_within_plate=True,
+        )
+        assert res[0].test == "paired_logratio"
+        manual = sp.ttest_rel(
+            np.log([520.0, 430.0, 610.0]), np.log([1000.0, 800.0, 1200.0])
+        ).pvalue
+        assert res[0].p_value == pytest.approx(manual)
+
+    def test_equal_effect_consistent_across_baseline_noise(self):
+        """Same effect -> consistent significance despite control noise."""
+        stable = _per_plate_frame(
+            {"ctrl": [1000, 990, 1010], "c2": [530, 525, 535]}
+        )
+        noisy = _per_plate_frame(
+            {"ctrl": [1000, 700, 1300], "c2": [530, 371, 689]}
+        )
+        _, rs = compute_significance(
+            stable, ["ctrl", "c2"], "condition", "value",
+            paired=True, normalise_within_plate=True,
+        )
+        _, rn = compute_significance(
+            noisy, ["ctrl", "c2"], "condition", "value",
+            paired=True, normalise_within_plate=True,
+        )
+        assert rs[0].significance != "ns"
+        assert rn[0].significance != "ns"
+
+    def test_effect_size_monotonicity(self):
+        """A larger fold-change gives a smaller p (with matched noise)."""
+        small = _per_plate_frame(  # ~10% drop, noisy fold-change
+            {"ctrl": [1000, 800, 1200], "c2": [880, 730, 1100]}
+        )
+        large = _per_plate_frame(  # ~50% drop, similar relative noise
+            {"ctrl": [1000, 800, 1200], "c2": [480, 420, 620]}
+        )
+        _, rsm = compute_significance(
+            small, ["ctrl", "c2"], "condition", "value",
+            paired=True, normalise_within_plate=True,
+        )
+        _, rlg = compute_significance(
+            large, ["ctrl", "c2"], "condition", "value",
+            paired=True, normalise_within_plate=True,
+        )
+        assert rlg[0].p_value <= rsm[0].p_value
+
+    def test_nonpositive_pairs_dropped(self):
+        """Non-positive medians are dropped before the log (kept pairs used)."""
+        df = _per_plate_frame(
+            {"ctrl": [1000, 0, 1200], "c2": [500, 400, 600]}
+        )
+        _, res = compute_significance(
+            df, ["ctrl", "c2"], "condition", "value",
+            paired=True, normalise_within_plate=True,
+        )
+        assert res[0].n_pairs == 2  # plate 2 (ctrl=0) dropped
+        assert res[0].test == "paired_logratio"
+
+    def test_insufficient_valid_pairs_is_ns(self):
+        """Fewer than two valid pairs after dropping -> ns_insufficient."""
+        df = _per_plate_frame(
+            {"ctrl": [1000, 0, 0], "c2": [500, 400, 600]}
+        )
+        _, res = compute_significance(
+            df, ["ctrl", "c2"], "condition", "value",
+            paired=True, normalise_within_plate=True,
+        )
+        assert res[0].test == "ns_insufficient"
+        assert res[0].p_value == 1.0
+
+    def test_ignored_when_unpaired(self):
+        """normalise_within_plate needs pairing; falls back to unpaired_t."""
+        df = _per_plate_frame(
+            {"ctrl": [1000, 800, 1200], "c2": [500, 400, 600]}
+        )
+        _, res = compute_significance(
+            df, ["ctrl", "c2"], "condition", "value",
+            paired=False, normalise_within_plate=True,
+        )
+        assert res[0].test == "unpaired_t"
+
+
 class TestStatsTables:
     """Tidy-table converters and CSV writer."""
 
