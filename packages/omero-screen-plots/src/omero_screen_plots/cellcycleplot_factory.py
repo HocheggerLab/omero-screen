@@ -12,7 +12,11 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from numpy.typing import NDArray
 
-from omero_screen_plots.base import BasePlotBuilder, BasePlotConfig
+from omero_screen_plots.base import (
+    BasePlotBuilder,
+    BasePlotConfig,
+    PlotRequest,
+)
 from omero_screen_plots.colors import COLOR
 from omero_screen_plots.stats import (
     compute_significance,
@@ -111,9 +115,11 @@ class BaseCellCyclePlot(BasePlotBuilder):
         # Build plot (delegated to subclasses), passing original df for phase detection
         self.build_plot(
             processed_data,
-            conditions=conditions,
-            condition_col=condition_col,
-            original_df=df,  # Pass original df for phase detection
+            PlotRequest(
+                conditions=conditions,
+                condition_col=condition_col,
+                original_df=df,  # for M-phase auto-detection
+            ),
         )
 
         # Finalize
@@ -269,7 +275,7 @@ class BaseCellCyclePlot(BasePlotBuilder):
     def build_plot(
         self,
         data: pd.DataFrame,
-        **kwargs: Any,
+        request: PlotRequest,
     ) -> "BasePlotBuilder":
         """Build the specific cell cycle plot type. Implemented by subclasses."""
 
@@ -356,13 +362,15 @@ class StandardCellCyclePlot(BaseCellCyclePlot):
     def build_plot(
         self,
         data: pd.DataFrame,
-        **kwargs: Any,
+        request: PlotRequest,
     ) -> "BasePlotBuilder":
         """Build cell cycle plot with variable subplot grid for each phase."""
-        # Extract required parameters from kwargs
-        conditions = kwargs["conditions"]
-        condition_col = kwargs["condition_col"]
-        original_df = kwargs["original_df"]
+        conditions = request.conditions
+        condition_col = request.condition_col
+        original_df = request.original_df
+        assert original_df is not None, (
+            "cellcycle requires request.original_df"
+        )
 
         # Determine phases and colors based on original data and configuration
         data_phases, display_mapping, color_mapping = (
@@ -684,9 +692,11 @@ class StackedCellCyclePlot(BaseCellCyclePlot):
         # Build plot, passing original df for phase detection
         self.build_plot(
             processed_data,
-            conditions=conditions,
-            condition_col=condition_col,
-            original_df=df,
+            PlotRequest(
+                conditions=conditions,
+                condition_col=condition_col,
+                original_df=df,
+            ),
         )
 
         # Finalize
@@ -703,12 +713,15 @@ class StackedCellCyclePlot(BaseCellCyclePlot):
     def build_plot(
         self,
         data: pd.DataFrame,
-        **kwargs: Any,
+        request: PlotRequest,
     ) -> "BasePlotBuilder":
         """Build stacked cell cycle plot based on configuration."""
-        conditions = kwargs["conditions"]
-        condition_col = kwargs["condition_col"]
-        original_df = kwargs["original_df"]
+        conditions = request.conditions
+        condition_col = request.condition_col
+        original_df = request.original_df
+        assert original_df is not None, (
+            "cellcycle requires request.original_df"
+        )
 
         # Determine phases and colors based on original data and configuration
         # The base class handles cc_phases, M-phase detection, and display mapping

@@ -13,6 +13,7 @@ from scipy.stats import gaussian_kde
 from omero_screen_plots.base import (
     BaseDataProcessor,
     BasePlotBuilder,
+    PlotRequest,
     XYPlotConfig,
 )
 from omero_screen_plots.colors import COLOR
@@ -225,7 +226,9 @@ class HistogramPlot(BasePlotBuilder):
             )
 
         self.create_figure(axes)
-        self.build_plot(cond_data, feature=feature, condition=condition)
+        self.build_plot(
+            cond_data, PlotRequest(conditions=[condition], feature=feature)
+        )
         self._format_axes(feature)
 
         default_title = f"Histogram: {feature}"
@@ -423,9 +426,12 @@ class HistogramPlot(BasePlotBuilder):
         assert self.fig is not None
         return self.fig, self.ax
 
-    def build_plot(self, data: pd.DataFrame, **kwargs: Any) -> "HistogramPlot":
+    def build_plot(
+        self, data: pd.DataFrame, request: PlotRequest
+    ) -> "HistogramPlot":
         """Build histogram plot."""
-        feature = kwargs["feature"]
+        feature = request.feature
+        assert feature is not None, "histogram requires request.feature"
 
         # Get color
         color = (

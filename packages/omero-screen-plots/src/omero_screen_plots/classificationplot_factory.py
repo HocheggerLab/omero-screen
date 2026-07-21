@@ -10,6 +10,7 @@ from omero_screen_plots.base import (
     BaseDataProcessor,
     BasePlotBuilder,
     BasePlotConfig,
+    PlotRequest,
 )
 from omero_screen_plots.colors import COLOR
 from omero_screen_plots.stats import (
@@ -403,14 +404,13 @@ class ClassificationPlotBuilder(BasePlotBuilder):
     def build_plot(
         self,
         data: Any,
-        **kwargs: Any,
+        request: PlotRequest,
     ) -> "ClassificationPlotBuilder":
         """Build the classification plot based on display mode."""
-        # Extract required parameters from kwargs
-        conditions = kwargs.get("conditions")
-        classes = kwargs.get("classes")
-        condition_col = kwargs.get("condition_col")
-        class_col = kwargs.get("class_col")
+        conditions = request.conditions
+        classes = request.classes
+        condition_col = request.condition_col
+        class_col = request.class_col
 
         if not conditions or not classes or not condition_col or not class_col:
             raise ValueError(

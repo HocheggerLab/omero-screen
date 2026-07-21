@@ -14,6 +14,31 @@ from omero_screen_plots.utils import convert_size_to_inches, save_fig
 
 
 @dataclass
+class PlotRequest:
+    """Typed per-call parameters handed to a builder's ``build_plot``.
+
+    Replaces the former untyped ``build_plot(self, data, **kwargs)`` key-digging
+    (``kwargs["conditions"]``, ``kwargs["x_positions"]``, ...). Not every field
+    applies to every plot type — each builder reads only the subset it needs —
+    but collecting them in one checked, discoverable object removes the silent
+    string-keyed contract. Config-level options stay on the ``*PlotConfig``
+    dataclasses; ``PlotRequest`` carries the values that vary per call.
+    """
+
+    conditions: list[str]
+    condition_col: str = "condition"
+    # Feature / count / histogram: the measurement column being plotted.
+    feature: str | None = None
+    # Box/violin grouped x-axis positions, precomputed by the builder.
+    x_positions: list[float] = field(default_factory=list)
+    # Cell-cycle plots need the unaggregated df for M-phase auto-detection.
+    original_df: pd.DataFrame | None = None
+    # Classification: the per-cell class column and the classes to stack.
+    classes: list[str] | None = None
+    class_col: str | None = None
+
+
+@dataclass
 class BasePlotConfig:
     """Base configuration for all plots."""
 
@@ -205,8 +230,14 @@ class BasePlotBuilder(ABC):
         return self
 
     @abstractmethod
-    def build_plot(self, data: Any, **kwargs: Any) -> "BasePlotBuilder":
-        """Build the specific plot type."""
+    def build_plot(
+        self, data: Any, request: "PlotRequest"
+    ) -> "BasePlotBuilder":
+        """Build the specific plot type from a typed :class:`PlotRequest`.
+
+        Each builder reads the subset of ``request`` fields it needs; this
+        replaced the former untyped ``build_plot(self, data, **kwargs)`` pipe.
+        """
 
     def finalize_plot(
         self, default_title: str | None = None

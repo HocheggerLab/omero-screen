@@ -7,6 +7,7 @@ import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
+from omero_screen_plots.base import PlotRequest
 from omero_screen_plots.classificationplot_factory import (
     ClassificationDataProcessor,
     ClassificationPlotBuilder,
@@ -264,11 +265,13 @@ def classification_plot(
     if show_triplicates:
         # Individual repeat bars — pass original DataFrame
         builder.build_plot(
-            data=filtered_df,
-            conditions=conditions,
-            classes=classes,
-            condition_col=condition_col,
-            class_col=class_col,
+            filtered_df,
+            PlotRequest(
+                conditions=conditions,
+                condition_col=condition_col,
+                classes=classes,
+                class_col=class_col,
+            ),
         )
     else:
         # Stacked bars with error bars — aggregate first
@@ -279,11 +282,13 @@ def classification_plot(
             classes=classes,
         )
         builder.build_plot(
-            data=(plot_data, std_data),
-            conditions=conditions,
-            classes=classes,
-            condition_col=condition_col,
-            class_col=class_col,
+            (plot_data, std_data),
+            PlotRequest(
+                conditions=conditions,
+                condition_col=condition_col,
+                classes=classes,
+                class_col=class_col,
+            ),
         )
 
     # Significance (both modes) — uses the raw filtered data for per-plate %

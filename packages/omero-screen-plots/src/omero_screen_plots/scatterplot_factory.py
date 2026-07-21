@@ -13,6 +13,7 @@ from matplotlib.ticker import FuncFormatter
 from omero_screen_plots.base import (
     BaseDataProcessor,
     BasePlotBuilder,
+    PlotRequest,
     XYPlotConfig,
 )
 from omero_screen_plots.colors import COLOR
@@ -160,13 +161,15 @@ class ScatterPlot(BasePlotBuilder):
         super().__init__(config)
         self.config: ScatterPlotConfig = config  # Type narrowing
 
-    def build_plot(self, data: pd.DataFrame, **kwargs: Any) -> "ScatterPlot":
+    def build_plot(
+        self, data: pd.DataFrame, request: PlotRequest | None = None
+    ) -> "ScatterPlot":
         """Build scatter plot.
 
         Args:
-            data: Processed DataFrame
-            **kwargs:
-                hue: str | None
+            data: Processed DataFrame (already filtered to one condition).
+            request: Unused — scatter reads x/y features and hue from config;
+                accepted (optional) only to satisfy the builder interface.
         """
         if self.ax is None:
             raise RuntimeError("Must create figure before building plot")
@@ -174,7 +177,7 @@ class ScatterPlot(BasePlotBuilder):
         # Extract plot parameters
         x_feature = self.config.x_feature
         y_feature = self.config.y_feature
-        hue = kwargs.get("hue", self.config.hue)
+        hue = self.config.hue
 
         # Apply threshold if specified (overrides other hue settings)
         plot_data = data.copy()

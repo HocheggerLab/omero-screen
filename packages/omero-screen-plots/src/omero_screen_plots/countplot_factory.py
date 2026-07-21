@@ -2,14 +2,17 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
 
 import pandas as pd
 import seaborn as sns
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from omero_screen_plots.base import BasePlotBuilder, BasePlotConfig
+from omero_screen_plots.base import (
+    BasePlotBuilder,
+    BasePlotConfig,
+    PlotRequest,
+)
 from omero_screen_plots.colors import COLOR
 from omero_screen_plots.utils import (
     draw_triplicate_box,
@@ -113,7 +116,8 @@ class CountPlot(BasePlotBuilder):
 
         # Build plot
         self.build_plot(
-            processed_data, conditions=conditions, condition_col=condition_col
+            processed_data,
+            PlotRequest(conditions=conditions, condition_col=condition_col),
         )
 
         # Finalize
@@ -223,13 +227,11 @@ class CountPlot(BasePlotBuilder):
         )
 
     def build_plot(
-        self, data: pd.DataFrame, **kwargs: Any
+        self, data: pd.DataFrame, request: PlotRequest
     ) -> "BasePlotBuilder":
         """Build the count plot with bars and points."""
-        # Extract required parameters from kwargs
-        conditions = kwargs.get("conditions")
-        condition_col = kwargs.get("condition_col")
-        assert conditions is not None and condition_col is not None
+        conditions = request.conditions
+        condition_col = request.condition_col
         # Determine which column to plot
         count_col = (
             "normalized_count"
