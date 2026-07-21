@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from loguru import logger
 from matplotlib.axes import Axes
@@ -43,7 +44,8 @@ class StatResult:
         p_value: The t-test p-value.
         significance: Star marker derived from ``p_value`` (``ns``/``*``/...).
         test: Which test produced the value
-            (``paired_t``/``unpaired_t``/``ns_insufficient``).
+            (``paired_t``/``paired_logratio``/``unpaired_t``/
+            ``ns_insufficient``).
     """
 
     reference: str
@@ -68,8 +70,58 @@ def get_significance_marker(p: float) -> str:
             return "***"
 
 
+def _paired_logratio_pvalue(
+    a: npt.NDArray[np.float64], b: npt.NDArray[np.float64]
+) -> tuple[float, int, str]:
+    """Paired one-sample t-test on the per-repeat log fold-change.
+
+    For matched reference/condition medians ``a``/``b`` (same repeats, same
+    order) this tests whether ``L_i = ln(b_i / a_i)`` differs from 0 — i.e. a
+    paired Student's t on the log scale. ``ln`` turns the multiplicative
+    plate-to-plate baseline (×k) into an additive offset (+ln k) that the
+    pairing removes, so the test tracks effect size rather than control
+    stability (see the stats-improvement note).
+
+    Non-positive or non-finite pairs are dropped (``ln`` undefined); a warning
+    is logged. Requires >=2 surviving pairs.
+    """
+    mask = (a > 0) & (b > 0) & np.isfinite(a) & np.isfinite(b)
+    if not mask.all():
+        logger.warning(
+            f"log-ratio: dropping {int((~mask).sum())} non-positive/NaN "
+            "pair(s) before the test"
+        )
+    a, b = a[mask], b[mask]
+    n = len(a)
+    if n < 2:
+        logger.warning(
+            "log-ratio t-test needs >=2 valid shared repeats; got "
+            f"{n}, setting p-value to 1.0"
+        )
+        return 1.0, n, "ns_insufficient"
+    log_ratio = np.log(b / a)
+    if np.all(log_ratio == 0):
+        # No change on any plate -> not significant.
+        return 1.0, n, "paired_logratio"
+    if np.var(log_ratio) == 0:
+        # Perfectly consistent non-zero fold-change -> maximally significant.
+        return 0.0, n, "paired_logratio"
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            category=RuntimeWarning,
+            message=".*catastrophic cancellation.*",
+        )
+        p = float(stats.ttest_1samp(log_ratio, 0.0).pvalue)
+    return (p if not np.isnan(p) else 1.0), n, "paired_logratio"
+
+
 def _pvalue_from_medians(
-    ref: pd.Series, cond: pd.Series, paired: bool
+    ref: pd.Series,
+    cond: pd.Series,
+    paired: bool,
+    *,
+    normalise_within_plate: bool = False,
 ) -> tuple[float, int, str]:
     """Compute a t-test p-value between two per-repeat median series.
 
@@ -78,6 +130,11 @@ def _pvalue_from_medians(
         cond: Compared condition medians, indexed by repeat (plate_id).
         paired: If True, align on shared repeats and use ``ttest_rel``;
             otherwise use ``ttest_ind`` on all medians.
+        normalise_within_plate: If True (and ``paired``), test the per-repeat
+            log fold-change ``ln(cond/ref)`` against 0 instead of the absolute
+            difference — removes a multiplicative plate baseline for
+            ratio-scale readouts (counts/intensities/area). Ignored (with a
+            warning) when ``paired`` is False.
 
     Returns:
         Tuple of (p_value, n, test_name).
@@ -93,6 +150,8 @@ def _pvalue_from_medians(
                 f"{n}, setting p-value to 1.0"
             )
             return 1.0, n, "ns_insufficient"
+        if normalise_within_plate:
+            return _paired_logratio_pvalue(a, b)
         diff = b - a
         if np.all(diff == 0):
             # Identical series - no difference, ttest_rel would return NaN.
@@ -110,6 +169,11 @@ def _pvalue_from_medians(
             p = float(stats.ttest_rel(a, b).pvalue)
         return (p if not np.isnan(p) else 1.0), n, "paired_t"
 
+    if normalise_within_plate:
+        logger.warning(
+            "normalise_within_plate requires paired=True (needs same-plate "
+            "reference); ignoring and using the unpaired absolute-value test."
+        )
     a = ref.to_numpy(dtype=float)
     b = cond.to_numpy(dtype=float)
     n = min(len(a), len(b))
@@ -140,6 +204,7 @@ def compute_significance(
     group_size: int = 1,
     repeat_col: str = "plate_id",
     paired: bool = True,
+    normalise_within_plate: bool = False,
 ) -> tuple[pd.DataFrame, list[StatResult]]:
     """Compute replicate-level significance for a plot.
 
@@ -156,6 +221,11 @@ def compute_significance(
         group_size: Conditions per group (1 = all vs the overall first).
         repeat_col: Column identifying a biological repeat (default plate_id).
         paired: Use a paired t-test aligned on shared repeats (default True).
+        normalise_within_plate: If True (and ``paired``), test the per-repeat
+            log fold-change ``ln(cond/ref)`` against 0 rather than the absolute
+            difference. Use for positive ratio-scale readouts with a
+            multiplicative batch effect (counts/intensities/area); do **not**
+            use for bounded proportions (cell-cycle %, classification).
 
     Returns:
         Tuple of (per-repeat medians DataFrame, list of StatResult).
@@ -199,7 +269,10 @@ def compute_significance(
                 p, n, test = 1.0, 0, "ns_insufficient"
             else:
                 p, n, test = _pvalue_from_medians(
-                    ref_series, cond_series, paired
+                    ref_series,
+                    cond_series,
+                    paired,
+                    normalise_within_plate=normalise_within_plate,
                 )
             results.append(
                 StatResult(
