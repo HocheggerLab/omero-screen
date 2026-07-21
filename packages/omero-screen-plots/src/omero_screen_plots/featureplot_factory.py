@@ -3,14 +3,17 @@
 import warnings
 from abc import abstractmethod
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from omero_screen_plots.base import BasePlotBuilder, BasePlotConfig
+from omero_screen_plots.base import (
+    BasePlotBuilder,
+    BasePlotConfig,
+    PlotRequest,
+)
 from omero_screen_plots.colors import COLOR
 from omero_screen_plots.stats import (
     annotate_significance,
@@ -131,10 +134,12 @@ class BaseFeaturePlot(BasePlotBuilder):
         # Build plot (delegated to subclasses) - pass x_positions
         self.build_plot(
             processed_data,
-            feature=feature,
-            conditions=conditions,
-            condition_col=condition_col,
-            x_positions=x_positions,
+            PlotRequest(
+                conditions=conditions,
+                condition_col=condition_col,
+                feature=feature,
+                x_positions=x_positions,
+            ),
         )
 
         # Add statistical elements (repeat points and significance marks)
@@ -207,7 +212,7 @@ class BaseFeaturePlot(BasePlotBuilder):
     def build_plot(
         self,
         data: pd.DataFrame,
-        **kwargs: Any,
+        request: PlotRequest,
     ) -> "BasePlotBuilder":
         """Build the specific feature plot type. Implemented by subclasses."""
 
@@ -370,14 +375,14 @@ class StandardFeaturePlot(BaseFeaturePlot):
     def build_plot(
         self,
         data: pd.DataFrame,
-        **kwargs: Any,
+        request: PlotRequest,
     ) -> "BasePlotBuilder":
         """Build unified feature plot with box/violin plots and optional scatter points."""
-        # Extract required parameters from kwargs
-        feature = kwargs["feature"]
-        conditions = kwargs["conditions"]
-        condition_col = kwargs["condition_col"]
-        x_positions = kwargs["x_positions"]
+        feature = request.feature
+        assert feature is not None, "feature plot requires request.feature"
+        conditions = request.conditions
+        condition_col = request.condition_col
+        x_positions = request.x_positions
 
         assert self.ax is not None
 
@@ -766,14 +771,13 @@ class NormFeaturePlot(BaseFeaturePlot):
     def build_plot(
         self,
         data: pd.DataFrame,
-        **kwargs: Any,
+        request: PlotRequest,
     ) -> "BasePlotBuilder":
         """Build normalized feature plot with stacked bars."""
-        # Extract required parameters from kwargs
-        # feature is passed but not used in normalized plots (already processed in data)
-        conditions = kwargs["conditions"]
-        condition_col = kwargs["condition_col"]
-        x_positions = kwargs["x_positions"]
+        # request.feature is unused here (already processed into the data).
+        conditions = request.conditions
+        condition_col = request.condition_col
+        x_positions = request.x_positions
 
         assert self.ax is not None
 
