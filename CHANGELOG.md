@@ -1,3 +1,5 @@
+## omero-screen-v0.5.0 (2026-07-21)
+
 ## omero-screen-v0.4.0 (2026-06-16)
 
 ### Feat
