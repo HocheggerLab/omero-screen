@@ -724,10 +724,9 @@ def split_stitched_mask_to_fields(
     grid_map = positions_to_grid(positions)
 
     n_t = stitched_mask.shape[0]
-    out: list[NDArray[Any]] = [
-        np.zeros((n_t, tile_h, tile_w), dtype=stitched_mask.dtype)
-        for _ in range(n_fields)
-    ]
+    # Pre-allocate list with a default image
+    a = np.empty((0,))
+    out: list[NDArray[Any]] = [a for _ in range(n_fields)]
 
     for col, row_map in grid_map.items():
         for row, idx in row_map.items():
@@ -735,6 +734,13 @@ def split_stitched_mask_to_fields(
             out[idx] = stitched_mask[
                 :, yp : yp + tile_h, xp : xp + tile_w
             ].copy()
+
+    # Handle the possibility of a sparse grid causing a missing tile
+    for idx, tile in enumerate(out):
+        if len(tile) == 0:
+            out[idx] = np.zeros(
+                (n_t, tile_h, tile_w), dtype=stitched_mask.dtype
+            )
 
     return out
 
