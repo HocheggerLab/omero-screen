@@ -605,15 +605,15 @@ def _segment_stitched_nuclei(
                 normalize=False,
                 **eval_kwargs,
             )
+            # Outer-edge border filter only. clear_border treats the array
+            # edge as the boundary; since this is the full stitched canvas,
+            # only true outer-edge objects are removed.
+            masks[t] = filter_segmentation(mask, border=border)
         except IndexError:
             logger.warning(
                 f"Stitched nucleus segmentation failed (t={t:d}) — returning empty mask."
             )
-            mask = np.zeros(img_t.shape, dtype=np.uint16)
-        # Outer-edge border filter only. clear_border treats the array
-        # edge as the boundary; since this is the full stitched canvas,
-        # only true outer-edge objects are removed.
-        masks[t] = filter_segmentation(mask, border=border)
+            # Do nothing as masks[t] is already zero
 
     return masks
 
@@ -686,12 +686,12 @@ def _segment_stitched_cells(
                 normalize=False,
                 **eval_kwargs,
             )
+            masks[t] = filter_segmentation(mask, border=border)
         except IndexError:
             logger.warning(
                 f"Stitched cell segmentation failed (t={t:d}) — returning empty mask."
             )
-            mask = np.zeros(cell_t.shape, dtype=np.uint16)
-        masks[t] = filter_segmentation(mask, border=border)
+            # Do nothing as masks[t] is already zero
     return masks
 
 
