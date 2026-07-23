@@ -7,9 +7,12 @@ and everything derived from it on long multi-channel timelapses.
 """
 
 import os
+import pytest
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+
+from omero_utils.message import PlateDataError
 
 from omero_screen.loops import (
     _load_and_stitch_streaming,
@@ -81,15 +84,17 @@ def test_should_stream_off_when_budget_unknown() -> None:
         assert _should_stream_stitch(well, metadata) is False
 
 
-def _mock_well(n_fields: int) -> MagicMock:
-    """A WellWrapper mock with ``n_fields`` identical samples at the origin."""
+def _mock_well(n_fields: int, offset_multiplier: float = 1) -> MagicMock:
+    """A WellWrapper mock with ``n_fields`` identical samples offset by their field position."""
     well = MagicMock()
-    well.listChildren.return_value = [object()] * n_fields
-    ws = MagicMock()
-    ws.getImage.return_value.getId.return_value = 42
-    ws.getPosX.return_value.getValue.return_value = 0.0
-    ws.getPosY.return_value.getValue.return_value = 0.0
-    well.getWellSample.return_value = ws
+    samples = []
+    for i in range(n_fields):
+        ws = MagicMock()
+        ws.getImage.return_value.getId.return_value = 42 + i
+        ws.getPosX.return_value.getValue.return_value = i * offset_multiplier
+        ws.getPosY.return_value.getValue.return_value = -i * offset_multiplier
+        samples.append(ws)
+    well.listChildren.return_value = samples
     return well
 
 
@@ -116,15 +121,34 @@ def test_load_well_fields_returns_float32(mock_get_image: MagicMock) -> None:
         assert arr.dtype == np.float32  # NOT float64 — the memory fix
         assert arr.shape == (2, 3, 4, 4)  # (N_fields, T, Y, X)
     assert len(positions) == 2
-    assert image_ids == [42, 42]
+    assert image_ids == [42, 43]
 
 
-def _streaming_well(field_data: dict[int, np.ndarray]) -> MagicMock:
+@patch("omero_screen.loops.get_image")
+def test_load_well_fields_throws_with_no_positions(mock_get_image: MagicMock) -> None:
+    """Well with no sample positions."""
+    # get_image returns (metadata, array) with array shaped (T, Z, Y, X, C).
+    array = (np.ones((3, 1, 4, 4, 2)) * 1000).astype(np.uint16)
+    mock_get_image.return_value = (None, array)
+
+    metadata = MagicMock()
+    metadata.channel_data = {"DAPI": 0, "Tub": 1}
+    flatfield = {
+        "DAPI": np.ones((4, 4), dtype=np.float32),
+        "Tub": np.ones((4, 4), dtype=np.float32),
+    }
+
+    with pytest.raises(PlateDataError):
+        _load_well_fields(
+            MagicMock(), _mock_well(2, offset_multiplier=0), metadata, 1, flatfield
+        )
+
+
+def _streaming_well(field_data: dict[int, np.ndarray], offset_multiplier: float = 1) -> MagicMock:
     """A well whose samples expose ids/positions/dims for the streaming loader."""
     n_fields = len(field_data)
     ids = list(field_data)
     well = MagicMock()
-    well.listChildren.return_value = [object()] * n_fields
     # Distinct stage positions per field so the stitch geometry is non-trivial.
     samples = []
     for i, fid in enumerate(ids):
@@ -140,10 +164,10 @@ def _streaming_well(field_data: dict[int, np.ndarray]) -> MagicMock:
             ("getSizeC", c),
         ):
             getattr(s.getImage.return_value, attr).return_value = val
-        s.getPosX.return_value.getValue.return_value = float(i * x)
+        s.getPosX.return_value.getValue.return_value = float(i * x * offset_multiplier)
         s.getPosY.return_value.getValue.return_value = 0.0
         samples.append(s)
-    well.getWellSample.side_effect = lambda n: samples[n]
+    well.listChildren.return_value = samples
     return well
 
 
@@ -193,3 +217,26 @@ def test_streaming_stitch_matches_nonstreaming() -> None:
     assert canvas.shape == reference.shape
     assert (tile_h, tile_w) == (5, 5)
     np.testing.assert_array_equal(canvas, reference)
+
+
+def test_streaming_stitch_throws_with_no_positions() -> None:
+    """Well with no sample positions."""
+    rng = np.random.default_rng(0)
+    # Two fields, T=3, Z=1, Y=X=5, C=2.
+    field_data = {
+        10: (rng.uniform(50, 4000, (3, 1, 5, 5, 2))).astype(np.uint16),
+        11: (rng.uniform(50, 4000, (3, 1, 5, 5, 2))).astype(np.uint16),
+    }
+    channels = {"DAPI": 0, "Tub": 1}
+    flatfield = {
+        "DAPI": np.ones((5, 5), dtype=np.float32),
+        "Tub": np.ones((5, 5), dtype=np.float32),
+    }
+    metadata = MagicMock()
+    metadata.channel_data = channels
+
+    # Non-streaming reference: load all fields, stitch the full stack.
+    with pytest.raises(PlateDataError):
+        _load_and_stitch_streaming(
+            MagicMock(), _streaming_well(field_data, offset_multiplier=0), metadata, flatfield
+        )
