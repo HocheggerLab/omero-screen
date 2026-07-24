@@ -263,6 +263,48 @@ def _compute_overlap(
 # --------------------------------------------------------------------------
 
 
+def positions_to_offsets(
+    positions: list[tuple[float, float]],
+    tile_w: int,
+    tile_h: int,
+    overlap_x: int = 0,
+    overlap_y: int = 0,
+    translate_x: int = 0,
+    translate_y: int = 0,
+) -> NDArray[np.int_]:
+    """Convert tile stage positions to canvas offsets.
+
+    The clustering tolerance is determined automatically from the data.
+
+    Args:
+        positions: List of (pos_x, pos_y) for each image.
+        tile_w: Tile size in x.
+        tile_h: Tile size in y.
+        overlap_x: Overlap in x-dimension.
+        overlap_y: Overlap in y-dimension.
+        translate_x: Row translation in x.
+        translate_y: Column translation in y.
+
+    Returns:
+        array of [N, (ox, oy)]
+    """
+    grid_map = positions_to_grid(positions)
+    pos, _ = _field_placements(
+        positions,
+        tile_w,
+        tile_h,
+        overlap_x,
+        overlap_y,
+        translate_x,
+        translate_y,
+    )
+    out = np.zeros((len(positions), 2), dtype=np.int_)
+    for x, d in grid_map.items():
+        for y, idx in d.items():
+            out[idx] = pos[x, y]
+    return out
+
+
 def compose_tiles(
     tiles: dict[int, dict[int, np.ndarray[Any, np.dtype[Any]]]],
     ox: int = 0,
@@ -714,8 +756,8 @@ def split_stitched_mask_to_fields(
     n_fields = len(positions)
     pos, _ = _field_placements(
         positions,
-        tile_h,
         tile_w,
+        tile_h,
         overlap_x,
         overlap_y,
         translate_x,
@@ -747,8 +789,8 @@ def split_stitched_mask_to_fields(
 
 def _field_placements(
     positions: list[tuple[float, float]],
-    tile_h: int,
     tile_w: int,
+    tile_h: int,
     overlap_x: int,
     overlap_y: int,
     translate_x: int,
@@ -835,8 +877,8 @@ def assign_field_by_centroid(
 
     pos, valid = _field_placements(
         positions,
-        tile_h,
         tile_w,
+        tile_h,
         overlap_x,
         overlap_y,
         translate_x,
@@ -971,8 +1013,8 @@ def recompose_split_labels(
 
     pos, _ = _field_placements(
         positions,
-        tile_h,
         tile_w,
+        tile_h,
         overlap_x,
         overlap_y,
         translate_x,
