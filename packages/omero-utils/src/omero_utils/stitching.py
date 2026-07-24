@@ -270,6 +270,8 @@ def compose_tiles(
     tx: int = 0,
     ty: int = 0,
     edge: int = 0,
+    *,
+    field_offsets: dict[int, dict[int, tuple[int, int]]] | None = None,
 ) -> np.ndarray[Any, np.dtype[Any]]:
     """Compose tiles into a single image (YXC, all tiles same shape).
 
@@ -284,6 +286,17 @@ def compose_tiles(
     The tile positions are used to generate the output image bounds, and then adjusted
     so the tiles are composed within the output image bounds.
 
+    **Per-tile pixel offsets (``field_offsets``).** For cyclic-IF (4i)
+    alignment a repeat cycle's fields must be nudged by a small pixel shift
+    to land in the master cycle's coordinate frame. Passing ``field_offsets``
+    adds a per-tile ``(dx, dy)`` shift to each tile's grid position **without**
+    resizing the canvas: the output extent is fixed by the offset-free grid
+    (the master extent), and each shifted tile is clipped into it. A tile
+    pushed partly (or wholly) outside the master frame loses the overhanging
+    strip — exactly the "crop to master extent" behaviour, with no interior
+    seam gaps. When ``None`` (the default) placement is byte-identical to the
+    unshifted path. Keyed ``[x][y]`` to match ``tiles``.
+
     Args:
         tiles: Dictionary of dictionaries of np.array tiles, keyed by [x][y].
         ox: Tile offset in x (use negative for overlap).
@@ -291,6 +304,10 @@ def compose_tiles(
         tx: Row translation in x.
         ty: Column translation in y.
         edge: Edge size for blending overlaps.
+        field_offsets: Optional per-tile ``(dx, dy)`` pixel shift keyed
+            ``[x][y]`` (same keys as ``tiles``). Adds to the grid position;
+            the canvas stays sized to the offset-free grid and shifted tiles
+            are clipped to it. ``None`` → no shift (default path unchanged).
 
     Returns:
         composed (np.array): The composed image (YXC).
@@ -337,12 +354,37 @@ def compose_tiles(
     )
     sum_arr = np.zeros(out.shape[0:2])
 
-    for x, d in tiles.items():
-        for y, im in d.items():
-            xp, yp = pos[x, y]
-            for c in range(channels):
-                out[yp : yp + os_[0], xp : xp + os_[1], c] += m * im[..., c]
-            sum_arr[yp : yp + os_[0], xp : xp + os_[1]] += m
+    if field_offsets is None:
+        for x, d in tiles.items():
+            for y, im in d.items():
+                xp, yp = pos[x, y]
+                for c in range(channels):
+                    out[yp : yp + os_[0], xp : xp + os_[1], c] += (
+                        m * im[..., c]
+                    )
+                sum_arr[yp : yp + os_[0], xp : xp + os_[1]] += m
+    else:
+        # Offset placement: canvas stays master-sized (out.shape); shift each
+        # tile by (dx, dy) and clip to the canvas so a tile straddling the
+        # master edge contributes only its in-frame part.
+        canvas_h, canvas_w = out.shape[0], out.shape[1]
+        for x, d in tiles.items():
+            for y, im in d.items():
+                xp, yp = pos[x, y]
+                dx, dy = field_offsets[x][y]
+                xp += dx
+                yp += dy
+                # Intersection of tile rect [yp:yp+H, xp:xp+W] with canvas.
+                dy0, dy1 = max(0, yp), min(canvas_h, yp + os_[0])
+                dx0, dx1 = max(0, xp), min(canvas_w, xp + os_[1])
+                if dy1 <= dy0 or dx1 <= dx0:
+                    continue  # shifted entirely out of the master frame
+                sy0, sy1 = dy0 - yp, dy0 - yp + (dy1 - dy0)
+                sx0, sx1 = dx0 - xp, dx0 - xp + (dx1 - dx0)
+                mm = m[sy0:sy1, sx0:sx1]
+                for c in range(channels):
+                    out[dy0:dy1, dx0:dx1, c] += mm * im[sy0:sy1, sx0:sx1, c]
+                sum_arr[dy0:dy1, dx0:dx1] += mm
 
     indices = sum_arr != 0
     for c in range(channels):
@@ -613,6 +655,8 @@ def stitch_from_positions(
     overlap_y: int = 0,
     translate_x: int = 0,
     translate_y: int = 0,
+    *,
+    field_offsets: list[tuple[int, int]] | None = None,
 ) -> NDArray[Any]:
     """Stitch images using their absolute stage positions.
 
@@ -624,12 +668,22 @@ def stitch_from_positions(
         overlap_y: Overlap in y-dimension.
         translate_x: Row translation in x.
         translate_y: Column translation in y.
+        field_offsets: Optional per-field ``(dx, dy)`` pixel shift, one per
+            image in the same order as ``positions``/``images``. Used for 4i
+            alignment: nudge a repeat cycle's fields into the master frame.
+            The stitched canvas stays sized to the offset-free (master) grid;
+            shifted fields are clipped to it. ``None`` → no shift (default).
 
     Returns:
         Stitched array of shape (Y, X, C) or (T, Y, X, C).
     """
     ndim = images.ndim
     assert ndim in (4, 5), f"Expected 4D or 5D images, got {ndim}D"
+    if field_offsets is not None and len(field_offsets) != len(positions):
+        raise ValueError(
+            f"field_offsets length ({len(field_offsets)}) must match "
+            f"positions ({len(positions)})"
+        )
 
     grid_map = positions_to_grid(positions)
 
@@ -642,6 +696,16 @@ def stitch_from_positions(
             for row, idx in row_map.items():
                 tiles[col][row] = source[idx]
         return tiles
+
+    # Map the per-field offset list onto the [col][row] grid keys compose_tiles
+    # expects (mirrors _build_tiles' index → grid mapping).
+    offsets_grid: dict[int, dict[int, tuple[int, int]]] | None = None
+    if field_offsets is not None:
+        offsets_grid = {}
+        for col, row_map in grid_map.items():
+            offsets_grid[col] = {
+                row: field_offsets[idx] for row, idx in row_map.items()
+            }
 
     if ndim == 5:
         # (N, T, Y, X, C) → stitch per timepoint, then stack
@@ -657,6 +721,7 @@ def stitch_from_positions(
                     tx=translate_x,
                     ty=translate_y,
                     edge=edge,
+                    field_offsets=offsets_grid,
                 )
             )
         return np.stack(layers)
@@ -669,6 +734,7 @@ def stitch_from_positions(
             tx=translate_x,
             ty=translate_y,
             edge=edge,
+            field_offsets=offsets_grid,
         )
 
 

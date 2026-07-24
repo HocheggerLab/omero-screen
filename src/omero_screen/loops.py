@@ -723,7 +723,11 @@ def _stitch_well(
         stitched = stitch_from_positions(
             stack,
             positions,
-            **OPERETTA_STITCH_DEFAULTS,
+            edge=OPERETTA_STITCH_DEFAULTS["edge"],
+            overlap_x=OPERETTA_STITCH_DEFAULTS["overlap_x"],
+            overlap_y=OPERETTA_STITCH_DEFAULTS["overlap_y"],
+            translate_x=OPERETTA_STITCH_DEFAULTS["translate_x"],
+            translate_y=OPERETTA_STITCH_DEFAULTS["translate_y"],
         )
         # Result shape (T, Y, X, 1) → squeeze the channel axis
         channel_canvases.append(np.squeeze(stitched, axis=-1))

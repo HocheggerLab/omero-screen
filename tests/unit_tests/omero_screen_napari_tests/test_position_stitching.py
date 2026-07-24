@@ -339,6 +339,70 @@ class TestStitchFromPositions:
             assert result[-1, -1, 0] == bottom_right
 
 
+class TestStitchFieldOffsets:
+    """field_offsets plumbing: per-field list → grid keys, master-framed."""
+
+    def _four_tiles(self) -> tuple[np.ndarray, list[tuple[float, float]]]:
+        # Distinct value per tile so we can track placement.
+        tiles = [np.full((32, 32, 1), i + 1, dtype=np.float32) for i in range(4)]
+        images = np.stack(tiles)  # (4, 32, 32, 1)
+        positions = [
+            (0.0, 0.0),
+            (50.0, 0.0),
+            (0.0, 50.0),
+            (50.0, 50.0),
+        ]  # 2x2, 50µm spacing, no overlap → 64x64 canvas
+        return images, positions
+
+    def test_none_equals_no_offset(self) -> None:
+        images, positions = self._four_tiles()
+        baseline = stitch_from_positions(images, positions)
+        with_none = stitch_from_positions(
+            images, positions, field_offsets=None
+        )
+        np.testing.assert_array_equal(with_none, baseline)
+
+    def test_zero_offsets_equals_baseline(self) -> None:
+        images, positions = self._four_tiles()
+        baseline = stitch_from_positions(images, positions)
+        result = stitch_from_positions(
+            images, positions, field_offsets=[(0, 0)] * 4
+        )
+        np.testing.assert_array_equal(result, baseline)
+
+    def test_uniform_offset_shifts_within_master_frame(self) -> None:
+        """Uniform per-field shift moves content; canvas stays 64x64."""
+        images, positions = self._four_tiles()
+        result = stitch_from_positions(
+            images, positions, field_offsets=[(3, 0)] * 4
+        )
+        assert result.shape == (64, 64, 1)  # master extent preserved
+        # Left 3 columns uncovered by the +3 shift.
+        np.testing.assert_array_equal(result[:, 0, 0], 0.0)
+        np.testing.assert_array_equal(result[:, 2, 0], 0.0)
+        # Tile 0 (value 1) occupied cols 0..31, now 3..34.
+        assert result[16, 3, 0] == 1.0
+
+    def test_length_mismatch_raises(self) -> None:
+        images, positions = self._four_tiles()
+        with pytest.raises(ValueError, match="must match"):
+            stitch_from_positions(
+                images, positions, field_offsets=[(0, 0)] * 3
+            )
+
+    def test_5d_time_series_with_offsets(self) -> None:
+        """Offsets apply per timepoint for 5D input."""
+        tile = np.ones((2, 16, 16, 1), dtype=np.float32)
+        images = np.stack([tile * (i + 1) for i in range(4)])  # (4,2,16,16,1)
+        positions = [(0.0, 0.0), (50.0, 0.0), (0.0, 50.0), (50.0, 50.0)]
+        result = stitch_from_positions(
+            images, positions, field_offsets=[(2, 0)] * 4
+        )
+        assert result.shape == (2, 32, 32, 1)
+        np.testing.assert_array_equal(result[:, :, 0, 0], 0.0)
+        np.testing.assert_array_equal(result[:, :, 1, 0], 0.0)
+
+
 # --------------- stitch_labels_from_positions ---------------
 
 

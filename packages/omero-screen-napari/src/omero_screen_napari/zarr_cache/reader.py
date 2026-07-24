@@ -7,6 +7,7 @@ napari side only needs raw multiscale arrays to hand to viewer layers.
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 import zarr
@@ -43,24 +44,29 @@ def _open_cached_root(plate_path: str) -> zarr.hierarchy.Group:
     return zarr.open_group(store=cached, mode="r")
 
 
-def open_plate(plate_id: int) -> zarr.hierarchy.Group:
+def open_plate(
+    plate_id: int, *, root: Path | None = None
+) -> zarr.hierarchy.Group:
     """Open the plate's zarr root group (read-only).
 
     Updates ``last_accessed`` in the registry as a side effect so eviction
     respects usage. The returned group is backed by a process-wide
     :class:`zarr.LRUStoreCache` so decoded chunks survive between reads.
+
+    ``root`` selects the namespace (default: plain plate cache); pass
+    ``aligned_zarr_root()`` for a 4i aligned assembly.
     """
-    path = plate_zarr_path(plate_id)
+    path = plate_zarr_path(plate_id, root=root)
     if not path.exists():
         raise FileNotFoundError(
             f"No zarr cache for plate {plate_id} at {path}. Run the napari "
             f"Cache button or build_plate_zarr() to create it."
         )
-    touch(plate_id)
+    touch(plate_id, root=root)
     return _open_cached_root(str(path))
 
 
-def plate_info(plate_id: int) -> dict[str, Any]:
+def plate_info(plate_id: int, *, root: Path | None = None) -> dict[str, Any]:
     """Return plate-level metadata for the load path.
 
     Returns a dict with::
@@ -76,9 +82,9 @@ def plate_info(plate_id: int) -> dict[str, Any]:
             "well_metadata": dict[str, dict],  # {"A1": {"cell_line": ..., ...}}
         }
     """
-    root = open_plate(plate_id)
-    plate_attrs = root.attrs.get("plate", {})
-    omero_attrs = root.attrs.get("omero_screen", {})
+    grp = open_plate(plate_id, root=root)
+    plate_attrs = grp.attrs.get("plate", {})
+    omero_attrs = grp.attrs.get("omero_screen", {})
     return {
         "plate_name": plate_attrs.get("name", ""),
         "channel_names": list(omero_attrs.get("channel_names", [])),
@@ -91,17 +97,17 @@ def plate_info(plate_id: int) -> dict[str, Any]:
     }
 
 
-def cached_wells(plate_id: int) -> list[str]:
+def cached_wells(plate_id: int, *, root: Path | None = None) -> list[str]:
     """Return the list of wells that have data on disk for this plate.
 
     Format: OMERO well labels like ``A1``, ``B7`` etc., sorted.
     Returns an empty list if the plate has no zarr cache.
     """
-    path = plate_zarr_path(plate_id)
+    path = plate_zarr_path(plate_id, root=root)
     if not path.exists():
         return []
-    root = zarr.open_group(str(path), mode="r")
-    wells_meta = root.attrs.get("plate", {}).get("wells", [])
+    grp = zarr.open_group(str(path), mode="r")
+    wells_meta = grp.attrs.get("plate", {}).get("wells", [])
     found: list[str] = []
     for w in wells_meta:
         well_path = w["path"]  # e.g. "A/1"
@@ -111,7 +117,9 @@ def cached_wells(plate_id: int) -> list[str]:
     return sorted(found)
 
 
-def read_well(plate_id: int, well: str) -> dict[str, Any]:
+def read_well(
+    plate_id: int, well: str, *, root: Path | None = None
+) -> dict[str, Any]:
     """Return the multiscale arrays for one well.
 
     Returns a dict with keys:
@@ -125,10 +133,10 @@ def read_well(plate_id: int, well: str) -> dict[str, Any]:
       ``omero_screen`` attrs.
     * ``pixel_size_um``: float or ``None``.
     """
-    root = open_plate(plate_id)
+    grp = open_plate(plate_id, root=root)
     row = well[0]
     col = str(int(well[1:]))
-    field_grp = root[f"{row}/{col}/0"]
+    field_grp = grp[f"{row}/{col}/0"]
 
     # Pyramid levels are stored as numeric subgroups "0", "1", "2", ...
     img_levels = sorted(
@@ -140,7 +148,7 @@ def read_well(plate_id: int, well: str) -> dict[str, Any]:
     nuclei = _read_label_pyramid(labels_grp, "nuclei") if labels_grp else []
     cells = _read_label_pyramid(labels_grp, "cells") if labels_grp else None
 
-    omero_meta = root.attrs.get("omero_screen", {})
+    omero_meta = grp.attrs.get("omero_screen", {})
     return {
         "image": images,
         "nuclei": nuclei,

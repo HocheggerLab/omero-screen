@@ -254,7 +254,13 @@ def _stitch_image(
 ) -> npt.NDArray[Any]:
     """Stitch (N, T, Y, X, C) → (T, C, Y, X)."""
     stitched_tyxc = stitch_from_positions(
-        images_ntyxc, positions, **OPERETTA_STITCH_DEFAULTS
+        images_ntyxc,
+        positions,
+        edge=OPERETTA_STITCH_DEFAULTS["edge"],
+        overlap_x=OPERETTA_STITCH_DEFAULTS["overlap_x"],
+        overlap_y=OPERETTA_STITCH_DEFAULTS["overlap_y"],
+        translate_x=OPERETTA_STITCH_DEFAULTS["translate_x"],
+        translate_y=OPERETTA_STITCH_DEFAULTS["translate_y"],
     )  # (T, Y, X, C)
     # Reorder to writer's expected layout (T, C, Y, X).
     return np.transpose(stitched_tyxc, (0, 3, 1, 2))

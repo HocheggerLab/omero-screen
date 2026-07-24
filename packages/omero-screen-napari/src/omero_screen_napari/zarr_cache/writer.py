@@ -18,6 +18,7 @@ import json
 import os
 import shutil
 from collections.abc import Callable, Iterable
+from pathlib import Path
 from typing import Any
 
 import dask.array as da
@@ -192,6 +193,8 @@ class PlateZarrWriter:
         pixel_size_um: float | None,
         n_timepoints: int,
         frame_interval_s: float | None = None,
+        *,
+        root: Path | None = None,
     ) -> None:
         self.plate_id = plate_id
         self.plate_name = plate_name
@@ -200,8 +203,10 @@ class PlateZarrWriter:
         self.n_timepoints = n_timepoints
         self.frame_interval_s = frame_interval_s
 
-        self.path = plate_zarr_path(plate_id)
-        self.tmp_path = plate_zarr_tmp_path(plate_id)
+        # ``root`` selects the cache namespace: None → the plain plate cache,
+        # ``aligned_zarr_root()`` → the isolated 4i namespace (aligned_builder).
+        self.path = plate_zarr_path(plate_id, root=root)
+        self.tmp_path = plate_zarr_tmp_path(plate_id, root=root)
 
     # ------------------------------------------------------------------
     # Plate-level setup

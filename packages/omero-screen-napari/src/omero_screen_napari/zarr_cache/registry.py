@@ -32,11 +32,18 @@ import json
 import os
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
 from omero_screen_napari.zarr_cache.paths import registry_path
+
+# The ``root`` parameter on the functions below selects which registry file
+# to operate on: ``None`` (default) is the plain plate-cache registry;
+# ``aligned_zarr_root()`` is the isolated cyclic-IF (4i) registry. The two
+# never share entries, so a master plate can have both a plain stitched cache
+# and a 4i aligned assembly without their rows colliding.
 
 
 def _now_iso() -> str:
@@ -71,9 +78,9 @@ class ZarrPlateEntry:
         )
 
 
-def load_registry() -> dict[int, ZarrPlateEntry]:
+def load_registry(*, root: Path | None = None) -> dict[int, ZarrPlateEntry]:
     """Read the registry from disk. Returns an empty dict if missing or corrupt."""
-    path = registry_path()
+    path = registry_path(root=root)
     if not path.exists():
         return {}
     try:
@@ -91,9 +98,11 @@ def load_registry() -> dict[int, ZarrPlateEntry]:
     }
 
 
-def _save_registry(entries: dict[int, ZarrPlateEntry]) -> None:
+def _save_registry(
+    entries: dict[int, ZarrPlateEntry], *, root: Path | None = None
+) -> None:
     """Atomic write of the registry via temp file + os.replace."""
-    path = registry_path()
+    path = registry_path(root=root)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "plates": {
@@ -106,37 +115,37 @@ def _save_registry(entries: dict[int, ZarrPlateEntry]) -> None:
     os.replace(tmp, path)
 
 
-def upsert(entry: ZarrPlateEntry) -> None:
+def upsert(entry: ZarrPlateEntry, *, root: Path | None = None) -> None:
     """Insert or update a single plate entry."""
-    entries = load_registry()
+    entries = load_registry(root=root)
     entries[entry.plate_id] = entry
-    _save_registry(entries)
+    _save_registry(entries, root=root)
 
 
-def remove(plate_id: int) -> None:
+def remove(plate_id: int, *, root: Path | None = None) -> None:
     """Drop a plate from the registry. No-op if absent."""
-    entries = load_registry()
+    entries = load_registry(root=root)
     if plate_id in entries:
         del entries[plate_id]
-        _save_registry(entries)
+        _save_registry(entries, root=root)
 
 
-def list_plates() -> list[ZarrPlateEntry]:
+def list_plates(*, root: Path | None = None) -> list[ZarrPlateEntry]:
     """Return all registry entries, sorted by ``last_accessed`` ascending (LRU first)."""
-    entries = load_registry()
+    entries = load_registry(root=root)
     return sorted(entries.values(), key=lambda e: e.last_accessed)
 
 
-def touch(plate_id: int) -> None:
+def touch(plate_id: int, *, root: Path | None = None) -> None:
     """Update ``last_accessed`` for a plate. No-op if absent.
 
     Called on read (open_plate, read_well) so eviction respects usage.
     """
-    entries = load_registry()
+    entries = load_registry(root=root)
     if plate_id not in entries:
         return
     entries[plate_id].last_accessed = _now_iso()
-    _save_registry(entries)
+    _save_registry(entries, root=root)
 
 
 def set_pinned(plate_id: int, pinned: bool) -> None:

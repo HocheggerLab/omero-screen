@@ -15,6 +15,7 @@ current well's metadata (cell line / condition / timepoint).
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 
 import dask.array as da
@@ -106,6 +107,8 @@ def load_plate_to_viewer(
     viewer: Any,
     plate_id: int,
     well_pos_input: str = "All",
+    *,
+    root: Path | None = None,
 ) -> list[str]:
     """Open one or more wells from the zarr cache as napari layers.
 
@@ -114,13 +117,16 @@ def load_plate_to_viewer(
     scrolls between them. A HUD overlay shows per-well metadata when
     the slider moves.
 
+    ``root`` selects the cache namespace (default: plain plate cache); pass
+    ``aligned_zarr_root()`` to load a cyclic-IF (4i) aligned assembly.
+
     Returns:
         The list of well IDs actually loaded.
     """
     _ensure_dask_cache()
     _ensure_async_slicing()
-    info = plate_info(plate_id)
-    available = cached_wells(plate_id)
+    info = plate_info(plate_id, root=root)
+    available = cached_wells(plate_id, root=root)
     target_wells = _resolve_well_list(well_pos_input, available)
     if not target_wells:
         logger.warning(
@@ -132,7 +138,7 @@ def load_plate_to_viewer(
     while len(viewer.layers) > 0:
         viewer.layers.pop(0)
 
-    wells_data = [read_well(plate_id, w) for w in target_wells]
+    wells_data = [read_well(plate_id, w, root=root) for w in target_wells]
     channel_names = info["channel_names"]
     px = info["pixel_size_um"] or 1.0
     multi = len(target_wells) > 1

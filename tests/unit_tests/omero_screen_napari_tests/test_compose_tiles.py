@@ -1,10 +1,7 @@
 """Tests for compose_tiles and compose_labels threaded stitching."""
 
 import numpy as np
-import pytest
-
 from omero_utils.stitching import compose_labels, compose_tiles
-
 
 # --------------- compose_tiles ---------------
 
@@ -78,6 +75,93 @@ class TestComposeTiles:
         np.testing.assert_array_almost_equal(result[..., 0], 10.0)
         np.testing.assert_array_almost_equal(result[..., 1], 20.0)
         np.testing.assert_array_almost_equal(result[..., 2], 30.0)
+
+
+class TestComposeTilesFieldOffsets:
+    """Per-tile pixel offsets for 4i alignment.
+
+    The canvas stays sized to the offset-free grid (the master extent); a
+    uniform shift must move content within that frame (regression: the old
+    ``min_pos`` self-normalisation would cancel a uniform offset).
+    """
+
+    def _uniform(
+        self, tiles: dict[int, dict[int, np.ndarray]], dx: int, dy: int
+    ) -> dict[int, dict[int, tuple[int, int]]]:
+        return {x: {y: (dx, dy) for y in d} for x, d in tiles.items()}
+
+    def test_zero_offset_equals_no_offset(self) -> None:
+        """All-zero offsets → byte-identical to the default path."""
+        tile = np.arange(64, dtype=np.float32).reshape(8, 8, 1)
+        tiles = {0: {0: tile}, 1: {0: tile + 100}}
+        baseline = compose_tiles(tiles, ox=-2, edge=2)
+        offset = compose_tiles(
+            tiles, ox=-2, edge=2, field_offsets=self._uniform(tiles, 0, 0)
+        )
+        np.testing.assert_array_equal(offset, baseline)
+
+    def test_uniform_offset_shifts_not_cancelled(self) -> None:
+        """Uniform +x shift moves content right; canvas stays master-sized.
+
+        This is the crux: a uniform offset must NOT be normalised away.
+        """
+        t0 = np.full((8, 8, 1), 1.0, dtype=np.float32)
+        t1 = np.full((8, 8, 1), 2.0, dtype=np.float32)
+        tiles = {0: {0: t0}, 1: {0: t1}}  # 2 cols × 1 row → 8×16 canvas
+        result = compose_tiles(
+            tiles, field_offsets=self._uniform(tiles, 2, 0)
+        )
+        assert result.shape == (8, 16, 1)  # master extent, unchanged
+        # Content shifted right by 2: left 2 cols uncovered → 0.
+        np.testing.assert_array_equal(result[:, 0, 0], 0.0)
+        np.testing.assert_array_equal(result[:, 1, 0], 0.0)
+        np.testing.assert_array_equal(result[:, 2, 0], 1.0)  # tile0 starts
+        np.testing.assert_array_equal(result[:, 9, 0], 1.0)  # tile0 ends
+        np.testing.assert_array_equal(result[:, 10, 0], 2.0)  # tile1
+        np.testing.assert_array_equal(result[:, 15, 0], 2.0)  # tile1 clipped
+
+    def test_negative_offset_clips_overhang(self) -> None:
+        """Uniform -x shift drops the left overhang; right edge uncovered."""
+        t0 = np.full((8, 8, 1), 1.0, dtype=np.float32)
+        t1 = np.full((8, 8, 1), 2.0, dtype=np.float32)
+        tiles = {0: {0: t0}, 1: {0: t1}}
+        result = compose_tiles(
+            tiles, field_offsets=self._uniform(tiles, -3, 0)
+        )
+        assert result.shape == (8, 16, 1)
+        # tile0 [0:8]-3 = [-3:5] → cols 0..4 = 1; tile1 [8:16]-3 = [5:13] = 2.
+        np.testing.assert_array_equal(result[:, 0, 0], 1.0)
+        np.testing.assert_array_equal(result[:, 4, 0], 1.0)
+        np.testing.assert_array_equal(result[:, 5, 0], 2.0)
+        np.testing.assert_array_equal(result[:, 12, 0], 2.0)
+        # cols 13..15 uncovered (tile1 ended at 13) → 0.
+        np.testing.assert_array_equal(result[:, 13, 0], 0.0)
+        np.testing.assert_array_equal(result[:, 15, 0], 0.0)
+
+    def test_offset_y_axis(self) -> None:
+        """Offset on the y-axis shifts content down, canvas unchanged."""
+        t0 = np.full((8, 8, 1), 3.0, dtype=np.float32)
+        t1 = np.full((8, 8, 1), 4.0, dtype=np.float32)
+        tiles = {0: {0: t0, 1: t1}}  # 1 col × 2 rows → 16×8 canvas
+        result = compose_tiles(
+            tiles, field_offsets=self._uniform(tiles, 0, 2)
+        )
+        assert result.shape == (16, 8, 1)
+        np.testing.assert_array_equal(result[0, :, 0], 0.0)
+        np.testing.assert_array_equal(result[2, :, 0], 3.0)
+        np.testing.assert_array_equal(result[10, :, 0], 4.0)
+
+    def test_offset_fully_outside_is_dropped(self) -> None:
+        """A tile shifted entirely off-canvas contributes nothing."""
+        t0 = np.full((8, 8, 1), 1.0, dtype=np.float32)
+        t1 = np.full((8, 8, 1), 2.0, dtype=np.float32)
+        tiles = {0: {0: t0}, 1: {0: t1}}  # 8×16 canvas
+        # Shift everything right by a full canvas width: nothing left in frame.
+        result = compose_tiles(
+            tiles, field_offsets=self._uniform(tiles, 16, 0)
+        )
+        assert result.shape == (8, 16, 1)
+        np.testing.assert_array_equal(result, 0.0)
 
 
 # --------------- compose_labels ---------------
