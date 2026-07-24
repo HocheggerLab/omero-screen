@@ -394,6 +394,64 @@ def compose_tiles(
     return _as_dtype(dtype, out)
 
 
+def compose_tiles_from_offsets(
+    tiles: NDArray[Any],
+    offsets: NDArray[np.int_],
+    edge: int = 0,
+) -> NDArray[Any]:
+    """Compose tiles into a single image (YXC, all tiles same shape).
+
+    Tiles are composed using the provided offsets. Overrlapping regions
+    are blended using a weighted average. The ``edge`` parameter creates
+    a linear ramp weighting over the specified size to the image border.
+
+    Args:
+        tiles: Array of shape (N, Y, X, C).
+        offsets: Array of [N, (ox, oy)].
+        edge: Edge size for blending overlaps.
+
+    Returns:
+        The composed image (YXC).
+    """
+    dtype = tiles.dtype
+    m = np.ones(tiles.shape[1:3], dtype=int)
+    tile_h, tile_w = m.shape
+
+    if edge:
+        # Distance transform does not use out-of-bounds as background.
+        # Pad with 1 pixel and crop.
+        d = scipy.ndimage.distance_transform_edt(np.pad(m, 1))
+        d = d[1:-1, 1:-1]
+        d = np.clip(d, a_min=0, a_max=edge + 1)
+        m = d / (edge + 1)
+
+    max_pos = offsets.max(axis=0)
+
+    channels = tiles.shape[3]
+    out = np.zeros(
+        (
+            # Note: Offset max is (x, y) not (y, x)
+            max_pos[1] + tile_h,
+            max_pos[0] + tile_w,
+            channels,
+        )
+    )
+    sum_arr = np.zeros(out.shape[0:2])
+
+    for im, pos in zip(tiles, offsets, strict=True):
+        xp, yp = pos
+        for c in range(channels):
+            out[yp : yp + tile_h, xp : xp + tile_w, c] += m * im[..., c]
+        sum_arr[yp : yp + tile_h, xp : xp + tile_w] += m
+
+    indices = sum_arr != 0
+    for c in range(channels):
+        out[..., c] = np.divide(
+            out[..., c], sum_arr, where=indices, out=np.zeros(sum_arr.shape)
+        )
+    return _as_dtype(dtype, out)
+
+
 def _as_dtype(
     dtype: Any, array: np.ndarray[Any, np.dtype[Any]]
 ) -> np.ndarray[Any, np.dtype[Any]]:
@@ -714,6 +772,45 @@ def stitch_from_positions(
         )
 
 
+def stitch_from_offsets(
+    images: NDArray[Any],
+    offsets: NDArray[np.int_],
+    edge: int = 0,
+) -> NDArray[Any]:
+    """Stitch images using their canvas offsets.
+
+    Args:
+        images: Array of shape (N, Y, X, C) or (N, T, Y, X, C).
+        offsets: Array of [N, (ox, oy)].
+        edge: Edge blending width in pixels.
+
+    Returns:
+        Stitched array of shape (Y, X, C) or (T, Y, X, C).
+    """
+    ndim = images.ndim
+    assert ndim in (4, 5), f"Expected 4D or 5D images, got {ndim}D"
+    assert len(images) == len(offsets), "Expected each image to have an offset"
+
+    if ndim == 5:
+        # (N, T, Y, X, C) → stitch per timepoint, then stack
+        n_timepoints = images.shape[1]
+        layers = [
+            compose_tiles_from_offsets(
+                images[:, t],
+                offsets,
+                edge=edge,
+            )
+            for t in range(n_timepoints)
+        ]
+        return np.stack(layers)
+    else:
+        return compose_tiles_from_offsets(
+            images,
+            offsets,
+            edge=edge,
+        )
+
+
 def split_stitched_mask_to_fields(
     stitched_mask: NDArray[Any],
     positions: list[tuple[float, float]],
@@ -783,6 +880,44 @@ def split_stitched_mask_to_fields(
             out[idx] = np.zeros(
                 (n_t, tile_h, tile_w), dtype=stitched_mask.dtype
             )
+
+    return out
+
+
+def split_stitched_from_offsets(
+    stitched_mask: NDArray[Any],
+    offsets: NDArray[np.int_],
+    tile_h: int,
+    tile_w: int,
+) -> list[NDArray[Any]]:
+    """Pseudo-inverse of ``stitch_from_offsets`` for per-image storage round-trip of derived images.
+
+    This method can be used seperate a single channel image derived from the stitched image into
+    tiles corresponding to the original stitched tiles, for example splitting a
+    label mask.
+
+    Note that pixels within tile overlap regions are duplicated in the neighbouring tiles.
+
+    The result can be reassembled using ``recompose_tiles``.
+
+    Args:
+        stitched_mask: Stitched label canvas of shape (T, Y, X).
+        offsets: Array of [N, (ox, oy)].
+        tile_h: Original tile height in pixels.
+        tile_w: Original tile width in pixels.
+
+    Returns:
+        List of (T, tile_h, tile_w) mask arrays, in the same order as ``offsets``.
+    """
+    if stitched_mask.ndim != 3:
+        raise ValueError(
+            f"stitched_mask must be (T, Y, X), got {stitched_mask.shape}"
+        )
+
+    out: list[NDArray[Any]] = [
+        stitched_mask[:, yp : yp + tile_h, xp : xp + tile_w].copy()
+        for (xp, yp) in offsets
+    ]
 
     return out
 
@@ -926,6 +1061,73 @@ def assign_field_by_centroid(
     return chosen.astype(np.intp)
 
 
+def assign_tile_by_centroid(
+    centroids_yx: NDArray[np.floating[Any]],
+    offsets: NDArray[np.int_],
+    tile_h: int,
+    tile_w: int,
+) -> NDArray[np.intp]:
+    """Assign each centroid to the tile who owns it.
+
+    Used by canvas-wide stitched segmentation to tag each measurement
+    row with the OMERO image id of the field that owns the cell's
+    centroid.
+
+    For centroids that fall inside the overlap region of multiple
+    tiles, the tile whose centre is nearest (Euclidean) is chosen --
+    deterministic and intuitive. Centroids outside every tile rect
+    (defensive: should not occur for cells discovered inside the
+    canvas) fall back to the globally nearest tile centre.
+
+    Args:
+        centroids_yx: ``(N, 2)`` array of (y, x) centroid coordinates
+            in canvas pixel space (matches regionprops ``centroid-0``,
+            ``centroid-1``).
+        offsets: Array of [K, (ox, oy)].
+        tile_h: Per-field tile height in pixels.
+        tile_w: Per-field tile width in pixels.
+
+    Returns:
+        ``(N,)`` array of field indices into ``offsets``.
+    """
+    centroids = np.asarray(centroids_yx, dtype=float)
+    if centroids.ndim != 2 or centroids.shape[1] != 2:
+        raise ValueError(f"centroids_yx must be (N, 2), got {centroids.shape}")
+    if offsets.ndim != 2 or offsets.shape[1] != 2:
+        raise ValueError(f"offsets must be (K, 2), got {offsets.shape}")
+
+    xps = offsets[:, 0:1].T  # (1, K)
+    yps = offsets[:, 1:2].T
+
+    cy = centroids[:, 0:1]  # (N, 1)
+    cx = centroids[:, 1:2]
+    # Tile centres for distance tie-break.in
+    centre_y = yps + tile_h / 2.0  # (1, K)
+    centre_x = xps + tile_w / 2.0
+    dy = cy - centre_y  # (N, K)
+    dx = cx - centre_x
+    dist2 = dy * dy + dx * dx
+
+    # Inside-rect mask: centroid in [xp, xp+tile_w) × [yp, yp+tile_h).
+    inside = (
+        (cx >= xps)
+        & (cx < (xps + tile_w))
+        & (cy >= yps)
+        & (cy < (yps + tile_h))
+    )
+
+    # Among containing tiles, pick the nearest centre. Centroids inside
+    # no rect (defensive) fall back to the globally nearest centre.
+    masked = np.where(inside, dist2, np.inf)
+    any_inside = inside.any(axis=1)
+    chosen = np.where(
+        any_inside,
+        np.argmin(masked, axis=1),
+        np.argmin(dist2, axis=1),
+    )
+    return chosen.astype(np.intp)
+
+
 def recompose_split_labels(
     per_field_tiles: NDArray[Any] | list[NDArray[Any]],
     positions: list[tuple[float, float]],
@@ -1042,6 +1244,109 @@ def recompose_split_labels(
                     target = canvas[t, yp : yp + tile_h, xp : xp + tile_w, c]
                     src = tile[t, :, :, c]
                     np.copyto(target, src, where=src != 0)
+
+    # Squeeze synthetic axes back out to match caller's input shape.
+    if squeeze_c:
+        canvas = canvas[..., 0]  # drop C → (T, Y, X)
+    if squeeze_t:
+        canvas = canvas[0]  # drop T → (Y, X, C) or (Y, X)
+    return canvas
+
+
+def recompose_tiles(
+    per_field_tiles: NDArray[Any] | list[NDArray[Any]],
+    offsets: NDArray[np.int_],
+) -> NDArray[Any]:
+    """Inverse of ``split_stitched_from_offsets``.
+
+    Reassembles per-field tiles into a single stitched canvas.
+
+    **Label invariant required**: the per-field tiles must come from a single
+    canvas-wide segmentation, so label IDs are globally unique. Where the
+    same label appears in two adjacent tiles (a cell straddling a tile
+    boundary), the pixels are co-located by construction — a simple
+    copy reassembles the canvas without renumbering or overlap
+    logic.
+
+    This function is **not** a general-purpose label merger; for
+    independently-segmented tiles with name collisions, use
+    ``stitch_labels_from_positions`` (which goes through ``merge_labels``).
+
+    Accepts two input shapes:
+
+    * ``list[NDArray]`` of ``(T, tile_h, tile_w)`` — the direct output of
+      ``split_stitched_from_offsets``. Returns ``(T, Y, X)``.
+    * ``NDArray`` of ``(N, tile_h, tile_w, C)`` or ``(N, T, tile_h, tile_w, C)``
+      — matches the napari label-stack shape. Channels and timepoints are
+      handled internally. Returns ``(Y, X, C)`` or ``(T, Y, X, C)``.
+
+    Args:
+        per_field_tiles: Per-field tiles (see input shapes above).
+        offsets: Array of [N, (ox, oy)].
+
+    Returns:
+        Stitched canvas. Shape depends on input — see above.
+    """
+    # Normalise to a (N, T, tile_h, tile_w, C) array internally; track which
+    # dims were synthetic so we can squeeze them back out for the caller.
+    if isinstance(per_field_tiles, list):
+        if not per_field_tiles:
+            raise ValueError("per_field_tiles must not be empty")
+        first = per_field_tiles[0]
+        if first.ndim != 3:
+            raise ValueError(
+                f"list tiles must be (T, tile_h, tile_w), got {first.shape}"
+            )
+        # Stack as (N, T, H, W) then add C=1
+        stacked = np.stack(per_field_tiles, axis=0)[..., np.newaxis]
+        squeeze_c = True
+        squeeze_t = False
+    else:
+        arr = per_field_tiles
+        if arr.ndim == 4:
+            # (N, H, W, C) → add T axis
+            stacked = arr[:, np.newaxis, ...]
+            squeeze_c = False
+            squeeze_t = True
+        elif arr.ndim == 5:
+            # (N, T, H, W, C)
+            stacked = arr
+            squeeze_c = False
+            squeeze_t = False
+        else:
+            raise ValueError(
+                f"array tiles must be (N,H,W,C) or (N,T,H,W,C), got {arr.shape}"
+            )
+
+    if stacked.shape[0] != len(offsets):
+        raise ValueError(
+            f"tile count ({stacked.shape[0]}) and offsets "
+            f"({len(offsets)}) must match"
+        )
+
+    n_t = stacked.shape[1]
+    tile_h = stacked.shape[2]
+    tile_w = stacked.shape[3]
+    n_c = stacked.shape[4]
+    dtype = stacked.dtype
+
+    # Canvas extent = furthest tile's far corner.
+    max_pos = offsets.max(axis=0)
+
+    canvas = np.zeros(
+        (
+            n_t,
+            # Note: Offset max is (x, y) not (y, x)
+            max_pos[1] + tile_h,
+            max_pos[0] + tile_w,
+            n_c,
+        ),
+        dtype=dtype,
+    )
+
+    for im, pos in zip(stacked, offsets, strict=True):
+        xp, yp = pos
+        canvas[:, yp : yp + tile_h, xp : xp + tile_w, :] = im
 
     # Squeeze synthetic axes back out to match caller's input shape.
     if squeeze_c:
