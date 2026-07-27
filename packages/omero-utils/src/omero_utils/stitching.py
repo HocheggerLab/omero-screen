@@ -407,12 +407,14 @@ def compose_tiles_from_offsets(
 
     Args:
         tiles: Array of shape (N, Y, X, C).
-        offsets: Array of [N, (ox, oy)].
+        offsets: Array of [N, (ox, oy)] (must be positive).
         edge: Edge size for blending overlaps.
 
     Returns:
         The composed image (YXC).
     """
+    _validate_offsets(offsets)
+
     dtype = tiles.dtype
     m = np.ones(tiles.shape[1:3], dtype=int)
     tile_h, tile_w = m.shape
@@ -781,7 +783,7 @@ def stitch_from_offsets(
 
     Args:
         images: Array of shape (N, Y, X, C) or (N, T, Y, X, C).
-        offsets: Array of [N, (ox, oy)].
+        offsets: Array of [N, (ox, oy)] (must be positive).
         edge: Edge blending width in pixels.
 
     Returns:
@@ -790,6 +792,7 @@ def stitch_from_offsets(
     ndim = images.ndim
     assert ndim in (4, 5), f"Expected 4D or 5D images, got {ndim}D"
     assert len(images) == len(offsets), "Expected each image to have an offset"
+    _validate_offsets(offsets)
 
     if ndim == 5:
         # (N, T, Y, X, C) → stitch per timepoint, then stack
@@ -809,6 +812,12 @@ def stitch_from_offsets(
             offsets,
             edge=edge,
         )
+
+
+def _validate_offsets(offsets: NDArray[np.int_]) -> None:
+    """Validates the offsets are all positive."""
+    if offsets.min() < 0:
+        raise ValueError(f"Offsets must be positive: {offsets}")
 
 
 def split_stitched_mask_to_fields(
@@ -885,7 +894,7 @@ def split_stitched_mask_to_fields(
 
 
 def split_stitched_from_offsets(
-    stitched_mask: NDArray[Any],
+    stitched: NDArray[Any],
     offsets: NDArray[np.int_],
     tile_h: int,
     tile_w: int,
@@ -901,21 +910,20 @@ def split_stitched_from_offsets(
     The result can be reassembled using ``recompose_tiles``.
 
     Args:
-        stitched_mask: Stitched label canvas of shape (T, Y, X).
-        offsets: Array of [N, (ox, oy)].
+        stitched: Stitched canvas of shape (T, Y, X).
+        offsets: Array of [N, (ox, oy)] (must be positive).
         tile_h: Original tile height in pixels.
         tile_w: Original tile width in pixels.
 
     Returns:
         List of (T, tile_h, tile_w) mask arrays, in the same order as ``offsets``.
     """
-    if stitched_mask.ndim != 3:
-        raise ValueError(
-            f"stitched_mask must be (T, Y, X), got {stitched_mask.shape}"
-        )
+    _validate_offsets(offsets)
+    if stitched.ndim != 3:
+        raise ValueError(f"stitched must be (T, Y, X), got {stitched.shape}")
 
     out: list[NDArray[Any]] = [
-        stitched_mask[:, yp : yp + tile_h, xp : xp + tile_w].copy()
+        stitched[:, yp : yp + tile_h, xp : xp + tile_w].copy()
         for (xp, yp) in offsets
     ]
 
@@ -1083,7 +1091,7 @@ def assign_tile_by_centroid(
         centroids_yx: ``(N, 2)`` array of (y, x) centroid coordinates
             in canvas pixel space (matches regionprops ``centroid-0``,
             ``centroid-1``).
-        offsets: Array of [K, (ox, oy)].
+        offsets: Array of [K, (ox, oy)] (must be positive).
         tile_h: Per-field tile height in pixels.
         tile_w: Per-field tile width in pixels.
 
@@ -1095,6 +1103,7 @@ def assign_tile_by_centroid(
         raise ValueError(f"centroids_yx must be (N, 2), got {centroids.shape}")
     if offsets.ndim != 2 or offsets.shape[1] != 2:
         raise ValueError(f"offsets must be (K, 2), got {offsets.shape}")
+    _validate_offsets(offsets)
 
     xps = offsets[:, 0:1].T  # (1, K)
     yps = offsets[:, 1:2].T
@@ -1282,11 +1291,13 @@ def recompose_tiles(
 
     Args:
         per_field_tiles: Per-field tiles (see input shapes above).
-        offsets: Array of [N, (ox, oy)].
+        offsets: Array of [N, (ox, oy)] (must be positive).
 
     Returns:
         Stitched canvas. Shape depends on input — see above.
     """
+    _validate_offsets(offsets)
+
     # Normalise to a (N, T, tile_h, tile_w, C) array internally; track which
     # dims were synthetic so we can squeeze them back out for the caller.
     if isinstance(per_field_tiles, list):
