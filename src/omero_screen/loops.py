@@ -61,8 +61,9 @@ from omero_utils.message import PlateDataError, WellAnnotationError
 from omero_utils.stitching import (
     OPERETTA_STITCH_DEFAULTS,
     has_valid_positions,
-    split_stitched_mask_to_fields,
-    stitch_from_positions,
+    positions_to_offsets,
+    split_stitched_from_offsets,
+    stitch_from_offsets,
 )
 
 from omero_screen import default_config
@@ -459,7 +460,7 @@ def _load_well_fields(
     flatfield_dict: dict[str, npt.NDArray[Any]],
 ) -> tuple[
     dict[str, npt.NDArray[Any]],
-    list[tuple[float, float]],
+    npt.NDArray[np.int_],
     list[int],
 ]:
     """Fetch all fields of a well, flatfield-correct, and return per-channel stacks.
@@ -467,7 +468,7 @@ def _load_well_fields(
     Returns:
         per_channel: dict mapping channel name to an array of shape (N, T, Y, X)
             where N is the number of fields in the well.
-        positions: list of (pos_x, pos_y) per field, in the same order as N.
+        offsets: array of (offset_x, offset_y) per field, in the same order as N.
         image_ids: OMERO image IDs per field, in the same order as N.
     """
     channels = metadata.channel_data
@@ -522,7 +523,19 @@ def _load_well_fields(
     stacked: dict[str, npt.NDArray[Any]] = {
         ch: np.stack(arrs) for ch, arrs in per_channel.items()
     }
-    return stacked, positions, image_ids
+
+    tile_h, tile_w = next(iter(stacked.values())).shape[-2:]
+    offsets = positions_to_offsets(
+        positions,
+        tile_w,
+        tile_h,
+        overlap_x=OPERETTA_STITCH_DEFAULTS["overlap_x"],
+        overlap_y=OPERETTA_STITCH_DEFAULTS["overlap_y"],
+        translate_x=OPERETTA_STITCH_DEFAULTS["translate_x"],
+        translate_y=OPERETTA_STITCH_DEFAULTS["translate_y"],
+    )
+
+    return stacked, offsets, image_ids
 
 
 def _validate_stitching(
@@ -724,7 +737,7 @@ def _stitched_cyto(
 
 def _stitch_well(
     per_channel: dict[str, npt.NDArray[Any]],
-    positions: list[tuple[float, float]],
+    offsets: npt.NDArray[np.int_],
 ) -> npt.NDArray[Any]:
     """Stitch per-channel field stacks into a single (T, Y, X, C) canvas.
 
@@ -734,13 +747,13 @@ def _stitch_well(
     ch_names = list(per_channel.keys())
     channel_canvases: list[npt.NDArray[Any]] = []
     for ch in ch_names:
-        # per_channel[ch] is (N, T, Y, X). stitch_from_positions expects
+        # per_channel[ch] is (N, T, Y, X). stitch_from_offsets expects
         # (N, T, Y, X, C); we treat each channel as a 1-channel volume.
         stack = per_channel[ch][..., np.newaxis]
-        stitched = stitch_from_positions(
+        stitched = stitch_from_offsets(
             stack,
-            positions,
-            **OPERETTA_STITCH_DEFAULTS,
+            offsets,
+            edge=OPERETTA_STITCH_DEFAULTS["edge"],
         )
         # Result shape (T, Y, X, 1) → squeeze the channel axis
         channel_canvases.append(np.squeeze(stitched, axis=-1))
@@ -822,7 +835,7 @@ def _load_and_stitch_streaming(
     well: WellWrapper,
     metadata: MetadataParser,
     flatfield_dict: dict[str, npt.NDArray[Any]],
-) -> tuple[npt.NDArray[Any], list[tuple[float, float]], list[int], int, int]:
+) -> tuple[npt.NDArray[Any], npt.NDArray[np.int_], list[int], int, int]:
     """Stitch a well one timepoint at a time to bound host RAM.
 
     Produces the same ``(T, Y, X, C)`` float32 canvas as ``_load_well_fields``
@@ -839,7 +852,7 @@ def _load_and_stitch_streaming(
 
     Returns:
         canvas: Stitched ``(T, Y, X, C)`` float32 array.
-        positions: Per-field stage positions, field order.
+        offsets: Per-field canvas offsets, field order.
         image_ids: Per-field OMERO image ids, field order.
         tile_h, tile_w: Per-field (Y, X) size — for splitting masks back to
             fields on upload.
@@ -864,6 +877,16 @@ def _load_and_stitch_streaming(
     n_t = int(first.getSizeT())
     size_x, size_y = int(first.getSizeX()), int(first.getSizeY())
     size_z, size_c = int(first.getSizeZ()), int(first.getSizeC())
+
+    offsets = positions_to_offsets(
+        positions,
+        size_x,
+        size_y,
+        overlap_x=OPERETTA_STITCH_DEFAULTS["overlap_x"],
+        overlap_y=OPERETTA_STITCH_DEFAULTS["overlap_y"],
+        translate_x=OPERETTA_STITCH_DEFAULTS["translate_x"],
+        translate_y=OPERETTA_STITCH_DEFAULTS["translate_y"],
+    )
 
     ch_names = list(channels.keys())
     canvas: npt.NDArray[Any] | None = None
@@ -895,14 +918,14 @@ def _load_and_stitch_streaming(
         frame_stack = {
             ch: np.stack(frame[ch])[:, np.newaxis] for ch in ch_names
         }
-        stitched_t = _stitch_well(frame_stack, positions)  # (1, Ys, Xs, C)
+        stitched_t = _stitch_well(frame_stack, offsets)  # (1, Ys, Xs, C)
         if canvas is None:
             ys, xs = stitched_t.shape[1], stitched_t.shape[2]
             canvas = np.zeros((n_t, ys, xs, len(ch_names)), dtype=np.float32)
         canvas[t] = stitched_t[0]
 
     assert canvas is not None  # n_t >= 1
-    return canvas, positions, image_ids, size_y, size_x
+    return canvas, offsets, image_ids, size_y, size_x
 
 
 def _stitched_well_loop(
@@ -946,7 +969,7 @@ def _stitched_well_loop(
     # --no-stream-stitch.
     if _should_stream_stitch(well, metadata):
         with bench.stage("stitched_download"):
-            stitched_img, positions, image_ids, tile_h, tile_w = (
+            stitched_img, offsets, image_ids, tile_h, tile_w = (
                 _load_and_stitch_streaming(
                     conn, well, metadata, flatfield_dict
                 )
@@ -956,7 +979,7 @@ def _stitched_well_loop(
         channel_order = list(metadata.channel_data.keys())
     else:
         with bench.stage("stitched_download"):
-            per_channel, positions, image_ids = _load_well_fields(
+            per_channel, offsets, image_ids = _load_well_fields(
                 conn, well, metadata, dataset_id, flatfield_dict
             )
         # Preserve channel order — _stitch_well builds the canvas in this order
@@ -967,10 +990,25 @@ def _stitched_well_loop(
         tile_h = sample_channel.shape[2]
         tile_w = sample_channel.shape[3]
         with bench.stage("stitched_compose"):
-            stitched_img = _stitch_well(per_channel, positions)
+            stitched_img = _stitch_well(per_channel, offsets)
         # Free per-field memory before segmentation — the stitched canvas
         # holds all the pixels we need from here on.
         del per_channel
+
+    # Save field stitching canvas offsets to the well
+    attach_data(
+        conn,
+        pd.DataFrame(
+            {
+                "field": list(range(len(offsets))),
+                "ox": offsets[:, 0],
+                "oy": offsets[:, 1],
+            }
+        ),
+        well,
+        "canvas",
+    )
+
     # Fallback id used only if tile geometry is unavailable; per-row
     # image_id resolution by centroid is performed in ImageProperties.
     synthetic_image_id = image_ids[0]
@@ -1055,23 +1093,10 @@ def _stitched_well_loop(
     # threshold (no individual upload exceeds tile_h × tile_w) and
     # round-trips the bytes through standard per-field segmentation
     # artefacts. Each label belongs to exactly one field by centroid,
-    # so the cache layer can restitch with ``compose_labels`` without
+    # so the cache layer can restitch with without
     # ID remapping (Stage 2 concern).
-    # Pass split params explicitly rather than via a **dict. A dict literal
-    # mixing `positions` (list) with the int params widens to
-    # dict[str, object], which mypy can't match to the typed signature on
-    # unpack — CI mypy flags this even when a cached local run doesn't.
     def _split(mask: npt.NDArray[Any]) -> list[npt.NDArray[Any]]:
-        return split_stitched_mask_to_fields(
-            mask,
-            positions=positions,
-            tile_h=tile_h,
-            tile_w=tile_w,
-            overlap_x=OPERETTA_STITCH_DEFAULTS["overlap_x"],
-            overlap_y=OPERETTA_STITCH_DEFAULTS["overlap_y"],
-            translate_x=OPERETTA_STITCH_DEFAULTS["translate_x"],
-            translate_y=OPERETTA_STITCH_DEFAULTS["translate_y"],
-        )
+        return split_stitched_from_offsets(mask, offsets, tile_h, tile_w)
 
     with bench.stage("stitched_mask_split"):
         per_field_n_masks = _split(stitched_n_mask)
@@ -1115,15 +1140,9 @@ def _stitched_well_loop(
             cyto_mask=stitched_cyto_mask,
             cell_channel=cell_channel,
             field_image_ids=image_ids,
-            field_positions=positions,
+            field_offsets=offsets,
             tile_h=tile_h,
             tile_w=tile_w,
-            stitch_params={
-                "overlap_x": OPERETTA_STITCH_DEFAULTS["overlap_x"],
-                "overlap_y": OPERETTA_STITCH_DEFAULTS["overlap_y"],
-                "translate_x": OPERETTA_STITCH_DEFAULTS["translate_x"],
-                "translate_y": OPERETTA_STITCH_DEFAULTS["translate_y"],
-            },
         )
         image_props = ImageProperties(
             well,

@@ -30,7 +30,7 @@ from ezomero import get_image
 from loguru import logger
 from omero.gateway import BlitzGateway, ImageWrapper, WellWrapper
 from omero_utils.images import parse_mip, upload_masks
-from omero_utils.stitching import assign_field_by_centroid
+from omero_utils.stitching import assign_tile_by_centroid
 from pandas.api.types import is_integer_dtype
 from skimage import measure
 
@@ -526,10 +526,9 @@ class StitchedWellImage:
         cyto_mask: npt.NDArray[Any] | None = None,
         cell_channel: str | None = None,
         field_image_ids: list[int] | None = None,
-        field_positions: list[tuple[float, float]] | None = None,
+        field_offsets: npt.NDArray[np.int_] | None = None,
         tile_h: int | None = None,
         tile_w: int | None = None,
-        stitch_params: dict[str, int] | None = None,
     ):
         """Initialise the stitched-well image adapter.
 
@@ -548,13 +547,10 @@ class StitchedWellImage:
                 ``field_positions``. When provided, ImageProperties
                 resolves a per-row image_id by centroid lookup rather
                 than broadcasting ``synthetic_image_id``.
-            field_positions: Stage positions per field (same ordering
+            field_offsets: Stitched canvas offsets per field (same ordering
                 as ``field_image_ids``).
             tile_h: Per-field tile height in pixels.
             tile_w: Per-field tile width in pixels.
-            stitch_params: Stitching params dict with keys
-                ``overlap_x``, ``overlap_y``, ``translate_x``,
-                ``translate_y``.
         """
         self.img_dict: dict[str, npt.NDArray[Any]] = {
             ch: stitched_img[..., idx] for ch, idx in channels.items()
@@ -567,10 +563,9 @@ class StitchedWellImage:
         self.well_pos = well_pos
         self.omero_image = _SyntheticOmeroImage(synthetic_image_id)
         self.field_image_ids = field_image_ids
-        self.field_positions = field_positions
+        self.field_offsets = field_offsets
         self.tile_h = tile_h
         self.tile_w = tile_w
-        self.stitch_params = stitch_params
 
 
 def get_cell_model(
@@ -780,25 +775,23 @@ class ImageProperties:
         # for the whole well). Falls back to the (synthetic or real)
         # wrapper id when tile geometry is not present.
         field_image_ids = getattr(self._image, "field_image_ids", None)
-        field_positions = getattr(self._image, "field_positions", None)
+        field_offsets = getattr(self._image, "field_offsets", None)
         tile_h = getattr(self._image, "tile_h", None)
         tile_w = getattr(self._image, "tile_w", None)
-        stitch_params = getattr(self._image, "stitch_params", None) or {}
         if (
             field_image_ids is not None
-            and field_positions is not None
+            and field_offsets is not None
             and tile_h is not None
             and tile_w is not None
         ):
             centroids = edited_props_data[
                 ["centroid-0", "centroid-1"]
             ].to_numpy()
-            field_idx = assign_field_by_centroid(
+            field_idx = assign_tile_by_centroid(
                 centroids,
-                field_positions,
+                field_offsets,
                 tile_h,
                 tile_w,
-                **stitch_params,
             )
             edited_props_data["image_id"] = np.asarray(field_image_ids)[
                 field_idx
