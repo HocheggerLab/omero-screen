@@ -912,7 +912,7 @@ class TestRecomposeTiles:
         image = _test_image((3, 32, 64))
         tiles = [image[:, 0:32, 0:32], image[:, 0:32, 32:64]]
         canvas = recompose_tiles(tiles, np.array([(0, 0), (32, 0)]))
-        np.testing.assert_array_equal(canvas, image)
+        np.testing.assert_array_equal(canvas, image, strict=True)
 
     def test_2x2_TYX_with_overlap(self):
         image = _test_image((2, 62, 61))
@@ -925,7 +925,7 @@ class TestRecomposeTiles:
         mask[:, 1:33, 29:61] = 1
         mask[:, 30:62, 29:61] = 1
         image *= mask
-        np.testing.assert_array_equal(canvas, image)
+        np.testing.assert_array_equal(canvas, image, strict=True)
 
     def test_2x2_NYXC_with_overlap(self):
         image = _test_image((62, 61, 3))
@@ -938,7 +938,7 @@ class TestRecomposeTiles:
         mask[1:33, 29:61] = 1
         mask[30:62, 29:61] = 1
         image *= mask
-        np.testing.assert_array_equal(canvas, image)
+        np.testing.assert_array_equal(canvas, image, strict=True)
 
     def test_2x2_NTYXC_with_overlap(self):
         image = _test_image((4, 62, 61, 3))
@@ -956,7 +956,7 @@ class TestRecomposeTiles:
         mask[:, 1:33, 29:61] = 1
         mask[:, 30:62, 29:61] = 1
         image *= mask
-        np.testing.assert_array_equal(canvas, image)
+        np.testing.assert_array_equal(canvas, image, strict=True)
 
 
 class TestSplitRecomposeTiles:
@@ -973,7 +973,7 @@ class TestSplitRecomposeTiles:
         mask[:, 1:33, 29:61] = 1
         mask[:, 30:62, 29:61] = 1
         image *= mask
-        np.testing.assert_array_equal(canvas, image)
+        np.testing.assert_array_equal(canvas, image, strict=True)
 
     def test_2x2_NYXC_with_overlap(self):
         image = _test_image((62, 61, 3))
@@ -995,7 +995,7 @@ class TestSplitRecomposeTiles:
         mask[1:33, 29:61] = 1
         mask[30:62, 29:61] = 1
         image *= mask
-        np.testing.assert_array_equal(canvas, image)
+        np.testing.assert_array_equal(canvas, image, strict=True)
 
     def test_2x2_NTYXC_with_overlap(self):
         image = _test_image((4, 62, 61, 3))
@@ -1017,4 +1017,4 @@ class TestSplitRecomposeTiles:
         mask[:, 1:33, 29:61] = 1
         mask[:, 30:62, 29:61] = 1
         image *= mask
-        np.testing.assert_array_equal(canvas, image)
+        np.testing.assert_array_equal(canvas, image, strict=True)
