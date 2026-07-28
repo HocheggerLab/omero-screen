@@ -820,6 +820,47 @@ def _validate_offsets(offsets: NDArray[np.int_]) -> None:
         raise ValueError(f"Offsets must be positive: {offsets}")
 
 
+def get_overlap(
+    offsets: NDArray[np.int_],
+    tile_h: int,
+    tile_w: int,
+) -> int:
+    """Get the maximum overlap between canvas tiles.
+
+    The overlap is computed using all tile intersections. For each
+    intersection the smaller of the width or height is the distance
+    inside the tile from the tile edge. The overlap is the maximum
+    of these edge distances across all intersections.
+    It describes the maximum distance inside the tile covered by
+    any intersection.
+
+    Args:
+        offsets: Array of [N, (ox, oy)].
+        tile_h: Original per-field height in pixels.
+        tile_w: Original per-field width in pixels.
+
+    Returns:
+        maximum tile overlap
+    """
+    # Note: No requirement to validate the offsets are positive
+    overlap = 0
+    # Compute all-vs-all rectangle intersections
+    for i in range(len(offsets)):
+        x1, y1 = offsets[i]
+        for j in range(i + 1, len(offsets)):
+            x2, y2 = offsets[j]
+            # lower-left corner
+            ix1, iy1 = max(x1, x2), max(y1, y2)
+            # upper-right corner
+            ix2, iy2 = min(x1, x2) + tile_w, min(y1, y2) + tile_h
+            if ix1 < ix2 and iy1 < iy2:
+                # Intersection
+                ox, oy = ix2 - ix1, iy2 - iy1
+                # Get the closest distance to the edge of the tile
+                overlap = max(overlap, min(ox, oy))
+    return overlap
+
+
 def split_stitched_mask_to_fields(
     stitched_mask: NDArray[Any],
     positions: list[tuple[float, float]],

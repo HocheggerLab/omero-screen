@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from omero_utils.stitching import positions_to_offsets
+from omero_utils.stitching import positions_to_offsets, get_overlap
 
 @pytest.mark.parametrize("tile_w, tile_h", [
     [100, 100],
@@ -102,3 +102,48 @@ def test_positions_to_grid_sparse_3x3_with_alignment(overlap_x, overlap_y, trans
     expected -= min_pos
 
     assert np.all(offsets == expected)
+
+
+@pytest.mark.parametrize("offsets, tile_h, tile_w, overlap", [
+    [np.array([[0, 0]]), 10, 10, 0],
+    [np.array([
+      [0, 0],
+      [10, 0],
+    ]), 10, 10, 0],
+    [np.array([
+      [0, 0],
+      [9, 0],
+    ]), 10, 10, 1],
+    [np.array([
+      [0, 0],
+      [0, 8],
+    ]), 10, 10, 2],
+    # Largest overlap is r0c0 to r0c1 of 2.
+    # This case is changed below with tile sizes.
+    [np.array([
+      [0, 0],
+      [1, 8],
+      [9, -2],
+    ]), 10, 10, 2],
+    # -> Increasing tile_w increases the overlap in x: 12 - 9 = 3
+    [np.array([
+      [0, 0],
+      [1, 8],
+      [9, -2],
+    ]), 10, 12, 3],
+    # -> Increasing tile_h increases the overlap in y: 12 - 8 = 4
+    [np.array([
+      [0, 0],
+      [1, 8],
+      [9, -2],
+    ]), 12, 10, 4],
+    # -> Increasing tile_w increases the overlap in x: 14 - 9 = 5
+    [np.array([
+      [0, 0],
+      [1, 8],
+      [9, -2],
+    ]), 12, 14, 5],
+])
+def test_get_overlap(offsets, tile_h, tile_w, overlap):
+    actual = get_overlap(offsets, tile_h, tile_w)
+    assert actual == overlap
