@@ -16,6 +16,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+from omero_utils.stitching import recompose_tiles
 import zarr
 from omero_screen_napari.zarr_cache import (
     PlateZarrWriter,
@@ -31,7 +32,6 @@ _MASK_IDS = [20]
 
 def _make_well() -> MagicMock:
     well = MagicMock()
-    well.listChildren.return_value = [object()] * len(_IMAGE_IDS)
     samples = []
     for iid in _IMAGE_IDS:
         s = MagicMock()
@@ -46,6 +46,7 @@ def _make_well() -> MagicMock:
         s.getPosY.return_value.getValue.return_value = 0.0
         samples.append(s)
     well.getWellSample.side_effect = lambda n: samples[n]
+    well.listChildren.return_value = samples
     return well
 
 
@@ -100,12 +101,17 @@ def _patches(field_data, mask_data):  # type: ignore[no-untyped-def]
             cells.append(np.ascontiguousarray(sq[..., 1]))
         return nuclei, cells
 
+    assert len(_IMAGE_IDS) == 1, "Only 1 offset configured for synthetic well images"
+    def _fake_load_canvas_offsets(_well):
+        return np.array([[0, 0]])
+
     return (
         patch.object(builder, "get_image", fake_get_image),
         patch.object(builder, "resolve_stitched_mask_ids", fake_resolve),
         patch.object(
             builder, "fetch_stitched_field_masks_trange", fake_trange
         ),
+        patch.object(builder, "_load_canvas_offsets", _fake_load_canvas_offsets),
     )
 
 
@@ -113,8 +119,8 @@ def _build_both():  # type: ignore[no-untyped-def]
     """Return ((dask_img, dask_nuc, dask_cell), (eager_img, eager_nuc, eager_cell))."""
     field_data, mask_data, flatfield = _synthetic_sources()
     well = _make_well()
-    p_img, p_res, p_tr = _patches(field_data, mask_data)
-    with p_img, p_res, p_tr:
+    p_img, p_res, p_tr, p_co = _patches(field_data, mask_data)
+    with p_img, p_res, p_tr, p_co:
         # New lazy/dask path.
         img_d, nuc_d, cell_d = builder._build_lazy_well_arrays(
             MagicMock(),
@@ -131,20 +137,21 @@ def _build_both():  # type: ignore[no-untyped-def]
             np.asarray(cell_d),
         )
         # Old eager path, same inputs.
-        imgs_ntyxc, positions, th, tw = builder._load_well_fields(
+        imgs_ntyxc, offsets = builder._load_well_fields(
             MagicMock(), well, _CHANNELS, flatfield
         )
-        eager_img = builder._stitch_image(imgs_ntyxc, positions)
+        eager_img = builder._stitch_image(imgs_ntyxc, offsets)
         mids, src = builder.resolve_stitched_mask_ids(well)
         nuc_f, cell_f = builder.fetch_stitched_field_masks_trange(
             MagicMock(), mids, source_ids=src
         )
-        eager_nuc = builder._recompose_labels(nuc_f, positions, th, tw).astype(
+        eager_nuc = recompose_tiles(nuc_f, offsets).astype(
             np.uint32, copy=False
         )
-        eager_cell = builder._recompose_labels(
-            cell_f, positions, th, tw
-        ).astype(np.uint32, copy=False)
+        # cell_f is not None
+        eager_cell = recompose_tiles(cell_f, offsets).astype(
+            np.uint32, copy=False
+        )
     return dask_arrays, (eager_img, eager_nuc, eager_cell)
 
 
@@ -169,7 +176,7 @@ def test_streamed_zarr_matches_eager_zarr() -> None:
     # Re-fetch the lazy arrays (consumed arrays above were materialised).
     field_data, mask_data, flatfield = _synthetic_sources()
     well = _make_well()
-    p_img, p_res, p_tr = _patches(field_data, mask_data)
+    p_img, p_res, p_tr, p_co = _patches(field_data, mask_data)
 
     def _write(plate_id, img, nuc, cell):  # type: ignore[no-untyped-def]
         w = PlateZarrWriter(
@@ -183,7 +190,7 @@ def test_streamed_zarr_matches_eager_zarr() -> None:
             w.ensure_plate(all_wells=["A1"])
             w.write_well("A1", img, nuc, cell)
 
-    with p_img, p_res, p_tr:
+    with p_img, p_res, p_tr, p_co:
         lazy_img, lazy_nuc, lazy_cell = builder._build_lazy_well_arrays(
             MagicMock(),
             None,
