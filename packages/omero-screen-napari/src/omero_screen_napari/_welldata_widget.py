@@ -833,29 +833,28 @@ def start_zarr_build_worker(
             return
 
         total_wells = len(target_wells)
+
+        if total_wells == 0:
+            # Everything already cached / no non-empty wells.
+            # Skip spawning the worker.
+            omero_conn.close(hard=False)
+            msg = f"Plate {plate_id}: zarr cache already complete"
+            if wells:
+                msg += " for requested wells"
+            notifications.show_info(msg)
+            return
+
         # napari's QProgressBar only accepts *integer* values, but we want
         # smooth sub-well animation. Give each well an integer sub-resolution:
         # the bar runs 0..total_wells*STEPS and every update is an int.
         steps = 1000
-        first_well = target_wells[0] if target_wells else None
+        first_well = target_wells[0]
         initial_desc = (
             f"Zarr plate {plate_id}: building {first_well} (0/{total_wells})"
-            if first_well is not None
-            else f"Zarr plate {plate_id}: nothing to build"
         )
         pbr.append(
             napari_progress(total=total_wells * steps, desc=initial_desc)
         )
-
-        if total_wells == 0:
-            # Everything already cached / no non-empty wells. Close the
-            # bar cleanly and skip spawning the worker.
-            pbr[0].close()
-            omero_conn.close(hard=False)
-            notifications.show_info(
-                f"Plate {plate_id}: zarr cache already complete"
-            )
-            return
 
         # Sub-well progress. The builder streams each well's image + label
         # arrays and reports a 0–1 fraction via ``step_cb``; we translate that
