@@ -50,6 +50,7 @@ dependencies = [
     "sphinx-rtd-theme>=3.0.2",
     "trackastra>=0.5.3",
     "loguru>=0.7.3",
+    "marimo>=0.23.15",
 ]
 
 [project.scripts]
