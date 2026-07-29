@@ -405,6 +405,7 @@ def _build_lazy_well_arrays(
     # Auto edge
     tile_h, tile_w = int(first.getSizeY()), int(first.getSizeX())
     edge = get_overlap(offsets, tile_h, tile_w)
+    logger.debug(f"Stitching {well.getWellPos()} using auto-edge: {edge}")
 
     # Probe block 0 for canvas dims (image) and cell presence (labels).
     probe_img = _load_stitch_image_block(
