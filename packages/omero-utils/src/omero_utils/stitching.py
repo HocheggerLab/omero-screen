@@ -47,7 +47,6 @@ OPERETTA_STITCH_DEFAULTS: dict[str, int] = {
     "overlap_y": 7,
     "translate_x": -3,
     "translate_y": 3,
-    "edge": 7,
 }
 
 

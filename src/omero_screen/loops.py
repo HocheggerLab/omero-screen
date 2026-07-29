@@ -60,6 +60,7 @@ from omero_utils.map_anns import parse_annotations
 from omero_utils.message import PlateDataError, WellAnnotationError
 from omero_utils.stitching import (
     OPERETTA_STITCH_DEFAULTS,
+    get_overlap,
     has_valid_positions,
     positions_to_offsets,
     split_stitched_from_offsets,
@@ -746,6 +747,9 @@ def _stitch_well(
     """
     ch_names = list(per_channel.keys())
     channel_canvases: list[npt.NDArray[Any]] = []
+    # Auto edge
+    tile_h, tile_w = per_channel[ch_names[0]].shape[-2:]
+    edge = get_overlap(offsets, tile_h, tile_w)
     for ch in ch_names:
         # per_channel[ch] is (N, T, Y, X). stitch_from_offsets expects
         # (N, T, Y, X, C); we treat each channel as a 1-channel volume.
@@ -753,7 +757,7 @@ def _stitch_well(
         stitched = stitch_from_offsets(
             stack,
             offsets,
-            edge=OPERETTA_STITCH_DEFAULTS["edge"],
+            edge=edge,
         )
         # Result shape (T, Y, X, 1) → squeeze the channel axis
         channel_canvases.append(np.squeeze(stitched, axis=-1))

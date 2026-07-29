@@ -50,7 +50,7 @@ from omero_utils.images import (
 )
 from omero_utils.message import PlateDataError
 from omero_utils.stitching import (
-    OPERETTA_STITCH_DEFAULTS,
+    get_overlap,
     recompose_tiles,
     stitch_from_offsets,
 )
@@ -266,10 +266,11 @@ def _load_well_fields(
 def _stitch_image(
     images_ntyxc: npt.NDArray[Any],
     offsets: npt.NDArray[np.int_],
+    edge: int,
 ) -> npt.NDArray[Any]:
     """Stitch (N, T, Y, X, C) → (T, C, Y, X)."""
     stitched_tyxc = stitch_from_offsets(
-        images_ntyxc, offsets, edge=OPERETTA_STITCH_DEFAULTS["edge"]
+        images_ntyxc, offsets, edge=edge
     )  # (T, Y, X, C)
     # Reorder to writer's expected layout (T, C, Y, X).
     return np.transpose(stitched_tyxc, (0, 3, 1, 2))
@@ -280,6 +281,7 @@ def _load_stitch_image_block(
     omero_conn: Any | None,
     image_ids: list[int],
     offsets: npt.NDArray[np.int_],
+    edge: int,
     channel_data: dict[str, str],
     flatfield_dict: dict[str, npt.NDArray[Any]],
     t0: int,
@@ -318,7 +320,7 @@ def _load_stitch_image_block(
         if omero_conn is not None and worker_conn is not conn:
             with contextlib.suppress(Exception):
                 worker_conn.close()
-    return _stitch_image(images_ntyxc, offsets)  # (bt, C, Y, X)
+    return _stitch_image(images_ntyxc, offsets, edge)  # (bt, C, Y, X)
 
 
 def _load_recompose_label_block(
@@ -400,12 +402,17 @@ def _build_lazy_well_arrays(
     n_ch = len(channel_data)
     mask_ids, source_ids = resolve_stitched_mask_ids(well)
 
+    # Auto edge
+    tile_h, tile_w = int(first.getSizeY()), int(first.getSizeX())
+    edge = get_overlap(offsets, tile_h, tile_w)
+
     # Probe block 0 for canvas dims (image) and cell presence (labels).
     probe_img = _load_stitch_image_block(
         conn,
         omero_conn,
         image_ids,
         offsets,
+        edge,
         channel_data,
         flatfield_dict,
         0,
@@ -427,6 +434,7 @@ def _build_lazy_well_arrays(
                 omero_conn,
                 image_ids,
                 offsets,
+                edge,
                 channel_data,
                 flatfield_dict,
                 t0,

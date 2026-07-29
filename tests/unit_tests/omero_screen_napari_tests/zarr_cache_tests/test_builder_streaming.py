@@ -16,7 +16,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-from omero_utils.stitching import recompose_tiles
+from omero_utils.stitching import get_overlap, recompose_tiles
 import zarr
 from omero_screen_napari.zarr_cache import (
     PlateZarrWriter,
@@ -140,7 +140,10 @@ def _build_both():  # type: ignore[no-untyped-def]
         imgs_ntyxc, offsets = builder._load_well_fields(
             MagicMock(), well, _CHANNELS, flatfield
         )
-        eager_img = builder._stitch_image(imgs_ntyxc, offsets)
+        # Auto edge
+        tile_h, tile_w = imgs_ntyxc.shape[-3:-1]
+        edge = get_overlap(offsets, tile_h, tile_w)
+        eager_img = builder._stitch_image(imgs_ntyxc, offsets, edge)
         mids, src = builder.resolve_stitched_mask_ids(well)
         nuc_f, cell_f = builder.fetch_stitched_field_masks_trange(
             MagicMock(), mids, source_ids=src
