@@ -289,7 +289,7 @@ def positions_to_offsets(
     """
     grid_map = positions_to_grid(positions)
     pos, _ = _field_placements(
-        positions,
+        grid_map,
         tile_w,
         tile_h,
         overlap_x,
@@ -905,8 +905,9 @@ def split_stitched_mask_to_fields(
         )
 
     n_fields = len(positions)
+    grid_map = positions_to_grid(positions)
     pos, _ = _field_placements(
-        positions,
+        grid_map,
         tile_w,
         tile_h,
         overlap_x,
@@ -914,7 +915,6 @@ def split_stitched_mask_to_fields(
         translate_x,
         translate_y,
     )
-    grid_map = positions_to_grid(positions)
 
     n_t = stitched_mask.shape[0]
     # Pre-allocate list with a default image
@@ -976,7 +976,7 @@ def split_stitched_from_offsets(
 
 
 def _field_placements(
-    positions: list[tuple[float, float]],
+    grid_map: dict[int, dict[int, int]],
     tile_w: int,
     tile_h: int,
     overlap_x: int,
@@ -993,7 +993,6 @@ def _field_placements(
         pos: (maxx+1, maxy+1, 2) array of (xp, yp) canvas positions.
         valid: (maxx+1, maxy+1) bool mask of which grid cells are occupied.
     """
-    grid_map = positions_to_grid(positions)
     ox = -overlap_x
     oy = -overlap_y
     tx = translate_x
@@ -1063,8 +1062,9 @@ def assign_field_by_centroid(
     if centroids.ndim != 2 or centroids.shape[1] != 2:
         raise ValueError(f"centroids_yx must be (N, 2), got {centroids.shape}")
 
+    grid_map = positions_to_grid(positions)
     pos, valid = _field_placements(
-        positions,
+        grid_map,
         tile_w,
         tile_h,
         overlap_x,
@@ -1072,7 +1072,6 @@ def assign_field_by_centroid(
         translate_x,
         translate_y,
     )
-    grid_map = positions_to_grid(positions)
 
     # Flatten valid grid cells into per-field (idx, xp, yp) records, in
     # the same ordering as ``positions``.
@@ -1267,8 +1266,9 @@ def recompose_split_labels(
     n_c = stacked.shape[4]
     dtype = stacked.dtype
 
+    grid_map = positions_to_grid(positions)
     pos, _ = _field_placements(
-        positions,
+        grid_map,
         tile_w,
         tile_h,
         overlap_x,
@@ -1276,7 +1276,6 @@ def recompose_split_labels(
         translate_x,
         translate_y,
     )
-    grid_map = positions_to_grid(positions)
 
     # Canvas extent = furthest tile's far corner.
     max_xp = 0
