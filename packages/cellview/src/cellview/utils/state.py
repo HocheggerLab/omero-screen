@@ -84,23 +84,32 @@ def clean_agg_data(df: pd.DataFrame) -> pd.DataFrame:
     # If a column has a suffix (e.g. .0, .1):
     # - If the base name already exists, it's redundant (e.g. DAPI) -> Drop it
     # - If the base name doesn't exist, it's a unique measurement -> Rename it
+    # - If several suffixed columns share the same absent base, only the first
+    #   is unique; the rest are redundant per-round repeats -> Drop them. This
+    #   happens for the nucleus channel in multi-round 4i data, where e.g.
+    #   ``intensity_std_DAPI_nucleus.0..4`` all exist with no bare column.
+    #   Renaming every one to the base would create duplicate labels and break
+    #   downstream ``df[float_cols] = df[float_cols].round(...)`` assignments.
 
     # Get all columns that have a numeric suffix
     suffixed_cols = [col for col in df.columns if re.search(r"\.\d+$", col)]
 
     rename_map = {}
     drop_cols = []
+    claimed_bases: set[str] = set()
 
     for col in suffixed_cols:
         base_name = re.sub(r"\.\d+$", "", col)
-        if base_name in df.columns:
-            # Base name exists (e.g. intensity_max_DAPI_nucleus)
-            # This suffixed version is redundant
+        if base_name in df.columns or base_name in claimed_bases:
+            # Base already present — either as an unsuffixed source column
+            # (e.g. intensity_max_DAPI_nucleus) or claimed by an earlier
+            # suffixed sibling. Either way this column is a redundant repeat.
             drop_cols.append(col)
         else:
-            # Base name does not exist (e.g. intensity_max_p21_nucleus)
-            # This is a unique measurement that got suffixed
+            # Base name does not exist yet — this is a unique measurement that
+            # got suffixed (e.g. intensity_max_p21_nucleus.1).
             rename_map[col] = base_name
+            claimed_bases.add(base_name)
 
     # Apply drops and renames
     if drop_cols:

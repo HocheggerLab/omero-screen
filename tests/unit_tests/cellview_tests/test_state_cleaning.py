@@ -83,9 +83,19 @@ class TestStateCleaning:
         assert "intensity_max_p21_nucleus" in cleaned.columns
         assert "intensity_max_p21_nucleus.0" not in cleaned.columns
 
-        # Case 3
+        # Case 3: several suffixed siblings share an absent base. Only the
+        # first is unique; the rest are redundant per-round repeats and must be
+        # dropped, not all renamed to the same label (which would create
+        # duplicate columns and break downstream ``df[float_cols].round(...)``).
         assert "intensity_mean_EdU_nucleus" in cleaned.columns
         assert "intensity_mean_EdU_nucleus.1" not in cleaned.columns
+        assert "intensity_mean_EdU_nucleus.2" not in cleaned.columns
+
+        # No duplicate column labels may survive cleaning.
+        assert not cleaned.columns.duplicated().any(), (
+            f"duplicate columns: "
+            f"{cleaned.columns[cleaned.columns.duplicated()].tolist()}"
+        )
 
     def test_clean_agg_data_removes_empty(self, state):
         """Test removal of empty rows and columns."""
