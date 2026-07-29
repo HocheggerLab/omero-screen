@@ -777,14 +777,14 @@ def stitch_from_positions(
 def stitch_from_offsets(
     images: NDArray[Any],
     offsets: NDArray[np.int_],
-    edge: int = 0,
+    edge: int = -1,
 ) -> NDArray[Any]:
     """Stitch images using their canvas offsets.
 
     Args:
         images: Array of shape (N, Y, X, C) or (N, T, Y, X, C).
         offsets: Array of [N, (ox, oy)] (must be positive).
-        edge: Edge blending width in pixels.
+        edge: Edge blending width in pixels (set to negative to auto-detect).
 
     Returns:
         Stitched array of shape (Y, X, C) or (T, Y, X, C).
@@ -793,6 +793,11 @@ def stitch_from_offsets(
     assert ndim in (4, 5), f"Expected 4D or 5D images, got {ndim}D"
     assert len(images) == len(offsets), "Expected each image to have an offset"
     _validate_offsets(offsets)
+
+    # Auto-edge
+    if edge < 0:
+        tile_h, tile_w = images.shape[-3:-1]
+        edge = get_overlap(offsets, tile_h, tile_w)
 
     if ndim == 5:
         # (N, T, Y, X, C) → stitch per timepoint, then stack

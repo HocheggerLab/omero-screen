@@ -612,6 +612,24 @@ class TestStitchFromOffsets:
             assert result[-1, 0, 0] == bottom_left
             assert result[-1, -1, 0] == bottom_right
 
+    def test_2x2_with_auto_edge(self):
+        # 4 tiles of 100x100 → overlap 20
+        tile = np.arange(10000).reshape((100, 100, 1))
+        images = np.stack([tile for _ in range(4)])
+        offsets = np.array([
+            (0, 0),
+            (80, 0),
+            (0, 80),
+            (80, 80),
+        ])
+        expected = stitch_from_offsets(
+            images, offsets, edge=20
+        )
+        actual = stitch_from_offsets(
+            images, offsets, edge=-1
+        )
+        np.testing.assert_array_equal(actual, expected, strict=True)
+
 
 # --------------- split_stitched_mask_to_fields / recompose_split_labels ---------------
 
