@@ -75,7 +75,7 @@ def has_valid_positions(
         return False
 
     xs = [p[0] for p in valid if p[0] is not None]
-    ys = [p[1] for p in valid if p[0] is not None]
+    ys = [p[1] for p in valid if p[1] is not None]
     if min(len(xs), len(ys)) < len(positions):
         logger.debug(
             f"Missing X/Y positions: {len(xs):d},{len(ys):d} < {len(positions):d}"
