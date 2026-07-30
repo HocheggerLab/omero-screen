@@ -253,22 +253,26 @@ def positions_to_layout(
         map to a unique grid layout, or the number of positions is less than 2.
     """
     n = len(positions)
-    valid = [p for p in positions if p is not None]
-    if len(valid) < max(2, n):
+    valid = sum(1 for p in positions if p is not None)
+    if valid < max(2, n):
         if is_level_enabled("DEBUG"):
-            if len(valid) < n:
-                logger.debug(f"Missing positions: {len(valid):d} < {n:d}")
+            if valid < n:
+                logger.debug(f"Missing positions: {valid:d} < {n:d}")
             else:
                 logger.debug(f"Not enough positions: {n}")
         return None
 
-    xs = sum(1 for p in valid if p[0] is not None)
-    ys = sum(1 for p in valid if p[1] is not None)
+    xs = sum(1 for p in positions if p[0] is not None)
+    ys = sum(1 for p in positions if p[1] is not None)
     if min(xs, ys) < n:
         logger.debug(f"Missing X/Y positions: {xs:d},{ys:d} < {n:d}")
         return None
 
-    tol = math.radians(angle_tolerance)
+    # We require:
+    # angle < tolerance
+    # arctan(y / x) < tolerance
+    # y / x < tan(tolerance)
+    tol = math.tan(math.radians(math.fabs(angle_tolerance)))
 
     row = np.zeros(n, dtype=np.int_)
     col = row.copy()
@@ -283,9 +287,9 @@ def positions_to_layout(
         dy = data[i][1] - data[i - 1][1]
         # handle divide by zero
         if dy:
-            angle = math.atan(dx / dy)
+            angle = dx / dy
         elif dx:
-            angle = math.copysign(math.pi * 0.5, dx)
+            angle = math.inf
         else:
             logger.debug("Duplicate positions in layout")
             return None
@@ -304,7 +308,7 @@ def positions_to_layout(
         # handle divide by zero
         # Duplicate (x,y) positions previously filtered,
         # if dx is zero then dy must be non-zero
-        angle = math.atan(dy / dx) if dx else math.copysign(math.pi * 0.5, dy)
+        angle = dy / dx if dx else math.inf
         if math.fabs(angle) >= tol:
             # new row
             current += 1
@@ -328,7 +332,7 @@ def positions_to_layout(
         f"Position grid: {maxx:d} cols x {maxy:d} rows ({n:d} positions)"
     )
 
-    if n_cells and is_level_enabled("DEBUG"):
+    if is_level_enabled("DEBUG"):
         # Print information for stitching.
         # Output the grid using -1 for a missing position in the column/row:
         # [-1, 3, -1]
