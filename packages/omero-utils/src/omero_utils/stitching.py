@@ -28,6 +28,7 @@ the napari widget (display stitched wells); kept in omero-utils to
 avoid a circular dependency between those packages.
 """
 
+import math
 from typing import Any, cast
 
 import numpy as np
@@ -224,6 +225,157 @@ def positions_to_grid(
         )
 
     return grid_map
+
+
+def positions_to_layout(
+    positions: list[tuple[float, float]],
+    angle_tolerance: float = 5,
+) -> list[tuple[int, int]] | None:
+    """Convert stage positions to a tile grid layout.
+
+    Positions are sorted by x and assigned into columns if the angle to the
+    next position is 90 degrees, otherwise a new column is started.
+    This is repeated after sorting by y for rows and 0 degrees.
+
+    All positions in the same row or column must be within the angle tolerance
+    of 0 or 90 degrees respectively.
+
+    Note: This method works for a non-sparse grid layout. An entire missing
+    column or row will not be detected and non-adjacent columns/rows will
+    be placed adjacent.
+
+    Args:
+        positions: List of (pos_x, pos_y) for each image.
+        angle_tolerance: The angle tolerance for a row or column
+
+    Returns:
+        List of (col, row) for each image. Returns None if each position does not
+        map to a unique grid layout, or the number of positions is less than 2.
+    """
+    n = len(positions)
+    valid = [p for p in positions if p is not None]
+    if len(valid) < max(2, n):
+        if is_level_enabled("DEBUG"):
+            if len(valid) < n:
+                logger.debug(f"Missing positions: {len(valid):d} < {n:d}")
+            else:
+                logger.debug(f"Not enough positions: {n}")
+        return None
+
+    xs = sum(1 for p in valid if p[0] is not None)
+    ys = sum(1 for p in valid if p[1] is not None)
+    if min(xs, ys) < n:
+        logger.debug(f"Missing X/Y positions: {xs:d},{ys:d} < {n:d}")
+        return None
+
+    tol = math.radians(angle_tolerance)
+
+    row = np.zeros(n, dtype=np.int_)
+    col = row.copy()
+    data = [(x, y, i) for i, (x, y) in enumerate(positions)]
+
+    # Sort by x, then y (index does not matter)
+    data = sorted(data)
+    # Compute angles between consective positions: atan(dx/dy) -> 0 for a column
+    current = 0
+    for i in range(1, n):
+        dx = data[i][0] - data[i - 1][0]
+        dy = data[i][1] - data[i - 1][1]
+        # handle divide by zero
+        if dy:
+            angle = math.atan(dx / dy)
+        elif dx:
+            angle = math.copysign(math.pi * 0.5, dx)
+        else:
+            logger.debug("Duplicate positions in layout")
+            return None
+        if math.fabs(angle) >= tol:
+            # new column
+            current += 1
+        col[data[i][2]] = current
+
+    # Sort by y
+    data = sorted(data, key=lambda x: x[1])
+    # Compute angles between consective positions: atan(dy/dx) -> 0 for a row
+    current = 0
+    for i in range(1, n):
+        dx = data[i][0] - data[i - 1][0]
+        dy = data[i][1] - data[i - 1][1]
+        # handle divide by zero
+        # Duplicate (x,y) positions previously filtered,
+        # if dx is zero then dy must be non-zero
+        angle = math.atan(dy / dx) if dx else math.copysign(math.pi * 0.5, dy)
+        if math.fabs(angle) >= tol:
+            # new row
+            current += 1
+        row[data[i][2]] = current
+
+    # Store the output layout
+    out = [(col[i], row[i]) for i in range(n)]
+
+    # Note: This is a safety net check.
+    # If tolerance < 45 degrees then it is not possible for two positions
+    # to be in the same row and column since either one or the other will be true
+    # for the same vector.
+    n_cells = len(set(out))
+    if n_cells < n:
+        logger.debug(f"Missing cells in layout: {n_cells:d} < {n:d}")
+        return None
+
+    maxx = col.max() + 1
+    maxy = row.max() + 1
+    logger.info(
+        f"Position grid: {maxx:d} cols x {maxy:d} rows ({n:d} positions)"
+    )
+
+    if n_cells and is_level_enabled("DEBUG"):
+        # Print information for stitching.
+        # Output the grid using -1 for a missing position in the column/row:
+        # [-1, 3, -1]
+        # [1, 0, 2]
+        # [-1, 4, -1]
+        grid = np.full((maxy, maxx), -1)
+        grid_pos = np.zeros((maxy, maxx, 2))
+        for i, (x, y) in enumerate(out):
+            grid[y, x] = i
+            grid_pos[y, x] = positions[i]
+        # Output the mean spacing between rows + columns
+        rx, ry = [], []
+        cx, cy = [], []
+        for y in range(maxy):
+            for x in range(1, maxx):
+                i = grid[y, x - 1]
+                j = grid[y, x]
+                if i >= 0 and j >= 0:
+                    rx.append(positions[j][0] - positions[i][0])
+                    ry.append(positions[j][1] - positions[i][1])
+        for x in range(maxx):
+            for y in range(1, maxy):
+                i = grid[y - 1, x]
+                j = grid[y, x]
+                if i >= 0 and j >= 0:
+                    cx.append(positions[j][0] - positions[i][0])
+                    cy.append(positions[j][1] - positions[i][1])
+
+        logger.debug(positions)
+        # Avoid numpy warning for empty lists
+        rmx, rmy, rsx, rsy = 0.0, 0.0, 0.0, 0.0
+        if rx:
+            rmx = np.mean(rx)
+            rsx = np.std(rx)
+            rmy = np.mean(ry)
+            rsy = np.std(ry)
+        cmx, cmy, csx, csy = 0.0, 0.0, 0.0, 0.0
+        if cx:
+            cmx = np.mean(cx)
+            csx = np.std(cx)
+            cmy = np.mean(cy)
+            csy = np.std(cy)
+        logger.debug(
+            f"Position grid: {grid.tolist()}; row {rmx:.3},{rmy:.3} +/- {rsx:.3},{rsy:.3}, col {cmx:.3},{cmy:.3} +/- {csx:.3},{csy:.3} (raw units)"
+        )
+
+    return out
 
 
 def _compute_overlap(
