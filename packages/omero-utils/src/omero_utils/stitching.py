@@ -228,9 +228,9 @@ def positions_to_grid(
 
 
 def positions_to_layout(
-    positions: list[tuple[float, float]],
+    positions: list[tuple[float, float] | None] | list[tuple[float, float]],
     angle_tolerance: float = 5,
-) -> list[tuple[int, int]] | None:
+) -> list[tuple[int, int]]:
     """Convert stage positions to a tile grid layout.
 
     Positions are sorted by x and assigned into columns if the angle to the
@@ -244,29 +244,30 @@ def positions_to_layout(
     column or row will not be detected and non-adjacent columns/rows will
     be placed adjacent.
 
+    Missing positions are returned as (-1, -1). If positions cannot be mapped
+    to a unique grid layout (duplicate cells) all entries are returns as (-1, -1).
+    The caller must count the number of entries with a positive x (or y) index
+    to determine the number of valid positions that can be mapped to a layout.
+
+    This method will return an empty array if the input positions is empty.
+
     Args:
         positions: List of (pos_x, pos_y) for each image.
         angle_tolerance: The angle tolerance for a row or column
 
     Returns:
-        List of (col, row) for each image. Returns None if each position does not
-        map to a unique grid layout, or the number of positions is less than 2.
+        List of (col, row) for each image.
     """
-    n = len(positions)
-    valid = sum(1 for p in positions if p is not None)
-    if valid < max(2, n):
-        if is_level_enabled("DEBUG"):
-            if valid < n:
-                logger.debug(f"Missing positions: {valid:d} < {n:d}")
-            else:
-                logger.debug(f"Not enough positions: {n}")
-        return None
+    # Get data but ignore invalid positions
+    data = []
+    for i, p in enumerate(positions):
+        if p is not None and p[0] is not None and p[1] is not None:
+            data.append((p[0], p[1], i))
 
-    xs = sum(1 for p in positions if p[0] is not None)
-    ys = sum(1 for p in positions if p[1] is not None)
-    if min(xs, ys) < n:
-        logger.debug(f"Missing X/Y positions: {xs:d},{ys:d} < {n:d}")
-        return None
+    n_pos = len(data)
+    if n_pos == 0:
+        # No valid positions
+        return [(-1, -1)] * len(positions)
 
     # We require:
     # angle < tolerance
@@ -274,15 +275,16 @@ def positions_to_layout(
     # y / x < tan(tolerance)
     tol = math.tan(math.radians(math.fabs(angle_tolerance)))
 
-    row = np.zeros(n, dtype=np.int_)
+    # Initialised as unassigned
+    row = np.full(len(positions), -1, dtype=np.int_)
     col = row.copy()
-    data = [(x, y, i) for i, (x, y) in enumerate(positions)]
 
     # Sort by x, then y (index does not matter)
     data = sorted(data)
     # Compute angles between consective positions: atan(dx/dy) -> 0 for a column
     current = 0
-    for i in range(1, n):
+    col[data[0][2]] = 0
+    for i in range(1, n_pos):
         dx = data[i][0] - data[i - 1][0]
         dy = data[i][1] - data[i - 1][1]
         # handle divide by zero
@@ -292,17 +294,18 @@ def positions_to_layout(
             angle = math.inf
         else:
             logger.debug("Duplicate positions in layout")
-            return None
+            return [(-1, -1)] * len(positions)
         if math.fabs(angle) >= tol:
             # new column
             current += 1
         col[data[i][2]] = current
 
-    # Sort by y
-    data = sorted(data, key=lambda x: x[1])
+    # Sort by y, then x
+    data = sorted(data, key=lambda x: (x[1], x[0]))
     # Compute angles between consective positions: atan(dy/dx) -> 0 for a row
     current = 0
-    for i in range(1, n):
+    row[data[0][2]] = 0
+    for i in range(1, n_pos):
         dx = data[i][0] - data[i - 1][0]
         dy = data[i][1] - data[i - 1][1]
         # handle divide by zero
@@ -315,21 +318,25 @@ def positions_to_layout(
         row[data[i][2]] = current
 
     # Store the output layout
-    out = [(col[i], row[i]) for i in range(n)]
+    out = [(int(x), int(y)) for x, y in zip(col, row, strict=True)]
 
     # Note: This is a safety net check.
     # If tolerance < 45 degrees then it is not possible for two positions
     # to be in the same row and column since either one or the other will be true
     # for the same vector.
-    n_cells = len(set(out))
-    if n_cells < n:
-        logger.debug(f"Missing cells in layout: {n_cells:d} < {n:d}")
-        return None
+    out_set = set(out)
+    out_set.discard((-1, -1))
+    n_cells = len(out_set)
+    if n_cells < len(data):
+        logger.debug(
+            f"Duplicate cells in layout: cells {n_cells:d} < valid positions {n_pos:d}"
+        )
+        return [(-1, -1)] * len(positions)
 
-    maxx = col.max() + 1
-    maxy = row.max() + 1
+    maxx = int(col.max()) + 1
+    maxy = int(row.max()) + 1
     logger.info(
-        f"Position grid: {maxx:d} cols x {maxy:d} rows ({n:d} positions)"
+        f"Position grid: {maxx:d} cols x {maxy:d} rows (valid positions {n_pos:d} / {len(positions):d})"
     )
 
     if is_level_enabled("DEBUG"):
@@ -339,10 +346,10 @@ def positions_to_layout(
         # [1, 0, 2]
         # [-1, 4, -1]
         grid = np.full((maxy, maxx), -1)
-        grid_pos = np.zeros((maxy, maxx, 2))
         for i, (x, y) in enumerate(out):
-            grid[y, x] = i
-            grid_pos[y, x] = positions[i]
+            # Only require checking 1 of x or y
+            if x >= 0:
+                grid[y, x] = i
         # Output the mean spacing between rows + columns
         rx, ry = [], []
         cx, cy = [], []
@@ -351,15 +358,15 @@ def positions_to_layout(
                 i = grid[y, x - 1]
                 j = grid[y, x]
                 if i >= 0 and j >= 0:
-                    rx.append(positions[j][0] - positions[i][0])
-                    ry.append(positions[j][1] - positions[i][1])
+                    rx.append(positions[j][0] - positions[i][0])  # type: ignore[index]
+                    ry.append(positions[j][1] - positions[i][1])  # type: ignore[index]
         for x in range(maxx):
             for y in range(1, maxy):
                 i = grid[y - 1, x]
                 j = grid[y, x]
                 if i >= 0 and j >= 0:
-                    cx.append(positions[j][0] - positions[i][0])
-                    cy.append(positions[j][1] - positions[i][1])
+                    cx.append(positions[j][0] - positions[i][0])  # type: ignore[index]
+                    cy.append(positions[j][1] - positions[i][1])  # type: ignore[index]
 
         logger.debug(positions)
         # Avoid numpy warning for empty lists
@@ -429,7 +436,13 @@ def positions_to_offsets(
 ) -> NDArray[np.int_]:
     """Convert tile stage positions to canvas offsets.
 
-    The clustering tolerance is determined automatically from the data.
+    Any invalid position is returned as (-1, -1) to mark
+    a missing canvas offset. If duplicate positions are detected
+    the entire returned array is -1. Valid indices can be obtained
+    by checking either x or y is positive, e.g. ``offsets[:, 0] >= 0``.
+
+    This is a compositions of ``positions_to_layout`` and ``layout_to_offsets``.
+    See those method for further details of validation.
 
     Args:
         positions: List of (pos_x, pos_y) for each image.
@@ -443,9 +456,9 @@ def positions_to_offsets(
     Returns:
         array of [N, (ox, oy)]
     """
-    grid_map = positions_to_grid(positions)
-    pos, _ = _field_placements(
-        grid_map,
+    layout = positions_to_layout(positions)
+    return layout_to_offsets(
+        layout,
         tile_w,
         tile_h,
         overlap_x,
@@ -453,11 +466,6 @@ def positions_to_offsets(
         translate_x,
         translate_y,
     )
-    out = np.zeros((len(positions), 2), dtype=np.int_)
-    for x, d in grid_map.items():
-        for y, idx in d.items():
-            out[idx] = pos[x, y]
-    return out
 
 
 def compose_tiles(
@@ -1170,6 +1178,52 @@ def _field_placements(
     min_pos = pos[valid].min(axis=0)
     pos -= min_pos
     return pos, valid
+
+
+def layout_to_offsets(
+    layout: list[tuple[int, int]],
+    tile_w: int,
+    tile_h: int,
+    overlap_x: int,
+    overlap_y: int,
+    translate_x: int,
+    translate_y: int,
+) -> NDArray[np.int_]:
+    """Compute per-field (xp, yp) canvas positions from stage grid layout.
+
+    Any grid layout with negative x or y is returned as (-1, -1) to mark
+    a missing grid position.
+
+    Params:
+        layout: List of (col, row) for each image.
+        tile_w: Tile size in x.
+        tile_h: Tile size in y.
+        overlap_x: Overlap in x-dimension.
+        overlap_y: Overlap in y-dimension.
+        translate_x: Row translation in x.
+        translate_y: Column translation in y.
+
+    Returns:
+        array of [N, (ox, oy)]
+    """
+    ox = -overlap_x
+    oy = -overlap_y
+    tx = translate_x
+    ty = translate_y
+
+    offsets = np.full((len(layout), 2), -1, dtype=np.int_)
+    valid = np.ones(len(layout), dtype=np.bool_)
+    for i, (x, y) in enumerate(layout):
+        if x >= 0 and y >= 0:
+            offsets[i] = (
+                x * (tile_w + ox) + y * tx,
+                y * (tile_h + oy) + x * ty,
+            )
+        else:
+            valid[i] = False
+
+    offsets[valid] = offsets[valid] - offsets[valid].min(axis=0)
+    return offsets
 
 
 def assign_field_by_centroid(

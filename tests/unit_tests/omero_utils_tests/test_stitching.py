@@ -17,7 +17,7 @@ from omero_utils.stitching import (
     [100, 50],
     [50, 100]
 ])
-def test_positions_to_grid_2x2(tile_w, tile_h):
+def test_positions_to_offsets_2x2(tile_w, tile_h):
     # 2x2 grid:
     # 0 1
     # 2 3
@@ -42,7 +42,7 @@ def test_positions_to_grid_2x2(tile_w, tile_h):
     [5, 10, -2, -3],
     [-5, -10, -2, -3],
 ])
-def test_positions_to_grid_2x2_with_alignment(overlap_x, overlap_y, translate_x, translate_y):
+def test_positions_to_offsets_2x2_with_alignment(overlap_x, overlap_y, translate_x, translate_y):
     # 2x2 grid:
     # 0 2
     # 1 3
@@ -76,7 +76,7 @@ def test_positions_to_grid_2x2_with_alignment(overlap_x, overlap_y, translate_x,
     [5, 10, -2, -3],
     [-5, -10, -2, -3],
 ])
-def test_positions_to_grid_sparse_3x3_with_alignment(overlap_x, overlap_y, translate_x, translate_y):
+def test_positions_to_offsets_sparse_3x3_with_alignment(overlap_x, overlap_y, translate_x, translate_y):
     # Sparse 3x3 grid:
     # . 3 .
     # 1 0 2
@@ -107,6 +107,43 @@ def test_positions_to_grid_sparse_3x3_with_alignment(overlap_x, overlap_y, trans
     expected -= min_pos
 
     assert np.all(offsets == expected)
+
+
+@pytest.mark.parametrize("overlap_x, overlap_y, translate_x, translate_y", [
+    [0, 0, 0, 0],
+    [5, 10, 0, 0],
+    [0, 0, 2, 3],
+    [5, 10, 2, 3],
+    [5, 10, -2, -3],
+    [-5, -10, -2, -3],
+])
+def test_positions_to_offsets_2x2_missing_positions(overlap_x, overlap_y, translate_x, translate_y):
+    # 2x2 grid:
+    # 0 1
+    # 2 3
+    positions = [(300., 300.), (600., 300.), (300., 600.), (600., 600.)]
+    tile_h, tile_w = 67, 82
+    expected = np.array([
+       [0, 0],
+       [tile_w - overlap_x, translate_y],
+       [translate_x, tile_h - overlap_y],
+       [tile_w - overlap_x + translate_x, tile_h - overlap_y + translate_y],
+    ])
+    expected -= expected.min(axis=0)
+
+    # Omit each position in turn
+    n = len(positions)
+    for i in range(n):
+        pos = positions.copy()
+        exp = expected.copy()
+        pos[i] = None
+        exp[i] = (-1, -1)
+        valid = exp[:, 0] >= 0
+        exp[valid] -= exp[valid].min(axis=0)
+        offsets = positions_to_offsets(pos, tile_w, tile_h,
+            overlap_x=overlap_x, overlap_y=overlap_y,
+            translate_x=translate_x, translate_y=translate_y)
+        assert np.all(offsets == exp)
 
 
 @pytest.mark.parametrize("offsets, tile_h, tile_w, overlap", [
@@ -157,23 +194,23 @@ def test_get_overlap(offsets, tile_h, tile_w, overlap):
 class TestPositionsToLayout:
     def test_not_enough_positions(self):
         positions = [(300.0, 300.0)]
-        assert positions_to_layout(positions) is None
+        assert positions_to_layout(positions) == [(0, 0)]
 
     def test_missing_positions(self):
         positions = [(300.0, 300.0), None]
-        assert positions_to_layout(positions) is None
+        assert positions_to_layout(positions) == [(0, 0), (-1, -1)]
 
     def test_missing_x(self):
         positions = [(300.0, 300.0), (None, 300.0)]
-        assert positions_to_layout(positions) is None
+        assert positions_to_layout(positions) == [(0, 0), (-1, -1)]
 
     def test_missing_y(self):
         positions = [(300.0, 300.0), (300.0, None)]
-        assert positions_to_layout(positions) is None
+        assert positions_to_layout(positions) == [(0, 0), (-1, -1)]
 
     def test_duplicate_positions(self):
         positions = [(300.0, 300.0), (300.0, 300.0)]
-        assert positions_to_layout(positions) is None
+        assert positions_to_layout(positions) == [(-1, -1), (-1, -1)]
 
     def test_2x1(self):
         positions = [(300.0, 300.0), (600.0, 300.0)]
@@ -327,11 +364,11 @@ class TestPositionsToLayout:
         # Omit 2 random positions
         n = len(positions)
         for i in range(10):
-            # Use numpy arrays for slicing
-            pos = np.array(positions)
-            exp = np.array(expected)
-            sample = random.sample(range(n), n - 2)
-            pos = [tuple(x) for x in pos[sample]]
-            exp = [tuple(x) for x in exp[sample]]
+            pos = positions.copy()
+            exp = expected.copy()
+            # Replace with missing positions
+            for j in random.sample(range(n), 2):
+                pos[j] = None
+                exp[j] = (-1, -1)
             layout = positions_to_layout(pos)
             assert layout == exp
