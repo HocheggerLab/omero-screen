@@ -33,6 +33,8 @@ Returns:
 
 import os
 
+from skimage.morphology import erosion
+
 os.environ.setdefault(
     "TQDM_DISABLE", "1"
 )  # suppress Cellpose tile-level progress bars
@@ -637,10 +639,11 @@ def _segment_stitched_nuclei(
                 normalize=False,
                 **eval_kwargs,
             )
-            # Outer-edge border filter only. clear_border treats the array
-            # edge as the boundary; since this is the full stitched canvas,
-            # only true outer-edge objects are removed.
-            masks[t] = filter_segmentation(mask, border=border)
+            # filter objects around non-zero pixels
+            foreground = _create_foreground(img_t, border)
+            masks[t] = filter_segmentation(
+                mask, border=-1, foreground=foreground
+            )
         except IndexError:
             logger.warning(
                 f"Stitched nucleus segmentation failed (t={t:d}) — returning empty mask."
@@ -718,13 +721,35 @@ def _segment_stitched_cells(
                 normalize=False,
                 **eval_kwargs,
             )
-            masks[t] = filter_segmentation(mask, border=border)
+            # filter objects around non-zero pixels
+            foreground = _create_foreground(cell_t, border)
+            masks[t] = filter_segmentation(
+                mask, border=-1, foreground=foreground
+            )
         except IndexError:
             logger.warning(
                 f"Stitched cell segmentation failed (t={t:d}) — returning empty mask."
             )
             # Do nothing as masks[t] is already zero
     return masks
+
+
+def _create_foreground(
+    img: npt.NDArray[Any], border: int
+) -> npt.NDArray[np.bool_] | None:
+    """Create a foreground mask to filter objects touching the edge of stitched tiles."""
+    if border >= 0:
+        foreground = img != 0
+        # to filter objects that touch the edge we
+        # must erode the foreground by at least 1 pixel.
+        # if border=0 the footprint is 3x3.
+        width = 2 * border + 3
+        foot = [
+            (np.ones((width, 1), dtype=np.uint8), 1),
+            (np.ones((1, width), dtype=np.uint8), 1),
+        ]
+        return erosion(foreground, footprint=foot, mode="constant")  # type: ignore[no-any-return]
+    return None
 
 
 def _stitched_cyto(
