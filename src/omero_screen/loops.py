@@ -1015,6 +1015,7 @@ def _stitched_well_loop(
 
     # Save field stitching canvas offsets to the well.
     # This includes any (-1, -1) entries for missing fields.
+    delete_file_attachment(conn, well, ends_with="canvas.csv")
     attach_data(
         conn,
         pd.DataFrame(
