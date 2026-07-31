@@ -426,7 +426,7 @@ def _compute_overlap(
 
 
 def positions_to_offsets(
-    positions: list[tuple[float, float]],
+    positions: list[tuple[float, float] | None],
     tile_w: int,
     tile_h: int,
     overlap_x: int = 0,
@@ -1345,7 +1345,7 @@ def assign_tile_by_centroid(
         centroids_yx: ``(N, 2)`` array of (y, x) centroid coordinates
             in canvas pixel space (matches regionprops ``centroid-0``,
             ``centroid-1``).
-        offsets: Array of [K, (ox, oy)] (must be positive).
+        offsets: Array of [K, (ox, oy)] (ignores negative offsets).
         tile_h: Per-field tile height in pixels.
         tile_w: Per-field tile width in pixels.
 
@@ -1357,10 +1357,12 @@ def assign_tile_by_centroid(
         raise ValueError(f"centroids_yx must be (N, 2), got {centroids.shape}")
     if offsets.ndim != 2 or offsets.shape[1] != 2:
         raise ValueError(f"offsets must be (K, 2), got {offsets.shape}")
-    _validate_offsets(offsets)
+    valid = (offsets[:, 0] >= 0) & (offsets[:, 1] >= 0)
+    if not np.any(valid):
+        raise ValueError(f"No valid positive offsets: {offsets}")
 
-    xps = offsets[:, 0:1].T  # (1, K)
-    yps = offsets[:, 1:2].T
+    xps = offsets[valid, 0:1].T  # (1, K)
+    yps = offsets[valid, 1:2].T
 
     cy = centroids[:, 0:1]  # (N, 1)
     cx = centroids[:, 1:2]
@@ -1387,8 +1389,10 @@ def assign_tile_by_centroid(
         any_inside,
         np.argmin(masked, axis=1),
         np.argmin(dist2, axis=1),
-    )
-    return chosen.astype(np.intp)
+    ).astype(np.intp)
+    # map chosen back to the original offset index
+    remap = np.arange(len(offsets))[valid]
+    return remap[chosen]
 
 
 def recompose_split_labels(

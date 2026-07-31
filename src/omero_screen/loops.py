@@ -61,7 +61,6 @@ from omero_utils.message import PlateDataError, WellAnnotationError
 from omero_utils.stitching import (
     OPERETTA_STITCH_DEFAULTS,
     get_overlap,
-    has_valid_positions,
     positions_to_offsets,
     split_stitched_from_offsets,
     stitch_from_offsets,
@@ -466,29 +465,50 @@ def _load_well_fields(
 ]:
     """Fetch all fields of a well, flatfield-correct, and return per-channel stacks.
 
+    This will ignore downloading images that do not have a canvas offset.
+
     Returns:
-        per_channel: dict mapping channel name to an array of shape (N, T, Y, X)
+        per_channel: dict mapping channel name to an array of shape (M, T, Y, X)
+            where M is the number of fields with valid offsets in the well.
+        offsets: array of (N, (offset_x, offset_y)),
             where N is the number of fields in the well.
-        offsets: array of (offset_x, offset_y) per field, in the same order as N.
         image_ids: OMERO image IDs per field, in the same order as N.
     """
     channels = metadata.channel_data
     samples = list(well.listChildren())
 
     # Collect stage positions
-    positions: list[tuple[float, float]] = []
+    positions: list[tuple[float, float] | None] = []
 
     for ws in samples:
         # Stage position via WellSample (microscope reference frame)
         px = ws.getPosX()
         py = ws.getPosY()
-        positions.append(
-            (
-                px.getValue() if px is not None else 0.0,
-                py.getValue() if py is not None else 0.0,
-            )
+        if px is not None and py is not None:
+            positions.append((px.getValue(), py.getValue()))
+        else:
+            positions.append(None)
+
+    first = samples[0].getImage()
+    size_y, size_x = int(first.getSizeY()), int(first.getSizeX())
+    offsets = positions_to_offsets(
+        positions,
+        size_x,
+        size_y,
+        overlap_x=OPERETTA_STITCH_DEFAULTS["overlap_x"],
+        overlap_y=OPERETTA_STITCH_DEFAULTS["overlap_y"],
+        translate_x=OPERETTA_STITCH_DEFAULTS["translate_x"],
+        translate_y=OPERETTA_STITCH_DEFAULTS["translate_y"],
+    )
+
+    # Position validation result is logged in positions_to_offsets.
+    # Validate stitching is possible.
+    valid = offsets[:, 0] >= 0
+    if not np.any(valid):
+        raise PlateDataError(
+            f"Unable to stitch well {well.getWellPos()} from stage positions",
+            logger,
         )
-    _validate_stitching(well, positions)
 
     # Collect raw per-field arrays per channel and image ids
     per_channel: dict[str, list[npt.NDArray[Any]]] = {
@@ -496,9 +516,13 @@ def _load_well_fields(
     }
     image_ids: list[int] = []
 
-    for ws in samples:
+    for i, ws in enumerate(samples):
         image_obj = ws.getImage()
         image_ids.append(image_obj.getId())
+
+        # Ignore missing images
+        if not valid[i]:
+            continue
 
         _, array = get_image(conn, image_obj.getId())
         for ch, idx in channels.items():
@@ -525,30 +549,7 @@ def _load_well_fields(
         ch: np.stack(arrs) for ch, arrs in per_channel.items()
     }
 
-    tile_h, tile_w = next(iter(stacked.values())).shape[-2:]
-    offsets = positions_to_offsets(
-        positions,
-        tile_w,
-        tile_h,
-        overlap_x=OPERETTA_STITCH_DEFAULTS["overlap_x"],
-        overlap_y=OPERETTA_STITCH_DEFAULTS["overlap_y"],
-        translate_x=OPERETTA_STITCH_DEFAULTS["translate_x"],
-        translate_y=OPERETTA_STITCH_DEFAULTS["translate_y"],
-    )
-
     return stacked, offsets, image_ids
-
-
-def _validate_stitching(
-    well: WellWrapper, positions: list[tuple[float, float]]
-) -> None:
-    """Validate if stitching is possible for the well sample positions."""
-    # has_valid_positions expects list[tuple[float, float] | None]
-    if not has_valid_positions(positions):  # type: ignore[arg-type]
-        raise PlateDataError(
-            f"Unable to stitch well {well.getWellPos()} from stage positions",
-            logger,
-        )
 
 
 def _nuc_diameter_for_cell_line(cell_line: str) -> int:
@@ -864,16 +865,13 @@ def _load_and_stitch_streaming(
     channels = metadata.channel_data
 
     samples = list(well.listChildren())
-    positions: list[tuple[float, float]] = []
+    positions: list[tuple[float, float] | None] = []
     for s in samples:
         px, py = s.getPosX(), s.getPosY()
-        positions.append(
-            (
-                px.getValue() if px is not None else 0.0,
-                py.getValue() if py is not None else 0.0,
-            )
-        )
-    _validate_stitching(well, positions)
+        if px is not None and py is not None:
+            positions.append((px.getValue(), py.getValue()))
+        else:
+            positions.append(None)
 
     image_objs = [s.getImage() for s in samples]
     image_ids = [int(o.getId()) for o in image_objs]
@@ -892,6 +890,16 @@ def _load_and_stitch_streaming(
         translate_y=OPERETTA_STITCH_DEFAULTS["translate_y"],
     )
 
+    # Position validation result is logged in positions_to_offsets.
+    # Validate stitching is possible.
+    valid = offsets[:, 0] >= 0
+    if not np.any(valid):
+        raise PlateDataError(
+            f"Unable to stitch well {well.getWellPos()} from stage positions",
+            logger,
+        )
+    valid_offsets = offsets[valid]
+
     ch_names = list(channels.keys())
     canvas: npt.NDArray[Any] | None = None
     for t in range(n_t):
@@ -899,7 +907,10 @@ def _load_and_stitch_streaming(
             logger.info(f"Streaming stitch: timepoint {t + 1}/{n_t}")
         # One timepoint of every field (all Z, C), flatfield-corrected.
         frame: dict[str, list[npt.NDArray[Any]]] = {ch: [] for ch in ch_names}
-        for fid in image_ids:
+        for i, fid in enumerate(image_ids):
+            # Ignore missing images
+            if not valid[i]:
+                continue
             # start_coords / axis_lengths are XYZCT; the array comes back TZYXC.
             _, arr = get_image(
                 conn,
@@ -922,7 +933,7 @@ def _load_and_stitch_streaming(
         frame_stack = {
             ch: np.stack(frame[ch])[:, np.newaxis] for ch in ch_names
         }
-        stitched_t = _stitch_well(frame_stack, offsets)  # (1, Ys, Xs, C)
+        stitched_t = _stitch_well(frame_stack, valid_offsets)  # (1, Ys, Xs, C)
         if canvas is None:
             ys, xs = stitched_t.shape[1], stitched_t.shape[2]
             canvas = np.zeros((n_t, ys, xs, len(ch_names)), dtype=np.float32)
@@ -978,6 +989,7 @@ def _stitched_well_loop(
                     conn, well, metadata, flatfield_dict
                 )
             )
+        valid = offsets[:, 0] >= 0
         # _stitch_well (used per-frame internally) builds channels in this
         # order; metadata.channel_data is its source of truth.
         channel_order = list(metadata.channel_data.keys())
@@ -986,6 +998,7 @@ def _stitched_well_loop(
             per_channel, offsets, image_ids = _load_well_fields(
                 conn, well, metadata, dataset_id, flatfield_dict
             )
+        valid = offsets[:, 0] >= 0
         # Preserve channel order — _stitch_well builds the canvas in this order
         channel_order = list(per_channel.keys())
         # Per-field (T, Y, X) shape — needed later to split the stitched
@@ -994,12 +1007,14 @@ def _stitched_well_loop(
         tile_h = sample_channel.shape[2]
         tile_w = sample_channel.shape[3]
         with bench.stage("stitched_compose"):
-            stitched_img = _stitch_well(per_channel, offsets)
+            # Filter valid offsets
+            stitched_img = _stitch_well(per_channel, offsets[valid])
         # Free per-field memory before segmentation — the stitched canvas
         # holds all the pixels we need from here on.
         del per_channel
 
-    # Save field stitching canvas offsets to the well
+    # Save field stitching canvas offsets to the well.
+    # This includes any (-1, -1) entries for missing fields.
     attach_data(
         conn,
         pd.DataFrame(
@@ -1017,7 +1032,7 @@ def _stitched_well_loop(
     # image_id resolution by centroid is performed in ImageProperties.
     synthetic_image_id = image_ids[0]
     logger.info(
-        f"Stitched canvas for {well_pos}: shape {stitched_img.shape}, dtype {stitched_img.dtype}, {n_fields:d} fields"
+        f"Stitched canvas for {well_pos}: shape {stitched_img.shape}, dtype {stitched_img.dtype}, {sum(valid):d} fields"
     )
 
     nucleus_channel = metadata.channel_roles["nucleus"]
@@ -1099,8 +1114,10 @@ def _stitched_well_loop(
     # artefacts. Each label belongs to exactly one field by centroid,
     # so the cache layer can restitch with without
     # ID remapping (Stage 2 concern).
+    valid_offsets = offsets[valid]
+
     def _split(mask: npt.NDArray[Any]) -> list[npt.NDArray[Any]]:
-        return split_stitched_from_offsets(mask, offsets, tile_h, tile_w)
+        return split_stitched_from_offsets(mask, valid_offsets, tile_h, tile_w)
 
     with bench.stage("stitched_mask_split"):
         per_field_n_masks = _split(stitched_n_mask)
@@ -1108,11 +1125,16 @@ def _stitched_well_loop(
             _split(stitched_c_mask) if stitched_c_mask is not None else None
         )
     with bench.stage("stitched_mask_upload"):
+        # Upload masked for valid canvas positions
+        c = -1
         for n in range(n_fields):
+            if not valid[n]:
+                continue
+            c += 1
             field_img = well.getWellSample(n).getImage()
-            field_n = per_field_n_masks[n]
+            field_n = per_field_n_masks[c]
             field_c = (
-                per_field_c_masks[n] if per_field_c_masks is not None else None
+                per_field_c_masks[c] if per_field_c_masks is not None else None
             )
             upload_masks(
                 conn,

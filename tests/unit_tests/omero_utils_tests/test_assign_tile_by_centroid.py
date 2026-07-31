@@ -139,14 +139,31 @@ def test_rejects_wrong_offsets_shape():
         )
 
 
-def test_negative_offsets_throws():
-    """Negative offsets raise ValueError."""
+def test_all_negative_offsets_throws():
+    """All negative offsets raise ValueError."""
     tile_h = tile_w = 100
-    with pytest.raises(ValueError, match="Offsets must be positive"):
+    with pytest.raises(ValueError, match="No valid positive offsets"):
         assign_tile_by_centroid(
-            np.array([[0.0, 0.0], [0.0, 0.0]]), np.array([(0, 0), (tile_w, -1)]), tile_h, tile_w
+            np.array([[0.0, 0.0], [0.0, 0.0]]), np.array([(-1, -1), (-1, -1)]), tile_h, tile_w
         )
-    with pytest.raises(ValueError, match="Offsets must be positive"):
+    with pytest.raises(ValueError, match="No valid positive offsets"):
         assign_tile_by_centroid(
-            np.array([[0.0, 0.0], [0.0, 0.0]]), np.array([(0, 0), (-1, tile_h)]), tile_h, tile_w
+            np.array([[0.0, 0.0], [0.0, 0.0]]), np.array([(-1, 0), (0, -1)]), tile_h, tile_w
         )
+
+
+def test_negative_offsets_are_ignored():
+    """Negative offsets are ignored."""
+    tile_h, tile_w = 100, 300
+    # centroids are (y, x)
+    centroid = np.array([[tile_h / 2, tile_w / 2], [3 * tile_h / 2, tile_w / 2]])
+
+    assert assign_tile_by_centroid(
+        centroid, np.array([(0, 0), (0, tile_h), (-1, -1)]), tile_h, tile_w
+    ).tolist() == [0, 1]
+    assert assign_tile_by_centroid(
+        centroid, np.array([(0, 0), (-1, -1), (0, tile_h)]), tile_h, tile_w
+    ).tolist() == [0, 2]
+    assert assign_tile_by_centroid(
+        centroid, np.array([(-1, -1), (0, 0), (0, tile_h)]), tile_h, tile_w
+    ).tolist() == [1, 2]
