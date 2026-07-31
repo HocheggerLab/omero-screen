@@ -179,6 +179,8 @@ def _load_well_fields(
     ``cache_plate`` pattern. Falls back to the sequential path when
     ``omero_conn`` is absent.
 
+    Ignores any fields without a canvas offset.
+
     Returns:
         images: ``(N_fields, T, Y, X, C)`` float32 array.
         offsets: array of canvas offsets (ox, oy) per field (N_fields, 2).
@@ -186,7 +188,11 @@ def _load_well_fields(
     image_ids = [int(ws.getImage().getId()) for ws in well.listChildren()]
     offsets = _load_canvas_offsets(well)  # (N, 2)
 
-    n_fields = len(image_ids)
+    valid = offsets[:, 0] >= 0
+    valid_offsets = offsets[valid]
+    fields = np.arange(len(offsets))[valid].tolist()
+
+    n_fields = len(fields)
     channels = list(channel_data.keys())
     field_arrays: list[npt.NDArray[Any] | None] = [None] * n_fields
 
@@ -221,20 +227,20 @@ def _load_well_fields(
     if omero_conn is not None and n_fields > 1:
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
             for fut in as_completed(
-                ex.submit(_download_one, i, image_ids[i])
+                ex.submit(_download_one, i, image_ids[fields[i]])
                 for i in range(n_fields)
             ):
                 idx, arr = fut.result()
                 field_arrays[idx] = arr
     else:
         for i in range(n_fields):
-            _, field_arrays[i] = _download_one(i, image_ids[i])
+            _, field_arrays[i] = _download_one(i, image_ids[fields[i]])
 
     # Flatfield-correct on the main thread (CPU-bound, fast vs network).
     per_channel_fields: dict[str, list[npt.NDArray[Any]]] = {
         ch: [] for ch in channels
     }
-    for n, array in enumerate(field_arrays):
+    for n, array in zip(fields, field_arrays, strict=True):
         if array is None:
             raise RuntimeError(f"Field {n} of well failed to download")
         if array.shape[1] != 1:
@@ -260,7 +266,7 @@ def _load_well_fields(
         np.stack(per_channel_fields[ch], axis=0) for ch in channels
     ]  # each (N, T, Y, X)
     stacked = np.stack(per_channel_stacks, axis=-1)  # (N, T, Y, X, C)
-    return stacked, offsets
+    return stacked, valid_offsets
 
 
 def _stitch_image(
@@ -394,25 +400,28 @@ def _build_lazy_well_arrays(
     Returns:
         ``(image_dask, nuclei_dask, cells_dask_or_None)``.
     """
-    image_ids = [int(ws.getImage().getId()) for ws in well.listChildren()]
     offsets = _load_canvas_offsets(well)  # (N, 2)
+
+    valid = (offsets[:, 0] >= 0) & (offsets[:, 1] >= 0)
+    valid_offsets = offsets[valid]
+    fields = np.arange(len(offsets))[valid].tolist()
 
     first = well.getWellSample(0).getImage()
     n_t = int(first.getSizeT())
     n_ch = len(channel_data)
-    mask_ids, source_ids = resolve_stitched_mask_ids(well)
+    mask_ids, source_ids = resolve_stitched_mask_ids(well, fields)
 
     # Auto edge
     tile_h, tile_w = int(first.getSizeY()), int(first.getSizeX())
-    edge = get_overlap(offsets, tile_h, tile_w)
+    edge = get_overlap(valid_offsets, tile_h, tile_w)
     logger.debug(f"Stitching {well.getWellPos()} using auto-edge: {edge}")
 
     # Probe block 0 for canvas dims (image) and cell presence (labels).
     probe_img = _load_stitch_image_block(
         conn,
         omero_conn,
-        image_ids,
-        offsets,
+        source_ids,
+        valid_offsets,
         edge,
         channel_data,
         flatfield_dict,
@@ -422,7 +431,7 @@ def _build_lazy_well_arrays(
     )  # (1, C, Y, X)
     cy, cx = int(probe_img.shape[2]), int(probe_img.shape[3])
     nuc0, cell0 = _load_recompose_label_block(
-        conn, omero_conn, mask_ids, source_ids, offsets, 0, 1
+        conn, omero_conn, mask_ids, source_ids, valid_offsets, 0, 1
     )
     ly, lx = int(nuc0.shape[1]), int(nuc0.shape[2])
     has_cells = cell0 is not None
@@ -433,8 +442,8 @@ def _build_lazy_well_arrays(
             delayed(_load_stitch_image_block)(
                 conn,
                 omero_conn,
-                image_ids,
-                offsets,
+                source_ids,
+                valid_offsets,
                 edge,
                 channel_data,
                 flatfield_dict,
@@ -459,7 +468,7 @@ def _build_lazy_well_arrays(
             omero_conn,
             mask_ids,
             source_ids,
-            offsets,
+            valid_offsets,
             t0,
             t1,
         )

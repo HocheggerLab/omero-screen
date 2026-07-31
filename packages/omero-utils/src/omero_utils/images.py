@@ -442,7 +442,8 @@ def fetch_stitched_field_masks(
             stitched mode and the caller should fall back to per-field
             masks.
     """
-    mask_ids, source_ids = resolve_stitched_mask_ids(well)
+    fields = list(range(well.countWellSample()))
+    mask_ids, source_ids = resolve_stitched_mask_ids(well, fields)
     nuclei, cells = fetch_stitched_field_masks_trange(
         conn,
         mask_ids,
@@ -455,6 +456,7 @@ def fetch_stitched_field_masks(
 
 def resolve_stitched_mask_ids(
     well: WellWrapper,
+    fields: list[int],
 ) -> tuple[list[int], list[int]]:
     """Resolve per-field ``(mask_id, source_id)`` for a well's stitched masks.
 
@@ -464,22 +466,22 @@ def resolve_stitched_mask_ids(
 
     Args:
         well: Well object whose fields will be queried.
+        fields: The indices of the fields.
 
     Returns:
-        ``(mask_ids, source_ids)`` in well-sample order.
+        ``(mask_ids, source_ids)`` in the provided field order.
 
     Raises:
         KeyError: If any field lacks a ``Stitched_Segmentation_Mask``
             annotation (well not processed in stitched mode).
     """
-    n_fields = len(list(well.listChildren()))
-    source_ids: list[int] = [0] * n_fields
-    mask_ids: list[int] = [0] * n_fields
-    for n in range(n_fields):
+    source_ids = []
+    mask_ids = []
+    for n in fields:
         ws = well.getWellSample(n)
         field_image = ws.getImage()
-        field_id = field_image.getId()
-        source_ids[n] = field_id
+        field_id = int(field_image.getId())
+        source_ids.append(field_id)
         anns = parse_annotations(field_image, ns=OmeroScreenNS.METADATA)
         if STITCHED_MASK_ANNOTATION_KEY not in anns:
             raise KeyError(
@@ -487,7 +489,7 @@ def resolve_stitched_mask_ids(
                 f"{STITCHED_MASK_ANNOTATION_KEY!r} annotation. "
                 f"Was this well processed in stitched mode?"
             )
-        mask_ids[n] = int(anns[STITCHED_MASK_ANNOTATION_KEY])
+        mask_ids.append(int(anns[STITCHED_MASK_ANNOTATION_KEY]))
     return mask_ids, source_ids
 
 

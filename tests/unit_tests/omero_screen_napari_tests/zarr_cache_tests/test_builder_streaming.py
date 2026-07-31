@@ -47,6 +47,7 @@ def _make_well() -> MagicMock:
         samples.append(s)
     well.getWellSample.side_effect = lambda n: samples[n]
     well.listChildren.return_value = samples
+    well.countWellSample.return_value = len(samples)
     return well
 
 
@@ -80,7 +81,7 @@ def _patches(field_data, mask_data):  # type: ignore[no-untyped-def]
         arr = field_data[image_id]
         return arr if start is None else arr[start:end]
 
-    def fake_resolve(_well):  # type: ignore[no-untyped-def]
+    def fake_resolve(_well, _fields):  # type: ignore[no-untyped-def]
         return list(_MASK_IDS), list(_IMAGE_IDS)
 
     def fake_trange(  # type: ignore[no-untyped-def]
@@ -144,7 +145,7 @@ def _build_both():  # type: ignore[no-untyped-def]
         tile_h, tile_w = imgs_ntyxc.shape[-3:-1]
         edge = get_overlap(offsets, tile_h, tile_w)
         eager_img = builder._stitch_image(imgs_ntyxc, offsets, edge)
-        mids, src = builder.resolve_stitched_mask_ids(well)
+        mids, src = builder.resolve_stitched_mask_ids(well, list(range(well.countWellSample())))
         nuc_f, cell_f = builder.fetch_stitched_field_masks_trange(
             MagicMock(), mids, source_ids=src
         )
