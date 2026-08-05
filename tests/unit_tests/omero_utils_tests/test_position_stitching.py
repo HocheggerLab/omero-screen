@@ -6,7 +6,6 @@ import re
 from omero_utils.stitching import (
     _adaptive_tolerance,
     _cluster_values,
-    _compute_overlap,
     has_valid_positions,
     positions_to_grid,
     recompose_split_labels,
@@ -138,31 +137,6 @@ class TestClusterValues:
         values = [200.0, 0.0, 100.0]
         clusters = _cluster_values(values, tolerance=25.0)
         assert clusters == pytest.approx([0.0, 100.0, 200.0])
-
-
-# --------------- _compute_overlap ---------------
-
-
-class TestComputeOverlap:
-    def test_um_spacing(self):
-        """Spacing in µm close to tile size → valid overlap."""
-        # 5 clusters, spacing = 200µm, pixel_size = 0.5µm/px → step = 400px
-        # tile = 500px → overlap = 100
-        clusters = [0.0, 200.0, 400.0, 600.0, 800.0]
-        assert _compute_overlap(clusters, tile_size_px=500, pixel_size=0.5, axis_label="X") == 100
-
-    def test_non_um_spacing_uses_fallback(self):
-        """Spacing much smaller than tile → not µm, uses fallback."""
-        clusters = [0.0, 0.0013, 0.0026]
-        assert _compute_overlap(clusters, tile_size_px=1080, pixel_size=0.65, axis_label="X", fallback=7) == 7
-
-    def test_non_um_spacing_default_fallback(self):
-        """Spacing much smaller than tile → default fallback is 0."""
-        clusters = [0.0, 0.0013, 0.0026]
-        assert _compute_overlap(clusters, tile_size_px=1080, pixel_size=0.65, axis_label="X") == 0
-
-    def test_single_cluster(self):
-        assert _compute_overlap([0.0], tile_size_px=1080, pixel_size=0.65, axis_label="X") == 0
 
 
 # --------------- positions_to_grid ---------------

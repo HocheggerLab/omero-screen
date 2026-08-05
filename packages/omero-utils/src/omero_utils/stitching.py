@@ -389,37 +389,6 @@ def positions_to_layout(
     return out
 
 
-def _compute_overlap(
-    clusters: list[float],
-    tile_size_px: int,
-    pixel_size: float,
-    axis_label: str,
-    fallback: int = 0,
-) -> int:
-    """Compute tile overlap in pixels from cluster spacing.
-
-    If positions are in µm the spacing divided by pixel_size gives the
-    step in pixels, and overlap = tile_size - step.  When the computed
-    step is not plausible (outside 50 %–150 % of tile_size) the
-    positions are assumed to be in a different unit and *fallback* is
-    returned instead.
-    """
-    if len(clusters) < 2:
-        return 0
-
-    spacing = clusters[1] - clusters[0]
-    step_px = spacing / pixel_size
-
-    if 0.5 * tile_size_px < step_px < 1.5 * tile_size_px:
-        overlap = max(0, int(round(tile_size_px - step_px)))
-        return overlap
-
-    logger.info(
-        f"{axis_label} spacing {spacing:.6g} / {pixel_size:.6g} gives {step_px:.0f} px step (tile={tile_size_px:d} px) — positions likely not in µm, using fallback overlap {fallback:d}"
-    )
-    return fallback
-
-
 # --------------------------------------------------------------------------
 # Tile composition
 # --------------------------------------------------------------------------
