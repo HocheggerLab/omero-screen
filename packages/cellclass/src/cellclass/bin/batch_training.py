@@ -118,8 +118,8 @@ def run(args: argparse.Namespace) -> None:
     logging.info("Done")
 
 
-def main() -> None:
-    """Entry point for cellclass-batch CLI."""
+def get_parser() -> argparse.ArgumentParser:
+    """Build the cellclass-batch command-line parser."""
     parser = argparse.ArgumentParser(
         description="Program to run the training script for a batch file of arguments."
     )
@@ -150,7 +150,12 @@ def main() -> None:
         help="Program (default: cellclass-train in the active Python environment)",
     )
 
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    """Entry point for cellclass-batch CLI."""
+    args = get_parser().parse_args()
     run(args)
 
 

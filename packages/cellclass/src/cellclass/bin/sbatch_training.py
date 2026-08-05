@@ -86,8 +86,8 @@ def create_job_script(args: argparse.Namespace) -> str:
         return script
 
 
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments for SLURM job submission."""
+def get_parser() -> argparse.ArgumentParser:
+    """Build the cellclass-sbatch command-line parser."""
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description="Program to run training on a SLURM HPC.",
@@ -157,7 +157,12 @@ def parse_args() -> argparse.Namespace:
         help="Do not submit the job script",
     )
 
-    return parser.parse_args()
+    return parser
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments for SLURM job submission."""
+    return get_parser().parse_args(argv)
 
 
 def main() -> None:

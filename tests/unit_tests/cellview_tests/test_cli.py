@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from cellview.cli import get_parser
 
 
@@ -141,3 +139,79 @@ class TestCleanCommand:
         parser = get_parser()
         args = parser.parse_args(["clean"])
         assert args.command == "clean"
+
+
+class TestMigrationContract:
+    """Freeze representative nested and variadic command behaviour."""
+
+    def test_import_options(self) -> None:
+        args = get_parser().parse_args(
+            [
+                "--db",
+                "/tmp/cellview.duckdb",
+                "import",
+                "plate",
+                "12",
+                "34",
+                "--interactive",
+                "--nucleus-channel",
+                "H2B_RFP",
+            ]
+        )
+        assert vars(args) == {
+            "db": Path("/tmp/cellview.duckdb"),
+            "command": "import",
+            "import_command": "plate",
+            "ids": [12, 34],
+            "interactive": True,
+            "nucleus_channel": "H2B_RFP",
+        }
+
+    def test_explore_options(self) -> None:
+        args = get_parser().parse_args(
+            [
+                "explore",
+                "12",
+                "34",
+                "--experiment",
+                "DNA-damage",
+                "--template",
+                "cellcycle",
+                "--fresh",
+                "--no-napari",
+                "--code",
+                "--json",
+            ]
+        )
+        assert vars(args) == {
+            "db": None,
+            "command": "explore",
+            "plate_ids": ["12", "34"],
+            "experiment": "DNA-damage",
+            "template": "cellcycle",
+            "fresh": True,
+            "no_napari": True,
+            "code": True,
+            "json": True,
+        }
+
+    def test_template_add_options(self) -> None:
+        args = get_parser().parse_args(
+            [
+                "template",
+                "add",
+                "/tmp/analysis.py",
+                "--name",
+                "custom",
+                "--description",
+                "Custom analysis",
+            ]
+        )
+        assert vars(args) == {
+            "db": None,
+            "command": "template",
+            "template_command": "add",
+            "path": Path("/tmp/analysis.py"),
+            "name": "custom",
+            "description": "Custom analysis",
+        }

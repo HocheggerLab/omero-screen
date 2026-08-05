@@ -209,8 +209,8 @@ def run(args: argparse.Namespace) -> None:
     )
 
 
-def main() -> None:
-    """Entry point for cellclass-dataset CLI."""
+def get_parser() -> argparse.ArgumentParser:
+    """Build the cellclass-dataset command-line parser."""
     parser = argparse.ArgumentParser(
         description="""
         Program to convert cell classification images (YXC) to a dataset.
@@ -258,7 +258,12 @@ def main() -> None:
         help="Only use single label masks",
     )
 
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    """Entry point for cellclass-dataset CLI."""
+    args = get_parser().parse_args()
     run(args)
 
 

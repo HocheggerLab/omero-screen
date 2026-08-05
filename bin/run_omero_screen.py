@@ -22,8 +22,8 @@ _CP4_MODELS: dict[str, str] = {
 }
 
 
-def main() -> None:
-    """Main entry point for the OMERO screen application."""
+def get_parser() -> argparse.ArgumentParser:
+    """Build the OMERO Screen command-line parser."""
     parser = argparse.ArgumentParser(
         description="Program to run OMERO screen for the plate ID."
     )
@@ -170,6 +170,12 @@ def main() -> None:
         "tracebacks. Console is off by default so logs don't clutter the "
         "progress display.",
     )
+    return parser
+
+
+def main() -> None:
+    """Main entry point for the OMERO screen application."""
+    parser = get_parser()
     args = parser.parse_args()
 
     # Note: Lazy import to speed up parsing errors

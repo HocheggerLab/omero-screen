@@ -56,8 +56,8 @@ def run(args: argparse.Namespace) -> None:
         )
 
 
-def main() -> None:
-    """Entry point for cellclass-sample CLI."""
+def get_parser() -> argparse.ArgumentParser:
+    """Build the cellclass-sample command-line parser."""
     parser = argparse.ArgumentParser(
         description="Program to sample images from a training dataset."
     )
@@ -81,7 +81,12 @@ def main() -> None:
         help="Crop NxN dimension (default: full image)",
     )
 
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    """Entry point for cellclass-sample CLI."""
+    args = get_parser().parse_args()
     run(args)
 
 

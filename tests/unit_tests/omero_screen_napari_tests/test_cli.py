@@ -1,17 +1,15 @@
 
 import argparse
-import pytest
-from unittest.mock import MagicMock, patch, ANY
-import pandas as pd
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
+import pytest
 from omero_screen_napari.trainingdata_db.cli import (
-    setup_parser,
-    handle_migrate,
-    handle_list,
-    handle_stats,
     handle_export,
-    main,
+    handle_list,
+    handle_migrate,
+    handle_stats,
+    setup_parser,
 )
 
 
@@ -56,6 +54,51 @@ def test_parser_export(parser):
     assert args.command == "export"
     assert args.classifier == "MyClassifier"
     assert args.format == "json"
+
+
+def test_parser_export_full_contract(parser):
+    args = parser.parse_args(
+        [
+            "export",
+            "MyClassifier",
+            "--format",
+            "parquet",
+            "--output",
+            "/tmp/training.parquet",
+            "--plate",
+            "1234",
+            "--well",
+            "A1",
+        ]
+    )
+    assert vars(args) == {
+        "command": "export",
+        "classifier": "MyClassifier",
+        "format": "parquet",
+        "output": Path("/tmp/training.parquet"),
+        "plate": 1234,
+        "well": "A1",
+    }
+
+
+def test_parser_delete_full_contract(parser):
+    args = parser.parse_args(
+        [
+            "delete",
+            "classifier-a",
+            "classifier-b",
+            "--yes",
+            "--plate",
+            "1234",
+            "5678",
+        ]
+    )
+    assert vars(args) == {
+        "command": "delete",
+        "identifiers": ["classifier-a", "classifier-b"],
+        "yes": True,
+        "plate": [1234, 5678],
+    }
 
 
 @patch("omero_screen_napari.trainingdata_db.cli.migrate_all_classifiers")

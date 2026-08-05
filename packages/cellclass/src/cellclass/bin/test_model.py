@@ -212,8 +212,8 @@ def run(args: argparse.Namespace) -> None:
             plt.show()
 
 
-def main() -> None:
-    """Entry point for cellclass-test CLI."""
+def get_parser() -> argparse.ArgumentParser:
+    """Build the cellclass-test command-line parser."""
     parser = argparse.ArgumentParser(
         description="Program to run a model using an ROI dataset."
     )
@@ -320,8 +320,12 @@ def main() -> None:
         "--matrix-csv", help="Save the confusion matrix as a CSV file"
     )
 
-    args = parser.parse_args()
+    return parser
 
+
+def main() -> None:
+    """Entry point for cellclass-test CLI."""
+    args = get_parser().parse_args()
     run(args)
 
 

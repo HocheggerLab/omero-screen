@@ -153,8 +153,8 @@ def run(args: argparse.Namespace) -> None:
         json.dump(d, f)
 
 
-def main() -> None:
-    """Entry point for cellclass-extract CLI."""
+def get_parser() -> argparse.ArgumentParser:
+    """Build the cellclass-extract command-line parser."""
     parser = argparse.ArgumentParser(
         description="Program to extract model metadata from a training settings file "
         "and optionally save to a model state file."
@@ -204,7 +204,12 @@ def main() -> None:
         help="Class labels (overrides settings metadata)",
     )
 
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    """Entry point for cellclass-extract CLI."""
+    args = get_parser().parse_args()
     run(args)
 
 

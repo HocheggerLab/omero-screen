@@ -513,8 +513,8 @@ def run(args: argparse.Namespace) -> None:
     logging.info(f"Done (in {t:.6g} seconds)")
 
 
-def main() -> None:
-    """Entry point for cellclass-train CLI."""
+def get_parser() -> argparse.ArgumentParser:
+    """Build the cellclass-train command-line parser."""
     parser = argparse.ArgumentParser(
         description="Program to train a model using an ROI dataset."
     )
@@ -798,7 +798,12 @@ def main() -> None:
         help="Weights and Biases ID (overrides generated/saved state id)",
     )
 
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    """Entry point for cellclass-train CLI."""
+    args = get_parser().parse_args()
 
     # Support save/continue of a training run
     if args.input.endswith(".json"):
