@@ -5,10 +5,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import random
+from skimage.measure import label
 
 from omero_utils.stitching import (
     positions_to_offsets,
     get_overlap,
+    merge_labels,
     positions_to_layout,
 )
 
@@ -372,3 +374,57 @@ class TestPositionsToLayout:
                 exp[j] = (-1, -1)
             layout = positions_to_layout(pos)
             assert layout == exp
+
+
+def test_merge_labels():
+    im1 = [
+      [0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0],
+      [0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0],
+      [0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2],
+      [0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    ]
+    im2 = [
+      [1, 1, 1, 2, 2, 2, 2],
+      [1, 1, 1, 2, 2, 2, 2],
+      [1, 1, 1, 0, 0, 0, 0],
+      [1, 1, 1, 0, 0, 0, 0],
+      [1, 1, 1, 0, 0, 0, 0],
+      [1, 1, 1, 0, 0, 0, 0],
+    ]
+    i1 = np.array(im1)
+    i2 = np.array(im2)
+    result = merge_labels(i1, i2, 0, 3, border=1)
+    # Overlaps: image.label
+    # 1.1-2.2 f=0.375
+    # 1.1-2.1 f=0.0625
+    # 1.2-2.2 f=0.125
+    # The second overlaps should not blank
+    # out pixels in 1.1 or 2.2.
+    # The following may not be an exact match.
+    # The purpose is to test all these pixels are non-zero.
+    # A previous version of merge_labels deleted
+    # pixels from the entire label overlap if it was previously
+    # assigned to another overlapping label. What should happen
+    # is only those pixels overlapping another label
+    # should be reassigned (to one of the labels).
+    # No pixels should be lost.
+    expected = np.array([
+      [0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0],
+      [0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0],
+      [0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2],
+      [3, 3, 1, 1, 1, 1, 1, 2, 2, 2, 2],
+      [3, 3, 3, 1, 1, 1, 1, 0, 0, 0, 0],
+      [3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0],
+      [3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0],
+      [3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0],
+      [3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0],
+    ])
+    assert np.all((result != 0) == (expected != 0))
+    # Currently works as largest label dictates assignment.
+    # Could change if overlap assignment changes.
+    assert np.all(result == expected)

@@ -682,6 +682,54 @@ def compose_labels(
     return np.dstack(out)
 
 
+def compose_labels_from_offsets(
+    tiles: NDArray[Any],
+    offsets: NDArray[np.int_],
+) -> np.ndarray[Any, np.dtype[Any]]:
+    """Compose label tiles into a single image (YXC, all tiles same shape).
+
+    Unique label IDs are remapped. Overlapping labels on adjacent tiles
+    are mapped to the same ID.
+
+    Args:
+        tiles: Array of shape (N, Y, X, C).
+        offsets: Array of [N, (ox, oy)] (must be positive).
+
+    Returns:
+        The composed labels (YXC).
+    """
+    _validate_offsets(offsets)
+
+    dtype = tiles.dtype
+    tile_h, tile_w = tiles.shape[1:3]
+
+    max_pos = offsets.max(axis=0)
+
+    channels = tiles.shape[3]
+    out = [
+        np.zeros(
+            (
+                # Note: Offset max is (x, y) not (y, x)
+                max_pos[1] + tile_h,
+                max_pos[0] + tile_w,
+            ),
+            dtype=dtype,
+        )
+        for i in range(channels)
+    ]
+
+    border = get_overlap(offsets, tile_h, tile_w)
+
+    for im, pos in zip(tiles, offsets, strict=True):
+        xp, yp = pos
+        for c in range(channels):
+            out[c] = merge_labels(
+                out[c], im[..., c], xp=xp, yp=yp, border=border
+            )
+
+    return np.dstack(out)
+
+
 def merge_labels(
     im1: np.ndarray[Any, np.dtype[Any]],
     im2: np.ndarray[Any, np.dtype[Any]],
@@ -715,8 +763,13 @@ def merge_labels(
     if not overlap.any():
         return _merge_nonoverlapping_labels(im1, im2, xp=xp, yp=yp)
 
-    h1o = np.bincount(im1a.reshape(-1), weights=overlap.reshape(-1))
-    h2o = np.bincount(im2.reshape(-1), weights=overlap.reshape(-1))
+    # Pixels in the overlap region.
+    # Later set to zero for ignored overlaps.
+    oi1 = im1a[overlap]
+    oi2 = im2[overlap]
+
+    h1o = np.bincount(oi1)
+    h2o = np.bincount(oi2)
     # Require a new -> old ID overlap histogram. Assume new IDs are
     # sequential from 1.  Remap old IDs that are in the overlap from 1
     # to save memory.
@@ -748,42 +801,36 @@ def merge_labels(
     omap2 = np.arange(len(h2))
     map1 = np.zeros(len(h1), dtype=np.uint16)
     map2 = np.zeros(len(h2), dtype=np.uint16)
-    m1 = len(h1)
-
-    remove1 = []
-    remove2 = []
+    # Offset for image 2 labels
+    m1 = len(h1) - 1
 
     # Remap labels to use the ID from the object they overlap.
     # Greedy: largest overlap wins; subsequent overlaps remove pixels.
     for i, j, c, _ in overlaps:
-        f1 = c / h1[i]
-        f2 = c / h2[j]
-        if f1 > f2:
-            if map1[i]:
-                remove1.append(i)
-                continue
-            if map2[j]:
-                remove1.append(i)
-                continue
-            map2[j] = j + m1
-            map1[i] = map2[j]
+        # Check if either object is mapped.
+        if map1[i] or map2[j]:
+            # Remove overlap pixels from largest label
+            # by setting to zero.
+            mask = (oi1 == i) & (oi2 == j)
+            assert c == mask.sum()
+            if h2[j] > h1[i]:
+                oi2[mask] = 0
+            else:
+                oi1[mask] = 0
         else:
-            if map2[j]:
-                remove2.append(j)
-                continue
-            if map1[i]:
-                remove2.append(j)
-                continue
-            map1[i] = i
-            map2[j] = map1[i]
+            # None are mapped: assign the mapping to the largest label.
+            if h2[j] > h1[i]:
+                map2[j] = j + m1
+                map1[i] = map2[j]
+            else:
+                map1[i] = i
+                map2[j] = map1[i]
 
-    if remove2:
-        for v in remove2:
-            im2[(im2 == v) & overlap] = 0
-    if remove1:
-        for v in remove1:
-            im1a[(im1a == v) & overlap] = 0
-        im1[yp : yp + s[0], xp : xp + s[1]] = im1a
+    # Remove ignored overlapping pixels
+    im1a[overlap] = oi1
+    im2[overlap] = oi2
+
+    im1[yp : yp + s[0], xp : xp + s[1]] = im1a
 
     map1 = cast(
         np.ndarray[Any, np.dtype[np.uint16]],
@@ -795,13 +842,15 @@ def merge_labels(
     )
     map2[0] = 0
 
-    # Compress IDs to ascending from 1
-    u_ints = {int(x) for x in map1}
-    u_ints.update(int(x) for x in map2)
-    u_ints.add(0)
-    m = np.zeros(max(u_ints) + 1, dtype=np.uint16)
-    for i, v in enumerate(sorted(u_ints)):
-        m[v] = np.uint16(i)
+    # Compress map1 and map2 non-zero IDs to ascending from 1.
+    m = np.arange(max(map1.max(), map2.max()) + 1, dtype=np.uint16)
+    for x in map1:
+        m[x] = x
+    for x in map2:
+        m[x] = x
+    # non-zeros remap to ascending
+    non_zero = m != 0
+    m[non_zero] = np.arange(1, non_zero.sum() + 1)
 
     map1[:] = m[map1]
     map2[:] = m[map2]
@@ -1654,4 +1703,41 @@ def stitch_labels_from_positions(
             oy=-overlap_y,
             tx=translate_x,
             ty=translate_y,
+        )
+
+
+def stitch_labels_from_offsets(
+    labels: NDArray[Any],
+    offsets: NDArray[np.int_],
+) -> NDArray[Any]:
+    """Stitch label masks using their canvas offsets.
+
+    Args:
+        labels: Array of shape (N, Y, X, C) or (N, T, Y, X, C).
+        offsets: Array of [N, (ox, oy)] (must be positive).
+
+    Returns:
+        Stitched labels of shape (Y, X, C) or (T, Y, X, C).
+    """
+    ndim = labels.ndim
+    assert ndim in (4, 5), f"Expected 4D or 5D images, got {ndim}D"
+    assert len(labels) == len(offsets), "Expected each label to have an offset"
+    _validate_offsets(offsets)
+
+    # TODO...
+    if ndim == 5:
+        # (N, T, Y, X, C) → stitch per timepoint, then stack
+        n_timepoints = labels.shape[1]
+        layers = [
+            compose_labels_from_offsets(
+                labels[:, t],
+                offsets,
+            )
+            for t in range(n_timepoints)
+        ]
+        return np.stack(layers)
+    else:
+        return compose_labels_from_offsets(
+            labels,
+            offsets,
         )

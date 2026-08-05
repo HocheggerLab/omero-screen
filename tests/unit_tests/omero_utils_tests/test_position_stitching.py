@@ -14,6 +14,7 @@ from omero_utils.stitching import (
     split_stitched_mask_to_fields,
     stitch_from_offsets,
     stitch_from_positions,
+    stitch_labels_from_offsets,
     stitch_labels_from_positions,
 )
 
@@ -475,7 +476,6 @@ class TestStitchLabelsFromPositions:
 
 class TestStitchFromOffsets:
     def test_negative_offsets_throws(self):
-        # 4 tiles of 32x32 with 2 channels, spacing = perfect (no overlap)
         tile = np.ones((32, 32, 1), dtype=np.float32)
         images = np.stack([tile, tile])  # (2, 32, 32, 1)
         with pytest.raises(ValueError, match="Offsets must be positive"):
@@ -603,6 +603,187 @@ class TestStitchFromOffsets:
             images, offsets, edge=-1
         )
         np.testing.assert_array_equal(actual, expected, strict=True)
+
+
+# --------------- stitch_labels_from_offsets ---------------
+
+
+class TestStitchLabelsFromOffsets:
+    def test_negative_offsets_throws(self):
+        tile = np.ones((32, 32, 1), dtype=np.float32)
+        images = np.stack([tile, tile])  # (2, 32, 32, 1)
+        with pytest.raises(ValueError, match="Offsets must be positive"):
+            stitch_labels_from_offsets(images, np.array([(0, 0), (32, -1)]))
+        with pytest.raises(ValueError, match="Offsets must be positive"):
+            stitch_labels_from_offsets(images, np.array([(0, 0), (-1, 32)]))
+
+    def test_2x2_labels(self):
+        label = np.ones((32, 32, 1), dtype=np.int32)
+        labels = np.stack([label * (i + 1) for i in range(4)])
+        # tile = 32 → no overlap (0)
+        offsets = np.array([
+            (0, 0),
+            (32, 0),
+            (0, 32),
+            (32, 32),
+        ])
+        result = stitch_labels_from_offsets(
+            labels, offsets,
+        )
+        # Output should be (64, 64, 1) since no overlap
+        assert result.ndim == 3
+        assert result.shape == (64, 64, 1)
+
+    def test_2x2_labels_with_translation(self):
+        label = np.ones((32, 32, 2), dtype=np.int32)
+        labels = np.stack([label * (i + 1) for i in range(4)])
+        offsets = np.array([
+            (0, 0),
+            (0, 32),
+            (32, 0),
+            (32, 32),
+        ])
+        # Note: translation can create overlap if both are used with same sign
+        for pos in [(0, 0), (0, 4), (2, 0), (0, -4), (-2, 0), (-3, 4), (3, -2)]:
+            tx, ty = pos
+            off = offsets.copy()
+            for a in off:
+                if a[0]:
+                    if a[1]:
+                        a[0] += tx
+                    a[1] += ty
+                elif a[1]:
+                    a[0] += tx
+            # offsets must be positive
+            off -= off.min(axis=0)
+            result = stitch_labels_from_offsets(
+                labels, off,
+            )
+            assert result.ndim == 3
+            assert result.shape == (64 + abs(ty), 64 + abs(tx), 2)
+            # check corner values.
+            # Note: Stiching defined in x, y order:
+            # 1 3
+            # 2 4
+            # Each additional label is added to the current max.
+            # Stitch order = 1, 2, 3, 4. Cumulative = 1, 3, 6, 10.
+            top_left, bottom_left, top_right, bottom_right = 1, 3, 6, 10
+
+            # Approximate centre of (32,32) tiles will not have moved
+            assert result[16, 16, 0] == top_left
+            assert result[16, -16, 0] == top_right
+            assert result[-16, 16, 0] == bottom_left
+            assert result[-16, -16, 0] == bottom_right
+
+            # row shift
+            if tx > 0:
+                top_right, bottom_left = 0, 0
+            if tx < 0:
+                top_left, bottom_right = 0, 0
+            # col shift
+            if ty > 0:
+                top_right, bottom_left = 0, 0
+            if ty < 0:
+                top_left, bottom_right = 0, 0
+
+            assert result[0, 0, 0] == top_left
+            assert result[0, -1, 0] == top_right
+            assert result[-1, 0, 0] == bottom_left
+            assert result[-1, -1, 0] == bottom_right
+
+    def test_2x2_labels_with_translation_positive(self):
+        label = np.ones((32, 32, 1), dtype=np.int32)
+        labels = np.stack([label * (i + 1) for i in range(4)])
+        offsets = np.array([
+            (0, 0),
+            (0, 32),
+            (32, 0),
+            (32, 32),
+        ])
+        tx, ty = 4, 3
+        for a in offsets:
+            if a[0]:
+                if a[1]:
+                    a[0] += tx
+                a[1] += ty
+            elif a[1]:
+                a[0] += tx
+        result = stitch_labels_from_offsets(
+            labels, offsets,
+        )
+        assert result.ndim == 3
+        assert result.shape == (64 + abs(ty), 64 + abs(tx), 1)
+        # check corner values.
+        # Note: Stiching defined in x, y order.
+        # 1 3
+        # 2 4
+        # Each additional label is added to the current max.
+        # Unless it overlaps with a previous label, in which case it matches.
+        # Here top-right (3) overlaps bottom-left (2), so bottom-left is preserved.
+        # Stich order = 1, 2, 3, 4. Cumulative = 1, 3, 3 (overlap), 7.
+        top_left, bottom_left, top_right, bottom_right = 1, 3, 3, 7
+
+        # Approximate centre of (32,32) tiles will not have moved
+        assert result[16, 16, 0] == top_left
+        assert result[16, -16, 0] == top_right
+        assert result[-16, 16, 0] == bottom_left
+        assert result[-16, -16, 0] == bottom_right
+
+        # row shift/col shift positive removes two corners
+        top_right, bottom_left = 0, 0
+
+        assert result[0, 0, 0] == top_left
+        assert result[0, -1, 0] == top_right
+        assert result[-1, 0, 0] == bottom_left
+        assert result[-1, -1, 0] == bottom_right
+
+    def test_2x2_labels_with_translation_negative(self):
+        label = np.ones((32, 32, 1), dtype=np.int32)
+        labels = np.stack([label * (i + 1) for i in range(4)])
+        offsets = np.array([
+            (0, 0),
+            (0, 32),
+            (32, 0),
+            (32, 32),
+        ])
+        tx, ty = -4, -3
+        for a in offsets:
+            if a[0]:
+                if a[1]:
+                    a[0] += tx
+                a[1] += ty
+            elif a[1]:
+                a[0] += tx
+        # offsets must be positive
+        offsets -= offsets.min(axis=0)
+        result = stitch_labels_from_offsets(
+            labels, offsets,
+        )
+        assert result.ndim == 3
+        assert result.shape == (64 + abs(ty), 64 + abs(tx), 1)
+        # check corner values.
+        # Note: Stiching defined in x, y order.
+        # 1 3
+        # 2 4
+        # Each additional label is added to the current max.
+        # Unless it overlaps with a previous label, in which case it matches.
+        # Here bottom-right (4) overlaps top-left (1), so top-left is preserved.
+        # Stich order = 1, 2, 3, 4. Cumulative = 1, 3, 6, 1 (overlap).
+        top_left, bottom_left, top_right, bottom_right = 1, 3, 6, 1
+
+        # Approximate centre of (32,32) tiles will not have moved
+        assert result[16, 16, 0] == top_left
+        assert result[16, -16, 0] == top_right
+        assert result[-16, 16, 0] == bottom_left
+        assert result[-16, -16, 0] == bottom_right
+
+        # row shift/col shift negative removes two corners
+        top_left, bottom_right = 0, 0
+
+        assert result[0, 0, 0] == top_left
+        assert result[0, -1, 0] == top_right
+        assert result[-1, 0, 0] == bottom_left
+        assert result[-1, -1, 0] == bottom_right
 
 
 # --------------- split_stitched_mask_to_fields / recompose_split_labels ---------------
