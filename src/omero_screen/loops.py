@@ -567,7 +567,7 @@ def _segment_stitched_nuclei(
     stitched_img: npt.NDArray[Any],
     nucleus_channel_index: int,
     cell_line: str,
-    border: int,
+    foreground: npt.NDArray[np.bool_] | None,
     channel_name: str = "",
 ) -> npt.NDArray[Any]:
     """Segment the nucleus channel of a stitched (T, Y, X, C) canvas.
@@ -581,7 +581,7 @@ def _segment_stitched_nuclei(
         stitched_img: Stitched canvas of shape (T, Y, X, C).
         nucleus_channel_index: Channel-axis index of the nucleus channel.
         cell_line: Cell line name (used for diameter heuristic).
-        border: Width of the outer-edge border (negative to disable).
+        foreground: Foregound pixels for object filtering.
         channel_name: Nucleus channel name; used to look up a
             ``CHANNEL_SEG_PROFILES`` entry (gamma / cellprob_threshold /
             flow_threshold). Empty string disables the lookup.
@@ -639,8 +639,6 @@ def _segment_stitched_nuclei(
                 normalize=False,
                 **eval_kwargs,
             )
-            # filter objects around non-zero pixels
-            foreground = _create_foreground(img_t, border)
             masks[t] = filter_segmentation(
                 mask, border=-1, foreground=foreground
             )
@@ -658,7 +656,7 @@ def _segment_stitched_cells(
     cell_channel_index: int,
     nucleus_channel_index: int,
     cell_line: str,
-    border: int,
+    foreground: npt.NDArray[np.bool_] | None,
     channel_name: str = "",
 ) -> npt.NDArray[Any]:
     """Segment cells on the stitched canvas using the cell-line cellpose model.
@@ -672,7 +670,7 @@ def _segment_stitched_cells(
         cell_channel_index: Channel-axis index of the cell channel.
         nucleus_channel_index: Channel-axis index of the nucleus channel.
         cell_line: Cell line name (used to select the cellpose model).
-        border: Width of the outer-edge border (negative to disable).
+        foreground: Foregound pixels for object filtering.
         channel_name: Cell channel name; used to look up a
             ``CHANNEL_SEG_PROFILES`` entry (gamma / cellprob_threshold /
             flow_threshold). Empty string disables the lookup.
@@ -721,8 +719,6 @@ def _segment_stitched_cells(
                 normalize=False,
                 **eval_kwargs,
             )
-            # filter objects around non-zero pixels
-            foreground = _create_foreground(cell_t, border)
             masks[t] = filter_segmentation(
                 mask, border=-1, foreground=foreground
             )
@@ -735,11 +731,21 @@ def _segment_stitched_cells(
 
 
 def _create_foreground(
-    img: npt.NDArray[Any], border: int
+    offsets: npt.NDArray[np.int_], tile_h: int, tile_w: int, border: int
 ) -> npt.NDArray[np.bool_] | None:
     """Create a foreground mask to filter objects touching the edge of stitched tiles."""
     if border >= 0:
-        foreground = img != 0
+        max_pos = offsets.max(axis=0)
+        foreground = np.zeros(
+            (
+                # Note: Offset max is (x, y) not (y, x)
+                max_pos[1] + tile_h,
+                max_pos[0] + tile_w,
+            ),
+            dtype=np.bool_,
+        )
+        for xp, yp in offsets:
+            foreground[yp : yp + tile_h, xp : xp + tile_w] = True
         # to filter objects that touch the edge we
         # must erode the foreground by at least 1 pixel.
         # if border=0 the footprint is 3x3.
@@ -1054,6 +1060,9 @@ def _stitched_well_loop(
         "canvas",
     )
 
+    # Create foreground pixels for filtering
+    foreground = _create_foreground(offsets, tile_h, tile_w, border)
+
     # Fallback id used only if tile geometry is unavailable; per-row
     # image_id resolution by centroid is performed in ImageProperties.
     synthetic_image_id = image_ids[0]
@@ -1079,7 +1088,7 @@ def _stitched_well_loop(
             stitched_img,
             nucleus_channel_index=nucleus_idx,
             cell_line=cell_line,
-            border=border,
+            foreground=foreground,
             channel_name=nucleus_channel,
         )
     logger.info(
@@ -1095,7 +1104,7 @@ def _stitched_well_loop(
                 cell_channel_index=cell_idx,
                 nucleus_channel_index=nucleus_idx,
                 cell_line=cell_line,
-                border=border,
+                foreground=foreground,
                 channel_name=cell_channel,
             )
         logger.info(
