@@ -249,14 +249,18 @@ def delete_masks(conn: BlitzGateway, dataset_id: int) -> None:
 
     """
     dataset = conn.getObject("Dataset", dataset_id)
+    suffixes = ["_stitched_segmentation", "_segmentation"]
+    annotations = ["Stitched_Segmentation_Mask", "Segmentation_Mask"]
     for child in dataset.listChildren():
-        if child.getName().endswith("_segmentation"):
-            image_id = int(child.getName()[: -len("_segmentation")])
-            image = conn.getObject("Image", image_id)
-            delete_map_annotation(
-                conn, image, "Segmentation_Mask", ns=OmeroScreenNS.METADATA
-            )
-            conn.deleteObject(child._obj)
+        for suffix, annotation in zip(suffixes, annotations, strict=True):
+            if child.getName().endswith(suffix):
+                image_id = int(child.getName()[: -len(suffix)])
+                image = conn.getObject("Image", image_id)
+                delete_map_annotation(
+                    conn, image, annotation, ns=OmeroScreenNS.METADATA
+                )
+                conn.deleteObject(child._obj)
+                break
 
 
 def parse_mip(
