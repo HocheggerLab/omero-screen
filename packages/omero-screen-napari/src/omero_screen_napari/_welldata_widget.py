@@ -21,10 +21,9 @@ from napari.utils import notifications
 from napari.utils import progress as napari_progress
 from napari.viewer import Viewer
 from omero_utils.stitching import (
-    has_valid_positions,
-    recompose_split_labels,
-    stitch_from_positions,
-    stitch_labels_from_positions,
+    positions_to_offsets,
+    stitch_from_offsets,
+    stitch_labels_from_offsets,
 )
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
@@ -637,17 +636,30 @@ def _display_plate(viewer: Viewer) -> None:
     # Check all wells can be stitched
     sp = _get_stitch_params()
     stitch = sp.get("stitch") and n_per_well > 0
+    # Stitching offsets
+    well_offsets = []
     if stitch:
         for i in range(n_wells):
             j = i * n_per_well
-            if not has_valid_positions(
-                omero_data.image_positions[j : j + n_per_well]
-            ):
+            # images are N[T]YXC
+            size_y, size_x = omero_data.images[j].shape[-3:-1]
+            offsets = positions_to_offsets(
+                omero_data.image_positions[j : j + n_per_well],
+                size_x,
+                size_y,
+                overlap_x=sp["overlap_x"],
+                overlap_y=sp["overlap_y"],
+                translate_x=sp["translate_x"],
+                translate_y=sp["translate_y"],
+            )
+            valid = offsets[:, 0] >= 0
+            if not np.any(valid):
                 logger.warning(
                     f"Unable to stitch well {omero_data.well_pos_list[i]} from stage positions"
                 )
                 stitch = False
                 break
+            well_offsets.append(offsets)
 
     if stitch:
         logger.info(f"Auto-stitching {n_wells} well(s) from stage positions")
@@ -658,53 +670,28 @@ def _display_plate(viewer: Viewer) -> None:
             start = w * n_per_well
             end = start + n_per_well
             well_images = omero_data.images[start:end]
-            well_positions = omero_data.image_positions[start:end]
-
+            offsets = well_offsets[w]
+            # Ony stitch valid images
+            valid = offsets[:, 0] >= 0
             stitched_imgs.append(
-                stitch_from_positions(
-                    well_images,
-                    well_positions,  # type: ignore[arg-type]
+                stitch_from_offsets(
+                    well_images[valid],
+                    offsets[valid],
                     edge=sp["edge"],
-                    overlap_x=sp["overlap_x"],
-                    overlap_y=sp["overlap_y"],
-                    translate_x=sp["translate_x"],
-                    translate_y=sp["translate_y"],
                 )
             )
 
             if omero_data.labels.size > 0:
                 well_labels = omero_data.labels[start:end]
-                if omero_data.label_stitched_mode:
-                    # Phase-1 stitched-canvas masks: globally-unique IDs,
-                    # lossless reassembly via non-zero copy. Tile size is
-                    # the spatial extent of each per-field mask.
-                    tile_h = int(well_labels.shape[-3])
-                    tile_w = int(well_labels.shape[-2])
-                    stitched_lbls.append(
-                        recompose_split_labels(
-                            well_labels,
-                            well_positions,  # type: ignore[arg-type]
-                            tile_h=tile_h,
-                            tile_w=tile_w,
-                            overlap_x=sp["overlap_x"],
-                            overlap_y=sp["overlap_y"],
-                            translate_x=sp["translate_x"],
-                            translate_y=sp["translate_y"],
-                        )
+                # Stitching ignores any stitched-canvas masks and
+                # computes a label merge. This allows testing different
+                # different overlap and translation.
+                stitched_lbls.append(
+                    stitch_labels_from_offsets(
+                        well_labels[valid],
+                        offsets[valid],
                     )
-                else:
-                    # Legacy per-field-segmentation masks: independent label
-                    # spaces, merged via merge_labels overlap fusion.
-                    stitched_lbls.append(
-                        stitch_labels_from_positions(
-                            well_labels,
-                            well_positions,  # type: ignore[arg-type]
-                            overlap_x=sp["overlap_x"],
-                            overlap_y=sp["overlap_y"],
-                            translate_x=sp["translate_x"],
-                            translate_y=sp["translate_y"],
-                        )
-                    )
+                )
 
         if n_wells == 1:
             result_img = stitched_imgs[0]

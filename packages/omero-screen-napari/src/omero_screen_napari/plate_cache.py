@@ -863,11 +863,8 @@ def _fetch_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
     # Flat-field correction image
     ff_mask_id = _fetch_flatfield_mask_id(conn, plate_id)
 
-    # Detect whether the segmentation dataset holds Phase-1 stitched masks
-    # (names like ``{img_id}_stitched_segmentation``). This drives the
-    # napari display-time recompose: stitched plates use
-    # ``recompose_split_labels`` (lossless), legacy plates use
-    # ``stitch_labels_from_positions``.
+    # Detect whether the segmentation dataset holds stitched masks
+    # (names like ``{img_id}_stitched_segmentation``).
     label_stitched_mode = _detect_label_stitched_mode(conn, plate_id)
 
     return {
@@ -885,7 +882,7 @@ def _fetch_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
 def _detect_label_stitched_mode(conn: BlitzGateway, plate_id: int) -> bool:
     """Return True if the plate's segmentation dataset holds stitched masks.
 
-    Stitched-mode masks (Phase 1) are uploaded with names like
+    Stitched-mode masks are uploaded with names like
     ``{img_id}_stitched_segmentation``. Legacy per-field masks are
     ``{img_id}_segmentation``. The flag is persisted in plate metadata so
     cache-hit loads can restore it without re-querying OMERO.

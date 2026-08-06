@@ -12,7 +12,7 @@ Build flow per well:
 3. Fetch per-field stitched-mode segmentation masks via OMERO map
    annotations (``Stitched_Segmentation_Mask``) on the source images.
 4. Recompose those per-field tiles into a single canvas via
-   :func:`recompose_split_labels` (lossless: the masks were produced by a
+   :func:`recompose_tiles` (lossless: the masks were produced by a
    canvas-wide segmentation, then split for upload, so label IDs are
    globally unique).
 5. Hand the result to :class:`PlateZarrWriter` for one well's worth of
