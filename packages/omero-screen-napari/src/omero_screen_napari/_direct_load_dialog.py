@@ -7,7 +7,7 @@ requiring welldata_widget pre-loading.
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from qtpy.QtWidgets import (
@@ -25,7 +25,20 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from omero_screen_napari.direct_omero_loader import load_crops_from_omero
+from omero_screen_napari.direct_load_info import (
+    format_info_html,
+    summarise_selection,
+)
+from omero_screen_napari.direct_load_state import (
+    DirectLoadState,
+    load_state,
+    save_state,
+)
+from omero_screen_napari.direct_omero_loader import (
+    load_cell_population,
+    load_crops_from_omero,
+    metadata_default_n_crops,
+)
 
 if TYPE_CHECKING:
     from omero_screen_napari.gallery_userdata import UserData
@@ -70,6 +83,9 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
         self.omero_data = omero_data
         self.user_data = user_data
         self.on_load_callback = on_load_callback
+        self._metadata, self._metadata_error = self._load_metadata()
+        # Seeds every input below, so it must be read before the form is built.
+        self._state = load_state(classifier_name)
 
         self.setWindowTitle(f"Load Data for Annotation - {classifier_name}")
         self.setMinimumWidth(500)
@@ -83,7 +99,7 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
         # Plate ID
         self.plate_input = QSpinBox()
         self.plate_input.setRange(1, 999999)
-        self.plate_input.setValue(1)
+        self.plate_input.setValue(self._state.plate_id)
         form_layout.addRow("Plate ID:", self.plate_input)
 
         # Well ID
@@ -91,11 +107,12 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
         self.well_input.setEditable(True)
         # Populate with common well positions
         self._populate_well_options()
+        self.well_input.setCurrentText(self._state.well)
         form_layout.addRow("Well:", self.well_input)
 
         # Image selection (same format as welldata widget)
         self.image_input = QLineEdit()
-        self.image_input.setText("All")
+        self.image_input.setText(self._state.image_input)
         self.image_input.setToolTip(
             "Image selection: 'All', '0', '0, 1, 2', or '3-5'"
         )
@@ -104,14 +121,34 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
         # Timepoint
         self.timepoint_input = QSpinBox()
         self.timepoint_input.setRange(0, 999)
-        self.timepoint_input.setValue(0)
+        self.timepoint_input.setValue(self._state.timepoint)
         form_layout.addRow("Timepoint:", self.timepoint_input)
+
+        # Number of crops to load. 0 is shown as "Default (<n>)" and means
+        # "use the gallery-derived count from the classifier metadata", so
+        # the field can simply be left alone for the previous behaviour.
+        self._default_n_crops = metadata_default_n_crops(self._metadata)
+        self.n_crops_input = QSpinBox()
+        self.n_crops_input.setRange(0, 100000)
+        self.n_crops_input.setValue(self._state.n_crops)
+        self.n_crops_input.setSpecialValueText(
+            f"Default ({self._default_n_crops})"
+            if self._default_n_crops > 0
+            else "Default (all)"
+        )
+        self.n_crops_input.setToolTip(
+            "How many crops to load. Leave at Default to use the crop count "
+            "the classifier was set up with; a larger number loads more cells "
+            "(randomly sampled when fewer are available, all of them are kept)."
+        )
+        form_layout.addRow("Number of crops:", self.n_crops_input)
 
         # Cell cycle phase filter
         self.cellcycle_input = QComboBox()
         self.cellcycle_input.addItems(
             ["All", "G1", "S", "G2/M", "G2", "M", "Polyploid"]
         )
+        self.cellcycle_input.setCurrentText(self._state.cellcycle)
         form_layout.addRow("Cell Cycle Phase:", self.cellcycle_input)
 
         # Classifier filter (populated after Validate)
@@ -159,6 +196,15 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
         validate_button.clicked.connect(self._on_validate)
         button_layout.addWidget(validate_button)
 
+        # Get Info button
+        info_button = QPushButton("Get Info")
+        info_button.setToolTip(
+            "Show how many cells this plate/well/timepoint holds and how "
+            "many you have already labelled."
+        )
+        info_button.clicked.connect(self._on_get_info)
+        button_layout.addWidget(info_button)
+
         # Load button
         self.load_button = QPushButton("Load Data")
         self.load_button.clicked.connect(self._on_load)
@@ -173,6 +219,10 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
 
         self.setLayout(main_layout)
 
+        # The classifier dropdowns are DB-backed, so they can only be
+        # restored after the form exists.
+        self._restore_classifier_selection()
+
     def _populate_well_options(self) -> None:
         """Populate well dropdown with common well positions."""
         # Generate well positions for 96-well plate (A-H, 1-12)
@@ -183,11 +233,12 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
         self.well_input.addItems(wells)
         self.well_input.setCurrentText("A1")
 
-    def _get_classifier_metadata_text(self) -> str:
-        """Get classifier metadata for display.
+    def _load_metadata(self) -> tuple[dict[str, Any], str]:
+        """Read the classifier's ``metadata.json``.
 
         Returns:
-            Formatted metadata text
+            ``(metadata, error)`` — the parsed metadata (empty on failure)
+            and a human-readable error string (empty on success).
         """
         try:
             import json
@@ -200,29 +251,39 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
             )
 
             if not metadata_path.exists():
-                return "Metadata file not found"
+                return {}, "Metadata file not found"
 
             with metadata_path.open() as f:
-                metadata = json.load(f)
+                metadata: dict[str, Any] = json.load(f)
+            return metadata, ""
 
-            user_data = metadata.get("user_data", {})
-            crop_size = user_data.get("crop_size", "N/A")
-            channels = user_data.get("channels", [])
-            segmentation = user_data.get("segmentation", "N/A")
-            cellcycle = user_data.get("cellcycle", "N/A")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Could not load classifier metadata: {e}")
+            return {}, f"Error loading metadata: {e}"
 
-            text = f"""
+    def _get_classifier_metadata_text(self) -> str:
+        """Get classifier metadata for display.
+
+        Returns:
+            Formatted metadata text
+        """
+        if self._metadata_error:
+            return self._metadata_error
+
+        user_data = self._metadata.get("user_data", {})
+        crop_size = user_data.get("crop_size", "N/A")
+        channels = user_data.get("channels", [])
+        segmentation = user_data.get("segmentation", "N/A")
+        cellcycle = user_data.get("cellcycle", "N/A")
+        default_crops = metadata_default_n_crops(self._metadata)
+
+        return f"""
 • Crop size: {crop_size}px
 • Channels: {", ".join(str(ch) for ch in channels)}
 • Segmentation: {segmentation}
 • Cell cycle: {cellcycle}
-            """.strip()
-
-            return text
-
-        except Exception as e:
-            logger.warning(f"Could not load classifier metadata: {e}")
-            return f"Error loading metadata: {e}"
+• Default crop count: {default_crops if default_crops > 0 else "all"}
+        """.strip()
 
     def _on_validate(self) -> None:
         """Validate the input data."""
@@ -244,12 +305,21 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
             return
 
         # Update preview
+        timepoint = self.timepoint_input.value()
+        n_used = len(self._used_centroids(plate_id, well_id, timepoint))
+        already_labelled = (
+            f"<b>Already labelled here (t={timepoint}):</b> {n_used} cell(s) "
+            "— will be skipped<br>"
+            if n_used
+            else ""
+        )
         preview_text = f"""
 <b>Plate:</b> {plate_id}<br>
 <b>Well:</b> {well_id}<br>
 <b>Images:</b> {image_input}<br>
 <b>Timepoint:</b> {self.timepoint_input.value()}<br>
-<br>
+<b>Crops:</b> {self._selected_n_crops() or f"default ({self._default_n_crops or 'all'})"}<br>
+{already_labelled}<br>
 <i>Click "Load Data" to fetch crops from OMERO</i>
         """.strip()
 
@@ -358,6 +428,139 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
             self._classifier_class_combo.addItem(str(row[0]))
         self._classifier_class_combo.setEnabled(True)
 
+    def _on_get_info(self) -> None:
+        """Report label coverage for the current plate/well/timepoint.
+
+        Queried live on every click, so it always reflects the latest
+        saves — there is no cached count to go stale.
+
+        Scope is the whole well at this timepoint: the Images and Cell
+        Cycle fields are deliberately ignored, because resolving image
+        indices needs an OMERO round-trip and the useful question here is
+        how much of the population remains overall.
+        """
+        plate_id = self.plate_input.value()
+        well_id = self.well_input.currentText()
+        timepoint = self.timepoint_input.value()
+        classifier_column = self._selected_classifier_column()
+
+        if not well_id:
+            QMessageBox.warning(
+                self, "Validation Error", "Please enter a well ID"
+            )
+            return
+
+        segmentation = str(
+            self._metadata.get("user_data", {}).get("segmentation", "nucleus")
+        )
+
+        try:
+            cells = load_cell_population(
+                plate_id=plate_id,
+                well_id=well_id,
+                timepoint=timepoint,
+                segmentation=segmentation,
+                classifier_column=classifier_column,
+            )
+            annotations = self.db.get_annotated_labels(
+                self.classifier_name, plate_id, well_id, timepoint=timepoint
+            )
+        except Exception as e:
+            logger.exception(f"Could not build selection info: {e}")
+            QMessageBox.critical(
+                self, "Info Failed", f"Could not gather info: {e!s}"
+            )
+            return
+
+        info = summarise_selection(
+            cells, annotations, split_by_class=bool(classifier_column)
+        )
+        header = f"Plate {plate_id} · Well {well_id} · t={timepoint}" + (
+            f" · {classifier_column}" if classifier_column else ""
+        )
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Selection Info")
+        # Left as AutoText: the summary opens with a tag, so Qt detects it
+        # as rich text without pinning a Qt5/Qt6-specific enum path.
+        box.setText(format_info_html(info, header))
+        box.exec_()
+
+    def _restore_classifier_selection(self) -> None:
+        """Re-apply the remembered classifier column and class.
+
+        These two dropdowns are normally filled by Validate, because they
+        need a plate to query. When a previous session is being restored
+        the plate is already known, so the same lookup runs up front —
+        otherwise the user would have to click Validate before their
+        remembered filter reappeared, which is exactly the friction this
+        is meant to remove.
+        """
+        if not self._state.classifier_column:
+            return
+
+        self._populate_classifier_options(self._state.plate_id)
+
+        index = self._classifier_col_combo.findText(
+            self._state.classifier_column
+        )
+        if index < 0:
+            logger.info(
+                f"Remembered classifier '{self._state.classifier_column}' is "
+                f"not available for plate {self._state.plate_id}"
+            )
+            return
+        # Fires _on_classifier_col_changed, which fills the class combo.
+        self._classifier_col_combo.setCurrentIndex(index)
+
+        if self._state.classifier_class:
+            class_index = self._classifier_class_combo.findText(
+                self._state.classifier_class
+            )
+            if class_index >= 0:
+                self._classifier_class_combo.setCurrentIndex(class_index)
+
+    def _current_state(self) -> DirectLoadState:
+        """Capture the current form values as persistable state."""
+        return DirectLoadState(
+            plate_id=self.plate_input.value(),
+            well=self.well_input.currentText(),
+            image_input=self.image_input.text().strip(),
+            timepoint=self.timepoint_input.value(),
+            cellcycle=self.cellcycle_input.currentText(),
+            classifier_column=self._selected_classifier_column(),
+            classifier_class=self._selected_classifier_class(),
+            n_crops=self.n_crops_input.value(),
+        )
+
+    def _used_centroids(
+        self, plate_id: int, well_id: str, timepoint: int
+    ) -> set[tuple[int, int, int]]:
+        """Cells already annotated for this classifier, well and timepoint.
+
+        Passed to the loader so a repeat load of the same well serves
+        unseen cells instead of re-sampling the whole population. Scoped
+        to the timepoint because the same coordinates in another frame are
+        a different observation. A DB failure degrades to "exclude
+        nothing" rather than blocking the load — a duplicate crop is an
+        annoyance, no crops is a dead end.
+        """
+        try:
+            return self.db.get_used_centroids(
+                self.classifier_name, plate_id, well_id, timepoint=timepoint
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"Could not query annotated cells for {plate_id}/{well_id} "
+                f"at t={timepoint}: {e}"
+            )
+            return set()
+
+    def _selected_n_crops(self) -> int | None:
+        """Crop count chosen by the user, or ``None`` to use the default."""
+        value = int(self.n_crops_input.value())
+        return None if value == 0 else value
+
     def _selected_classifier_column(self) -> str:
         col = str(self._classifier_col_combo.currentText())
         if col in (
@@ -408,10 +611,16 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
                 classifier_column=self._selected_classifier_column(),
                 classifier_class=self._selected_classifier_class(),
                 timepoint=self.timepoint_input.value(),
+                n_crops=self._selected_n_crops(),
+                excluded_centroids=self._used_centroids(
+                    plate_id, well_id, self.timepoint_input.value()
+                ),
             )
 
             if success:
                 logger.info(f"Successfully loaded data: {message}")
+                # Only a load that worked is worth reoffering next time.
+                save_state(self.classifier_name, self._current_state())
                 QMessageBox.information(self, "Success", message)
                 self.accept()
                 # Trigger callback

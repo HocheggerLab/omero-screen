@@ -273,7 +273,8 @@ class MetaDataSaver:
             parse_crops_into_omero_data,
         )
 
-        # Exclude cells already annotated for this classifier+well
+        # Exclude cells already annotated for this classifier+well at this
+        # timepoint (other timepoints are separate observations).
         well = (
             self.omero_data.well_pos_list[0]
             if self.omero_data.well_pos_list
@@ -281,7 +282,10 @@ class MetaDataSaver:
         )
         try:
             excluded = db.get_used_centroids(
-                self.classifier_name, self.omero_data.plate_id, well
+                self.classifier_name,
+                self.omero_data.plate_id,
+                well,
+                timepoint=int(self.user_data.timepoint),
             )
         except Exception as exc:
             logger.warning(f"Could not query used centroids: {exc}")

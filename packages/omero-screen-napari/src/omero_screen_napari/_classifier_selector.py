@@ -161,6 +161,24 @@ class ClassifierInfoPanel:
 
         return text
 
+    def refresh(self) -> None:
+        """Re-query and redisplay stats for the classifier already shown.
+
+        The panel is otherwise only filled when the dropdown selection
+        changes, so its counts go stale the moment annotations are saved.
+        Callers invoke this after a save to keep the totals honest.
+
+        A no-op when no classifier is displayed.
+        """
+        if not self._current_classifier or self._current_db is None:
+            return
+        self.update_info(
+            self._current_classifier,
+            self._current_db,
+            omero_data=self._omero_data,
+            user_data=self._user_data,
+        )
+
     def clear(self) -> None:
         """Clear the info panel and hide it."""
         self.info_label.value = "Select a classifier to view details"
@@ -336,6 +354,10 @@ class ClassifierSelector:
                 self.auto_fill_callback(text)
             except Exception as e:
                 logger.warning(f"Auto-fill callback failed: {e}")
+
+    def refresh_info(self) -> None:
+        """Refresh the info panel for the currently selected classifier."""
+        self.info_panel.refresh()
 
     def get_widgets(self) -> list[Label]:
         """Get list of widgets to add to parent container.

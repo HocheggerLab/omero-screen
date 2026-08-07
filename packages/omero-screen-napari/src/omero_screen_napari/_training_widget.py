@@ -323,8 +323,22 @@ class TrainingWidget:
         # that field — the next save picks up the new path automatically.
         if self.training_data_saver:
             self.training_data_saver.save_data_wrapper()
+            self._refresh_classifier_info()
         else:
             print("Training data saver not initialized.")
+
+    def _refresh_classifier_info(self) -> None:
+        """Re-read the Dataset Information panel after a save.
+
+        The panel is otherwise only populated when the classifier dropdown
+        changes, so its session/annotation totals stayed stale until the
+        widget was reloaded. Failures are logged and swallowed — a stale
+        info panel must never look like a failed save.
+        """
+        try:
+            self.classifier_selector.refresh_info()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Could not refresh classifier info panel: {e}")
 
     def setup_key_bindings(self, viewer: "Viewer") -> None:
         @viewer.bind_key("w", overwrite=True)
@@ -425,6 +439,8 @@ class TrainingWidget:
         self.image_navigator.current_index = 0
         self.image_navigator.reset_for_new_dataset()
         self.image_navigator.update_image()
+        # Loading can add or remove sessions behind the panel's back.
+        self._refresh_classifier_info()
         logger.info(
             f"Displaying {len(self.omero_data.selected_images):d} images ({context})"
         )

@@ -718,7 +718,11 @@ class TrainingDB:
             return deleted
 
     def get_used_centroids(
-        self, classifier_name: str, plate_id: int, well: str
+        self,
+        classifier_name: str,
+        plate_id: int,
+        well: str,
+        timepoint: int | None = None,
     ) -> set[tuple[int, int, int]]:
         """Return centroids already annotated for a classifier+plate+well.
 
@@ -726,18 +730,60 @@ class TrainingDB:
             classifier_name: Classifier name
             plate_id: OMERO plate ID
             well: Well position (e.g. 'A1')
+            timepoint: Restrict to annotations made at this timepoint. In a
+                timelapse the same coordinates at a different timepoint are
+                a different observation of a cell (or a different cell
+                entirely), so scoping to one timepoint keeps those available
+                for labelling. ``None`` spans every timepoint.
 
         Returns:
-            Set of (centroid_row, centroid_col, source_image_id) tuples.
+            Set of ``(source_image_id, centroid_row, centroid_col)`` tuples.
             Only entries where all three values are non-NULL are included.
+            The ordering matches the key
+            :class:`~omero_screen_napari.crop_pipeline.CropPipeline` tests
+            against, so the result can be handed to it directly.
+        """
+        return set(
+            self.get_annotated_labels(
+                classifier_name, plate_id, well, timepoint
+            )
+        )
+
+    def get_annotated_labels(
+        self,
+        classifier_name: str,
+        plate_id: int,
+        well: str,
+        timepoint: int | None = None,
+    ) -> dict[tuple[int, int, int], str]:
+        """Return the label applied to each already-annotated centroid.
+
+        The keyed form behind :meth:`get_used_centroids` — that method is
+        simply this one's key set, so the exclusion and the coverage
+        summary can never disagree about which cells are spoken for.
+
+        Args:
+            classifier_name: Classifier name
+            plate_id: OMERO plate ID
+            well: Well position (e.g. 'A1')
+            timepoint: Restrict to annotations made at this timepoint;
+                ``None`` spans every timepoint.
+
+        Returns:
+            ``{(source_image_id, centroid_row, centroid_col): class_label}``.
+            Only entries where the three key parts are non-NULL are
+            included. Should one cell somehow carry several annotations,
+            the most recent wins.
         """
         with self._get_connection() as conn:
             cursor = conn.execute(
-                QUERIES["get_used_centroids"],
-                (classifier_name, plate_id, well),
+                QUERIES["get_annotated_labels"],
+                (classifier_name, plate_id, well, timepoint, timepoint),
             )
+            # Ordered oldest-first by the query, so a later annotation of
+            # the same cell overwrites the earlier one.
             return {
-                (int(row[0]), int(row[1]), int(row[2]))
+                (int(row[0]), int(row[1]), int(row[2])): str(row[3])
                 for row in cursor.fetchall()
             }
 
