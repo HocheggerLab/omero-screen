@@ -1026,6 +1026,18 @@ def _get_mask_map(
     return {key: value[2] for key, value in best.items()}
 
 
+def _should_delete_old_mask(old_mask: ImageWrapper, image_id: int) -> bool:
+    """Whether the superseded mask still needs an explicit delete.
+
+    ``upload_masks`` prunes anything sharing the name it just wrote, so an
+    old ``{image_id}_segmentation`` is already gone by the time the caller
+    gets here — deleting it again would double-delete. Only a mask stored
+    under a *different* name is still ours to remove, typically a
+    stitched-mode mask being superseded by a per-field one.
+    """
+    return bool(old_mask.getName() != f"{image_id}_segmentation")
+
+
 def _get_mask_from_map(
     conn: BlitzGateway, image_id: int, image_map: dict[int, ImageWrapper]
 ) -> npt.NDArray[Any]:
@@ -1323,9 +1335,10 @@ def create_cell_masks(
                 n_mask2,
                 c_mask2,
             )
-            # Remove current mask (must be done after creating the new
-            # mask otherwise an error can result in no mask for the well image)
-            conn.deleteObject(mask2._obj)
+            # Remove the mask this image was using (after creating the new
+            # one, so a failure never leaves the image with no mask at all).
+            if _should_delete_old_mask(mask2, image_id2):
+                conn.deleteObject(mask2._obj)
             created += 1
         # end well samples
         logger.info(

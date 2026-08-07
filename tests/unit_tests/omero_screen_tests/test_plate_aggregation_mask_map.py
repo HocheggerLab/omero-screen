@@ -60,3 +60,22 @@ def test_unrelated_and_unparseable_children_are_skipped() -> None:
         ]
     )
     assert result == {1234: mask}
+
+
+def test_old_mask_is_not_double_deleted_after_upload() -> None:
+    """``create_cell_masks`` must not delete what ``upload_masks`` pruned.
+
+    ``upload_masks`` removes any mask sharing the name it just wrote, so an
+    old ``{id}_segmentation`` is already gone by the time the explicit
+    delete runs. Only an old mask under a different name — a stitched-mode
+    mask superseded by a per-field one — still needs removing.
+    """
+    from omero_screen.plate_aggregation import _should_delete_old_mask
+
+    legacy = _child("1234_segmentation", 10)
+    stitched = _child("1234_stitched_segmentation", 11)
+
+    # Same name as the new upload: the prune already handled it.
+    assert _should_delete_old_mask(legacy, 1234) is False
+    # Different name: still ours to remove.
+    assert _should_delete_old_mask(stitched, 1234) is True
