@@ -49,6 +49,8 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
         prog_options += f" --env {args.env}"
     if args.segmentation:
         prog_options += " --segmentation"
+    if args.delete:
+        prog_options += " --delete"
     if args.model:
         prog_options += f" --model {args.model}"
     elif args.cp4:
@@ -277,6 +279,18 @@ def _parse_args() -> argparse.Namespace:
         default=False,
         action=argparse.BooleanOptionalAction,
         help="Only perform image segmentation (default: %(default)s)",
+    )
+    group.add_argument(
+        "--delete",
+        default=False,
+        action="store_true",
+        help=(
+            "Delete the plate's existing segmentation masks and segment from "
+            "scratch. Without this, a re-run reuses the stored masks (both "
+            "stitched and per-field) and only recomputes the measurements. "
+            "Use it after changing segmentation settings, or to repair a "
+            "plate whose stored masks are wrong or empty."
+        ),
     )
     group.add_argument(
         "--cp4",
