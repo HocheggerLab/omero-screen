@@ -28,6 +28,7 @@ the napari widget (display stitched wells); kept in omero-utils to
 avoid a circular dependency between those packages.
 """
 
+import math
 from typing import Any, cast
 
 import numpy as np
@@ -47,7 +48,6 @@ OPERETTA_STITCH_DEFAULTS: dict[str, int] = {
     "overlap_y": 7,
     "translate_x": -3,
     "translate_y": 3,
-    "edge": 7,
 }
 
 
@@ -76,7 +76,7 @@ def has_valid_positions(
         return False
 
     xs = [p[0] for p in valid if p[0] is not None]
-    ys = [p[1] for p in valid if p[0] is not None]
+    ys = [p[1] for p in valid if p[1] is not None]
     if min(len(xs), len(ys)) < len(positions):
         logger.debug(
             f"Missing X/Y positions: {len(xs):d},{len(ys):d} < {len(positions):d}"
@@ -227,35 +227,166 @@ def positions_to_grid(
     return grid_map
 
 
-def _compute_overlap(
-    clusters: list[float],
-    tile_size_px: int,
-    pixel_size: float,
-    axis_label: str,
-    fallback: int = 0,
-) -> int:
-    """Compute tile overlap in pixels from cluster spacing.
+def positions_to_layout(
+    positions: list[tuple[float, float] | None] | list[tuple[float, float]],
+    angle_tolerance: float = 5,
+) -> list[tuple[int, int]]:
+    """Convert stage positions to a tile grid layout.
 
-    If positions are in µm the spacing divided by pixel_size gives the
-    step in pixels, and overlap = tile_size - step.  When the computed
-    step is not plausible (outside 50 %–150 % of tile_size) the
-    positions are assumed to be in a different unit and *fallback* is
-    returned instead.
+    Positions are sorted by x and assigned into columns if the angle to the
+    next position is 90 degrees, otherwise a new column is started.
+    This is repeated after sorting by y for rows and 0 degrees.
+
+    All positions in the same row or column must be within the angle tolerance
+    of 0 or 90 degrees respectively.
+
+    Note: This method works for a non-sparse grid layout. An entire missing
+    column or row will not be detected and non-adjacent columns/rows will
+    be placed adjacent.
+
+    Missing positions are returned as (-1, -1). If positions cannot be mapped
+    to a unique grid layout (duplicate cells) all entries are returns as (-1, -1).
+    The caller must count the number of entries with a positive x (or y) index
+    to determine the number of valid positions that can be mapped to a layout.
+
+    This method will return an empty array if the input positions is empty.
+
+    Args:
+        positions: List of (pos_x, pos_y) for each image.
+        angle_tolerance: The angle tolerance for a row or column
+
+    Returns:
+        List of (col, row) for each image.
     """
-    if len(clusters) < 2:
-        return 0
+    # Get data but ignore invalid positions
+    data = []
+    for i, p in enumerate(positions):
+        if p is not None and p[0] is not None and p[1] is not None:
+            data.append((p[0], p[1], i))
 
-    spacing = clusters[1] - clusters[0]
-    step_px = spacing / pixel_size
+    n_pos = len(data)
+    if n_pos == 0:
+        # No valid positions
+        return [(-1, -1)] * len(positions)
 
-    if 0.5 * tile_size_px < step_px < 1.5 * tile_size_px:
-        overlap = max(0, int(round(tile_size_px - step_px)))
-        return overlap
+    # We require:
+    # angle < tolerance
+    # arctan(y / x) < tolerance
+    # y / x < tan(tolerance)
+    tol = math.tan(math.radians(math.fabs(angle_tolerance)))
 
+    # Initialised as unassigned
+    row = np.full(len(positions), -1, dtype=np.int_)
+    col = row.copy()
+
+    # Sort by x, then y (index does not matter)
+    data = sorted(data)
+    # Compute angles between consective positions: atan(dx/dy) -> 0 for a column
+    current = 0
+    col[data[0][2]] = 0
+    for i in range(1, n_pos):
+        dx = data[i][0] - data[i - 1][0]
+        dy = data[i][1] - data[i - 1][1]
+        # handle divide by zero
+        if dy:
+            angle = dx / dy
+        elif dx:
+            angle = math.inf
+        else:
+            logger.debug("Duplicate positions in layout")
+            return [(-1, -1)] * len(positions)
+        if math.fabs(angle) >= tol:
+            # new column
+            current += 1
+        col[data[i][2]] = current
+
+    # Sort by y, then x
+    data = sorted(data, key=lambda x: (x[1], x[0]))
+    # Compute angles between consective positions: atan(dy/dx) -> 0 for a row
+    current = 0
+    row[data[0][2]] = 0
+    for i in range(1, n_pos):
+        dx = data[i][0] - data[i - 1][0]
+        dy = data[i][1] - data[i - 1][1]
+        # handle divide by zero
+        # Duplicate (x,y) positions previously filtered,
+        # if dx is zero then dy must be non-zero
+        angle = dy / dx if dx else math.inf
+        if math.fabs(angle) >= tol:
+            # new row
+            current += 1
+        row[data[i][2]] = current
+
+    # Store the output layout
+    out = [(int(x), int(y)) for x, y in zip(col, row, strict=True)]
+
+    # Note: This is a safety net check.
+    # If tolerance < 45 degrees then it is not possible for two positions
+    # to be in the same row and column since either one or the other will be true
+    # for the same vector.
+    out_set = set(out)
+    out_set.discard((-1, -1))
+    n_cells = len(out_set)
+    if n_cells < len(data):
+        logger.debug(
+            f"Duplicate cells in layout: cells {n_cells:d} < valid positions {n_pos:d}"
+        )
+        return [(-1, -1)] * len(positions)
+
+    maxx = int(col.max()) + 1
+    maxy = int(row.max()) + 1
     logger.info(
-        f"{axis_label} spacing {spacing:.6g} / {pixel_size:.6g} gives {step_px:.0f} px step (tile={tile_size_px:d} px) — positions likely not in µm, using fallback overlap {fallback:d}"
+        f"Position grid: {maxx:d} cols x {maxy:d} rows (valid positions {n_pos:d} / {len(positions):d})"
     )
-    return fallback
+
+    if is_level_enabled("DEBUG"):
+        # Print information for stitching.
+        # Output the grid using -1 for a missing position in the column/row:
+        # [-1, 3, -1]
+        # [1, 0, 2]
+        # [-1, 4, -1]
+        grid = np.full((maxy, maxx), -1)
+        for i, (x, y) in enumerate(out):
+            # Only require checking 1 of x or y
+            if x >= 0:
+                grid[y, x] = i
+        # Output the mean spacing between rows + columns
+        rx, ry = [], []
+        cx, cy = [], []
+        for y in range(maxy):
+            for x in range(1, maxx):
+                i = grid[y, x - 1]
+                j = grid[y, x]
+                if i >= 0 and j >= 0:
+                    rx.append(positions[j][0] - positions[i][0])  # type: ignore[index]
+                    ry.append(positions[j][1] - positions[i][1])  # type: ignore[index]
+        for x in range(maxx):
+            for y in range(1, maxy):
+                i = grid[y - 1, x]
+                j = grid[y, x]
+                if i >= 0 and j >= 0:
+                    cx.append(positions[j][0] - positions[i][0])  # type: ignore[index]
+                    cy.append(positions[j][1] - positions[i][1])  # type: ignore[index]
+
+        logger.debug(positions)
+        # Avoid numpy warning for empty lists
+        rmx, rmy, rsx, rsy = 0.0, 0.0, 0.0, 0.0
+        if rx:
+            rmx = np.mean(rx)
+            rsx = np.std(rx)
+            rmy = np.mean(ry)
+            rsy = np.std(ry)
+        cmx, cmy, csx, csy = 0.0, 0.0, 0.0, 0.0
+        if cx:
+            cmx = np.mean(cx)
+            csx = np.std(cx)
+            cmy = np.mean(cy)
+            csy = np.std(cy)
+        logger.debug(
+            f"Position grid: {grid.tolist()}; row {rmx:.3},{rmy:.3} +/- {rsx:.3},{rsy:.3}, col {cmx:.3},{cmy:.3} +/- {csx:.3},{csy:.3} (raw units)"
+        )
+
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -264,7 +395,7 @@ def _compute_overlap(
 
 
 def positions_to_offsets(
-    positions: list[tuple[float, float]],
+    positions: list[tuple[float, float] | None],
     tile_w: int,
     tile_h: int,
     overlap_x: int = 0,
@@ -274,7 +405,13 @@ def positions_to_offsets(
 ) -> NDArray[np.int_]:
     """Convert tile stage positions to canvas offsets.
 
-    The clustering tolerance is determined automatically from the data.
+    Any invalid position is returned as (-1, -1) to mark
+    a missing canvas offset. If duplicate positions are detected
+    the entire returned array is -1. Valid indices can be obtained
+    by checking either x or y is positive, e.g. ``offsets[:, 0] >= 0``.
+
+    This is a compositions of ``positions_to_layout`` and ``layout_to_offsets``.
+    See those method for further details of validation.
 
     Args:
         positions: List of (pos_x, pos_y) for each image.
@@ -288,9 +425,9 @@ def positions_to_offsets(
     Returns:
         array of [N, (ox, oy)]
     """
-    grid_map = positions_to_grid(positions)
-    pos, _ = _field_placements(
-        positions,
+    layout = positions_to_layout(positions)
+    return layout_to_offsets(
+        layout,
         tile_w,
         tile_h,
         overlap_x,
@@ -298,11 +435,6 @@ def positions_to_offsets(
         translate_x,
         translate_y,
     )
-    out = np.zeros((len(positions), 2), dtype=np.int_)
-    for x, d in grid_map.items():
-        for y, idx in d.items():
-            out[idx] = pos[x, y]
-    return out
 
 
 def compose_tiles(
@@ -385,6 +517,66 @@ def compose_tiles(
             for c in range(channels):
                 out[yp : yp + os_[0], xp : xp + os_[1], c] += m * im[..., c]
             sum_arr[yp : yp + os_[0], xp : xp + os_[1]] += m
+
+    indices = sum_arr != 0
+    for c in range(channels):
+        out[..., c] = np.divide(
+            out[..., c], sum_arr, where=indices, out=np.zeros(sum_arr.shape)
+        )
+    return _as_dtype(dtype, out)
+
+
+def compose_tiles_from_offsets(
+    tiles: NDArray[Any],
+    offsets: NDArray[np.int_],
+    edge: int = 0,
+) -> NDArray[Any]:
+    """Compose tiles into a single image (YXC, all tiles same shape).
+
+    Tiles are composed using the provided offsets. Overrlapping regions
+    are blended using a weighted average. The ``edge`` parameter creates
+    a linear ramp weighting over the specified size to the image border.
+
+    Args:
+        tiles: Array of shape (N, Y, X, C).
+        offsets: Array of [N, (ox, oy)] (must be positive).
+        edge: Edge size for blending overlaps.
+
+    Returns:
+        The composed image (YXC).
+    """
+    _validate_offsets(offsets)
+
+    dtype = tiles.dtype
+    m = np.ones(tiles.shape[1:3], dtype=int)
+    tile_h, tile_w = m.shape
+
+    if edge:
+        # Distance transform does not use out-of-bounds as background.
+        # Pad with 1 pixel and crop.
+        d = scipy.ndimage.distance_transform_edt(np.pad(m, 1))
+        d = d[1:-1, 1:-1]
+        d = np.clip(d, a_min=0, a_max=edge + 1)
+        m = d / (edge + 1)
+
+    max_pos = offsets.max(axis=0)
+
+    channels = tiles.shape[3]
+    out = np.zeros(
+        (
+            # Note: Offset max is (x, y) not (y, x)
+            max_pos[1] + tile_h,
+            max_pos[0] + tile_w,
+            channels,
+        )
+    )
+    sum_arr = np.zeros(out.shape[0:2])
+
+    for im, pos in zip(tiles, offsets, strict=True):
+        xp, yp = pos
+        for c in range(channels):
+            out[yp : yp + tile_h, xp : xp + tile_w, c] += m * im[..., c]
+        sum_arr[yp : yp + tile_h, xp : xp + tile_w] += m
 
     indices = sum_arr != 0
     for c in range(channels):
@@ -490,6 +682,54 @@ def compose_labels(
     return np.dstack(out)
 
 
+def compose_labels_from_offsets(
+    tiles: NDArray[Any],
+    offsets: NDArray[np.int_],
+) -> np.ndarray[Any, np.dtype[Any]]:
+    """Compose label tiles into a single image (YXC, all tiles same shape).
+
+    Unique label IDs are remapped. Overlapping labels on adjacent tiles
+    are mapped to the same ID.
+
+    Args:
+        tiles: Array of shape (N, Y, X, C).
+        offsets: Array of [N, (ox, oy)] (must be positive).
+
+    Returns:
+        The composed labels (YXC).
+    """
+    _validate_offsets(offsets)
+
+    dtype = tiles.dtype
+    tile_h, tile_w = tiles.shape[1:3]
+
+    max_pos = offsets.max(axis=0)
+
+    channels = tiles.shape[3]
+    out = [
+        np.zeros(
+            (
+                # Note: Offset max is (x, y) not (y, x)
+                max_pos[1] + tile_h,
+                max_pos[0] + tile_w,
+            ),
+            dtype=dtype,
+        )
+        for i in range(channels)
+    ]
+
+    border = get_overlap(offsets, tile_h, tile_w)
+
+    for im, pos in zip(tiles, offsets, strict=True):
+        xp, yp = pos
+        for c in range(channels):
+            out[c] = merge_labels(
+                out[c], im[..., c], xp=xp, yp=yp, border=border
+            )
+
+    return np.dstack(out)
+
+
 def merge_labels(
     im1: np.ndarray[Any, np.dtype[Any]],
     im2: np.ndarray[Any, np.dtype[Any]],
@@ -523,8 +763,13 @@ def merge_labels(
     if not overlap.any():
         return _merge_nonoverlapping_labels(im1, im2, xp=xp, yp=yp)
 
-    h1o = np.bincount(im1a.reshape(-1), weights=overlap.reshape(-1))
-    h2o = np.bincount(im2.reshape(-1), weights=overlap.reshape(-1))
+    # Pixels in the overlap region.
+    # Later set to zero for ignored overlaps.
+    oi1 = im1a[overlap]
+    oi2 = im2[overlap]
+
+    h1o = np.bincount(oi1)
+    h2o = np.bincount(oi2)
     # Require a new -> old ID overlap histogram. Assume new IDs are
     # sequential from 1.  Remap old IDs that are in the overlap from 1
     # to save memory.
@@ -556,42 +801,36 @@ def merge_labels(
     omap2 = np.arange(len(h2))
     map1 = np.zeros(len(h1), dtype=np.uint16)
     map2 = np.zeros(len(h2), dtype=np.uint16)
-    m1 = len(h1)
-
-    remove1 = []
-    remove2 = []
+    # Offset for image 2 labels
+    m1 = len(h1) - 1
 
     # Remap labels to use the ID from the object they overlap.
     # Greedy: largest overlap wins; subsequent overlaps remove pixels.
     for i, j, c, _ in overlaps:
-        f1 = c / h1[i]
-        f2 = c / h2[j]
-        if f1 > f2:
-            if map1[i]:
-                remove1.append(i)
-                continue
-            if map2[j]:
-                remove1.append(i)
-                continue
-            map2[j] = j + m1
-            map1[i] = map2[j]
+        # Check if either object is mapped.
+        if map1[i] or map2[j]:
+            # Remove overlap pixels from largest label
+            # by setting to zero.
+            mask = (oi1 == i) & (oi2 == j)
+            assert c == mask.sum()
+            if h2[j] > h1[i]:
+                oi2[mask] = 0
+            else:
+                oi1[mask] = 0
         else:
-            if map2[j]:
-                remove2.append(j)
-                continue
-            if map1[i]:
-                remove2.append(j)
-                continue
-            map1[i] = i
-            map2[j] = map1[i]
+            # None are mapped: assign the mapping to the largest label.
+            if h2[j] > h1[i]:
+                map2[j] = j + m1
+                map1[i] = map2[j]
+            else:
+                map1[i] = i
+                map2[j] = map1[i]
 
-    if remove2:
-        for v in remove2:
-            im2[(im2 == v) & overlap] = 0
-    if remove1:
-        for v in remove1:
-            im1a[(im1a == v) & overlap] = 0
-        im1[yp : yp + s[0], xp : xp + s[1]] = im1a
+    # Remove ignored overlapping pixels
+    im1a[overlap] = oi1
+    im2[overlap] = oi2
+
+    im1[yp : yp + s[0], xp : xp + s[1]] = im1a
 
     map1 = cast(
         np.ndarray[Any, np.dtype[np.uint16]],
@@ -603,13 +842,15 @@ def merge_labels(
     )
     map2[0] = 0
 
-    # Compress IDs to ascending from 1
-    u_ints = {int(x) for x in map1}
-    u_ints.update(int(x) for x in map2)
-    u_ints.add(0)
-    m = np.zeros(max(u_ints) + 1, dtype=np.uint16)
-    for i, v in enumerate(sorted(u_ints)):
-        m[v] = np.uint16(i)
+    # Compress map1 and map2 non-zero IDs to ascending from 1.
+    m = np.arange(max(map1.max(), map2.max()) + 1, dtype=np.uint16)
+    for x in map1:
+        m[x] = x
+    for x in map2:
+        m[x] = x
+    # non-zeros remap to ascending
+    non_zero = m != 0
+    m[non_zero] = np.arange(1, non_zero.sum() + 1)
 
     map1[:] = m[map1]
     map2[:] = m[map2]
@@ -714,6 +955,98 @@ def stitch_from_positions(
         )
 
 
+def stitch_from_offsets(
+    images: NDArray[Any],
+    offsets: NDArray[np.int_],
+    edge: int = -1,
+) -> NDArray[Any]:
+    """Stitch images using their canvas offsets.
+
+    Args:
+        images: Array of shape (N, Y, X, C) or (N, T, Y, X, C).
+        offsets: Array of [N, (ox, oy)] (must be positive).
+        edge: Edge blending width in pixels (set to negative to auto-detect).
+
+    Returns:
+        Stitched array of shape (Y, X, C) or (T, Y, X, C).
+    """
+    ndim = images.ndim
+    assert ndim in (4, 5), f"Expected 4D or 5D images, got {ndim}D"
+    assert len(images) == len(offsets), "Expected each image to have an offset"
+    _validate_offsets(offsets)
+
+    # Auto-edge
+    if edge < 0:
+        tile_h, tile_w = images.shape[-3:-1]
+        edge = get_overlap(offsets, tile_h, tile_w)
+
+    if ndim == 5:
+        # (N, T, Y, X, C) → stitch per timepoint, then stack
+        n_timepoints = images.shape[1]
+        layers = [
+            compose_tiles_from_offsets(
+                images[:, t],
+                offsets,
+                edge=edge,
+            )
+            for t in range(n_timepoints)
+        ]
+        return np.stack(layers)
+    else:
+        return compose_tiles_from_offsets(
+            images,
+            offsets,
+            edge=edge,
+        )
+
+
+def _validate_offsets(offsets: NDArray[np.int_]) -> None:
+    """Validates the offsets are all positive."""
+    if offsets.min() < 0:
+        raise ValueError(f"Offsets must be positive: {offsets}")
+
+
+def get_overlap(
+    offsets: NDArray[np.int_],
+    tile_h: int,
+    tile_w: int,
+) -> int:
+    """Get the maximum overlap between canvas tiles.
+
+    The overlap is computed using all tile intersections. For each
+    intersection the smaller of the width or height is the distance
+    inside the tile from the tile edge. The overlap is the maximum
+    of these edge distances across all intersections.
+    It describes the maximum distance inside the tile covered by
+    any intersection.
+
+    Args:
+        offsets: Array of [N, (ox, oy)].
+        tile_h: Original per-field height in pixels.
+        tile_w: Original per-field width in pixels.
+
+    Returns:
+        maximum tile overlap
+    """
+    # Note: No requirement to validate the offsets are positive
+    overlap = 0
+    # Compute all-vs-all rectangle intersections
+    for i in range(len(offsets)):
+        x1, y1 = offsets[i]
+        for j in range(i + 1, len(offsets)):
+            x2, y2 = offsets[j]
+            # lower-left corner
+            ix1, iy1 = max(x1, x2), max(y1, y2)
+            # upper-right corner
+            ix2, iy2 = min(x1, x2) + tile_w, min(y1, y2) + tile_h
+            if ix1 < ix2 and iy1 < iy2:
+                # Intersection
+                ox, oy = ix2 - ix1, iy2 - iy1
+                # Get the closest distance to the edge of the tile
+                overlap = max(overlap, min(ox, oy))
+    return overlap
+
+
 def split_stitched_mask_to_fields(
     stitched_mask: NDArray[Any],
     positions: list[tuple[float, float]],
@@ -754,8 +1087,9 @@ def split_stitched_mask_to_fields(
         )
 
     n_fields = len(positions)
+    grid_map = positions_to_grid(positions)
     pos, _ = _field_placements(
-        positions,
+        grid_map,
         tile_w,
         tile_h,
         overlap_x,
@@ -763,7 +1097,6 @@ def split_stitched_mask_to_fields(
         translate_x,
         translate_y,
     )
-    grid_map = positions_to_grid(positions)
 
     n_t = stitched_mask.shape[0]
     # Pre-allocate list with a default image
@@ -787,8 +1120,45 @@ def split_stitched_mask_to_fields(
     return out
 
 
+def split_stitched_from_offsets(
+    stitched: NDArray[Any],
+    offsets: NDArray[np.int_],
+    tile_h: int,
+    tile_w: int,
+) -> list[NDArray[Any]]:
+    """Pseudo-inverse of ``stitch_from_offsets`` for per-image storage round-trip of derived images.
+
+    This method can be used seperate a single channel image derived from the stitched image into
+    tiles corresponding to the original stitched tiles, for example splitting a
+    label mask.
+
+    Note that pixels within tile overlap regions are duplicated in the neighbouring tiles.
+
+    The result can be reassembled using ``recompose_tiles``.
+
+    Args:
+        stitched: Stitched canvas of shape (T, Y, X).
+        offsets: Array of [N, (ox, oy)] (must be positive).
+        tile_h: Original tile height in pixels.
+        tile_w: Original tile width in pixels.
+
+    Returns:
+        List of (T, tile_h, tile_w) mask arrays, in the same order as ``offsets``.
+    """
+    _validate_offsets(offsets)
+    if stitched.ndim != 3:
+        raise ValueError(f"stitched must be (T, Y, X), got {stitched.shape}")
+
+    out: list[NDArray[Any]] = [
+        stitched[:, yp : yp + tile_h, xp : xp + tile_w].copy()
+        for (xp, yp) in offsets
+    ]
+
+    return out
+
+
 def _field_placements(
-    positions: list[tuple[float, float]],
+    grid_map: dict[int, dict[int, int]],
     tile_w: int,
     tile_h: int,
     overlap_x: int,
@@ -805,7 +1175,6 @@ def _field_placements(
         pos: (maxx+1, maxy+1, 2) array of (xp, yp) canvas positions.
         valid: (maxx+1, maxy+1) bool mask of which grid cells are occupied.
     """
-    grid_map = positions_to_grid(positions)
     ox = -overlap_x
     oy = -overlap_y
     tx = translate_x
@@ -827,6 +1196,53 @@ def _field_placements(
     min_pos = pos[valid].min(axis=0)
     pos -= min_pos
     return pos, valid
+
+
+def layout_to_offsets(
+    layout: list[tuple[int, int]],
+    tile_w: int,
+    tile_h: int,
+    overlap_x: int,
+    overlap_y: int,
+    translate_x: int,
+    translate_y: int,
+) -> NDArray[np.int_]:
+    """Compute per-field (xp, yp) canvas positions from stage grid layout.
+
+    Any grid layout with negative x or y is returned as (-1, -1) to mark
+    a missing grid position.
+
+    Params:
+        layout: List of (col, row) for each image.
+        tile_w: Tile size in x.
+        tile_h: Tile size in y.
+        overlap_x: Overlap in x-dimension.
+        overlap_y: Overlap in y-dimension.
+        translate_x: Row translation in x.
+        translate_y: Column translation in y.
+
+    Returns:
+        array of [N, (ox, oy)]
+    """
+    ox = -overlap_x
+    oy = -overlap_y
+    tx = translate_x
+    ty = translate_y
+
+    offsets = np.full((len(layout), 2), -1, dtype=np.int_)
+    valid = np.ones(len(layout), dtype=np.bool_)
+    for i, (x, y) in enumerate(layout):
+        if x >= 0 and y >= 0:
+            offsets[i] = (
+                x * (tile_w + ox) + y * tx,
+                y * (tile_h + oy) + x * ty,
+            )
+        else:
+            valid[i] = False
+
+    if np.any(valid):
+        offsets[valid] = offsets[valid] - offsets[valid].min(axis=0)
+    return offsets
 
 
 def assign_field_by_centroid(
@@ -875,8 +1291,9 @@ def assign_field_by_centroid(
     if centroids.ndim != 2 or centroids.shape[1] != 2:
         raise ValueError(f"centroids_yx must be (N, 2), got {centroids.shape}")
 
+    grid_map = positions_to_grid(positions)
     pos, valid = _field_placements(
-        positions,
+        grid_map,
         tile_w,
         tile_h,
         overlap_x,
@@ -884,7 +1301,6 @@ def assign_field_by_centroid(
         translate_x,
         translate_y,
     )
-    grid_map = positions_to_grid(positions)
 
     # Flatten valid grid cells into per-field (idx, xp, yp) records, in
     # the same ordering as ``positions``.
@@ -924,6 +1340,78 @@ def assign_field_by_centroid(
         np.argmin(dist2, axis=1),
     )
     return chosen.astype(np.intp)
+
+
+def assign_tile_by_centroid(
+    centroids_yx: NDArray[np.floating[Any]],
+    offsets: NDArray[np.int_],
+    tile_h: int,
+    tile_w: int,
+) -> NDArray[np.intp]:
+    """Assign each centroid to the tile who owns it.
+
+    Used by canvas-wide stitched segmentation to tag each measurement
+    row with the OMERO image id of the field that owns the cell's
+    centroid.
+
+    For centroids that fall inside the overlap region of multiple
+    tiles, the tile whose centre is nearest (Euclidean) is chosen --
+    deterministic and intuitive. Centroids outside every tile rect
+    (defensive: should not occur for cells discovered inside the
+    canvas) fall back to the globally nearest tile centre.
+
+    Args:
+        centroids_yx: ``(N, 2)`` array of (y, x) centroid coordinates
+            in canvas pixel space (matches regionprops ``centroid-0``,
+            ``centroid-1``).
+        offsets: Array of [K, (ox, oy)] (ignores negative offsets).
+        tile_h: Per-field tile height in pixels.
+        tile_w: Per-field tile width in pixels.
+
+    Returns:
+        ``(N,)`` array of field indices into ``offsets``.
+    """
+    centroids = np.asarray(centroids_yx, dtype=float)
+    if centroids.ndim != 2 or centroids.shape[1] != 2:
+        raise ValueError(f"centroids_yx must be (N, 2), got {centroids.shape}")
+    if offsets.ndim != 2 or offsets.shape[1] != 2:
+        raise ValueError(f"offsets must be (K, 2), got {offsets.shape}")
+    valid = (offsets[:, 0] >= 0) & (offsets[:, 1] >= 0)
+    if not np.any(valid):
+        raise ValueError(f"No valid positive offsets: {offsets}")
+
+    xps = offsets[valid, 0:1].T  # (1, K)
+    yps = offsets[valid, 1:2].T
+
+    cy = centroids[:, 0:1]  # (N, 1)
+    cx = centroids[:, 1:2]
+    # Tile centres for distance tie-break.in
+    centre_y = yps + tile_h / 2.0  # (1, K)
+    centre_x = xps + tile_w / 2.0
+    dy = cy - centre_y  # (N, K)
+    dx = cx - centre_x
+    dist2 = dy * dy + dx * dx
+
+    # Inside-rect mask: centroid in [xp, xp+tile_w) × [yp, yp+tile_h).
+    inside = (
+        (cx >= xps)
+        & (cx < (xps + tile_w))
+        & (cy >= yps)
+        & (cy < (yps + tile_h))
+    )
+
+    # Among containing tiles, pick the nearest centre. Centroids inside
+    # no rect (defensive) fall back to the globally nearest centre.
+    masked = np.where(inside, dist2, np.inf)
+    any_inside = inside.any(axis=1)
+    chosen = np.where(
+        any_inside,
+        np.argmin(masked, axis=1),
+        np.argmin(dist2, axis=1),
+    ).astype(np.intp)
+    # map chosen back to the original offset index
+    remap = np.arange(len(offsets))[valid]
+    return remap[chosen]
 
 
 def recompose_split_labels(
@@ -1011,8 +1499,9 @@ def recompose_split_labels(
     n_c = stacked.shape[4]
     dtype = stacked.dtype
 
+    grid_map = positions_to_grid(positions)
     pos, _ = _field_placements(
-        positions,
+        grid_map,
         tile_w,
         tile_h,
         overlap_x,
@@ -1020,7 +1509,6 @@ def recompose_split_labels(
         translate_x,
         translate_y,
     )
-    grid_map = positions_to_grid(positions)
 
     # Canvas extent = furthest tile's far corner.
     max_xp = 0
@@ -1042,6 +1530,111 @@ def recompose_split_labels(
                     target = canvas[t, yp : yp + tile_h, xp : xp + tile_w, c]
                     src = tile[t, :, :, c]
                     np.copyto(target, src, where=src != 0)
+
+    # Squeeze synthetic axes back out to match caller's input shape.
+    if squeeze_c:
+        canvas = canvas[..., 0]  # drop C → (T, Y, X)
+    if squeeze_t:
+        canvas = canvas[0]  # drop T → (Y, X, C) or (Y, X)
+    return canvas
+
+
+def recompose_tiles(
+    per_field_tiles: NDArray[Any] | list[NDArray[Any]],
+    offsets: NDArray[np.int_],
+) -> NDArray[Any]:
+    """Inverse of ``split_stitched_from_offsets``.
+
+    Reassembles per-field tiles into a single stitched canvas.
+
+    **Label invariant required**: the per-field tiles must come from a single
+    canvas-wide segmentation, so label IDs are globally unique. Where the
+    same label appears in two adjacent tiles (a cell straddling a tile
+    boundary), the pixels are co-located by construction — a simple
+    copy reassembles the canvas without renumbering or overlap
+    logic.
+
+    This function is **not** a general-purpose label merger; for
+    independently-segmented tiles with name collisions, use
+    ``stitch_labels_from_positions`` (which goes through ``merge_labels``).
+
+    Accepts two input shapes:
+
+    * ``list[NDArray]`` of ``(T, tile_h, tile_w)`` — the direct output of
+      ``split_stitched_from_offsets``. Returns ``(T, Y, X)``.
+    * ``NDArray`` of ``(N, tile_h, tile_w, C)`` or ``(N, T, tile_h, tile_w, C)``
+      — matches the napari label-stack shape. Channels and timepoints are
+      handled internally. Returns ``(Y, X, C)`` or ``(T, Y, X, C)``.
+
+    Args:
+        per_field_tiles: Per-field tiles (see input shapes above).
+        offsets: Array of [N, (ox, oy)] (must be positive).
+
+    Returns:
+        Stitched canvas. Shape depends on input — see above.
+    """
+    _validate_offsets(offsets)
+
+    # Normalise to a (N, T, tile_h, tile_w, C) array internally; track which
+    # dims were synthetic so we can squeeze them back out for the caller.
+    if isinstance(per_field_tiles, list):
+        if not per_field_tiles:
+            raise ValueError("per_field_tiles must not be empty")
+        first = per_field_tiles[0]
+        if first.ndim != 3:
+            raise ValueError(
+                f"list tiles must be (T, tile_h, tile_w), got {first.shape}"
+            )
+        # Stack as (N, T, H, W) then add C=1
+        stacked = np.stack(per_field_tiles, axis=0)[..., np.newaxis]
+        squeeze_c = True
+        squeeze_t = False
+    else:
+        arr = per_field_tiles
+        if arr.ndim == 4:
+            # (N, H, W, C) → add T axis
+            stacked = arr[:, np.newaxis, ...]
+            squeeze_c = False
+            squeeze_t = True
+        elif arr.ndim == 5:
+            # (N, T, H, W, C)
+            stacked = arr
+            squeeze_c = False
+            squeeze_t = False
+        else:
+            raise ValueError(
+                f"array tiles must be (N,H,W,C) or (N,T,H,W,C), got {arr.shape}"
+            )
+
+    if stacked.shape[0] != len(offsets):
+        raise ValueError(
+            f"tile count ({stacked.shape[0]}) and offsets "
+            f"({len(offsets)}) must match"
+        )
+
+    n_t = stacked.shape[1]
+    tile_h = stacked.shape[2]
+    tile_w = stacked.shape[3]
+    n_c = stacked.shape[4]
+    dtype = stacked.dtype
+
+    # Canvas extent = furthest tile's far corner.
+    max_pos = offsets.max(axis=0)
+
+    canvas = np.zeros(
+        (
+            n_t,
+            # Note: Offset max is (x, y) not (y, x)
+            max_pos[1] + tile_h,
+            max_pos[0] + tile_w,
+            n_c,
+        ),
+        dtype=dtype,
+    )
+
+    for im, pos in zip(stacked, offsets, strict=True):
+        xp, yp = pos
+        canvas[:, yp : yp + tile_h, xp : xp + tile_w, :] = im
 
     # Squeeze synthetic axes back out to match caller's input shape.
     if squeeze_c:
@@ -1111,4 +1704,41 @@ def stitch_labels_from_positions(
             oy=-overlap_y,
             tx=translate_x,
             ty=translate_y,
+        )
+
+
+def stitch_labels_from_offsets(
+    labels: NDArray[Any],
+    offsets: NDArray[np.int_],
+) -> NDArray[Any]:
+    """Stitch label masks using their canvas offsets.
+
+    Args:
+        labels: Array of shape (N, Y, X, C) or (N, T, Y, X, C).
+        offsets: Array of [N, (ox, oy)] (must be positive).
+
+    Returns:
+        Stitched labels of shape (Y, X, C) or (T, Y, X, C).
+    """
+    ndim = labels.ndim
+    assert ndim in (4, 5), f"Expected 4D or 5D images, got {ndim}D"
+    assert len(labels) == len(offsets), "Expected each label to have an offset"
+    _validate_offsets(offsets)
+
+    # TODO...
+    if ndim == 5:
+        # (N, T, Y, X, C) → stitch per timepoint, then stack
+        n_timepoints = labels.shape[1]
+        layers = [
+            compose_labels_from_offsets(
+                labels[:, t],
+                offsets,
+            )
+            for t in range(n_timepoints)
+        ]
+        return np.stack(layers)
+    else:
+        return compose_labels_from_offsets(
+            labels,
+            offsets,
         )

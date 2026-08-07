@@ -7,12 +7,12 @@ callers (tests, scripts) call it directly.
 
 Build flow per well:
 
-1. Load N fields' raw pixel arrays (T, C, Y, X) and stage positions.
+1. Load N fields' raw pixel arrays (T, C, Y, X) and canvas offsets.
 2. Apply flatfield per field, then stitch all channels in one call.
 3. Fetch per-field stitched-mode segmentation masks via OMERO map
    annotations (``Stitched_Segmentation_Mask``) on the source images.
 4. Recompose those per-field tiles into a single canvas via
-   :func:`recompose_split_labels` (lossless: the masks were produced by a
+   :func:`recompose_tiles` (lossless: the masks were produced by a
    canvas-wide segmentation, then split for upload, so label IDs are
    globally unique).
 5. Hand the result to :class:`PlateZarrWriter` for one well's worth of
@@ -43,21 +43,26 @@ import numpy.typing as npt
 from dask.delayed import delayed
 from loguru import logger
 from omero.gateway import BlitzGateway, WellWrapper
+from omero_utils.attachments import get_file_attachments, parse_csv_data
 from omero_utils.images import (
     fetch_stitched_field_masks_trange,
     resolve_stitched_mask_ids,
 )
+from omero_utils.message import PlateDataError
 from omero_utils.stitching import (
-    OPERETTA_STITCH_DEFAULTS,
-    recompose_split_labels,
-    stitch_from_positions,
+    get_overlap,
+    recompose_tiles,
+    stitch_from_offsets,
 )
 
 from omero_screen_napari.omero_data import get_dataset_id
 from omero_screen_napari.omero_image import get_image
 from omero_screen_napari.plate_cache import (
+    # Use: get_plate_metadata()["label_stitched_mode"]
     _detect_label_stitched_mode,
+    # Use: get_plate_metadata
     _fetch_plate_metadata,
+    # Use: get_well_data
     _fetch_well_map,
     is_empty_well,
 )
@@ -127,6 +132,33 @@ def _load_flatfield_dict(
     return out
 
 
+def _load_canvas_offsets(well: WellWrapper) -> npt.NDArray[np.int_]:
+    # Get the stitched canvas offsets
+    offsets_ann = get_file_attachments(well, "canvas.csv")
+    if offsets_ann is None:
+        raise PlateDataError(
+            f"Missing stitched canvas offsets for well {well.getId()}: {well.getWellPos()}",
+            logger,
+        )
+    offsets_df = parse_csv_data(offsets_ann[0])
+    if offsets_df is None:
+        raise PlateDataError(
+            f"Failed to load stitched canvas offsets for well {well.getId()}: {well.getWellPos()}",
+            logger,
+        )
+    n = well.countWellSample()
+    if len(offsets_df) != n:
+        raise PlateDataError(
+            f"Incorrect size for stitched canvas offsets for well {well.getId()}: {well.getWellPos()}: {len(offsets_df)} != {n}",
+            logger,
+        )
+    # offsets (N, 2)
+    return np.column_stack((offsets_df["ox"], offsets_df["oy"])).astype(
+        np.int_
+    )
+
+
+# Deprecated: This is only used for testing
 def _load_well_fields(
     conn: BlitzGateway,
     well: WellWrapper,
@@ -137,9 +169,7 @@ def _load_well_fields(
     plate_id: int | None = None,
 ) -> tuple[
     npt.NDArray[Any],
-    list[tuple[float, float]],
-    int,
-    int,
+    npt.NDArray[np.int_],
 ]:
     """Load one well's fields, flatfield-correct, and return as a stack.
 
@@ -149,28 +179,22 @@ def _load_well_fields(
     ``cache_plate`` pattern. Falls back to the sequential path when
     ``omero_conn`` is absent.
 
+    Ignores any fields without a canvas offset.
+
     Returns:
         images: ``(N_fields, T, Y, X, C)`` float32 array.
-        positions: list of stage (px, py) per field.
-        tile_h, tile_w: per-field Y, X dimensions.
+        offsets: array of canvas offsets (ox, oy) per field (N_fields, 2).
     """
-    n_fields = len(list(well.listChildren()))
-    channels = list(channel_data.keys())
-    positions: list[tuple[float, float]] = [(0.0, 0.0)] * n_fields
-    field_arrays: list[npt.NDArray[Any] | None] = [None] * n_fields
-    image_ids: list[int] = [0] * n_fields
+    image_ids = [int(ws.getImage().getId()) for ws in well.listChildren()]
+    offsets = _load_canvas_offsets(well)  # (N, 2)
 
-    # Collect per-field metadata up front (cheap; no pixel I/O).
-    for n in range(n_fields):
-        ws = well.getWellSample(n)
-        image_obj = ws.getImage()
-        px = ws.getPosX()
-        py = ws.getPosY()
-        positions[n] = (
-            px.getValue() if px is not None else 0.0,
-            py.getValue() if py is not None else 0.0,
-        )
-        image_ids[n] = int(image_obj.getId())
+    valid = offsets[:, 0] >= 0
+    valid_offsets = offsets[valid]
+    fields = np.arange(len(offsets))[valid].tolist()
+
+    n_fields = len(fields)
+    channels = list(channel_data.keys())
+    field_arrays: list[npt.NDArray[Any] | None] = [None] * n_fields
 
     def _download_one(idx: int, image_id: int) -> tuple[int, npt.NDArray[Any]]:
         """Worker: download one field with a thread-local connection.
@@ -203,21 +227,20 @@ def _load_well_fields(
     if omero_conn is not None and n_fields > 1:
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
             for fut in as_completed(
-                ex.submit(_download_one, i, image_ids[i])
+                ex.submit(_download_one, i, image_ids[fields[i]])
                 for i in range(n_fields)
             ):
                 idx, arr = fut.result()
                 field_arrays[idx] = arr
     else:
         for i in range(n_fields):
-            _, field_arrays[i] = _download_one(i, image_ids[i])
+            _, field_arrays[i] = _download_one(i, image_ids[fields[i]])
 
     # Flatfield-correct on the main thread (CPU-bound, fast vs network).
     per_channel_fields: dict[str, list[npt.NDArray[Any]]] = {
         ch: [] for ch in channels
     }
-    tile_h = tile_w = 0
-    for n, array in enumerate(field_arrays):
+    for n, array in zip(fields, field_arrays, strict=True):
         if array is None:
             raise RuntimeError(f"Field {n} of well failed to download")
         if array.shape[1] != 1:
@@ -225,8 +248,6 @@ def _load_well_fields(
                 f"Field image {image_ids[n]} has Z={array.shape[1]}; "
                 f"expected Z=1"
             )
-        tile_h = array.shape[2]
-        tile_w = array.shape[3]
         for ch_name, idx_str in channel_data.items():
             ch_idx = int(idx_str)
             # Flatfield correction needs float arithmetic; immediately cast
@@ -245,56 +266,28 @@ def _load_well_fields(
         np.stack(per_channel_fields[ch], axis=0) for ch in channels
     ]  # each (N, T, Y, X)
     stacked = np.stack(per_channel_stacks, axis=-1)  # (N, T, Y, X, C)
-    return stacked, positions, tile_h, tile_w
+    return stacked, valid_offsets
 
 
 def _stitch_image(
     images_ntyxc: npt.NDArray[Any],
-    positions: list[tuple[float, float]],
+    offsets: npt.NDArray[np.int_],
+    edge: int,
 ) -> npt.NDArray[Any]:
     """Stitch (N, T, Y, X, C) → (T, C, Y, X)."""
-    stitched_tyxc = stitch_from_positions(
-        images_ntyxc, positions, **OPERETTA_STITCH_DEFAULTS
+    stitched_tyxc = stitch_from_offsets(
+        images_ntyxc, offsets, edge=edge
     )  # (T, Y, X, C)
     # Reorder to writer's expected layout (T, C, Y, X).
     return np.transpose(stitched_tyxc, (0, 3, 1, 2))
-
-
-_LABEL_PLACEMENT_KEYS = (
-    "overlap_x",
-    "overlap_y",
-    "translate_x",
-    "translate_y",
-)
-
-
-def _recompose_labels(
-    per_field_masks: list[npt.NDArray[Any]],
-    positions: list[tuple[float, float]],
-    tile_h: int,
-    tile_w: int,
-) -> npt.NDArray[Any]:
-    """Recompose per-field label tiles (list of (T, Y, X)) → (T, Y, X).
-
-    Filters ``OPERETTA_STITCH_DEFAULTS`` to the placement keys only:
-    ``edge`` is image-blending and not accepted by the label recomposer.
-    Mirrors the filter used by ``loops.py`` when splitting masks.
-    """
-    placement = {k: OPERETTA_STITCH_DEFAULTS[k] for k in _LABEL_PLACEMENT_KEYS}
-    return recompose_split_labels(
-        per_field_masks,
-        positions,
-        tile_h,
-        tile_w,
-        **placement,
-    )
 
 
 def _load_stitch_image_block(
     conn: BlitzGateway,
     omero_conn: Any | None,
     image_ids: list[int],
-    positions: list[tuple[float, float]],
+    offsets: npt.NDArray[np.int_],
+    edge: int,
     channel_data: dict[str, str],
     flatfield_dict: dict[str, npt.NDArray[Any]],
     t0: int,
@@ -333,7 +326,7 @@ def _load_stitch_image_block(
         if omero_conn is not None and worker_conn is not conn:
             with contextlib.suppress(Exception):
                 worker_conn.close()
-    return _stitch_image(images_ntyxc, positions)  # (bt, C, Y, X)
+    return _stitch_image(images_ntyxc, offsets, edge)  # (bt, C, Y, X)
 
 
 def _load_recompose_label_block(
@@ -341,9 +334,7 @@ def _load_recompose_label_block(
     omero_conn: Any | None,
     mask_ids: list[int],
     source_ids: list[int],
-    positions: list[tuple[float, float]],
-    tile_h: int,
-    tile_w: int,
+    offsets: npt.NDArray[np.int_],
     t0: int,
     t1: int,
 ) -> tuple[npt.NDArray[Any], npt.NDArray[Any] | None]:
@@ -370,20 +361,16 @@ def _load_recompose_label_block(
                 worker_conn.close()
     # uint32 to match the dask array's declared dtype (and the zarr label
     # dtype the writer casts to) — labels can exceed uint16 on big wells.
-    nuc = _recompose_labels(nuc_fields, positions, tile_h, tile_w).astype(
-        np.uint32, copy=False
-    )
+    nuc = recompose_tiles(nuc_fields, offsets).astype(np.uint32, copy=False)
     if any(c is not None for c in cell_fields):
         if not all(c is not None for c in cell_fields):
             raise ValueError(
                 "Well has cell masks for some fields but not all — "
                 "refusing to recompose mixed coverage."
             )
-        cell = _recompose_labels(
+        cell = recompose_tiles(
             [c for c in cell_fields if c is not None],
-            positions,
-            tile_h,
-            tile_w,
+            offsets,
         ).astype(np.uint32, copy=False)
     else:
         cell = None
@@ -413,31 +400,29 @@ def _build_lazy_well_arrays(
     Returns:
         ``(image_dask, nuclei_dask, cells_dask_or_None)``.
     """
-    n_fields = len(list(well.listChildren()))
-    image_ids: list[int] = []
-    positions: list[tuple[float, float]] = []
-    for n in range(n_fields):
-        ws = well.getWellSample(n)
-        image_ids.append(int(ws.getImage().getId()))
-        px, py = ws.getPosX(), ws.getPosY()
-        positions.append(
-            (
-                px.getValue() if px is not None else 0.0,
-                py.getValue() if py is not None else 0.0,
-            )
-        )
+    offsets = _load_canvas_offsets(well)  # (N, 2)
+
+    valid = (offsets[:, 0] >= 0) & (offsets[:, 1] >= 0)
+    valid_offsets = offsets[valid]
+    fields = np.arange(len(offsets))[valid].tolist()
+
     first = well.getWellSample(0).getImage()
     n_t = int(first.getSizeT())
     n_ch = len(channel_data)
+    mask_ids, source_ids = resolve_stitched_mask_ids(well, fields)
+
+    # Auto edge
     tile_h, tile_w = int(first.getSizeY()), int(first.getSizeX())
-    mask_ids, source_ids = resolve_stitched_mask_ids(well)
+    edge = get_overlap(valid_offsets, tile_h, tile_w)
+    logger.debug(f"Stitching {well.getWellPos()} using auto-edge: {edge}")
 
     # Probe block 0 for canvas dims (image) and cell presence (labels).
     probe_img = _load_stitch_image_block(
         conn,
         omero_conn,
-        image_ids,
-        positions,
+        source_ids,
+        valid_offsets,
+        edge,
         channel_data,
         flatfield_dict,
         0,
@@ -446,7 +431,7 @@ def _build_lazy_well_arrays(
     )  # (1, C, Y, X)
     cy, cx = int(probe_img.shape[2]), int(probe_img.shape[3])
     nuc0, cell0 = _load_recompose_label_block(
-        conn, omero_conn, mask_ids, source_ids, positions, tile_h, tile_w, 0, 1
+        conn, omero_conn, mask_ids, source_ids, valid_offsets, 0, 1
     )
     ly, lx = int(nuc0.shape[1]), int(nuc0.shape[2])
     has_cells = cell0 is not None
@@ -457,8 +442,9 @@ def _build_lazy_well_arrays(
             delayed(_load_stitch_image_block)(
                 conn,
                 omero_conn,
-                image_ids,
-                positions,
+                source_ids,
+                valid_offsets,
+                edge,
                 channel_data,
                 flatfield_dict,
                 t0,
@@ -482,9 +468,7 @@ def _build_lazy_well_arrays(
             omero_conn,
             mask_ids,
             source_ids,
-            positions,
-            tile_h,
-            tile_w,
+            valid_offsets,
             t0,
             t1,
         )
@@ -537,6 +521,7 @@ def resolve_target_wells(
     """
     from omero_screen_napari.zarr_cache.reader import cached_wells
 
+    # Why not use get_well_data(conn, plate_id) to hit the cache?
     well_map = _fetch_well_map(conn, plate_id)
     non_empty = {
         pos: info

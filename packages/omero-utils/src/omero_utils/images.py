@@ -249,14 +249,18 @@ def delete_masks(conn: BlitzGateway, dataset_id: int) -> None:
 
     """
     dataset = conn.getObject("Dataset", dataset_id)
+    suffixes = ["_stitched_segmentation", "_segmentation"]
+    annotations = ["Stitched_Segmentation_Mask", "Segmentation_Mask"]
     for child in dataset.listChildren():
-        if child.getName().endswith("_segmentation"):
-            image_id = int(child.getName()[: -len("_segmentation")])
-            image = conn.getObject("Image", image_id)
-            delete_map_annotation(
-                conn, image, "Segmentation_Mask", ns=OmeroScreenNS.METADATA
-            )
-            conn.deleteObject(child._obj)
+        for suffix, annotation in zip(suffixes, annotations, strict=True):
+            if child.getName().endswith(suffix):
+                image_id = int(child.getName()[: -len(suffix)])
+                image = conn.getObject("Image", image_id)
+                delete_map_annotation(
+                    conn, image, annotation, ns=OmeroScreenNS.METADATA
+                )
+                conn.deleteObject(child._obj)
+                break
 
 
 def parse_mip(
@@ -388,98 +392,34 @@ def delete_mip(conn: BlitzGateway, image_id: int) -> None:
 STITCHED_MASK_ANNOTATION_KEY = "Stitched_Segmentation_Mask"
 
 
-def fetch_stitched_field_masks(
-    conn: BlitzGateway,
-    well: WellWrapper,
-    *,
-    conn_factory: Any | None = None,
-    max_workers: int = 3,
-) -> tuple[
-    list[npt.NDArray[Any]],
-    list[npt.NDArray[Any] | None],
-    list[int],
-]:
-    """Fetch per-field stitched-mode segmentation masks for one well.
-
-    Stitched-mode masks are uploaded by the omero-screen pipeline via
-    :func:`upload_masks` with ``name_suffix="_stitched_segmentation"`` and
-    annotation key ``Stitched_Segmentation_Mask``. The annotation lives on
-    the original field image and points to the mask image's id.
-
-    For each field (well sample) in ``well`` this function:
-
-    1. Reads the ``Stitched_Segmentation_Mask`` map annotation on the
-       field's source image.
-    2. Downloads the corresponding mask image. The mask has shape
-       ``(T, Z=1, Y, X, C)`` where ``C=1`` for nucleus-only or ``C=2``
-       for nucleus + cell (channel 0 = nuclei, channel 1 = cells).
-    3. Squeezes Z and splits channels into separate ``(T, Y, X)`` arrays.
-
-    Args:
-        conn: OMERO connection.
-        well: Well object whose fields will be queried.
-        conn_factory: Optional zero-arg callable returning a fresh
-            ``BlitzGateway``. When provided, mask downloads run in
-            parallel, one connection per worker thread (BlitzGateway
-            is not thread-safe).
-        max_workers: Concurrency for the parallel download path.
-            Ignored when ``conn_factory`` is ``None``.
-
-    Returns:
-        Tuple ``(nuclei_per_field, cells_per_field, source_image_ids)``:
-
-        * ``nuclei_per_field``: list of ``(T, Y, X)`` ``uint16`` nucleus
-          masks, one per field, in well-sample order.
-        * ``cells_per_field``: list of ``(T, Y, X)`` cell masks (same
-          ordering) or ``None`` for fields that have nucleus-only masks.
-        * ``source_image_ids``: list of original field image IDs in the
-          same order — useful for downstream operations that need to
-          re-link results to the source image.
-
-    Raises:
-        KeyError: If any field is missing a ``Stitched_Segmentation_Mask``
-            annotation. This indicates the well was not processed in
-            stitched mode and the caller should fall back to per-field
-            masks.
-    """
-    mask_ids, source_ids = resolve_stitched_mask_ids(well)
-    nuclei, cells = fetch_stitched_field_masks_trange(
-        conn,
-        mask_ids,
-        source_ids=source_ids,
-        conn_factory=conn_factory,
-        max_workers=max_workers,
-    )
-    return nuclei, cells, source_ids
-
-
 def resolve_stitched_mask_ids(
     well: WellWrapper,
+    fields: list[int],
 ) -> tuple[list[int], list[int]]:
     """Resolve per-field ``(mask_id, source_id)`` for a well's stitched masks.
 
-    The cheap, pixel-free first phase of :func:`fetch_stitched_field_masks`,
+    The cheap, pixel-free first phase of :func:`fetch_stitched_field_masks_trange`,
     split out so a streaming caller can resolve the ids once and then fetch
     pixels per timepoint-block via :func:`fetch_stitched_field_masks_trange`.
 
     Args:
         well: Well object whose fields will be queried.
+        fields: The indices of the fields.
 
     Returns:
-        ``(mask_ids, source_ids)`` in well-sample order.
+        ``(mask_ids, source_ids)`` in the provided field order.
 
     Raises:
         KeyError: If any field lacks a ``Stitched_Segmentation_Mask``
             annotation (well not processed in stitched mode).
     """
-    n_fields = len(list(well.listChildren()))
-    source_ids: list[int] = [0] * n_fields
-    mask_ids: list[int] = [0] * n_fields
-    for n in range(n_fields):
+    source_ids = []
+    mask_ids = []
+    for n in fields:
         ws = well.getWellSample(n)
         field_image = ws.getImage()
-        field_id = field_image.getId()
-        source_ids[n] = field_id
+        field_id = int(field_image.getId())
+        source_ids.append(field_id)
         anns = parse_annotations(field_image, ns=OmeroScreenNS.METADATA)
         if STITCHED_MASK_ANNOTATION_KEY not in anns:
             raise KeyError(
@@ -487,7 +427,7 @@ def resolve_stitched_mask_ids(
                 f"{STITCHED_MASK_ANNOTATION_KEY!r} annotation. "
                 f"Was this well processed in stitched mode?"
             )
-        mask_ids[n] = int(anns[STITCHED_MASK_ANNOTATION_KEY])
+        mask_ids.append(int(anns[STITCHED_MASK_ANNOTATION_KEY]))
     return mask_ids, source_ids
 
 
