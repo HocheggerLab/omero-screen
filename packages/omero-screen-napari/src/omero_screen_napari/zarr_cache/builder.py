@@ -58,12 +58,9 @@ from omero_utils.stitching import (
 from omero_screen_napari.omero_data import get_dataset_id
 from omero_screen_napari.omero_image import get_image
 from omero_screen_napari.plate_cache import (
-    # Use: get_plate_metadata()["label_stitched_mode"]
-    _detect_label_stitched_mode,
-    # Use: get_plate_metadata
-    _fetch_plate_metadata,
-    # Use: get_well_data
-    _fetch_well_map,
+    detect_label_stitched_mode,
+    fetch_plate_metadata,
+    fetch_well_map,
     is_empty_well,
 )
 from omero_screen_napari.zarr_cache.eviction import (
@@ -95,11 +92,11 @@ _CACHE_DASK_WORKERS = int(os.getenv("OMERO_SCREEN_CACHE_WORKERS", "2"))
 def is_stitched_plate(conn: BlitzGateway, plate_id: int) -> bool:
     """Return True if the plate has any stitched-mode segmentation masks.
 
-    Mirrors :func:`plate_cache._detect_label_stitched_mode` — kept here as
-    the public entry point used by the widget to choose between the zarr
-    builder and the existing diskcache builder.
+    Thin alias for :func:`plate_cache.detect_label_stitched_mode`, kept as
+    the zarr package's own entry point: the widget imports it from here to
+    choose between the zarr builder and the existing diskcache builder.
     """
-    return _detect_label_stitched_mode(conn, plate_id)
+    return detect_label_stitched_mode(conn, plate_id)
 
 
 # ----------------------------------------------------------------------
@@ -132,25 +129,65 @@ def _load_flatfield_dict(
     return out
 
 
+def _missing_position_fields(well: WellWrapper) -> list[int]:
+    """Field indices whose well sample has no recorded stage position.
+
+    A failed acquisition leaves a blank image with no position. The
+    pipeline that wrote ``canvas.csv`` could not place such a field, so
+    this is the usual reason a well has no attachment.
+    """
+    return [
+        i
+        for i, ws in enumerate(well.listChildren())
+        if ws.getPosX() is None or ws.getPosY() is None
+    ]
+
+
+def _no_offsets_error(well: WellWrapper, reason: str) -> PlateDataError:
+    """Build the failure for a well whose canvas offsets are unusable.
+
+    Deliberately fatal rather than recomputed from stage positions. The
+    offsets themselves could be derived — but a well missing its
+    attachment is, in practice, a well whose segmentation never
+    succeeded, and its masks are present-but-empty. Deriving offsets
+    would build a zarr full of blank labels and hide that, whereas every
+    other check (mask names, map annotations) already reports the well as
+    segmented. Failing loudly is the only signal left.
+    """
+    bad = _missing_position_fields(well)
+    detail = (
+        f" Field(s) {bad} have no stage position, so this well most likely "
+        "failed segmentation — check its masks are not empty and re-run the "
+        "plate."
+        if bad
+        else " Re-run the plate with --stitch to attach the offsets."
+    )
+    return PlateDataError(
+        f"{reason} for well {well.getId()}: {well.getWellPos()}.{detail}",
+        logger,
+    )
+
+
 def _load_canvas_offsets(well: WellWrapper) -> npt.NDArray[np.int_]:
+    """Return the canvas offsets attached to the well by a ``--stitch`` run.
+
+    Raises rather than deriving the offsets from stage positions — see
+    :func:`_no_offsets_error` for why a missing attachment must stay
+    fatal.
+    """
     # Get the stitched canvas offsets
     offsets_ann = get_file_attachments(well, "canvas.csv")
     if offsets_ann is None:
-        raise PlateDataError(
-            f"Missing stitched canvas offsets for well {well.getId()}: {well.getWellPos()}",
-            logger,
-        )
+        raise _no_offsets_error(well, "Missing stitched canvas offsets")
     offsets_df = parse_csv_data(offsets_ann[0])
     if offsets_df is None:
-        raise PlateDataError(
-            f"Failed to load stitched canvas offsets for well {well.getId()}: {well.getWellPos()}",
-            logger,
-        )
+        raise _no_offsets_error(well, "Failed to load stitched canvas offsets")
     n = well.countWellSample()
     if len(offsets_df) != n:
-        raise PlateDataError(
-            f"Incorrect size for stitched canvas offsets for well {well.getId()}: {well.getWellPos()}: {len(offsets_df)} != {n}",
-            logger,
+        raise _no_offsets_error(
+            well,
+            f"Incorrect size for stitched canvas offsets "
+            f"({len(offsets_df)} != {n})",
         )
     # offsets (N, 2)
     return np.column_stack((offsets_df["ox"], offsets_df["oy"])).astype(
@@ -521,8 +558,12 @@ def resolve_target_wells(
     """
     from omero_screen_napari.zarr_cache.reader import cached_wells
 
-    # Why not use get_well_data(conn, plate_id) to hit the cache?
-    well_map = _fetch_well_map(conn, plate_id)
+    # Deliberately the uncached fetch rather than get_well_data(): the
+    # build must plan against the plate as it stands in OMERO now. A
+    # re-run that adds fields or masks would otherwise be planned from a
+    # stale cached well map. Cost is one extra HQL query per build, since
+    # build_plate_zarr() fetches the map again on the worker thread.
+    well_map = fetch_well_map(conn, plate_id)
     non_empty = {
         pos: info
         for pos, info in well_map.items()
@@ -570,13 +611,13 @@ def build_plate_zarr(
             When ``None``, downloads run sequentially on ``conn``.
         max_workers: Concurrency for the parallel download path.
     """
-    metadata = _fetch_plate_metadata(conn, plate_id)
+    metadata = fetch_plate_metadata(conn, plate_id)
     channel_data: dict[str, str] = metadata["channel_data"]
     pixel_size = metadata["pixel_size"]
     plate_name = metadata["plate_name"]
     ff_mask_id = metadata["ff_mask_id"]
 
-    well_map = _fetch_well_map(conn, plate_id)
+    well_map = fetch_well_map(conn, plate_id)
     # Mirror omero-screen's empty-well filter (loops.py): wells with no
     # metadata, no cell_line, or cell_line == "Empty" are excluded from
     # both segmentation and the zarr cache.
@@ -665,7 +706,7 @@ def build_plate_zarr(
         conn, ff_mask_id, channel_data, plate_id=plate_id
     )
 
-    # Need the live Plate object to iterate fields. _fetch_well_map only
+    # Need the live Plate object to iterate fields. fetch_well_map only
     # returns ids + positions; per-field pixel download still wants the
     # OMERO wrapper.
     plate = conn.getObject("Plate", plate_id)

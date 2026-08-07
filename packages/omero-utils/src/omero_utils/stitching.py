@@ -548,8 +548,10 @@ def compose_tiles_from_offsets(
     _validate_offsets(offsets)
 
     dtype = tiles.dtype
-    m = np.ones(tiles.shape[1:3], dtype=int)
-    tile_h, tile_w = m.shape
+    # Take the tile dims straight from `tiles` rather than round-tripping
+    # them through `m.shape`, which numpy's stubs cannot narrow to a pair.
+    tile_h, tile_w = int(tiles.shape[1]), int(tiles.shape[2])
+    m = np.ones((tile_h, tile_w), dtype=int)
 
     if edge:
         # Distance transform does not use out-of-bounds as background.

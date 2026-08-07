@@ -245,22 +245,41 @@ class Image:
                 c_mask (np.ndarray or None): Segmentation mask for cells, if available.
                 cyto_mask (np.ndarray or None): Segmentation mask for cytoplasm, if available.
         """
-        # check if masks already exist
+        # Reuse existing masks if the plate has already been segmented.
+        # ``--delete`` removes them up front, so this finds nothing and the
+        # segmentation below runs from scratch.
         image_name = f"{self.omero_image.getId()}_segmentation"
         dataset = self._conn.getObject("Dataset", self.dataset_id)
         n_mask, c_mask, cyto_mask = None, None, None
-        for image in dataset.listChildren():
-            if image.getName() == image_name:
-                image_id = image.getId()
-                logger.info(f"Segmentation masks found for image {image_id}")
-                # masks is TZYXC
-                _, masks = get_image(self._conn, image_id)
-                if masks.shape[-1] == 2:
-                    n_mask, c_mask = masks[..., 0], masks[..., 1]
-                    cyto_mask = self._get_cyto(n_mask, c_mask)
-                else:
-                    n_mask = masks[..., 0]
-                break  # stop the loop once the image is found
+        matches = [
+            image
+            for image in dataset.listChildren()
+            if image.getName() == image_name
+        ]
+        if matches:
+            # Older runs uploaded a new mask without removing the previous
+            # one, so the same name can appear several times. Take the
+            # highest id — the most recent upload, and the one the source
+            # image's map annotation points at. Taking whichever came first
+            # out of ``listChildren()`` meant measurements could silently be
+            # computed from a stale run's mask.
+            image = max(matches, key=lambda i: int(i.getId()))
+            image_id = image.getId()
+            if len(matches) > 1:
+                logger.warning(
+                    f"{len(matches):d} masks named {image_name!r} "
+                    f"({sorted(int(i.getId()) for i in matches)}); reusing the "
+                    f"most recent ({int(image_id):d}). Re-run with --delete to "
+                    "clear the duplicates."
+                )
+            logger.info(f"Segmentation masks found for image {image_id}")
+            # masks is TZYXC
+            _, masks = get_image(self._conn, image_id)
+            if masks.shape[-1] == 2:
+                n_mask, c_mask = masks[..., 0], masks[..., 1]
+                cyto_mask = self._get_cyto(n_mask, c_mask)
+            else:
+                n_mask = masks[..., 0]
         if n_mask is None:
             with self._bench.stage("nucleus_segmentation"):
                 n_mask = self._n_segmentation()

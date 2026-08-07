@@ -5,6 +5,7 @@ This module provides functions for uploading masks and maximum intensity project
 Available functions:
 
 - upload_masks(conn, dataset_id, image, n_mask, c_mask): Uploads generated images to OMERO server and links them to the specified dataset.
+- prune_duplicate_masks(conn, dataset_id, image_name): Removes same-named mask images left by earlier runs.
 - delete_masks(conn, dataset_id): Removes all segmentation masks from an OMERO dataset.
 - parse_mip(conn, image_id, dataset_id): Get the maximum intensity projection of a z-stack image.
 - delete_mip(conn, image_id): Removes a maximum intensity projection of a z-stack image saved in OMERO as an annotation.
@@ -31,6 +32,63 @@ from omero_utils.map_anns import (
     delete_map_annotation,
     parse_annotations,
 )
+
+
+def prune_duplicate_masks(
+    conn: BlitzGateway,
+    dataset_id: int,
+    image_name: str,
+    keep_id: int | None = None,
+    dry_run: bool = False,
+) -> list[int]:
+    """Delete mask images in a dataset that duplicate ``image_name``.
+
+    Mask images are named ``{source_image_id}{suffix}`` and are meant to be
+    unique within the segmentation dataset. Because :func:`upload_masks`
+    historically created a new image on every run without removing the old
+    one, re-analysing a plate left a pile of same-named masks behind. Only
+    the map annotation on the source image was repointed, so anything that
+    resolves masks *by name* — ``plate_aggregation._get_mask_map``, the
+    napari well-data loader — would pick an arbitrary one, potentially a
+    mask from a previous run with different segmentation settings.
+
+    Args:
+        conn: OMERO connection.
+        dataset_id: Segmentation dataset to scan.
+        image_name: Exact mask image name, e.g. ``"1234_segmentation"``.
+            Matched exactly so ``_segmentation`` never catches
+            ``_stitched_segmentation``.
+        keep_id: Mask image id to preserve — normally the one just
+            uploaded. ``None`` keeps the highest id (the newest).
+        dry_run: Report what would be deleted without deleting it.
+
+    Returns:
+        Ids of the deleted masks (or, under ``dry_run``, of those that
+        would be deleted). Empty when there was nothing to prune.
+    """
+    dataset = conn.getObject("Dataset", dataset_id)
+    if dataset is None:
+        return []
+    matches = [
+        int(child.getId())
+        for child in dataset.listChildren()
+        if child.getName() == image_name
+    ]
+    if len(matches) < 2 and keep_id is None:
+        return []
+    if keep_id is None:
+        keep_id = max(matches)
+    stale = sorted(i for i in matches if i != keep_id)
+    if not stale:
+        return []
+    logger.info(
+        f"{'Would delete' if dry_run else 'Deleting'} {len(stale):d} duplicate "
+        f"mask(s) named {image_name!r} in dataset {dataset_id:d}: {stale} "
+        f"(keeping {keep_id:d})"
+    )
+    if not dry_run:
+        conn.deleteObjects("Image", stale, deleteAnns=True, wait=True)
+    return stale
 
 
 def upload_masks(
@@ -95,6 +153,15 @@ def upload_masks(
         image,
         {annotation_key: mask.getId()},
         ns=OmeroScreenNS.METADATA,
+    )
+
+    # Only now drop any same-named masks from earlier runs. Ordering is
+    # deliberate: create → repoint annotation → delete. The source image
+    # therefore always points at a mask that exists, and a crash part-way
+    # leaves duplicates (the status quo) rather than no mask at all. The
+    # next run prunes whatever was left behind.
+    prune_duplicate_masks(
+        conn, dataset_id, image_name, keep_id=int(mask.getId())
     )
 
 

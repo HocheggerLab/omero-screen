@@ -72,6 +72,18 @@ def main() -> None:
         help="Only perform image segmentation (default: %(default)s)",
     )
     group.add_argument(
+        "--delete",
+        default=False,
+        action="store_true",
+        help=(
+            "Delete the plate's existing segmentation masks and segment from "
+            "scratch. Without this, a re-run reuses the stored masks (both "
+            "stitched and per-field) and only recomputes the measurements. "
+            "Use it after changing segmentation settings, or to repair a "
+            "plate whose stored masks are wrong or empty."
+        ),
+    )
+    group.add_argument(
         "--cp4",
         default=False,
         action="store_true",
@@ -247,6 +259,7 @@ def main() -> None:
                 plate_id,
                 segmentation_mode=args.segmentation,
                 stitch_mode=args.stitch,
+                delete_existing=args.delete,
             )
             report_path = timer.save_report()
             if args.benchmark:

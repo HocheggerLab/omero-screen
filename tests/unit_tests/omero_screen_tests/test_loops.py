@@ -7,11 +7,10 @@ and everything derived from it on long multi-channel timelapses.
 """
 
 import os
-import pytest
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-
+import pytest
 from omero_utils.message import PlateDataError
 
 from omero_screen.loops import (
@@ -19,7 +18,9 @@ from omero_screen.loops import (
     _load_well_fields,
     _should_stream_stitch,
     _stitch_well,
+    _stitched_well_loop,
 )
+from omero_screen.progress import ScreenProgress
 
 
 def _well_with_dims(n_fields: int, n_t: int, side: int) -> MagicMock:
@@ -125,7 +126,9 @@ def test_load_well_fields_returns_float32(mock_get_image: MagicMock) -> None:
 
 
 @patch("omero_screen.loops.get_image")
-def test_load_well_fields_throws_with_no_positions(mock_get_image: MagicMock) -> None:
+def test_load_well_fields_throws_with_no_positions(
+    mock_get_image: MagicMock,
+) -> None:
     """Well with no sample positions."""
     # get_image returns (metadata, array) with array shaped (T, Z, Y, X, C).
     array = (np.ones((3, 1, 4, 4, 2)) * 1000).astype(np.uint16)
@@ -140,13 +143,18 @@ def test_load_well_fields_throws_with_no_positions(mock_get_image: MagicMock) ->
 
     with pytest.raises(PlateDataError):
         _load_well_fields(
-            MagicMock(), _mock_well(2, offset_multiplier=0), metadata, 1, flatfield
+            MagicMock(),
+            _mock_well(2, offset_multiplier=0),
+            metadata,
+            1,
+            flatfield,
         )
 
 
-def _streaming_well(field_data: dict[int, np.ndarray], offset_multiplier: float = 1) -> MagicMock:
+def _streaming_well(
+    field_data: dict[int, np.ndarray], offset_multiplier: float = 1
+) -> MagicMock:
     """A well whose samples expose ids/positions/dims for the streaming loader."""
-    n_fields = len(field_data)
     ids = list(field_data)
     well = MagicMock()
     # Distinct stage positions per field so the stitch geometry is non-trivial.
@@ -164,7 +172,9 @@ def _streaming_well(field_data: dict[int, np.ndarray], offset_multiplier: float 
             ("getSizeC", c),
         ):
             getattr(s.getImage.return_value, attr).return_value = val
-        s.getPosX.return_value.getValue.return_value = float(i * x * offset_multiplier)
+        s.getPosX.return_value.getValue.return_value = float(
+            i * x * offset_multiplier
+        )
         s.getPosY.return_value.getValue.return_value = 0.0
         samples.append(s)
     well.listChildren.return_value = samples
@@ -238,5 +248,39 @@ def test_streaming_stitch_throws_with_no_positions() -> None:
     # Non-streaming reference: load all fields, stitch the full stack.
     with pytest.raises(PlateDataError):
         _load_and_stitch_streaming(
-            MagicMock(), _streaming_well(field_data, offset_multiplier=0), metadata, flatfield
+            MagicMock(),
+            _streaming_well(field_data, offset_multiplier=0),
+            metadata,
+            flatfield,
         )
+
+
+class _StopHere(Exception):
+    """Sentinel raised to abort the stitched loop once inside the body."""
+
+
+def test_stitched_well_loop_opens_progress_well() -> None:
+    """The stitched path must run inside ``prog.well()``.
+
+    Without it the Wells bar never advances and the Images bar keeps the
+    previous well's total, so a ``--stitch`` run shows a frozen display for
+    its whole duration. Aborting from inside the body also checks the
+    counter is advanced by the context manager's ``finally``, not by a
+    tick on the success path only.
+    """
+    prog = ScreenProgress(plate_id=1, n_wells=1)
+    well = MagicMock()
+    well.getWellPos.return_value = "A1"
+    well.listChildren.return_value = [object()] * 4
+
+    with patch(
+        "omero_screen.loops._should_stream_stitch", side_effect=_StopHere
+    ):
+        with pytest.raises(_StopHere):
+            _stitched_well_loop(
+                MagicMock(), well, MagicMock(), 1, {}, None, prog=prog
+            )
+
+    assert prog._current_well == "A1"
+    assert prog._img_total == 4
+    assert prog._wells_done == 1

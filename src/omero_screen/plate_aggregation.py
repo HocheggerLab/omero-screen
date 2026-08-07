@@ -978,20 +978,52 @@ def _histogram(
 def _get_mask_map(
     conn: BlitzGateway, plate_id: int
 ) -> dict[int, ImageWrapper]:
-    """Get a map from the original image ID to the segmentation mask image object."""
+    """Get a map from the original image ID to the segmentation mask image object.
+
+    Two different names can claim the same key, so the choice is made
+    explicitly rather than by iteration order:
+
+    1. Stitched masks (``{image_id}_stitched_segmentation``) beat legacy
+       per-field masks (``{image_id}_segmentation``). A plate analysed both
+       ways carries both, and the stitched run is the later, canvas-wide
+       one. This mirrors the precedence in ``omero_utils.delete_masks``.
+    2. Among masks of the same kind, the highest OMERO image id wins — that
+       is the most recent upload. Duplicates only exist on plates analysed
+       before ``upload_masks`` started pruning them; picking whichever
+       ``listChildren()`` happened to yield last meant aggregation could
+       silently use a mask from an earlier run.
+    """
     dataset_id = PlateDataset(conn, plate_id).dataset_id
     dataset = conn.getObject("Dataset", dataset_id)
-    d = {}
+    # image_id -> (is_stitched, mask_image_id, mask_image)
+    best: dict[int, tuple[bool, int, ImageWrapper]] = {}
+    duplicates = 0
     for image in dataset.listChildren():
         name = image.getName()
         s = name.removesuffix("_segmentation")
-        if len(s) < len(name):
-            # Stitched-mode masks are named "{image_id}_stitched_segmentation"
-            # (loops.py); legacy masks are "{image_id}_segmentation". Strip the
-            # optional "_stitched" token so the key is the original image ID.
-            s = s.removesuffix("_stitched")
-            d[int(s)] = image
-    return d
+        if len(s) == len(name):
+            continue
+        stitched = s.endswith("_stitched")
+        s = s.removesuffix("_stitched")
+        try:
+            key = int(s)
+        except ValueError:
+            logger.warning(f"Ignoring mask with unparseable name: {name}")
+            continue
+        rank = (stitched, int(image.getId()))
+        if key in best:
+            duplicates += 1
+            if rank < best[key][:2]:
+                continue
+        best[key] = (*rank, image)
+    if duplicates:
+        logger.warning(
+            f"Plate {plate_id}: {duplicates:d} redundant segmentation mask(s) "
+            "in the dataset; using the stitched/most-recent one for each "
+            "image. Re-run the plate or use "
+            "omero_utils.images.prune_duplicate_masks to clean these up."
+        )
+    return {key: value[2] for key, value in best.items()}
 
 
 def _get_mask_from_map(

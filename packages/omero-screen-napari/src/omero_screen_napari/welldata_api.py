@@ -2260,6 +2260,25 @@ class ImageParser:
             logger.debug("All label images found")
 
     def _collect_labels(self) -> None:
+        def _newest(matches: list[Any], name: str, img_id: int) -> Any:
+            """Pick the most recent of several same-named mask images.
+
+            Re-running a plate used to leave every earlier mask in place, so
+            exact-name matching can return more than one. The highest OMERO
+            id is the latest upload — the same mask the source image's map
+            annotation points at.
+            """
+            if len(matches) == 1:
+                return matches[0]
+            newest = max(matches, key=lambda c: int(c.getId()))
+            logger.warning(
+                f"Image {img_id}: {len(matches):d} masks named {name!r} "
+                f"({sorted(int(c.getId()) for c in matches)}); using the most "
+                f"recent ({int(newest.getId()):d}). Clean up with "
+                "omero_utils.images.prune_duplicate_masks."
+            )
+            return newest
+
         start, length = _get_crop(self._omero_data)
         tstart, tend = None, None
         if start and length:
@@ -2286,10 +2305,10 @@ class ImageParser:
             ]
 
             if stitched_matches:
-                label_data = stitched_matches[0]
+                label_data = _newest(stitched_matches, stitched_name, img_id)
                 self._omero_data.label_stitched_mode = True
             elif legacy_matches:
-                label_data = legacy_matches[0]
+                label_data = _newest(legacy_matches, legacy_name, img_id)
             else:
                 # Fallback: substring match against the legacy name only.
                 # Stitched masks have a clean exact name and don't need this.
