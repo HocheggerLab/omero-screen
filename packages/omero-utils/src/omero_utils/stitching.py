@@ -1240,7 +1240,8 @@ def layout_to_offsets(
         else:
             valid[i] = False
 
-    offsets[valid] = offsets[valid] - offsets[valid].min(axis=0)
+    if np.any(valid):
+        offsets[valid] = offsets[valid] - offsets[valid].min(axis=0)
     return offsets
 
 
