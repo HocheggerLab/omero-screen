@@ -154,6 +154,19 @@ def aggregate_plates(
                 row_ind, col_ind = map_partial_linear_sum(c1, c2, threshold)
             elif method == 2:
                 row_ind, col_ind = map_nearest_neighbour(c1, c2, threshold)
+            elif method == 3 and (im1[1] not in map1 or im2[1] not in map2):
+                # A field with no mask is a legitimate state: the stitched
+                # path excludes fields whose acquisition failed (blank
+                # image, no stage position). Nothing to map, so fall
+                # through with empty indices like the no-centroid case
+                # above rather than aborting the aggregation.
+                logger.warning(
+                    f"No segmentation for well {well_pos} image(s) "
+                    f"{[i for i, m in ((im1[1], map1), (im2[1], map2)) if i not in m]}; "
+                    "no label mappings for this field"
+                )
+                row_ind = np.array([], dtype=int)
+                col_ind = row_ind.copy()
             else:
                 a = (
                     plate_alignments[
@@ -1253,6 +1266,7 @@ def create_cell_masks(
     for plate_other in plate_ids:
         logger.info(f"Creating missing masks for plate: {plate_other}")
         created = 0
+        skipped = 0
         dataset_id2 = PlateDataset(conn, plate_other).dataset_id
         plate_alignments = alignments[alignments["plate"] == plate_other]
         images2 = _get_well_images(conn, plate_other)
@@ -1260,6 +1274,22 @@ def create_cell_masks(
         for im1, im2 in zip(images1, images2, strict=True):
             assert im1[0] == im2[0], "Well positions must match"
             well_pos, image_id1, image_id2 = im1[0], im1[1], im2[1]
+            # A field with no mask is a legitimate state: the stitched path
+            # excludes fields whose acquisition failed (blank image, no
+            # stage position) and uploads masks only for the rest. Skip it
+            # rather than aborting the whole aggregation part-way through.
+            if image_id1 not in map1 or image_id2 not in map2:
+                missing = [
+                    i
+                    for i, m in ((image_id1, map1), (image_id2, map2))
+                    if i not in m
+                ]
+                logger.warning(
+                    f"No segmentation for well {well_pos} image(s) {missing}; "
+                    "skipping this field (excluded from the stitched canvas)"
+                )
+                skipped += 1
+                continue
             # Check for cell mask
             dim = _get_mask_dim(image_id2, map2)
             msg = "Creating"
@@ -1343,6 +1373,11 @@ def create_cell_masks(
         # end well samples
         logger.info(
             f"Created {created:d} / {len(images2):d} missing cell masks for plate {plate_other:d}"
+            + (
+                f"; skipped {skipped:d} field(s) with no mask"
+                if skipped
+                else ""
+            )
         )
     # end plates
 

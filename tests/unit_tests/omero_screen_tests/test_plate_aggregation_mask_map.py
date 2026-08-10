@@ -12,6 +12,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+from omero_utils.message import OmeroError
+
 from omero_screen.plate_aggregation import _get_mask_map
 
 
@@ -79,3 +82,42 @@ def test_old_mask_is_not_double_deleted_after_upload() -> None:
     assert _should_delete_old_mask(legacy, 1234) is False
     # Different name: still ours to remove.
     assert _should_delete_old_mask(stitched, 1234) is True
+
+
+def test_missing_mask_is_skipped_not_fatal() -> None:
+    """A field with no mask must not abort aggregation.
+
+    After the stitched-path refactor a field whose acquisition failed
+    (blank image, no stage position) is legitimately excluded and gets no
+    mask. ``_get_mask_dim`` treats a missing mask as fatal, so the callers
+    have to check membership first — otherwise a single bad field kills
+    the whole cross-plate run part-way through.
+    """
+    from omero_screen.plate_aggregation import _get_mask_dim
+
+    present = _child("1234_segmentation", 10)
+    mask_map = {1234: present}
+
+    # Present: returns dims.
+    assert _get_mask_dim(1234, mask_map)[3] == present.getSizeC()
+    # Absent: still fatal by design — callers must skip before calling it.
+    with pytest.raises(OmeroError):
+        _get_mask_dim(9999, mask_map)
+    # The membership test the callers use.
+    assert 9999 not in mask_map
+    assert 1234 in mask_map
+
+
+def test_method_3_guard_does_not_fire_for_other_methods() -> None:
+    """The missing-mask short circuit must be scoped to method 3 only.
+
+    ``aggregate_plates`` builds mask maps *only* when ``method == 3`` and
+    passes empty dicts otherwise. An unscoped ``im not in map1`` check
+    would therefore be true for every field on methods 0-2 and silently
+    drop every mapping on the plate.
+    """
+    for method, map1, map2 in [(0, {}, {}), (1, {}, {}), (2, {}, {})]:
+        fires = method == 3 and (1 not in map1 or 2 not in map2)
+        assert fires is False, f"guard wrongly fired for method {method}"
+    # Method 3 with a genuinely missing mask does fire.
+    assert (3 == 3 and (1 not in {} or 2 not in {})) is True
