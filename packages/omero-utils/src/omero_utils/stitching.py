@@ -845,7 +845,7 @@ def merge_labels(
     map2[0] = 0
 
     # Compress map1 and map2 non-zero IDs to ascending from 1.
-    m = np.arange(max(map1.max(), map2.max()) + 1, dtype=np.uint16)
+    m = np.arange(np.max([map1.max(), map2.max()]) + 1, dtype=np.uint16)
     for x in map1:
         m[x] = x
     for x in map2:
