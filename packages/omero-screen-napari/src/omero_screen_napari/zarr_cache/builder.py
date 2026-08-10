@@ -51,6 +51,7 @@ from omero_utils.images import (
 from omero_utils.message import PlateDataError
 from omero_utils.stitching import (
     get_overlap,
+    missing_field_boxes,
     recompose_tiles,
     stitch_from_offsets,
 )
@@ -783,6 +784,22 @@ def build_plate_zarr(
                 )
                 continue
 
+            # Record where the canvas has tile-sized holes so the viewer can
+            # mark them. A field whose acquisition failed is left out of the
+            # stitch, and an unlabelled blank rectangle is indistinguishable
+            # from a display fault when you are looking at the well.
+            first_field = well_obj.getWellSample(0).getImage()
+            holes = missing_field_boxes(
+                _load_canvas_offsets(well_obj),
+                int(first_field.getSizeY()),
+                int(first_field.getSizeX()),
+            )
+            if holes:
+                logger.info(
+                    f"Well {well_pos}: {len(holes):d} unimaged region(s) on the "
+                    f"canvas from failed acquisition; recorded for display"
+                )
+
             # --- Write (streams the dask arrays block-by-block) ---------------
             writer.write_well(
                 well_pos,
@@ -792,6 +809,7 @@ def build_plate_zarr(
                 progress_cb=(
                     partial(step_cb, well_pos) if step_cb is not None else None
                 ),
+                missing_regions=holes,
             )
 
             if progress_cb is not None:

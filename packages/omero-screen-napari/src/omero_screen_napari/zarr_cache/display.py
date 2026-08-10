@@ -140,6 +140,7 @@ def load_plate_to_viewer(
     _add_image_layers(viewer, wells_data, channel_names, px, multi)
     _add_label_layers(viewer, wells_data, "nuclei", px, multi)
     _add_label_layers(viewer, wells_data, "cells", px, multi)
+    _add_missing_region_layer(viewer, wells_data, target_wells, px, multi)
 
     if multi:
         # Axis order is (well, T, Y, X). Naming the slider axis improves
@@ -291,6 +292,66 @@ def _add_label_layers(
         else (1.0, pixel_size_um, pixel_size_um)
     )
     viewer.add_labels(pyramid, name=key, scale=scale)
+
+
+def _add_missing_region_layer(
+    viewer: Any,
+    wells_data: list[dict[str, Any]],
+    well_ids: list[str],
+    pixel_size_um: float,
+    multi: bool,
+) -> None:
+    """Outline canvas regions where no field was acquired.
+
+    A failed acquisition leaves a tile-sized blank rectangle in the
+    stitched canvas with no labels in it. Unmarked, that is
+    indistinguishable from a rendering or cache fault, so it gets a
+    dashed outline and a caption naming the well.
+
+    No layer is added when every well is complete — which is the common
+    case — so this stays invisible unless it has something to say.
+    """
+    shapes: list[Any] = []
+    captions: list[str] = []
+    for index, (data, well_id) in enumerate(
+        zip(wells_data, well_ids, strict=True)
+    ):
+        for y0, x0, y1, x1 in data.get("missing_regions", ()):
+            corners = [(y0, x0), (y0, x1), (y1, x1), (y1, x0)]
+            # Shapes must match the image layers' dimensionality: the
+            # leading axes are the well slider (when stacked) and T.
+            prefix = (index, 0) if multi else (0,)
+            shapes.append([(*prefix, y, x) for y, x in corners])
+            captions.append(f"{well_id}: no acquisition")
+
+    if not shapes:
+        return
+
+    scale = (
+        (1.0, 1.0, pixel_size_um, pixel_size_um)
+        if multi
+        else (1.0, pixel_size_um, pixel_size_um)
+    )
+    viewer.add_shapes(
+        shapes,
+        name="missing fields",
+        shape_type="rectangle",
+        edge_color="red",
+        edge_width=8,
+        face_color="transparent",
+        opacity=0.9,
+        scale=scale,
+        text={
+            "string": captions,
+            "size": 10,
+            "color": "red",
+            "anchor": "upper_left",
+        },
+    )
+    logger.info(
+        f"Marked {len(shapes):d} unimaged region(s) across "
+        f"{len({c.split(':')[0] for c in captions}):d} well(s)"
+    )
 
 
 def _intensities_from_canvas(

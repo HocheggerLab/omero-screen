@@ -273,6 +273,7 @@ class PlateZarrWriter:
         label_nuclei_tyx: ArrayLike,
         label_cells_tyx: ArrayLike | None = None,
         progress_cb: Callable[[float], None] | None = None,
+        missing_regions: list[tuple[int, int, int, int]] | None = None,
     ) -> None:
         """Write one well's stitched image and label arrays.
 
@@ -286,6 +287,11 @@ class PlateZarrWriter:
         increasing fraction in ``[0, 1]`` as the (image, nuclei, cells)
         arrays stream to disk — lets a caller drive a sub-well progress bar.
         Throttled to ~1% steps; never raises into the write path.
+
+        ``missing_regions``: ``(y0, x0, y1, x1)`` canvas boxes covering no
+        acquired field, from :func:`omero_utils.stitching.missing_field_boxes`.
+        Stored on the well group so the viewer can mark them; an unlabelled
+        blank rectangle otherwise reads as a display fault.
         """
         # Monotonic, throttled wrapper around the user callback. The dask
         # diagnostics below can momentarily report a lower fraction (a new
@@ -346,6 +352,9 @@ class PlateZarrWriter:
 
         well_grp = zarr.open_group(str(tmp_well_dir), mode="w")
         write_well_metadata(well_grp, [{"path": "0"}])
+        well_grp.attrs["omero_screen"] = {
+            "missing_regions": [list(b) for b in (missing_regions or [])]
+        }
         img_grp = well_grp.require_group("0")
 
         img_scaler = Scaler(

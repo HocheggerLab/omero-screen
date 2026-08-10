@@ -124,6 +124,9 @@ def read_well(plate_id: int, well: str) -> dict[str, Any]:
     * ``channel_names``: list of channel name strings from the plate
       ``omero_screen`` attrs.
     * ``pixel_size_um``: float or ``None``.
+    * ``missing_regions``: list of ``(y0, x0, y1, x1)`` canvas boxes that
+      no acquired field covers — empty for a complete well, and for
+      caches built before these were recorded.
     """
     root = open_plate(plate_id)
     row = well[0]
@@ -141,12 +144,17 @@ def read_well(plate_id: int, well: str) -> dict[str, Any]:
     cells = _read_label_pyramid(labels_grp, "cells") if labels_grp else None
 
     omero_meta = root.attrs.get("omero_screen", {})
+    # Canvas boxes no acquired field covers. Absent on caches built before
+    # this was recorded, hence the default.
+    well_meta = root[f"{row}/{col}"].attrs.get("omero_screen", {})
+    missing = [tuple(b) for b in well_meta.get("missing_regions", [])]
     return {
         "image": images,
         "nuclei": nuclei,
         "cells": cells,
         "channel_names": list(omero_meta.get("channel_names", [])),
         "pixel_size_um": omero_meta.get("pixel_size_um"),
+        "missing_regions": missing,
     }
 
 

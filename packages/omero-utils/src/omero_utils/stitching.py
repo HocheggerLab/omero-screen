@@ -1159,6 +1159,77 @@ def split_stitched_from_offsets(
     return out
 
 
+def missing_field_boxes(
+    offsets: NDArray[np.int_],
+    tile_h: int,
+    tile_w: int,
+) -> list[tuple[int, int, int, int]]:
+    """Bounding boxes of interior canvas regions no field covers.
+
+    A field whose acquisition failed has no stage position, so
+    :func:`positions_to_offsets` returns ``(-1, -1)`` for it and the
+    stitch leaves a blank tile-sized gap. Its canvas slot cannot be
+    recovered from the offsets — there is no position to place it from,
+    and the acquisition pattern itself leaves grid cells empty (a 21-field
+    Operetta run sits in a 5x5 grid), so an unoccupied lattice point is
+    ambiguous.
+
+    The gap is therefore found geometrically rather than inferred: take
+    the area no valid tile covers, and keep the connected regions that
+
+    * do not touch the canvas border — an unimaged grid corner and the
+      shear wedge along each edge both run to the boundary, whereas a
+      dropped interior field is enclosed by its neighbours; and
+    * are at least half a tile in area — this discards the thin wedges
+      left between rows by the rotation between stage and camera frames.
+
+    A dropped field on the outer ring is indistinguishable from the
+    acquisition pattern's own shape and is deliberately not reported;
+    visually it is not a hole.
+
+    Args:
+        offsets: ``(N, 2)`` canvas offsets, ``(-1, -1)`` where invalid.
+        tile_h: Field height in pixels.
+        tile_w: Field width in pixels.
+
+    Returns:
+        ``(y0, x0, y1, x1)`` boxes in canvas pixel coordinates, ordered
+        top-left to bottom-right. Empty when the canvas has no interior
+        gap.
+    """
+    valid = (offsets[:, 0] >= 0) & (offsets[:, 1] >= 0)
+    valid_offsets = offsets[valid]
+    if not len(valid_offsets):
+        return []
+
+    height = int(valid_offsets[:, 1].max()) + tile_h
+    width = int(valid_offsets[:, 0].max()) + tile_w
+    covered = np.zeros((height, width), dtype=bool)
+    for ox, oy in valid_offsets:
+        covered[oy : oy + tile_h, ox : ox + tile_w] = True
+
+    labelled, _ = scipy.ndimage.label(~covered)
+    min_area = (tile_h * tile_w) // 2
+    boxes: list[tuple[int, int, int, int]] = []
+    for i, slices in enumerate(scipy.ndimage.find_objects(labelled), start=1):
+        if slices is None:
+            continue
+        y_slice, x_slice = slices
+        if (
+            y_slice.start == 0
+            or x_slice.start == 0
+            or y_slice.stop >= height
+            or x_slice.stop >= width
+        ):
+            continue
+        if int((labelled[slices] == i).sum()) < min_area:
+            continue
+        boxes.append(
+            (y_slice.start, x_slice.start, y_slice.stop, x_slice.stop)
+        )
+    return sorted(boxes)
+
+
 def _field_placements(
     grid_map: dict[int, dict[int, int]],
     tile_w: int,
