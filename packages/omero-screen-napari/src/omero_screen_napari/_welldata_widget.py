@@ -755,8 +755,7 @@ def _plate_is_stitched(plate_id: int) -> bool:
     """
     omero_conn = OmeroConnection()
     try:
-        conn = omero_conn.get_conn()
-        return is_stitched_plate(conn, plate_id)
+        return is_stitched_plate(omero_conn, plate_id)
     finally:
         omero_conn.close(hard=False)
 
@@ -801,8 +800,7 @@ def start_zarr_build_worker(
         # new parent is in a different thread`` and the bar never
         # appears). One small HQL query — typically <1s.
         try:
-            main_conn = omero_conn.get_conn()
-            target_wells = resolve_target_wells(plate_id, main_conn)
+            target_wells = resolve_target_wells(plate_id, omero_conn)
             if wells is not None:
                 # Restrict to the user's ticked wells, but keep the
                 # resolver's empty-well / resumability filtering.

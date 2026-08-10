@@ -56,12 +56,11 @@ from omero_utils.stitching import (
     stitch_from_offsets,
 )
 
-from omero_screen_napari.omero_data import get_dataset_id
+from omero_screen_napari.omero_data import OmeroConnection, get_dataset_id
 from omero_screen_napari.omero_image import get_image
 from omero_screen_napari.plate_cache import (
-    detect_label_stitched_mode,
-    fetch_plate_metadata,
-    fetch_well_map,
+    get_plate_metadata,
+    get_well_data,
     is_empty_well,
 )
 from omero_screen_napari.zarr_cache.eviction import (
@@ -90,14 +89,15 @@ _CACHE_DASK_WORKERS = int(os.getenv("OMERO_SCREEN_CACHE_WORKERS", "2"))
 # ----------------------------------------------------------------------
 
 
-def is_stitched_plate(conn: BlitzGateway, plate_id: int) -> bool:
+def is_stitched_plate(connection: OmeroConnection, plate_id: int) -> bool:
     """Return True if the plate has any stitched-mode segmentation masks.
 
-    Thin alias for :func:`plate_cache.detect_label_stitched_mode`, kept as
-    the zarr package's own entry point: the widget imports it from here to
-    choose between the zarr builder and the existing diskcache builder.
+    The public entry point used by the widget to choose between the zarr
+    builder and the existing diskcache builder.
     """
-    return detect_label_stitched_mode(conn, plate_id)
+    return bool(
+        get_plate_metadata(connection, plate_id).get("label_stitched_mode")
+    )
 
 
 # ----------------------------------------------------------------------
@@ -535,7 +535,7 @@ def _dir_size(path: Path) -> int:
 
 def resolve_target_wells(
     plate_id: int,
-    conn: BlitzGateway,
+    connection: OmeroConnection,
     *,
     wells: Iterable[str] | None = None,
 ) -> list[str]:
@@ -549,7 +549,7 @@ def resolve_target_wells(
 
     Args:
         plate_id: OMERO plate ID.
-        conn: Live OMERO connection.
+        connection: OMERO connection.
         wells: Optional subset of well labels; default is every well on
             the plate.
 
@@ -559,12 +559,7 @@ def resolve_target_wells(
     """
     from omero_screen_napari.zarr_cache.reader import cached_wells
 
-    # Deliberately the uncached fetch rather than get_well_data(): the
-    # build must plan against the plate as it stands in OMERO now. A
-    # re-run that adds fields or masks would otherwise be planned from a
-    # stale cached well map. Cost is one extra HQL query per build, since
-    # build_plate_zarr() fetches the map again on the worker thread.
-    well_map = fetch_well_map(conn, plate_id)
+    well_map = get_well_data(connection, plate_id)
     non_empty = {
         pos: info
         for pos, info in well_map.items()
@@ -612,13 +607,15 @@ def build_plate_zarr(
             When ``None``, downloads run sequentially on ``conn``.
         max_workers: Concurrency for the parallel download path.
     """
-    metadata = fetch_plate_metadata(conn, plate_id)
+    cache_conn = omero_conn if omero_conn is not None else OmeroConnection()
+
+    metadata = get_plate_metadata(cache_conn, plate_id)
     channel_data: dict[str, str] = metadata["channel_data"]
     pixel_size = metadata["pixel_size"]
     plate_name = metadata["plate_name"]
     ff_mask_id = metadata["ff_mask_id"]
 
-    well_map = fetch_well_map(conn, plate_id)
+    well_map = get_well_data(cache_conn, plate_id)
     # Mirror omero-screen's empty-well filter (loops.py): wells with no
     # metadata, no cell_line, or cell_line == "Empty" are excluded from
     # both segmentation and the zarr cache.
