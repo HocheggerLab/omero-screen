@@ -93,6 +93,8 @@ DATABASE_PATH=~/cellview_data/cellview.db
 ```bash
 # Override the default MODEL_DICT and FEATURELIST
 OMERO_SCREEN_CONFIG=/path/to/my_config.json
+# Override the default plate stitching parameters
+OMERO_SCREEN_STITCH_CONFIG=/path/to/my_stitch_config.json
 
 # Classifier inference
 OMERO_SCREEN_INFERENCE_MODEL=model1.pth:model2.pth  # colon-separated

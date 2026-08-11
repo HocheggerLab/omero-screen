@@ -28,7 +28,9 @@ the napari widget (display stitched wells); kept in omero-utils to
 avoid a circular dependency between those packages.
 """
 
+import json
 import math
+import os
 from typing import Any, cast
 
 import numpy as np
@@ -38,17 +40,52 @@ from numpy.typing import NDArray
 from omero_screen.config import is_level_enabled
 from skimage.util import map_array
 
-# Operetta stitching calibration constants. These are microscope-level
+# Stitching calibration constants. These are microscope-level
 # values (not per-plate or per-well) and have been stable for the lab's
 # Operetta acquisitions. Used by both the analysis pipeline (stitched
-# segmentation) and the napari widget; the widget's _STITCH_DEFAULTS
+# segmentation) and the napari widget; the stitch widget
 # allows interactive override but defaults to these.
-OPERETTA_STITCH_DEFAULTS: dict[str, int] = {
+# Override using a path to a JSON file in the
+# environment variable OMERO_SCREEN_STITCH_CONFIG.
+STITCH_DEFAULTS: dict[str, int] = {
     "overlap_x": 7,
     "overlap_y": 7,
     "translate_x": -3,
     "translate_y": 3,
 }
+
+
+def load_stitching_config(path: str) -> None:
+    """Load stitching configuration from a JSON config file.
+
+    Args:
+        path: Path to JSON config file.
+
+    Raises:
+        FileNotFoundError: If the file is missing.
+        json.decoder.JSONDecodeError: If the config is not a valid JSON file.
+        ValueError: If there are unrecognised or missing keys, or the key values
+          are not integers.
+    """
+    try:
+        with open(path) as f:
+            data = json.load(f)
+            # Require all keys for stitching
+            if data.keys() != STITCH_DEFAULTS.keys():
+                raise ValueError(
+                    "Unknown/missing keys in stitch configuration: " + path
+                )
+            for k, v in data.items():
+                STITCH_DEFAULTS[k] = int(v)
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Failed to load configuration '{path}': {e}")
+        raise e
+
+
+# Load stitch configuration from file if available
+path = os.getenv("OMERO_SCREEN_STITCH_CONFIG")
+if path is not None and os.path.exists(path):
+    load_stitching_config(path)
 
 
 # --------------------------------------------------------------------------

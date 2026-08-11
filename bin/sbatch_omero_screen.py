@@ -77,6 +77,14 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
         if not os.path.exists(config_path):
             raise Exception(f"Missing config file: {config_path}")
         prog_options += f" --config {config_path}"
+    if args.stitch_config:
+        # Resolve to an absolute path now.
+        stitch_config_path = os.path.abspath(args.stitch_config)
+        if not os.path.exists(stitch_config_path):
+            raise Exception(
+                f"Missing stitch config file: {stitch_config_path}"
+            )
+        prog_options += f" --stitch_config {stitch_config_path}"
 
     # Create the job file
     script = f"{name}.sh"
@@ -319,6 +327,15 @@ def _parse_args() -> argparse.Namespace:
         "multi-channel timelapses (costs n_fields x T OMERO reads). Default: "
         "auto-enable when the estimated peak exceeds the RAM budget; use "
         "--stream-stitch / --no-stream-stitch to force. Requires --stitch.",
+    )
+    group.add_argument(
+        "--stitch-config",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Path to an OMERO_SCREEN_STITCH_CONFIG JSON configuration. "
+        "Overrides the OMERO_SCREEN_STITCH_CONFIG env var. "
+        "Errors if the path does not exist (no silent fallback to defaults).",
     )
     group.add_argument(
         "--track",

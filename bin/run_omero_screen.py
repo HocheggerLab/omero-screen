@@ -119,6 +119,15 @@ def main() -> None:
         "force. Requires --stitch.",
     )
     group.add_argument(
+        "--stitch-config",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Path to an OMERO_SCREEN_STITCH_CONFIG JSON configuration. "
+        "Overrides the OMERO_SCREEN_STITCH_CONFIG env var. "
+        "Errors if the path does not exist (no silent fallback to defaults).",
+    )
+    group.add_argument(
         "--track",
         type=str,
         nargs="?",
@@ -199,6 +208,12 @@ def main() -> None:
         if not os.path.exists(args.config):
             parser.error(f"--config file not found: {args.config}")
         os.environ["OMERO_SCREEN_CONFIG"] = args.config
+    if args.stitch_config:
+        if not os.path.exists(args.stitch_config):
+            parser.error(
+                f"--stitch-config file not found: {args.stitch_config}"
+            )
+        os.environ["OMERO_SCREEN_STITCH_CONFIG"] = args.stitch_config
 
     # Configure logging once, at the entry point. Importing config triggers
     # set_env_vars() (loads .env.{ENV}) so an OMERO_SCREEN_LOG_* override placed

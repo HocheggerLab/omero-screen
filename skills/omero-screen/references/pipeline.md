@@ -113,6 +113,20 @@ Built-in Cellpose 4 model: `cp4:cpsam` (recommended for most cell lines)
 
 ---
 
+## Stitching Configuration
+
+Plate wells can be stitched into a single canvas using the well sample position metadata stored in OMERO. The sample positions are used to determine the well grid layout. The tiles may not align exactly and some overlap in X and Y, and translation of tiles along the rows and columns may be required. These parameters are expected to be specific to a microscope. Calibration for a specific microscope may differ for magnification and well grid layout.
+
+Override the default stitching parameters with a JSON file:
+
+```bash
+export OMERO_SCREEN_STITCH_CONFIG=/path/to/my_stitch_config.json
+```
+
+An example is provided in [omero_screen_stitch_config.json](../../src/data/omero_screen_stitch_config.json)
+
+---
+
 ## Additional CLI Tools
 
 ```bash

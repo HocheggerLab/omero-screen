@@ -21,6 +21,7 @@ from napari.utils import notifications
 from napari.utils import progress as napari_progress
 from napari.viewer import Viewer
 from omero_utils.stitching import (
+    STITCH_DEFAULTS,
     positions_to_offsets,
     stitch_from_offsets,
     stitch_labels_from_offsets,
@@ -485,21 +486,10 @@ def _open_plate_info(
     dialog.exec_()
 
 
-# Defaults matching the stitched_data_widget signature (Operetta calibration)
-_STITCH_DEFAULTS: dict[str, Any] = {
-    "stitch": True,
-    "overlap_x": 7,
-    "overlap_y": 7,
-    "translate_x": -3,
-    "translate_y": 3,
-    "edge": 7,
-}
-
-
 def _get_stitch_params() -> dict[str, Any]:
     """Read current stitch parameters from the sibling stitch widget.
 
-    Falls back to Operetta defaults when the widget is not available.
+    Falls back to defaults when the widget is not available.
     """
     w = _stitch_widget_ref
     if w is not None:
@@ -514,7 +504,11 @@ def _get_stitch_params() -> dict[str, Any]:
             }
         except AttributeError:
             pass
-    return _STITCH_DEFAULTS.copy()
+    # OMERO screen stitch defaults matching the stitched_data_widget signature
+    params = STITCH_DEFAULTS.copy()
+    params["stitch"] = True
+    params["edge"] = max(0, params["overlap_x"], params["overlap_y"])
+    return params
 
 
 # Widget to call Omero and load well images
@@ -1511,18 +1505,43 @@ def _display_stitched(
 
 @magic_factory(
     call_button="Enter",
-    overlap_x={"step": 1, "min": -50, "max": 50},
-    overlap_y={"step": 1, "min": -50, "max": 50},
-    translate_x={"step": 1, "min": -50, "max": 50},
-    translate_y={"step": 1, "min": -50, "max": 50},
+    overlap_x={
+        "value": STITCH_DEFAULTS["overlap_x"],
+        "step": 1,
+        "min": -100,
+        "max": 100,
+    },
+    overlap_y={
+        "value": STITCH_DEFAULTS["overlap_y"],
+        "step": 1,
+        "min": -100,
+        "max": 100,
+    },
+    translate_x={
+        "value": STITCH_DEFAULTS["translate_x"],
+        "step": 1,
+        "min": -100,
+        "max": 100,
+    },
+    translate_y={
+        "value": STITCH_DEFAULTS["translate_y"],
+        "step": 1,
+        "min": -100,
+        "max": 100,
+    },
+    edge={
+        "value": max(
+            0, STITCH_DEFAULTS["overlap_x"], STITCH_DEFAULTS["overlap_y"]
+        )
+    },
 )
 def stitched_data_widget(
     viewer: Viewer,
     stitch: bool = True,
-    overlap_x: int = 7,
-    overlap_y: int = 7,
-    translate_x: int = -3,
-    translate_y: int = 3,
-    edge: int = 7,
+    overlap_x: int = 0,
+    overlap_y: int = 0,
+    translate_x: int = 0,
+    translate_y: int = 0,
+    edge: int = 0,
 ) -> None:
     _display_plate(viewer)

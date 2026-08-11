@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import numpy as np
 import pytest
 import random
 from skimage.measure import label
 
 from omero_utils.stitching import (
+    STITCH_DEFAULTS,
+    load_stitching_config,
     positions_to_offsets,
     get_overlap,
     merge_labels,
@@ -428,3 +431,62 @@ def test_merge_labels():
     # Currently works as largest label dictates assignment.
     # Could change if overlap assignment changes.
     assert np.all(result == expected)
+
+
+class TestLoadStitchingConfig:
+    def test_path_not_exists(self):
+        with pytest.raises(FileNotFoundError):
+            load_stitching_config("missing.json")
+
+    def test_path_not_json(self, tmp_path):
+        p = tmp_path / "tmp.txt"
+        p.write_text("some text", encoding="utf-8")
+        with pytest.raises(json.decoder.JSONDecodeError):
+            load_stitching_config(str(p))
+
+    def test_incomplete_keys(self, tmp_path):
+        p = tmp_path / "tmp.json"
+        config = STITCH_DEFAULTS.copy()
+        del config[next(iter(config))]
+        with p.open(encoding="utf-8", mode="w") as f:
+            json.dump(config, f)
+        with pytest.raises(ValueError):
+            load_stitching_config(str(p))
+
+    def test_extra_keys(self, tmp_path):
+        p = tmp_path / "tmp.json"
+        config = STITCH_DEFAULTS.copy()
+        # Extra key not required
+        config["edge"] = True
+        with p.open(encoding="utf-8", mode="w") as f:
+            json.dump(config, f)
+        with pytest.raises(ValueError):
+            load_stitching_config(str(p))
+
+    def test_non_int_key_value(self, tmp_path):
+        p = tmp_path / "tmp.json"
+        config = STITCH_DEFAULTS.copy()
+        # Extra key not required
+        config["overlap_x"] = "not_int"
+        with p.open(encoding="utf-8", mode="w") as f:
+            json.dump(config, f)
+        with pytest.raises(ValueError):
+            load_stitching_config(str(p))
+
+    def test_load_new_config(self, tmp_path):
+        p = tmp_path / "tmp.json"
+        config = STITCH_DEFAULTS.copy()
+        try:
+            new_config = {
+              "overlap_x": 42,
+              "overlap_y": -9,
+              "translate_x": 11,
+              "translate_y": -8,
+            }
+            with p.open(encoding="utf-8", mode="w") as f:
+                json.dump(new_config, f)
+            load_stitching_config(str(p))
+            assert new_config == STITCH_DEFAULTS
+        finally:
+            # Reset changes
+            STITCH_DEFAULTS.update(config)

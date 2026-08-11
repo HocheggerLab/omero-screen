@@ -192,6 +192,7 @@ The following variables are required for proper operation:
 
 3. **OMERO Screen Configuration**:
     - `OMERO_SCREEN_CONFIG`: Optional. File path to configure the OMERO screen cell line segmentation models and analysis metrics. An example configuration is provided in [omero_screen_config.json](./src/data/omero_screen_config.json).
+    - `OMERO_SCREEN_STITCH_CONFIG`: Optional. File path to configure the OMERO screen plate stitching parameters. An example configuration is provided in [omero_screen_stitch_config.json](./src/data/omero_screen_stitch_config.json).
 
 ### Logging Setup
 The logging system is configured through the `get_logger()` function in `config.py`:
@@ -212,6 +213,8 @@ The OMERO server connection is configured through environment variables:
 OMERO Screen will segment the nuclear and optional cytoplasm channels using models based on the annotated cell line. Metrics are computed for each segmented object using the features available in [skimage.measure.regionprops_table](https://scikit-image.org/docs/stable/api/skimage.measure.html#skimage.measure.regionprops_table).
 
 The default configuration can be changed by passing a configuration file specifed in the `OMERO_SCREEN_CONFIG` environment variable. The cell line-to-model mapping is specified as a dictionary; and the computed features is a list. An example configuration is provided in [omero_screen_config.json](./src/data/omero_screen_config.json). Only those entries that are present will be used allowing partial or full update of the default values.
+
+The plate stitching configuration can be changed by passing a configuration file specifed in the `OMERO_SCREEN_STITCH_CONFIG` environment variable. This configuration is expected to be microscope specific, and may also depend on magnification and plate well grid layout. An example configuration is provided in [omero_screen_stitch_config.json](./src/data/omero_screen_stitch_config.json). The entire set of entries are required.
 
 ### Error Handling
 - The system raises an `OSError` if:
