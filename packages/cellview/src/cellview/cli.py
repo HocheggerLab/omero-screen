@@ -68,6 +68,34 @@ def get_parser() -> argparse.ArgumentParser:
         "override the default or to run non-interactively."
     )
 
+    # Common help text for --project / --experiment
+    project_help = (
+        "Existing project ID to import into. Skips the interactive project "
+        "prompt — useful when importing several plates in one go."
+    )
+    experiment_help = (
+        "Existing experiment ID to import into. Skips the interactive "
+        "experiment prompt. Implies its parent project, so --project is "
+        "optional; when both are given they must agree."
+    )
+
+    def add_target_args(parser: argparse.ArgumentParser) -> None:
+        """Attach the shared --project / --experiment options to a parser."""
+        parser.add_argument(
+            "--project",
+            type=int,
+            default=None,
+            metavar="PROJECT_ID",
+            help=project_help,
+        )
+        parser.add_argument(
+            "--experiment",
+            type=int,
+            default=None,
+            metavar="EXPERIMENT_ID",
+            help=experiment_help,
+        )
+
     p_import_csv = import_sub.add_parser(
         "csv",
         help="Import from a CSV file.",
@@ -80,6 +108,7 @@ def get_parser() -> argparse.ArgumentParser:
         metavar="CH",
         help=nucleus_help,
     )
+    add_target_args(p_import_csv)
 
     p_import_plate = import_sub.add_parser(
         "plate",
@@ -100,6 +129,7 @@ def get_parser() -> argparse.ArgumentParser:
         metavar="CH",
         help=nucleus_help,
     )
+    add_target_args(p_import_plate)
 
     p_import_screen = import_sub.add_parser(
         "screen",
@@ -118,6 +148,7 @@ def get_parser() -> argparse.ArgumentParser:
         metavar="CH",
         help=nucleus_help,
     )
+    add_target_args(p_import_screen)
 
     # --- Edit commands ---
     p_edit = subparsers.add_parser(
@@ -154,9 +185,15 @@ def get_parser() -> argparse.ArgumentParser:
 
     p_delete_plate = delete_sub.add_parser(
         "plate",
-        help="Delete a plate and all its associated data.",
+        help="Delete one or more plates and all their associated data.",
     )
-    p_delete_plate.add_argument("id", type=int, help="Plate ID.")
+    p_delete_plate.add_argument(
+        "ids",
+        type=int,
+        nargs="+",
+        metavar="ID",
+        help="Plate ID(s). Multiple plates are deleted in the order given.",
+    )
 
     # --- Clean ---
     subparsers.add_parser(

@@ -21,10 +21,73 @@ from cellview.db.display import (
 from cellview.db.edit import edit_experiment, edit_project
 from cellview.exporters.db_to_pandas import export_pandas_df
 from cellview.importers import import_data
-from cellview.utils.error_classes import CellViewError
+from cellview.utils.error_classes import CellViewError, DBError
 from cellview.utils.state import create_cellview_state
 
 from .cli import get_parser, parse_args
+
+
+def _resolve_import_target(
+    args: argparse.Namespace, conn: duckdb.DuckDBPyConnection
+) -> tuple[int | None, int | None]:
+    """Resolve ``--project`` / ``--experiment`` into validated IDs.
+
+    Both are optional. Validating up front means a typo fails before any
+    plate is touched, rather than part-way through a multi-plate import.
+
+    Args:
+        args: Parsed CLI arguments.
+        conn: Active DuckDB connection.
+
+    Returns:
+        ``(project_id, experiment_id)``, either of which may be None.
+        An experiment given on its own resolves its parent project too,
+        so the pair is always internally consistent.
+
+    Raises:
+        DBError: If an ID does not exist, or the experiment does not
+            belong to the given project.
+    """
+    project_id = getattr(args, "project", None)
+    experiment_id = getattr(args, "experiment", None)
+
+    if project_id is not None:
+        row = conn.execute(
+            "SELECT project_id FROM projects WHERE project_id = ?",
+            [project_id],
+        ).fetchone()
+        if row is None:
+            raise DBError(
+                f"Project {project_id} does not exist.",
+                {"hint": "Run 'cellview projects' to list available projects"},
+                show_traceback=False,
+            )
+
+    if experiment_id is not None:
+        row = conn.execute(
+            "SELECT project_id FROM experiments WHERE experiment_id = ?",
+            [experiment_id],
+        ).fetchone()
+        if row is None:
+            raise DBError(
+                f"Experiment {experiment_id} does not exist.",
+                {
+                    "hint": "Run 'cellview project <id>' to list its experiments"
+                },
+                show_traceback=False,
+            )
+        parent_project_id = row[0]
+        if project_id is not None and parent_project_id != project_id:
+            raise DBError(
+                f"Experiment {experiment_id} belongs to project "
+                f"{parent_project_id}, not project {project_id}.",
+                {"hint": "Drop --project, or pass the matching project ID"},
+                show_traceback=False,
+            )
+        # An experiment implies its project, so --project is redundant.
+        project_id = parent_project_id
+
+    return project_id, experiment_id
 
 
 def _handle_import(args: argparse.Namespace, db: CellViewDB) -> None:
@@ -37,22 +100,31 @@ def _handle_import(args: argparse.Namespace, db: CellViewDB) -> None:
     # --nucleus-channel flag (None means: auto-detect from plate annotation
     # for OMERO routes, or interactive prompt for CSV).
     nucleus_flag = getattr(args, "nucleus_channel", None)
+    # --project/--experiment pre-select the import target, so the
+    # interactive prompts are skipped for every plate in this run.
+    project_id, experiment_id = _resolve_import_target(args, db.connect())
+
+    def state_args_for(
+        *, csv: Path | None = None, plate_id: int | None = None
+    ) -> argparse.Namespace:
+        """Build the Namespace consumed by ``create_cellview_state``."""
+        return argparse.Namespace(
+            csv=csv,
+            plate_id=plate_id,
+            nucleus_channel=nucleus_flag,
+            project_id=project_id,
+            experiment_id=experiment_id,
+        )
 
     if args.import_command == "csv":
-        state_args = argparse.Namespace(
-            csv=args.path, plate_id=None, nucleus_channel=nucleus_flag
-        )
-        state = create_cellview_state(state_args)
+        state = create_cellview_state(state_args_for(csv=args.path))
         import_data(db, state)
 
     elif args.import_command == "plate":
         if len(args.ids) > 1:
-            state_args = argparse.Namespace(
-                csv=None,
-                plate_id=args.ids[0],
-                nucleus_channel=nucleus_flag,
+            temp_state = create_cellview_state(
+                state_args_for(plate_id=args.ids[0])
             )
-            temp_state = create_cellview_state(state_args)
             temp_state.validate_plates_same_screen(args.ids)
             temp_state.console.print(
                 f"[bold cyan]Importing {len(args.ids)} plates...[/bold cyan]"
@@ -61,25 +133,14 @@ def _handle_import(args: argparse.Namespace, db: CellViewDB) -> None:
                 temp_state.console.print(
                     f"\n[bold green]Importing plate {pid}...[/bold green]"
                 )
-                plate_args = argparse.Namespace(
-                    csv=None, plate_id=pid, nucleus_channel=nucleus_flag
-                )
-                state = create_cellview_state(plate_args)
+                state = create_cellview_state(state_args_for(plate_id=pid))
                 import_data(db, state)
         else:
-            state_args = argparse.Namespace(
-                csv=None,
-                plate_id=args.ids[0],
-                nucleus_channel=nucleus_flag,
-            )
-            state = create_cellview_state(state_args)
+            state = create_cellview_state(state_args_for(plate_id=args.ids[0]))
             import_data(db, state)
 
     elif args.import_command == "screen":
-        state_args = argparse.Namespace(
-            csv=None, plate_id=None, nucleus_channel=nucleus_flag
-        )
-        temp_state = create_cellview_state(state_args)
+        temp_state = create_cellview_state(state_args_for())
         plate_ids = temp_state.get_plates_from_screen(args.id)
         temp_state.console.print(
             f"[bold cyan]Found {len(plate_ids)} plates "
@@ -89,10 +150,7 @@ def _handle_import(args: argparse.Namespace, db: CellViewDB) -> None:
             temp_state.console.print(
                 f"\n[bold green]Importing plate {plate_id}...[/bold green]"
             )
-            plate_args = argparse.Namespace(
-                csv=None, plate_id=plate_id, nucleus_channel=nucleus_flag
-            )
-            state = create_cellview_state(plate_args)
+            state = create_cellview_state(state_args_for(plate_id=plate_id))
             import_data(db, state)
 
     else:
@@ -320,7 +378,11 @@ def main() -> None:
 
             case "delete":
                 if args.delete_command == "plate":
-                    del_measurements_by_plate_id(db, conn, args.id)
+                    for plate_id in args.ids:
+                        del_measurements_by_plate_id(db, conn, plate_id)
+                    # One pass at the end: cleanup is global (it walks the
+                    # whole project→measurement chain) and prints a results
+                    # table, so per-plate calls would repeat work and noise.
                     clean_up_db(db, conn)
                 else:
                     get_parser().parse_args(["delete", "--help"])

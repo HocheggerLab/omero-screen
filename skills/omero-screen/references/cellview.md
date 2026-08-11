@@ -40,6 +40,12 @@ cellview import plate <id> --interactive    # force project/experiment selection
 # Import all plates from an OMERO screen
 cellview import screen <id>
 cellview import screen <id> --interactive
+
+# Skip the project/experiment prompts by naming the target up front.
+# Works on every import route; --experiment implies its parent project.
+# Saves answering the same prompt once per plate on multi-plate imports.
+cellview import plate <id> <id> --experiment <experiment_id>
+cellview import plate <id> --project <project_id>
 ```
 
 ### Edit
@@ -64,6 +70,9 @@ cellview export <id>
 ```bash
 # Delete a plate and all its associated data
 cellview delete plate <id>
+
+# Delete several plates in one go (deleted in the order given)
+cellview delete plate <id> <id> <id>
 ```
 
 ### Clean
