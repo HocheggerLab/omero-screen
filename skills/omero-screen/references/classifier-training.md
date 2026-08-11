@@ -3,7 +3,7 @@
 CNN-based cell classification: generate labelled training crops via napari → build a dataset → train PyTorch models → extract for inference → apply in omero-screen.
 
 Package: `packages/cellclass/`
-CLI entry points: `cellclass-dataset`, `cellclass-train`, `cellclass-test`, `cellclass-extract`, `cellclass-batch`, `cellclass-sbatch`, `cellclass-sample`
+CLI: unified `cellclass` app with `dataset`, `sample`, `train`, `test`, `extract`, `batch`, and `sbatch` subcommands. The legacy `cellclass-*` executables remain compatibility aliases during migration.
 
 ---
 
@@ -12,11 +12,11 @@ CLI entry points: `cellclass-dataset`, `cellclass-train`, `cellclass-test`, `cel
 ```
 OMERO plate
     ↓ [napari Training widget — label cell crops → saves .npy files]
-    ↓ [cellclass-dataset — convert .npy files to .npz dataset]
+    ↓ [cellclass dataset — convert .npy files to .npz dataset]
     ↓ [write train.txt — one training run per line]
-    ↓ [cellclass-batch — generate batch.sh from train.txt]
+    ↓ [cellclass batch — generate batch.sh from train.txt]
     ↓ [bash batch.sh — run all training jobs]
-    ↓ [cellclass-extract — extract best checkpoint to TorchScript .pt]
+    ↓ [cellclass extract — extract best checkpoint to TorchScript .pt]
     ↓ [omero-screen --inference model.pt — apply at scale]
 ```
 
@@ -66,7 +66,7 @@ Recommended minimum: **≥200 labelled crops per class** before training.
 Convert `.npy` files to a single normalised `.npz` for training:
 
 ```bash
-cellclass-dataset <data_dir> --name rois
+cellclass dataset <data_dir> --name rois
 ```
 
 This produces `<data_dir>/rois.npz`.
@@ -81,7 +81,7 @@ This produces `<data_dir>/rois.npz`.
 
 ```bash
 # Full options
-cellclass-dataset <data_dir> \
+cellclass dataset <data_dir> \
     --name rois \             # output filename stem (default: rois)
     --out /output/dir \       # output directory (default: data_dir)
     --channels DAPI Tub \     # override channel names from metadata.json
@@ -146,17 +146,17 @@ Create a plain-text file with one training run per line. Lines starting with `#`
 
 ```bash
 # Generate batch.sh from train.txt
-cellclass-batch train.txt --script batch.sh
+cellclass batch train.txt --script batch.sh
 
 # Run locally (sequential)
 bash batch.sh
 
 # OR on SLURM (Artemis HPC) — one job per run
-cellclass-batch train.txt --script batch.sh --cmd "./src/bin/sbatch_training.py --args"
+cellclass batch train.txt --script batch.sh --cmd "./src/bin/sbatch_training.py --args"
 bash batch.sh
 ```
 
-`cellclass-batch` auto-increments output filenames: if `rois.1.pt` exists, next run is `rois.2.pt`. Always adds `--wandb` to each command automatically.
+`cellclass batch` auto-increments output filenames: if `rois.1.pt` exists, next run is `rois.2.pt`. Always adds `--wandb` to each command automatically.
 
 **Weights & Biases setup (one-time):**
 ```bash
@@ -173,7 +173,7 @@ Runs log to the `cellclass` project. Use `--entity hocheggerlab` to log to the s
 
 ```bash
 # Print classification report for a dataset against a trained checkpoint
-cellclass-test rois.npz --model densenet121 --name model.pt
+cellclass test rois.npz --model densenet121 --name model.pt
 ```
 
 Or check W&B run metrics for the best validation F1 across runs.
@@ -184,7 +184,7 @@ Or check W&B run metrics for the best validation F1 across runs.
 
 ```bash
 # Extract from a training state file (saves .pt + .json sidecar)
-cellclass-extract training.json --save
+cellclass extract training.json --save
 ```
 
 Output: `<model>_c<N_channels>_l<N_labels>.pt` and matching `.json` metadata sidecar.
@@ -195,7 +195,7 @@ The extracted `.pt` is a TorchScript model loadable by `omero-screen --inference
 
 **To continue a stopped training run:**
 ```bash
-cellclass-train training.json    # reads state, loads last checkpoint, resumes
+cellclass train training.json    # reads state, loads last checkpoint, resumes
 ```
 
 ---
@@ -228,17 +228,17 @@ Training outputs follow the pattern `<dataset_stem>.<run_number>.pt`:
 ```bash
 # 1. Create dataset from napari-generated NPY files
 cd /data/micronuclei-training
-cellclass-dataset . --name rois
+cellclass dataset . --name rois
 
 # 2. Write train.txt (see Step 3 recipe above)
 # 3. Generate and run batch
-cellclass-batch train.txt --script batch.sh
+cellclass batch train.txt --script batch.sh
 bash batch.sh
 
 # 4. Check W&B for best F1; identify winning run (e.g. rois.3.json)
 
 # 5. Extract
-cellclass-extract rois.3.json --save
+cellclass extract rois.3.json --save
 # → produces micronuclei_c2_l2.pt + micronuclei_c2_l2.json
 
 # 6. Apply
@@ -251,11 +251,11 @@ omero-screen 1821 1822 1823 --inference micronuclei_c2_l2.pt --env production
 
 | Issue | Fix |
 |---|---|
-| `Missing metadata file` in `cellclass-dataset` | Add `metadata.json` with `{"user_data": {"channels": [...]}}` or pass `--channels` |
+| `Missing metadata file` in `cellclass dataset` | Add `metadata.json` with `{"user_data": {"channels": [...]}}` or pass `--channels` |
 | `Incorrect number of channels` | Dataset channel count doesn't match `--channels`; check metadata.json |
 | High duplicate rate (>20%) | Normal for small datasets; not an error — duplicates are skipped silently |
 | Training loss not decreasing | Try lower LR (`1e-4` → `1e-5`); check class balance with `--loss-weights` |
 | `wandb` offline | Run `wandb login`; check `~/.netrc`; confirm with `wandb status` |
 | `cuda out of memory` | Reduce `--batch-size`; use a lighter model |
-| Cannot resume run | Pass `training.json` (state file) as input to `cellclass-train` instead of `.npz` |
+| Cannot resume run | Pass `training.json` (state file) as input to `cellclass train` instead of `.npz` |
 | Inference classification looks wrong | Verify channel order in `.json` sidecar matches `OMERO_SCREEN_INFERENCE_MODEL` channels |

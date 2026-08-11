@@ -1,25 +1,26 @@
-"""Compatibility contracts for the pre-Click CellClass command suite."""
+"""Compatibility contracts for the unified CellClass Click command suite."""
 
 from __future__ import annotations
 
 import getpass
+from argparse import Namespace
 from pathlib import Path
+from unittest.mock import Mock, patch
 
-from cellclass.bin.batch_training import get_parser as batch_parser
-from cellclass.bin.create_dataset import get_parser as dataset_parser
-from cellclass.bin.extract_model import get_parser as extract_parser
-from cellclass.bin.run_training import (
-    Existing,
-    LossFunction,
-    LrScheduler,
+import click
+from cellclass.bin.run_training import Existing, LossFunction, LrScheduler
+from cellclass.cli import (
+    batch,
+    dataset,
+    extract,
+    sbatch,
+    train,
 )
-from cellclass.bin.run_training import (
-    get_parser as train_parser,
+from cellclass.cli import (
+    test_command as model_test_command,
 )
-from cellclass.bin.sample_images import get_parser as sample_parser
-from cellclass.bin.sbatch_training import get_parser as sbatch_parser
-from cellclass.bin.test_model import get_parser as model_test_parser
 from cellclass.models import Model
+from click.testing import CliRunner
 
 
 def _file(tmp_path: Path, name: str) -> str:
@@ -28,13 +29,36 @@ def _file(tmp_path: Path, name: str) -> str:
     return str(path)
 
 
+def _run_args(
+    command: click.Command, argv: list[str], target: str
+) -> Namespace:
+    with patch(target) as run:
+        result = CliRunner().invoke(command, argv)
+    assert result.exit_code == 0, result.output
+    return run.call_args.args[0]  # type: ignore[no-any-return]
+
+
+def _sbatch_args(argv: list[str]) -> Namespace:
+    completed = Mock(stdout="")
+    with (
+        patch(
+            "cellclass.bin.sbatch_training.create_job_script",
+            return_value="training.sh",
+        ) as create_job_script,
+        patch("subprocess.run", return_value=completed),
+    ):
+        result = CliRunner().invoke(sbatch, argv)
+    assert result.exit_code == 0, result.output
+    return create_job_script.call_args.args[0]  # type: ignore[no-any-return]
+
+
 def test_train_default_contract(tmp_path: Path) -> None:
-    """Freeze all training defaults and argparse destination names."""
-    dataset = _file(tmp_path, "rois.npz")
-    args = train_parser().parse_args([dataset])
+    """Freeze all training defaults and destination names passed to the app."""
+    input_file = _file(tmp_path, "rois.npz")
+    args = _run_args(train, [input_file], "cellclass.bin.run_training.run")
 
     assert vars(args) == {
-        "input": dataset,
+        "input": input_file,
         "size": 0,
         "data_seed": 42,
         "device": "cuda",
@@ -76,16 +100,16 @@ def test_train_default_contract(tmp_path: Path) -> None:
         "project": "cellclass",
         "run_name": None,
         "tags": [],
-        "wandb_id": None,
     }
 
 
 def test_train_representative_override_contract(tmp_path: Path) -> None:
     """Capture enum, boolean-pair, and variadic training overrides."""
-    dataset = _file(tmp_path, "rois.npz")
-    args = train_parser().parse_args(
+    input_file = _file(tmp_path, "rois.npz")
+    args = _run_args(
+        train,
         [
-            dataset,
+            input_file,
             "--model",
             "efficientnetb3s",
             "--existing",
@@ -102,7 +126,8 @@ def test_train_representative_override_contract(tmp_path: Path) -> None:
             "--tags",
             "screen",
             "mitosis",
-        ]
+        ],
+        "cellclass.bin.run_training.run",
     )
 
     assert args.model is Model.efficientnetb3s
@@ -114,12 +139,14 @@ def test_train_representative_override_contract(tmp_path: Path) -> None:
 
 
 def test_test_model_default_contract(tmp_path: Path) -> None:
-    """Freeze evaluation defaults and argparse destination names."""
-    dataset = _file(tmp_path, "rois.npz")
-    args = model_test_parser().parse_args([dataset])
+    """Freeze evaluation defaults and destination names passed to the app."""
+    input_file = _file(tmp_path, "rois.npz")
+    args = _run_args(
+        model_test_command, [input_file], "cellclass.bin.test_model.run"
+    )
 
     assert vars(args) == {
-        "input": dataset,
+        "input": input_file,
         "size": 0,
         "data_seed": 42,
         "device": "cuda",
@@ -141,7 +168,8 @@ def test_test_model_default_contract(tmp_path: Path) -> None:
 
 def test_dataset_contract(tmp_path: Path) -> None:
     """Capture dataset path, variadic, and boolean-pair parsing."""
-    args = dataset_parser().parse_args(
+    args = _run_args(
+        dataset,
         [
             str(tmp_path),
             "--name",
@@ -154,7 +182,8 @@ def test_dataset_contract(tmp_path: Path) -> None:
             "Tub",
             "--duplicates",
             "--no-single-label",
-        ]
+        ],
+        "cellclass.bin.create_dataset.run",
     )
 
     assert vars(args) == {
@@ -171,7 +200,8 @@ def test_dataset_contract(tmp_path: Path) -> None:
 def test_extract_contract(tmp_path: Path) -> None:
     """Capture model-extraction paths, enums, and variadic values."""
     settings = _file(tmp_path, "training.json")
-    args = extract_parser().parse_args(
+    args = _run_args(
+        extract,
         [
             settings,
             "--name",
@@ -186,7 +216,8 @@ def test_extract_contract(tmp_path: Path) -> None:
             "--labels",
             "interphase",
             "mitosis",
-        ]
+        ],
+        "cellclass.bin.extract_model.run",
     )
 
     assert args.file == settings
@@ -199,36 +230,23 @@ def test_extract_contract(tmp_path: Path) -> None:
 
 def test_batch_contract(tmp_path: Path) -> None:
     """Capture batch-runner defaults and boolean options."""
-    batch = _file(tmp_path, "train.txt")
-    args = batch_parser().parse_args(
-        [batch, "--dry-run", "--background", "--script", "jobs.sh"]
+    batch_file = _file(tmp_path, "train.txt")
+    args = _run_args(
+        batch,
+        [batch_file, "--dry-run", "--background", "--script", "jobs.sh"],
+        "cellclass.bin.batch_training.run",
     )
 
-    assert args.batch == batch
+    assert args.batch == batch_file
     assert args.dry_run is True
     assert args.background is True
     assert args.script == "jobs.sh"
     assert Path(args.cmd).name == "cellclass-train"
 
 
-def test_sample_contract(tmp_path: Path) -> None:
-    """Capture sample-export path and numeric options."""
-    dataset = _file(tmp_path, "rois.npz")
-    args = sample_parser().parse_args(
-        [dataset, "--output", str(tmp_path), "--samples", "25", "--crop", "64"]
-    )
-
-    assert vars(args) == {
-        "dataset": dataset,
-        "output": str(tmp_path),
-        "samples": 25,
-        "crop": 64,
-    }
-
-
 def test_sbatch_default_and_remainder_contract() -> None:
     """Freeze SLURM defaults and the training-argument remainder boundary."""
-    defaults = sbatch_parser().parse_args([])
+    defaults = _sbatch_args([])
     assert vars(defaults) == {
         "args": None,
         "job_class": "gpu",
@@ -241,7 +259,7 @@ def test_sbatch_default_and_remainder_contract() -> None:
         "submit": True,
     }
 
-    forwarded = sbatch_parser().parse_args(
+    forwarded = _sbatch_args(
         [
             "--hours",
             "24",

@@ -73,4 +73,4 @@ for f in sorted(glob.glob("<crops_dir>/*.npz.*.pt.best")):
 summary = pd.DataFrame(rows)
 ```
 
-Use `.pt.best` (best-F1 snapshot); fall back to `.pt` if no `.best` exists. The matching `<npz>.{N}.json` settings file is what `cellclass-extract` consumes for the winning run.
+Use `.pt.best` (best-F1 snapshot); fall back to `.pt` if no `.best` exists. The matching `<npz>.{N}.json` settings file is what `cellclass extract` consumes for the winning run.

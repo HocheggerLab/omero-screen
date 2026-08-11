@@ -603,7 +603,7 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
             f"Dataset saved to:\n  {classifier_dir / 'rois.npz'}\n\n"
             f"Training template saved to:\n  {classifier_dir / 'train.txt'}\n\n"
             "Copy both files to your GPU server and run:\n"
-            "  cellclass-batch train.txt --script batch.sh\n"
+            "  cellclass batch train.txt --script batch.sh\n"
             "  bash batch.sh",
         )
 

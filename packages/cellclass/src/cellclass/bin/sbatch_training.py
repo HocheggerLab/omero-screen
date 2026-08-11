@@ -15,10 +15,8 @@
 """Submit cellclass training jobs to a SLURM HPC cluster via sbatch."""
 
 import argparse
-import getpass
 import inspect
 import os
-import subprocess
 
 
 def create_job_script(args: argparse.Namespace) -> str:
@@ -86,98 +84,11 @@ def create_job_script(args: argparse.Namespace) -> str:
         return script
 
 
-def get_parser() -> argparse.ArgumentParser:
-    """Build the cellclass-sbatch command-line parser."""
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        description="Program to run training on a SLURM HPC.",
-        epilog=inspect.cleandoc("""Note:
-
-      This program makes assumptions on the installation and
-      the run environment.
-
-      For HPC information see:
-        https://artemis-docs.hpc.sussex.ac.uk/artemis
-      (Requires VPN to access.)"""),
-    )
-    parser.add_argument(
-        "--args", nargs=argparse.REMAINDER, help="Training arguments"
-    )
-    group = parser.add_argument_group("Job submission")
-    group.add_argument(
-        "--class",
-        dest="job_class",
-        default="gpu",
-        help="Job class (default: %(default)s)",
-    )
-    group.add_argument(
-        "--results-dir",
-        dest="results_dir",
-        default="/mnt/lustre/users/gdsc/",
-        help="Results directory (default: %(default)s)",
-    )
-    group.add_argument(
-        "-u",
-        "--username",
-        dest="username",
-        default=getpass.getuser(),
-        help="Username (default: %(default)s)",
-    )
-    group.add_argument(
-        "--hours",
-        type=int,
-        default=12,
-        help="Expected maximum job hours (default: %(default)s)",
-    )
-    group.add_argument(
-        "-m",
-        "--memory",
-        type=int,
-        dest="memory",
-        default=32,
-        help="Memory in Gb (default: %(default)s)",
-    )
-    group.add_argument(
-        "--no-gpu",
-        dest="gpu",
-        action="store_false",
-        help="Disable using the GPU",
-    )
-    group.add_argument(
-        "--no-exec",
-        dest="exec",
-        action="store_false",
-        help="Do not execute script statements. "
-        "Use this to submit a job without running training",
-    )
-    group.add_argument(
-        "--no-submit",
-        dest="submit",
-        action="store_false",
-        help="Do not submit the job script",
-    )
-
-    return parser
-
-
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse command-line arguments for SLURM job submission."""
-    return get_parser().parse_args(argv)
-
-
 def main() -> None:
-    """Entry point for cellclass-sbatch CLI."""
-    args = parse_args()
-    script = create_job_script(args)
-    if args.submit:
-        print(
-            subprocess.run(
-                ["sbatch", script],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-            ).stdout
-        )
+    """Entry point for direct execution of the sbatch command."""
+    from cellclass.cli import sbatch
+
+    sbatch.main(prog_name="cellclass-sbatch")
 
 
 if __name__ == "__main__":

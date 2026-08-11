@@ -16,7 +16,6 @@
 
 import argparse
 
-from cellclass.bin_utils import file_path
 from cellclass.models import Model
 
 
@@ -153,64 +152,11 @@ def run(args: argparse.Namespace) -> None:
         json.dump(d, f)
 
 
-def get_parser() -> argparse.ArgumentParser:
-    """Build the cellclass-extract command-line parser."""
-    parser = argparse.ArgumentParser(
-        description="Program to extract model metadata from a training settings file "
-        "and optionally save to a model state file."
-    )
-
-    parser.add_argument(
-        "file",
-        metavar="FILE",
-        type=file_path,
-        help="Training settings file (JSON)",
-    )
-    parser.add_argument(
-        "--name",
-        type=str,
-        help="Model file prefix (default uses model metadata)",
-    )
-    parser.add_argument(
-        "--save",
-        default=False,
-        action=argparse.BooleanOptionalAction,
-        help="Save model files",
-    )
-    parser.add_argument(
-        "--overwrite",
-        default=False,
-        action=argparse.BooleanOptionalAction,
-        help="Overwrite existing model files",
-    )
-
-    group = parser.add_argument_group("Settings Overrides")
-    group.add_argument(
-        "--model",
-        type=Model,
-        choices=list(Model),
-        help="Model name (overrides settings metadata)",
-    )
-    group.add_argument(
-        "--channels",
-        nargs="+",
-        type=str,
-        help="Input channels (overrides settings metadata)",
-    )
-    group.add_argument(
-        "--labels",
-        nargs="+",
-        type=str,
-        help="Class labels (overrides settings metadata)",
-    )
-
-    return parser
-
-
 def main() -> None:
-    """Entry point for cellclass-extract CLI."""
-    args = get_parser().parse_args()
-    run(args)
+    """Entry point for direct execution of the extract command."""
+    from cellclass.cli import extract
+
+    extract.main(prog_name="cellclass-extract")
 
 
 if __name__ == "__main__":

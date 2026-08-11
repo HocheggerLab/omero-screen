@@ -5,6 +5,7 @@ description = "Cell classification using machine learning models"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "click>=8.1.8",
     "loguru>=0.7.3",
     "numpy>=1.26.4",
     "scikit-image>=0.25.2",
@@ -26,13 +27,14 @@ dev = [
 ]
 
 [project.scripts]
-cellclass-train   = "cellclass.bin.run_training:main"
-cellclass-test    = "cellclass.bin.test_model:main"
-cellclass-dataset = "cellclass.bin.create_dataset:main"
-cellclass-extract = "cellclass.bin.extract_model:main"
-cellclass-batch   = "cellclass.bin.batch_training:main"
-cellclass-sbatch  = "cellclass.bin.sbatch_training:main"
-cellclass-sample  = "cellclass.bin.sample_images:main"
+cellclass         = "cellclass.cli:cli"
+cellclass-train   = "cellclass.cli:train"
+cellclass-test    = "cellclass.cli:test_command"
+cellclass-dataset = "cellclass.cli:dataset"
+cellclass-extract = "cellclass.cli:extract"
+cellclass-batch   = "cellclass.cli:batch"
+cellclass-sbatch  = "cellclass.cli:sbatch"
+cellclass-sample  = "cellclass.cli:sample"
 
 [build-system]
 requires = ["setuptools>=68"]

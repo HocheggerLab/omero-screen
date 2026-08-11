@@ -10,17 +10,19 @@ uv sync --dev
 source .venv/bin/activate
 ```
 
-All `cellclass-*` command-line entry points are then available in your environment:
+The unified `cellclass` command provides all CellClass workflows; run
+`cellclass --help` to see its subcommands. Existing `cellclass-*` entry points remain
+available as compatibility aliases during the migration:
 
 | Command | Purpose |
 |---|---|
-| `cellclass-dataset` | Create `.npz` training archive from `.npy` crop files |
-| `cellclass-train` | Train a single model |
-| `cellclass-batch` | Convert `train.txt` batch file into `batch.sh` |
-| `cellclass-sbatch` | Submit a single job to a SLURM cluster |
-| `cellclass-test` | Evaluate a model on a dataset |
-| `cellclass-extract` | Export best checkpoint to TorchScript |
-| `cellclass-sample` | Sample example images from a dataset |
+| `cellclass dataset` | Create `.npz` training archive from `.npy` crop files |
+| `cellclass train` | Train a single model |
+| `cellclass batch` | Convert `train.txt` batch file into `batch.sh` |
+| `cellclass sbatch` | Submit a single job to a SLURM cluster |
+| `cellclass test` | Evaluate a model on a dataset |
+| `cellclass extract` | Export best checkpoint to TorchScript |
+| `cellclass sample` | Sample example images from a dataset |
 
 ## Weights & Biases
 
@@ -40,5 +42,5 @@ wandb status
 
 By default, runs log to the **cellclass** project in your own W&B workspace — no
 shared credentials needed. To collaborate with a team, pass `--entity <team>` to
-`cellclass-train` (e.g. `--entity hocheggerlab`), then share the project via the
+`cellclass train` (e.g. `--entity hocheggerlab`), then share the project via the
 W&B interface.

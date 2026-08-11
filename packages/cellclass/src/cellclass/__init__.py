@@ -1,8 +1,14 @@
 """cellclass: cell image classification package."""
 
-from cellclass.datasets import ROIDataset
-from cellclass.models import Model, create_model
-from cellclass.testing import test_epoch
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from cellclass.datasets import ROIDataset
+    from cellclass.models import create_model
+    from cellclass.options import Model
+    from cellclass.testing import test_epoch
 
 __all__ = [
     "ROIDataset",
@@ -11,6 +17,32 @@ __all__ = [
     "test_epoch",
     "prepare_dataset",
 ]
+
+_LAZY_EXPORTS = {
+    "ROIDataset": ("cellclass.datasets", "ROIDataset"),
+    "Model": ("cellclass.options", "Model"),
+    "create_model": ("cellclass.models", "create_model"),
+    "test_epoch": ("cellclass.testing", "test_epoch"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Load Torch-dependent public exports only when first requested."""
+    target = _LAZY_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    from importlib import import_module
+
+    module_name, attribute_name = target
+    value = getattr(import_module(module_name), attribute_name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    """Include lazy public exports in interactive discovery."""
+    return sorted(set(globals()) | set(__all__))
 
 
 def prepare_dataset(

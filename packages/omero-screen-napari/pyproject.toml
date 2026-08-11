@@ -24,7 +24,6 @@ omero-screen-napari = "omero_screen_napari:napari.yaml"
 
 
 [project.scripts]
-omero-screen-napari = "omero_screen_napari:main"
 omero-train = "omero_screen_napari.trainingdata_db.cli:main"
 
 [build-system]
