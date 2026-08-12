@@ -93,55 +93,6 @@ if path is not None and os.path.exists(path):
 # --------------------------------------------------------------------------
 
 
-def has_valid_positions(
-    positions: list[tuple[float, float] | None],
-) -> bool:
-    """Return True if positions can be used for stitching.
-
-    Requires at least 2 positions, all non-None, and positions that
-    span more than one grid cell (i.e. not all identical).
-    """
-    valid = [p for p in positions if p is not None]
-    if len(valid) < max(2, len(positions)):
-        if is_level_enabled("DEBUG"):
-            if len(valid) < len(positions):
-                logger.debug(
-                    f"Missing positions: {len(valid):d} < {len(positions):d}"
-                )
-            else:
-                logger.debug(f"Not enough positions: {len(positions)}")
-        return False
-
-    xs = [p[0] for p in valid if p[0] is not None]
-    ys = [p[1] for p in valid if p[1] is not None]
-    if min(len(xs), len(ys)) < len(positions):
-        logger.debug(
-            f"Missing X/Y positions: {len(xs):d},{len(ys):d} < {len(positions):d}"
-        )
-        return False
-
-    tol_x = _adaptive_tolerance(xs)
-    tol_y = _adaptive_tolerance(ys)
-    x_clusters = _cluster_values(xs, tol_x)
-    y_clusters = _cluster_values(ys, tol_y)
-
-    def _nearest_cluster(value: float, clusters: list[float]) -> int:
-        return int(np.argmin([abs(value - c) for c in clusters]))
-
-    location = set()
-    for px, py in valid:
-        col = _nearest_cluster(px, x_clusters)
-        row = _nearest_cluster(py, y_clusters)
-        location.add((col, row))
-
-    if len(location) < len(valid):
-        logger.warning(
-            f"Stage positions form {len(location):d} grid cells for {len(valid):d} images — cannot stitch without losing data. Positions (first 5): {valid[:5]}"
-        )
-        return False
-    return True
-
-
 def _adaptive_tolerance(values: list[float]) -> float:
     """Compute a clustering tolerance from the gap distribution.
 

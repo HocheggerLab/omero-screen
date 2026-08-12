@@ -6,7 +6,6 @@ import re
 from omero_utils.stitching import (
     _adaptive_tolerance,
     _cluster_values,
-    has_valid_positions,
     positions_to_grid,
     recompose_split_labels,
     recompose_tiles,
@@ -17,61 +16,6 @@ from omero_utils.stitching import (
     stitch_labels_from_offsets,
     stitch_labels_from_positions,
 )
-
-# --------------- has_valid_positions ---------------
-
-
-class TestHasValidPositions:
-    def test_all_valid_um(self):
-        assert has_valid_positions([(0.0, 0.0), (100.0, 0.0)]) is True
-
-    def test_single_position(self):
-        assert has_valid_positions([(0.0, 0.0)]) is False
-
-    def test_none_in_list(self):
-        assert has_valid_positions([(0.0, 0.0), None]) is False
-
-    def test_empty(self):
-        assert has_valid_positions([]) is False
-
-    def test_three_valid(self):
-        assert (
-            has_valid_positions([(0.0, 0.0), (100.0, 0.0), (0.0, 100.0)])
-            is True
-        )
-
-    def test_all_identical_positions(self):
-        """Positions that all cluster to one point cannot form a grid."""
-        assert (
-            has_valid_positions([(5.0, 5.0), (5.0, 5.0), (5.0, 5.0)])
-            is False
-        )
-
-    def test_more_images_than_grid_cells(self):
-        """5 images but only 2x2=4 grid cells → would lose an image."""
-        positions = [
-            (0.0, 0.0),
-            (100.0, 0.0),
-            (0.0, 100.0),
-            (100.0, 100.0),
-            (0.5, 0.5),  # clusters with (0, 0) due to small gap
-        ]
-        assert has_valid_positions(positions) is False
-
-    def test_reference_frame_positions(self):
-        """Real Operetta positions in reference-frame units (not µm)."""
-        positions = [
-            (-23.602595, 44.10129),
-            (-23.602591, 44.09999),
-            (-23.602587, 44.09870),
-            (-23.601304, 44.10259),
-            (-23.601300, 44.10129),
-            (-23.601296, 44.09999),
-            (-23.601292, 44.09870),
-            (-23.600009, 44.10259),
-            (-23.600005, 44.10129),
-        ]
-        assert has_valid_positions(positions) is True
 
 
 # --------------- _adaptive_tolerance ---------------
