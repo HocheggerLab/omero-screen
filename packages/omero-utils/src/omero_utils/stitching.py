@@ -2,18 +2,17 @@
 
 Combines two responsibilities:
 
-* **Composition** — ``compose_tiles`` blends image tiles into a single
-  canvas with optional overlap and edge blending; ``compose_labels``
+* **Composition** — ``compose_tiles_from_offsets`` blends image tiles into a single
+  canvas with optional overlap and edge blending; ``compose_labels_from_offsets``
   does the same for label masks, remapping IDs of objects that span
   adjacent tiles to a shared ID.
 
-* **Position-based placement** — ``stitch_from_positions`` and
-  ``stitch_labels_from_positions`` convert absolute stage coordinates
-  into a tile grid (``positions_to_grid``) and delegate to the
+* **Position-based placement** — ``positions_to_offsets`` creates
+  canvas offsets from stage coordinates for use with the
   composition functions.
 
-* **Canvas-wide segmentation round-trip** — ``split_stitched_mask_to_fields``
-  and ``recompose_split_labels`` are a paired split/recompose for masks
+* **Canvas-wide segmentation round-trip** — ``split_stitched_from_offsets``
+  and ``stitch_from_offsets`` are a paired split/recompose for masks
   produced by canvas-wide segmentation (Phase-1 stitched analysis). They
   preserve original label IDs and boundary-cell pixels losslessly, and
   bypass ``merge_labels`` entirely — required because label IDs are
