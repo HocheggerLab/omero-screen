@@ -173,6 +173,108 @@ class TestFilterWellCentroids:
         assert set(result["image_id"].tolist()) == {101, 103}
         assert 102 not in result["image_id"].tolist()
 
+    def test_zarr_source_ignores_loaded_images(
+        self, mock_omero_data, mock_user_data
+    ):
+        # Regression: the zarr source crops the well's stitched canvas off
+        # disk, so a well that is cached but not displayed in the viewer
+        # must still yield centroids. Previously the loaded-image
+        # intersection emptied the frame and the gallery reported
+        # "No centroids ... no crops generated".
+        mock_user_data.well = "A1"
+        mock_user_data.segmentation = "nucleus"
+        mock_user_data.cellcycle = "All"
+
+        df = pl.DataFrame({
+            "well": ["A1", "A1"],
+            "image_id": [101, 102],
+            "centroid-0-nuc": [10, 20],
+            "centroid-1-nuc": [10, 20],
+            "label": [1, 2],
+        })
+        mock_omero_data.plate_data = df.lazy()
+        # Viewer holds a different well entirely.
+        mock_omero_data.image_ids = [901, 902]
+
+        result = _filter_well_centroids(
+            mock_omero_data, mock_user_data, require_loaded_images=False
+        )
+
+        assert set(result["image_id"].tolist()) == {101, 102}
+
+    def test_unloaded_well_raises_for_in_memory_source(
+        self, mock_omero_data, mock_user_data
+    ):
+        # The in-memory source genuinely cannot serve the well; say so.
+        mock_user_data.well = "A1"
+        mock_user_data.segmentation = "nucleus"
+        mock_user_data.cellcycle = "All"
+
+        df = pl.DataFrame({
+            "well": ["A1"],
+            "image_id": [101],
+            "centroid-0-nuc": [10],
+            "centroid-1-nuc": [10],
+            "label": [1],
+        })
+        mock_omero_data.plate_data = df.lazy()
+        mock_omero_data.image_ids = [901]
+        mock_omero_data.plate_id = 3868
+        mock_omero_data.well_pos_list = ["B3", "C1"]
+
+        with pytest.raises(ValueError, match="not loaded"):
+            _filter_well_centroids(
+                mock_omero_data, mock_user_data, require_loaded_images=True
+            )
+
+    def test_unknown_well_names_available_wells(
+        self, mock_omero_data, mock_user_data
+    ):
+        mock_user_data.well = "Z9"
+        mock_user_data.segmentation = "nucleus"
+        mock_user_data.cellcycle = "All"
+
+        df = pl.DataFrame({
+            "well": ["A1", "B3"],
+            "image_id": [101, 102],
+            "centroid-0-nuc": [10, 20],
+            "centroid-1-nuc": [10, 20],
+            "label": [1, 2],
+        })
+        mock_omero_data.plate_data = df.lazy()
+        mock_omero_data.plate_id = 3868
+
+        with pytest.raises(ValueError, match="A1, B3"):
+            _filter_well_centroids(mock_omero_data, mock_user_data)
+
+    def test_empty_timepoint_frame_skips_fallback(
+        self, mock_omero_data, mock_user_data
+    ):
+        # An empty frame must not be re-filtered by timepoint — the old code
+        # logged a misleading "falling back to all timepoints" for rows that
+        # had already been filtered out for another reason.
+        mock_user_data.well = "A1"
+        mock_user_data.segmentation = "nucleus"
+        mock_user_data.cellcycle = "All"
+        mock_user_data.classifier_filter = ""
+        mock_user_data.timepoint = 0
+
+        df = pl.DataFrame({
+            "well": ["A1"],
+            "image_id": [101],
+            "centroid-0-nuc": [10],
+            "centroid-1-nuc": [10],
+            "label": [1],
+            "timepoint": [5],
+        })
+        mock_omero_data.plate_data = df.lazy()
+        mock_omero_data.image_ids = [101]
+
+        result = _filter_well_centroids(mock_omero_data, mock_user_data)
+        # Timepoint 0 has no rows, so the fallback keeps all timepoints.
+        assert result["timepoint"].tolist() == [5]
+
+
 class TestRandomImageParser:
     def test_parse_random_index_all(self, mock_omero_data, mock_user_data):
         parser = RandomImageParser(mock_omero_data, mock_user_data, False)

@@ -78,17 +78,28 @@ def parse_crops_into_omero_data(
 ) -> None:
     """Generate the well's crop pool into ``omero_data.cropped_*``.
 
-    Replaces the old ``CroppedImageParser``. Filters the well's CellView
-    rows (cellcycle / classifier / loaded-image intersection / timepoint),
-    picks a crop source (zarr stitched canvas when a per-channel contrast
-    window is available, else the in-memory fields), and runs
+    Replaces the old ``CroppedImageParser``. Picks a crop source (zarr
+    stitched canvas when a per-channel contrast window is available, else
+    the in-memory fields), filters the well's CellView rows (cellcycle /
+    classifier / loaded-image intersection / timepoint), and runs
     :class:`CropPipeline`. The downstream finalize step
     (:class:`RandomImageParser`) is unchanged.
+
+    The source is resolved *before* the row filter because the two are
+    coupled: a :class:`ZarrSource` crops from the well's stitched canvas
+    on disk and never looks up a field image, so restricting its rows to
+    the fields currently loaded in the viewer would reject every cached
+    well that simply is not on screen.
     """
     logger.info(
         f"Parsing crops for well {user_data.well} using segmentation {user_data.segmentation}"
     )
-    centroids = _filter_well_centroids(omero_data, user_data)
+    source = _make_gallery_source(omero_data, user_data)
+    centroids = _filter_well_centroids(
+        omero_data,
+        user_data,
+        require_loaded_images=isinstance(source, WelldataSource),
+    )
     if centroids.empty:
         logger.warning(
             f"No centroids for well {user_data.well} after filtering; no crops generated."
@@ -99,7 +110,7 @@ def parse_crops_into_omero_data(
         return
 
     pipeline = CropPipeline(
-        source=_make_gallery_source(omero_data, user_data),
+        source=source,
         centroids_df=centroids,
         segmentation=user_data.segmentation,  # type: ignore[arg-type]
         crop_size=user_data.crop_size,
@@ -152,6 +163,24 @@ def _make_gallery_source(
     return WelldataSource(omero_data)
 
 
+def _zarr_well_metadata(plate_id: int, well: str) -> dict[str, str] | None:
+    """Per-well annotations from the zarr store, or None if unavailable.
+
+    Imported lazily so the gallery keeps working without the zarr stack.
+    """
+    try:
+        from omero_screen_napari.zarr_cache import plate_info, resolve_to_zarr
+
+        if resolve_to_zarr(plate_id) is None:
+            return None
+        meta = plate_info(plate_id).get("well_metadata", {}) or {}
+    except Exception as exc:  # noqa: BLE001 — caption metadata only
+        logger.debug(f"Zarr well metadata unavailable for {well}: {exc}")
+        return None
+    entry = meta.get(well)
+    return dict(entry) if entry else None
+
+
 def _select_cellcycledata(df: pl.DataFrame, cellcycle: str) -> pl.DataFrame:
     """Filter ``df`` to one cell-cycle phase; raise on an invalid phase.
 
@@ -200,7 +229,9 @@ def _select_classifierdata(
 
 
 def _filter_well_centroids(
-    omero_data: OmeroData, user_data: UserData
+    omero_data: OmeroData,
+    user_data: UserData,
+    require_loaded_images: bool = True,
 ) -> "pd.DataFrame":
     """Filter the plate's CellView rows down to the well's croppable cells.
 
@@ -209,6 +240,14 @@ def _filter_well_centroids(
     / the loaded-image intersection / the timepoint filter), then converted
     to pandas for :class:`CropPipeline`. Behaviour — including raising on an
     invalid cell-cycle phase — is unchanged.
+
+    Args:
+        omero_data: The populated singleton.
+        user_data: Gallery parameters, including the requested well.
+        require_loaded_images: Keep only rows whose ``image_id`` is loaded
+            in memory. True for the in-memory (per-field) crop source,
+            which can only crop fields it holds; False for the zarr
+            stitched-canvas source, which reads the well from disk.
     """
     schema = omero_data.plate_data.collect_schema()
     if len(schema) == 0:
@@ -219,31 +258,59 @@ def _filter_well_centroids(
     df = omero_data.plate_data.filter(
         pl.col("well") == user_data.well
     ).collect()
+    if df.height == 0:
+        available = sorted(
+            omero_data.plate_data.select("well")
+            .unique()
+            .collect()["well"]
+            .to_list()
+        )
+        raise ValueError(
+            f"No CellView rows for well {user_data.well} in plate "
+            f"{omero_data.plate_id}. Wells in CellView: "
+            f"{', '.join(available) or 'none'}."
+        )
     df = _select_cellcycledata(df, user_data.cellcycle)
     df = _select_classifierdata(df, user_data.classifier_filter)
 
-    # Keep only images actually loaded (image_ids is populated for both the
-    # in-memory and zarr backends).
-    loaded_ids = set(omero_data.image_ids)
-    if not loaded_ids:
-        logger.warning("No images loaded in OmeroData. Cannot process crops.")
-        df = df.filter(pl.col("image_id").is_in([]))
-    else:
-        metadata_ids = set(df["image_id"].unique().to_list())
-        common_ids = metadata_ids.intersection(loaded_ids)
-        if not common_ids:
+    # Keep only images actually loaded — the in-memory source can only crop
+    # fields it holds. Skipped for the zarr source, which crops the well's
+    # stitched canvas straight off disk and ignores ``image_id`` entirely.
+    if require_loaded_images:
+        loaded_ids = set(omero_data.image_ids)
+        if not loaded_ids:
             logger.warning(
-                f"No intersection between requested well ({user_data.well}) images and loaded images. Loaded IDs: {list(loaded_ids)[:5]}..."
+                "No images loaded in OmeroData. Cannot process crops."
             )
-        elif len(common_ids) < len(metadata_ids):
-            logger.info(
-                f"Processing {len(common_ids):d} images (subset of well) that are loaded."
-            )
-        df = df.filter(pl.col("image_id").is_in(common_ids))
+            df = df.filter(pl.col("image_id").is_in([]))
+        else:
+            metadata_ids = set(df["image_id"].unique().to_list())
+            common_ids = metadata_ids.intersection(loaded_ids)
+            if not common_ids:
+                raise ValueError(
+                    f"Well {user_data.well} is not loaded and is not built "
+                    f"in the zarr cache for plate {omero_data.plate_id}. "
+                    f"Loaded well(s): "
+                    f"{', '.join(omero_data.well_pos_list) or 'none'}. "
+                    f"Load the well in the welldata widget, or build the "
+                    f"plate's zarr cache via 'Cache Plate'."
+                )
+            if len(common_ids) < len(metadata_ids):
+                logger.info(
+                    f"Processing {len(common_ids):d} images (subset of well) that are loaded."
+                )
+            df = df.filter(pl.col("image_id").is_in(common_ids))
+    else:
+        logger.debug(
+            f"Zarr canvas source for well {user_data.well}; skipping the "
+            f"loaded-image filter ({df.height:d} rows)"
+        )
 
     # Live-cell time-lapse: keep only the requested timepoint's rows so crops
     # centre on the cell at that t (CellView stores one row per (cell, t)).
-    if "timepoint" in df.columns:
+    # An already-empty frame is left alone — the timepoint fallback message
+    # would otherwise misreport the reason there are no rows.
+    if df.height and "timepoint" in df.columns:
         tp = int(user_data.timepoint)
         df_tp = df.filter(pl.col("timepoint") == tp)
         if df_tp.height > 0:
@@ -566,11 +633,25 @@ class ParseGallery:
         return padding_height, padding_width
 
     def _parse_metadata(self) -> None:
-        if self._omero_data.well_pos_list:
-            index_number = self._omero_data.well_pos_list.index(
-                self._user_data.well
-            )
-            self._metadata = self._omero_data.well_metadata_list[index_number]
+        """Resolve the caption metadata for the gallery's well.
+
+        The singleton only carries metadata for the wells loaded in the
+        viewer, but the zarr source can crop any *cached* well. Fall back
+        to the per-well annotations baked into the zarr store so a gallery
+        of a non-displayed well is still labelled.
+        """
+        well = self._user_data.well
+        pos_list = self._omero_data.well_pos_list or []
+        if well in pos_list:
+            index_number = pos_list.index(well)
+            if index_number < len(self._omero_data.well_metadata_list):
+                self._metadata = self._omero_data.well_metadata_list[
+                    index_number
+                ]
+                return
+        meta = _zarr_well_metadata(self._omero_data.plate_id, well)
+        if meta is not None:
+            self._metadata = meta
 
     def _add_scale_bar(self, ax: Any) -> None:
         gallery_height, gallery_width, _ = self._gallery_image.shape
