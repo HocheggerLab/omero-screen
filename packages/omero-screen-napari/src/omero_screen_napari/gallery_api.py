@@ -35,7 +35,47 @@ def show_gallery(
     classifier: bool = False,
     excluded_centroids: set[tuple[int, int, int]] | None = None,
 ) -> None:
-    if user_data.reload or omero_data.cropped_images == []:
+    """Build the well's gallery and show it in a matplotlib window."""
+    build_gallery_figure(
+        omero_data,
+        user_data,
+        classifier=classifier,
+        excluded_centroids=excluded_centroids,
+        show=True,
+    )
+
+
+def build_gallery_figure(
+    omero_data: OmeroData,
+    user_data: UserData,
+    *,
+    classifier: bool = False,
+    excluded_centroids: set[tuple[int, int, int]] | None = None,
+    show: bool = True,
+    force_reload: bool = False,
+) -> Any:
+    """Build one well's gallery figure.
+
+    The body of the old ``show_gallery``, split out so batch export
+    (:mod:`omero_screen_napari.gallery_export`) reuses the exact same
+    crop → sample → compose path the interactive gallery uses, rather
+    than a parallel implementation that could drift from it.
+
+    Args:
+        omero_data: The populated singleton.
+        user_data: Gallery parameters for this well.
+        classifier: Populate ``selected_cell_meta`` for the classifier.
+        excluded_centroids: Cells to leave out of the crop pool.
+        show: Open the figure in a window. False for headless export.
+        force_reload: Re-parse crops even when ``user_data.reload`` is
+            False — batch export always wants the requested well's crops,
+            not whatever the last interactive run left in the singleton.
+
+    Returns:
+        The matplotlib ``Figure``, or ``None`` when the well produced no
+        crops to plot.
+    """
+    if force_reload or user_data.reload or omero_data.cropped_images == []:
         parse_crops_into_omero_data(
             omero_data, user_data, excluded_centroids=excluded_centroids
         )
@@ -62,10 +102,10 @@ def show_gallery(
             logger.warning(
                 "No crops available. Check segmentation/well parameters."
             )
-        return
+        return None
 
-    gallery_parser = ParseGallery(omero_data, user_data)
-    gallery_parser.plot_gallery()
+    gallery_parser = ParseGallery(omero_data, user_data, show_gallery=show)
+    return gallery_parser.plot_gallery()
 
 
 # --------------------------Gallery Data Generators---------------------------
@@ -555,18 +595,26 @@ class ParseGallery:
             ax.imshow(self._gallery_image[..., 0], cmap="gray_r")
         else:
             ax.imshow(self._gallery_image)
-        metadata_str = ", ".join(
-            [f"{key}: {value}" for key, value in self._metadata.items()]
-        )
-        channel_list = [
-            channel for channel in self._user_data.channels if channel != ""
-        ]
-        classifier_str = self._user_data.classifier_filter.strip() or "None"
-        ax.set_title(
-            f"well: {self._user_data.well}\n{metadata_str}\nchannels: {', '.join(channel_list)}, cellcycle phase: {self._user_data.cellcycle}, classifier filter: {classifier_str}, timepoint: {self._user_data.timepoint}",
-            fontsize=12,
-            fontweight="bold",
-        )
+        # The title is diagnostic, not part of the panel: a figure gallery
+        # is placed with its own caption, so it can be switched off to get
+        # a file that drops straight into a layout.
+        if self._user_data.show_title:
+            metadata_str = ", ".join(
+                [f"{key}: {value}" for key, value in self._metadata.items()]
+            )
+            channel_list = [
+                channel
+                for channel in self._user_data.channels
+                if channel != ""
+            ]
+            classifier_str = (
+                self._user_data.classifier_filter.strip() or "None"
+            )
+            ax.set_title(
+                f"well: {self._user_data.well}\n{metadata_str}\nchannels: {', '.join(channel_list)}, cellcycle phase: {self._user_data.cellcycle}, classifier filter: {classifier_str}, timepoint: {self._user_data.timepoint}",
+                fontsize=12,
+                fontweight="bold",
+            )
         plt.axis("off")
         # Add scale bar
         self._add_scale_bar(ax)
