@@ -46,6 +46,8 @@ def classification_plot(
     show_significance: bool = True,
     stats_class: str | None = None,
     paired: bool = True,
+    show_ns: bool = True,
+    min_effect: float | None = None,
     # Save settings
     save: bool = False,
     save_stats: bool = False,
@@ -197,6 +199,8 @@ def classification_plot(
         show_significance=show_significance,
         stats_class=stats_class,
         paired=paired,
+        show_ns=show_ns,
+        min_effect=min_effect,
     )
 
     # Initialize data processor

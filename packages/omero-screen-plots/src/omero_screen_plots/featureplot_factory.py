@@ -1070,7 +1070,14 @@ class NormFeaturePlot(BaseFeaturePlot):
             group_size=self.config.group_size,
             paired=self.config.paired,
         )
-        annotate_significance(self.ax, results, x_positions, y_max)
+        annotate_significance(
+            self.ax,
+            results,
+            x_positions,
+            y_max,
+            show_ns=self.config.show_ns,
+            min_effect=self.config.min_effect,
+        )
         self._record_stats(
             medians_df,
             results,

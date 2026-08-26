@@ -64,6 +64,12 @@ class BasePlotConfig:
     # ``save`` so it works when plotting onto a shared/composed figure
     # (axes=..., save=False) — just provide a ``path``.
     save_stats: bool = False
+    # Draw "ns" markers for non-significant comparisons. Set False to plot only
+    # the stars; the CSV export is unaffected either way.
+    show_ns: bool = True
+    # Require at least this relative change (0.10 = 10%) against the reference
+    # before drawing a marker. None disables the gate. CSV export is unaffected.
+    min_effect: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for kwargs."""
@@ -285,7 +291,12 @@ class BasePlotBuilder(ABC):
             normalise_within_plate=normalise_within_plate,
         )
         annotate_significance(
-            ax, results, x_positions, ax.get_ylim()[1] * y_top_factor
+            ax,
+            results,
+            x_positions,
+            ax.get_ylim()[1] * y_top_factor,
+            show_ns=self.config.show_ns,
+            min_effect=self.config.min_effect,
         )
         self._record_stats(
             medians_df,

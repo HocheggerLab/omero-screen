@@ -39,6 +39,8 @@ def cellcycle_plot(
     show_subG1: bool = False,
     show_plate_legend: bool = False,
     paired: bool = True,
+    show_ns: bool = True,
+    min_effect: float | None = None,
 ) -> tuple[Figure, list[Axes]]:
     """Plot cell cycle phases in a 2x2 subplot grid with statistical analysis.
 
@@ -163,6 +165,8 @@ def cellcycle_plot(
         show_subG1=show_subG1,
         show_plate_legend=show_plate_legend,
         paired=paired,
+        show_ns=show_ns,
+        min_effect=min_effect,
     )
 
     # Use StandardCellCyclePlot class
@@ -205,6 +209,8 @@ def cellcycle_stacked(
     within_group_spacing: float = 0.2,
     between_group_gap: float = 0.5,
     paired: bool = True,
+    show_ns: bool = True,
+    min_effect: float | None = None,
     # Bar options
     bar_width: float = 0.5,
     repeat_offset: float = 0.18,
@@ -371,6 +377,8 @@ def cellcycle_stacked(
         within_group_spacing=within_group_spacing,
         between_group_gap=between_group_gap,
         paired=paired,
+        show_ns=show_ns,
+        min_effect=min_effect,
         # Bar options
         bar_width=bar_width,
         repeat_offset=repeat_offset,

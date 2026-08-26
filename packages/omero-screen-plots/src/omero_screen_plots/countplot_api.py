@@ -42,6 +42,8 @@ def count_plot(
     between_group_gap: float = 0.5,
     x_label: bool = True,
     paired: bool = True,
+    show_ns: bool = True,
+    min_effect: float | None = None,
     normalise_within_plate: bool = True,
 ) -> tuple[Figure, Axes]:
     """Plot normalized or absolute counts with optional grouping.
@@ -161,6 +163,8 @@ def count_plot(
         show_x_labels=x_label,
         rotation=45,
         paired=paired,
+        show_ns=show_ns,
+        min_effect=min_effect,
         normalise_within_plate=normalise_within_plate,
     )
 

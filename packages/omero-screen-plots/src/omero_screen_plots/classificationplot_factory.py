@@ -511,9 +511,13 @@ class ClassificationPlotBuilder(BasePlotBuilder):
             * 100
         )
 
-        # On-plot stars only make sense for a single class; multi-class stacked
-        # bars are exported to CSV but not annotated.
-        annotate_on_plot = len(classes) == 1
+        # On-plot stars are ambiguous when several stacked classes are marked
+        # at once, so multi-class bars stay unannotated by default. Naming a
+        # ``stats_class`` opts in to a single row of markers for that one
+        # class; every class is still exported to CSV.
+        annotate_on_plot = (
+            len(classes) == 1 or self.config.stats_class is not None
+        )
         focus_class = self.config.stats_class or classes[0]
         group_size = self.config.group_size
         n = len(conditions)
@@ -548,6 +552,13 @@ class ClassificationPlotBuilder(BasePlotBuilder):
                 value_col="percentage",
             )
             if annotate_on_plot and cls == focus_class:
-                annotate_significance(self.ax, results, x_positions, y)
+                annotate_significance(
+                    self.ax,
+                    results,
+                    x_positions,
+                    y,
+                    show_ns=self.config.show_ns,
+                    min_effect=self.config.min_effect,
+                )
 
         return self
