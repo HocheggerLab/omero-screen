@@ -37,6 +37,7 @@ def feature_plot(
     between_group_gap: float = 0.5,
     paired: bool = True,
     show_ns: bool = True,
+    scatter_size: float = 7.0,
     min_effect: float | None = None,
     normalise_within_plate: bool = True,
     save: bool = True,
@@ -169,6 +170,7 @@ def feature_plot(
         show_repeat_points=True,
         paired=paired,
         show_ns=show_ns,
+        scatter_size=scatter_size,
         min_effect=min_effect,
         normalise_within_plate=normalise_within_plate,
     )
@@ -211,6 +213,7 @@ def feature_norm_plot(
     between_group_gap: float = 0.5,
     paired: bool = True,
     show_ns: bool = True,
+    scatter_size: float = 7.0,
     min_effect: float | None = None,
     save: bool = True,
     save_stats: bool = False,
@@ -374,6 +377,7 @@ def feature_norm_plot(
         max_repeats=3,
         paired=paired,
         show_ns=show_ns,
+        scatter_size=scatter_size,
         min_effect=min_effect,
     )
 
