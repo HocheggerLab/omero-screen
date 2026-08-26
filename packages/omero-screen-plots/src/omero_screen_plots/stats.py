@@ -323,6 +323,7 @@ def annotate_significance(
     fontsize: int = 6,
     show_ns: bool = True,
     min_effect: float | None = None,
+    color: str | None = None,
 ) -> None:
     """Draw significance markers from ``results`` at the given x positions.
 
@@ -330,6 +331,9 @@ def annotate_significance(
     requires ``|effect| >= min_effect`` before a marker is drawn (``0.10`` =
     10% change against the reference), so a shift that reproduces perfectly
     but is too small to matter goes unmarked.
+
+    ``color`` tints the markers, so a caller stacking several rows of stars
+    can key each row to the series it belongs to.
 
     Neither option touches the computation: every comparison, its exact
     p-value and its effect size are still written to the stats CSV. They
@@ -353,6 +357,7 @@ def annotate_significance(
                 ha="center",
                 va="bottom",
                 fontsize=fontsize,
+                color=color if color else "black",
             )
 
 

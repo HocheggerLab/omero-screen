@@ -44,7 +44,7 @@ def classification_plot(
     show_boxes: bool = True,
     # Significance settings
     show_significance: bool = True,
-    stats_class: str | None = None,
+    stats_class: str | list[str] | None = None,
     paired: bool = True,
     show_ns: bool = True,
     min_effect: float | None = None,

@@ -39,9 +39,14 @@ class ClassificationPlotConfig(BasePlotConfig):
 
     # Significance settings
     show_significance: bool = True
-    # Class whose condition-vs-reference test is annotated on the plot
-    # (default = first class in `classes`); both CSVs cover every class.
-    stats_class: str | None = None
+    # Which class(es) get on-plot markers. None = only annotate when a single
+    # class is plotted (a lone star over a stacked bar is ambiguous). A name
+    # annotates that class; a list annotates each one as its own row of stars,
+    # tinted to match its bar segment so the reader can tell them apart.
+    # Every class reaches the CSVs regardless.
+    stats_class: str | list[str] | None = None
+    # Vertical gap between stacked star rows, as a fraction of the y-range.
+    stats_row_gap: float = 0.09
 
     # Stacked mode settings
     bar_width: float = 0.75
@@ -235,6 +240,20 @@ class ClassificationPlotBuilder(BasePlotBuilder):
         super().__init__(config)
         self.config: ClassificationPlotConfig = config
 
+    def _resolve_class_colors(self, classes: list[str]) -> list[str]:
+        """Bar colour per class, in ``classes`` order.
+
+        Shared by the bar drawing and the significance markers so a star is
+        always the same colour as the segment it refers to.
+        """
+        if self.config.colors:
+            return list(self.config.colors[: len(classes)])
+        if len(classes) == 2:
+            return [COLOR.LIGHT_GREEN.value, COLOR.OLIVE.value]
+        if len(classes) == 3:
+            return [COLOR.BLUE.value, COLOR.LIGHT_BLUE.value, COLOR.GREY.value]
+        return [color.value for color in COLOR]
+
     def build_stacked_plot(
         self,
         plot_data: pd.DataFrame,
@@ -297,21 +316,7 @@ class ClassificationPlotBuilder(BasePlotBuilder):
         """Build grouped stacked plot with individual triplicates."""
         assert self.ax is not None
 
-        # Use colors from config if provided, otherwise use default scheme
-        if self.config.colors:
-            colors = self.config.colors[: len(classes)]
-        else:
-            # Default color scheme based on number of classes
-            if len(classes) == 2:
-                colors = [COLOR.LIGHT_GREEN.value, COLOR.OLIVE.value]
-            elif len(classes) == 3:
-                colors = [
-                    COLOR.BLUE.value,
-                    COLOR.LIGHT_BLUE.value,
-                    COLOR.GREY.value,
-                ]
-            else:
-                colors = [color.value for color in COLOR]
+        colors = self._resolve_class_colors(classes)
 
         # Get percentage data per plate_id, condition, class
         df_class = (
@@ -489,9 +494,11 @@ class ClassificationPlotBuilder(BasePlotBuilder):
 
         Computes the per-plate percentage of each class and runs the
         replicate-level t-test for **every** class (recorded for CSV export).
-        On-plot stars are only drawn when a **single** class is plotted — with a
-        stacked multi-class bar it is ambiguous which class a star refers to,
-        so the markers are omitted (the CSV still has all comparisons).
+        Which classes get on-plot stars is decided by ``stats_class``: by
+        default only a single-class plot is annotated, since a lone star over a
+        stacked bar is ambiguous. Naming one class annotates it; passing a list
+        gives each class its own row of stars, tinted to match its bar segment.
+        The CSV always holds every comparison.
         """
         assert self.ax is not None
         if not self.config.show_significance:
@@ -515,10 +522,18 @@ class ClassificationPlotBuilder(BasePlotBuilder):
         # at once, so multi-class bars stay unannotated by default. Naming a
         # ``stats_class`` opts in to a single row of markers for that one
         # class; every class is still exported to CSV.
-        annotate_on_plot = (
-            len(classes) == 1 or self.config.stats_class is not None
+        # Classes to annotate, in draw order (first = topmost row of stars).
+        # Unnamed classes are still tested and exported, just not marked.
+        stats_class = self.config.stats_class
+        if stats_class is None:
+            annotate_classes = list(classes) if len(classes) == 1 else []
+        elif isinstance(stats_class, str):
+            annotate_classes = [stats_class]
+        else:
+            annotate_classes = [c for c in stats_class if c in classes]
+        class_colors = dict(
+            zip(classes, self._resolve_class_colors(classes), strict=False)
         )
-        focus_class = self.config.stats_class or classes[0]
         group_size = self.config.group_size
         n = len(conditions)
         # Match the bar layout: triplicate bars are drawn at grouped positions
@@ -532,7 +547,7 @@ class ClassificationPlotBuilder(BasePlotBuilder):
             )
         else:
             x_positions = [float(i) for i in range(n)]
-        y = self.ax.get_ylim()[1] * 0.95
+        y_top = self.ax.get_ylim()[1]
 
         for cls in classes:
             cls_df = counts[counts[class_col] == cls]
@@ -551,14 +566,18 @@ class ClassificationPlotBuilder(BasePlotBuilder):
                 condition_col=condition_col,
                 value_col="percentage",
             )
-            if annotate_on_plot and cls == focus_class:
+            if cls in annotate_classes:
+                # Rows stack downward from the top of the axes, one per
+                # annotated class, in the order given.
+                row = annotate_classes.index(cls)
                 annotate_significance(
                     self.ax,
                     results,
                     x_positions,
-                    y,
+                    y_top * (0.95 - row * self.config.stats_row_gap),
                     show_ns=self.config.show_ns,
                     min_effect=self.config.min_effect,
+                    color=class_colors.get(cls),
                 )
 
         return self
