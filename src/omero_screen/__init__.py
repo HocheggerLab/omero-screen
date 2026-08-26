@@ -1,6 +1,6 @@
 """OMERO Screen: Tools for managing and analyzing high-throughput screening data with OMERO."""
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 import json
 import os
