@@ -11,8 +11,33 @@ time.
 - **Python 3.12** — the project pins `>=3.12,<3.13`.
 - **[uv](https://docs.astral.sh/uv/)** for dependency management. Never `pip`.
 - **Access to an OMERO server** — a username, password and hostname.
-- **A GPU** is optional but strongly recommended. Cellpose runs on CPU, just
-  slowly.
+- **A GPU** is optional but strongly recommended — see below.
+
+## Hardware
+
+Segmentation and tracking are the expensive steps. Everything runs on CPU, but
+some combinations are only practical on the right hardware.
+
+| | Apple silicon (MPS) | NVIDIA (CUDA) | CPU only |
+|---|---|---|---|
+| **Cellpose 3 models** (default) | yes | yes | slow but workable |
+| **Cellpose 4** (`--cp4`, `cpsam`) | not in practice — too slow and too large | yes | impractical |
+| **Tracking** (`--track`) | falls back to CPU | yes | slow |
+| **Classifier inference** | yes | yes | workable |
+
+Two things are worth knowing before you plan a run:
+
+- **Cellpose 4 needs an NVIDIA GPU in practice.** Nothing in the code blocks
+  `cpsam` on Apple silicon, so it will start — it is simply too slow and too
+  memory-hungry to be useful. Stay on the default Cellpose 3 models on a Mac.
+- **Tracking has no MPS backend.** Trackastra ships CUDA and CPU kernels only,
+  so on Apple silicon `--track` silently runs on the CPU. It still produces
+  correct lineages, just slowly. The log line naming the device tells you which
+  one you got.
+
+Device selection is automatic: CUDA if present, then MPS, then CPU. Force CPU
+with `OMERO_SCREEN_USE_GPU=0`, and force the tracking device specifically with
+`--track-device cpu|cuda`.
 
 ## Install
 

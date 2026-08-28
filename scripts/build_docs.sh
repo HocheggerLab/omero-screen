@@ -33,8 +33,11 @@ SUBSITES=(
   "packages/omero-utils:utils"
 )
 
+# --offline reuses the cached environment. Without it uv re-resolves the
+# project on every call, which needs to reach GitHub for the zeroc-ice wheel
+# and fails outright when the network is down.
 gd() {
-  uv run --with "great-docs==${GREAT_DOCS_VERSION}" great-docs "$@"
+  uv run --offline --with "great-docs==${GREAT_DOCS_VERSION}" great-docs "$@"
 }
 
 echo "==> Cleaning ${OUT}"

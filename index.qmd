@@ -20,99 +20,74 @@ body-classes: "gd-homepage"
 [OMERO utilities](utils/)<br>
 :::
 
-# From microscope plate to publication figure
+# End to end high content bio-image analysis powered by AI
 
-**OMERO-Screen** turns a high-content immunofluorescence plate sitting on an
-[OMERO](https://www.openmicroscopy.org/omero/) server into analysed, queryable
-single-cell data — and then into the figure you put in the paper. Segmentation,
-feature extraction, cell-cycle assignment, storage, classification and plotting
-are one reproducible workflow rather than six disconnected scripts.
+**OMERO-Screen** takes a 96-well immunofluorescence plate from an
+[OMERO](https://www.openmicroscopy.org/omero/) server to a publication figure:
+segmentation, feature extraction, cell-cycle assignment, storage,
+classification and plotting as one reproducible workflow. It is built for cell
+biologists running high-content screens, not for image-analysis specialists.
 
-```bash
-omero-screen 1234 --stitch          # segment a plate, write results back to OMERO
-cellview import plate 1234          # pull the measurements into a local database
-```
+## What makes it different
 
-That is the whole loop. Everything below is detail.
+### Rapid generation and adaptation of new models
 
----
+Deep learning models for segmentation, tracking and classification have
+revolutionised bioimage analysis, but remain difficult for experimentalists to
+access. OMERO-Screen builds on [Cellpose](https://www.cellpose.org/) and
+[Trackastra](https://github.com/weigertlab/trackastra), and adds a rapid
+generation-and-deployment loop for classifiers. Its modular architecture means
+models are selected from the command line (`--model`, `--track <model>`), so an
+improved model can be swapped into the pipeline without touching the analysis
+code.
 
-## What it does
+### 4i / cyclic IF and automated tracking, without the coding
 
-Point it at a plate ID. It reads the experimental layout from the plate's
-metadata, corrects illumination, segments every nucleus and cell with
-[Cellpose](https://www.cellpose.org/), measures them, assigns each cell a
-cell-cycle phase, and attaches the results back to OMERO — then hands them to a
-local database you can query, plot and classify.
+More advanced image analysis usually demands coding skills that most cell
+biology labs do not have. OMERO-Screen integrates automated registration and
+tracking pipelines, generating highly multiplexed single-cell data from a few
+simple commands.
 
-![The five packages of the monorepo cover the full journey: raw plates on an OMERO server → segmentation and feature extraction (omero-screen) → local single-cell database (cellview) → interactive exploration (omero-screen-napari) → publication figures (omero-screen-plots), with shared server helpers in omero-utils.](assets/architecture.svg){#fig-architecture width=90%}
+### Agentic AI integration
 
-## See it running
+Because OMERO-Screen is driven entirely by terminal commands, it is directly
+accessible to AI agents. We ship agent skills that run the whole pipeline —
+from plate analysis through quantification to figure production — from natural
+language prompts.
+
+### Data integration and management
+
+High-content IF data tends to grow exponentially and end up in chaos: thousands
+of images, analysis spread across multiple tools and scattered files, and a
+final figure that nobody can reproduce exactly. OMERO-Screen keeps raw data,
+masks and analysis files together on an OMERO server. Screen images and
+segmentation masks are viewed through local Zarr stores and napari plugins, and
+single-cell data are queried from a local DuckDB database. This keeps terabytes
+of high-content image analysis data in one well-organised, queryable form, and
+keeps published results reproducible.
+
+
+## See it in action
 
 ::: {.callout-note appearance="simple"}
-**Showcase video placeholder.** Drop the recording at `assets/showcase.mp4` and
-replace this callout with the commented-out block below.
+**Showcase video placeholder.** Drop the recording at `assets/showcase.mp4`,
+then delete this callout and uncomment the block below.
 :::
 
 <!--
-{{< video assets/showcase.mp4 title="OMERO-Screen: plate to figure in five minutes" >}}
+{{< video assets/showcase.mp4 title="OMERO-Screen: from plate to figure" >}}
 -->
 
-## The journey
+## Start here
 
-Six steps, each with a guide. You do not need to know which Python package owns
-which step.
+- [**Install and configure**](user-guide/installation.html) — prerequisites,
+  hardware, OMERO credentials
+- [**Analyse your first plate**](user-guide/first-plate.html) — one continuous
+  journey from a plate ID to a figure
+- [**How it works**](user-guide/architecture.html) — the pipeline stages, the
+  data model, and the six packages
 
-| | Step | You run | Guide |
-|---|---|---|---|
-| 1 | **Connect** to an OMERO server and check your plate's metadata | `omero-screen --help` | [Install & configure](user-guide/installation.html) |
-| 2 | **Analyse** a plate — segment, measure, assign cell-cycle phase | `omero-screen <plate_id>` | [Your first plate](user-guide/first-plate.html) |
-| 3 | **Inspect** segmentation quality and browse cells interactively | napari widgets | [Napari](napari/) |
-| 4 | **Store & query** single-cell measurements locally | `cellview import plate` | [CellView](cellview/) |
-| 5 | **Classify** cell features with a trained CNN | `cellclass train` | [CellClass](cellclass/) |
-| 6 | **Plot** publication-ready statistics | Python API | [Plots](plots/) |
-
-## Inside one analysis run
-
-![Starting from a plate ID, the pipeline parses experimental metadata, builds per-channel flatfield masks, then iterates over every non-empty well. Each image is segmented with Cellpose, features are extracted with `regionprops`, and results are written back to OMERO as CSV attachments. Cell-cycle assignment and optional classification run once all wells are done.](assets/analysis-loop.svg){#fig-loop width=85%}
-
-Two things are worth knowing early:
-
-- **Stitched mode** (`--stitch`) segments the whole well as one canvas instead of
-  field by field, so a cell straddling two fields is no longer cut in half by
-  the border filter on each side.
-- **Live-cell tracking** (`--track`) relabels nuclei with a stable `track_id`
-  across timepoints using [Trackastra](https://github.com/weigertlab/trackastra),
-  giving you lineages rather than independent snapshots.
-
-## Install
-
-Requires Python 3.12 and [uv](https://docs.astral.sh/uv/).
-
-```bash
-git clone https://github.com/HocheggerLab/omero-screen.git
-cd omero-screen
-uv sync --dev
-```
-
-Then create a `.env` file with your OMERO credentials and database path — see
-[Install & configure](user-guide/installation.html) for the full list.
-
-## The packages
-
-Each has its own reference site with generated API and CLI documentation.
-
-| Package | What it is |
-|---|---|
-| **omero-screen** | The analysis pipeline: Cellpose segmentation, feature extraction, cell-cycle phases, flatfield correction, stitching, tracking |
-| **[cellview](cellview/)** | DuckDB-backed single-cell database with a CLI and a Python API |
-| **[omero-screen-plots](plots/)** | Statistical plots built for publication figures — cell cycle, counts, features, classification, synergy |
-| **[omero-screen-napari](napari/)** | Napari widgets for browsing plates, inspecting galleries and labelling CNN training data |
-| **[cellclass](cellclass/)** | CNN classifier training, sweeps and inference for cell features |
-| **[omero-utils](utils/)** | Connection handling, attachments, map annotations and image I/O against the OMERO API |
-
-## Citing and contributing
-
-OMERO-Screen is developed in the [Hochegger lab](https://www.sussex.ac.uk/lifesci/hocheggerlab/)
-at the University of Sussex. Source, issues and pull requests live on
-[GitHub](https://github.com/HocheggerLab/omero-screen).
+Source, issues and pull requests live on
+[GitHub](https://github.com/HocheggerLab/omero-screen). OMERO-Screen is
+developed in the [Hochegger lab](https://hocheggerlab.org)
+at the University of Sussex.

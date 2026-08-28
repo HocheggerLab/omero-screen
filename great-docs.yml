@@ -26,7 +26,7 @@ site_url: https://hocheggerlab.github.io/omero-screen/
 
 hero:
   enabled: true
-  tagline: "From microscope plate to publication figure — high-content IF analysis on OMERO."
+  tagline: "One reproducible workflow from a 96-well plate to the figure in your paper."
   badges: false
 
 user_guide:
@@ -34,6 +34,7 @@ user_guide:
     contents:
       - installation.qmd
       - first-plate.qmd
+      - architecture.qmd
 
 cli:
   enabled: true
