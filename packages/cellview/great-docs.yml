@@ -1,8 +1,6 @@
 # Great Docs configuration — cellview.
 # Sub-site of the OMERO-Screen platform, deployed to /cellview/.
 #
-# `cli:` stays disabled until the cellview CLI is migrated from argparse to
-# Click — Great Docs generates CLI reference from Click objects only.
 module: cellview
 display_name: CellView
 parser: google
@@ -20,6 +18,27 @@ hero:
   enabled: true
   tagline: "A DuckDB single-cell database for OMERO-Screen measurements."
   badges: false
+
+cli:
+  enabled: true
+  module: cellview.cli
+  name: cli
+  title: "CLI reference"
+  desc: >-
+    `--db` is a global option and goes before the subcommand, e.g.
+    `cellview --db /path/to.duckdb projects`.
+  sections:
+    - title: "Inspect"
+      desc: "Browse what is already in the database."
+      contents: [projects, project, experiment, plate]
+    - title: "Import and export"
+      contents: [import, export]
+    - title: "Explore"
+      desc: "Interactive notebooks and their templates."
+      contents: [explore, template]
+    - title: "Maintain"
+      desc: "Edit metadata, delete plates, remove orphaned records."
+      contents: [edit, delete, clean]
 
 reference:
   - title: Python API

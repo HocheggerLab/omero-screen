@@ -1,19 +1,26 @@
-"""Tests for template-related CLI arguments."""
+"""Tests for the --template option on the explore command."""
 
-from cellview.cli import get_parser
+from unittest.mock import patch
+
+from click.testing import CliRunner
+
+from cellview.cli import cli
+
+
+def _template_for(argv):
+    with patch("cellview.main.handle_explore") as mock:
+        result = CliRunner().invoke(cli, ["explore", *argv])
+    assert result.exit_code == 0, result.output
+    return mock.call_args.kwargs["template"]
 
 
 class TestTemplateCLIArgs:
     """Tests for template-related CLI arguments."""
 
     def test_template_default(self) -> None:
-        parser = get_parser()
-        args = parser.parse_args(["explore", "12345"])
-        assert args.template == "cellcycle"
+        assert _template_for(["12345"]) == "cellcycle"
 
     def test_template_custom(self) -> None:
-        parser = get_parser()
-        args = parser.parse_args(
-            ["explore", "12345", "--template", "drug_screen"]
+        assert _template_for(["12345", "--template", "drug_screen"]) == (
+            "drug_screen"
         )
-        assert args.template == "drug_screen"

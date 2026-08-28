@@ -1,65 +1,61 @@
-"""Tests for the explore CLI argument parsing."""
+"""Tests for the explore command's argument handling."""
+
+from unittest.mock import patch
 
 import pytest
-from cellview.cli import get_parser
+from click.testing import CliRunner
+
+from cellview.cli import cli
 from cellview.main import _parse_plate_ids
+
+
+def _explore(argv):
+    """Invoke `cellview explore ...` and return the handler's kwargs."""
+    with patch("cellview.main.handle_explore") as mock:
+        result = CliRunner().invoke(cli, ["explore", *argv])
+    assert result.exit_code == 0, result.output
+    return mock.call_args.kwargs
 
 
 class TestExploreCLIArgs:
     """Tests for explore subcommand arguments."""
 
     def test_explore_single_plate(self) -> None:
-        parser = get_parser()
-        args = parser.parse_args(["explore", "12345"])
-        assert args.command == "explore"
-        assert args.plate_ids == ["12345"]
+        assert _explore(["12345"])["plate_ids"] == ["12345"]
 
     def test_explore_multiple_plates(self) -> None:
-        parser = get_parser()
-        args = parser.parse_args(["explore", "12345", "12378", "12390"])
-        assert args.plate_ids == ["12345", "12378", "12390"]
+        kwargs = _explore(["12345", "12378", "12390"])
+        assert kwargs["plate_ids"] == ["12345", "12378", "12390"]
 
     def test_explore_notebook_name(self) -> None:
-        parser = get_parser()
-        args = parser.parse_args(["explore", "plates_3602_3603_3604"])
-        assert args.plate_ids == ["plates_3602_3603_3604"]
+        kwargs = _explore(["plates_3602_3603_3604"])
+        assert kwargs["plate_ids"] == ["plates_3602_3603_3604"]
 
     def test_explore_experiment_by_name(self) -> None:
-        parser = get_parser()
-        args = parser.parse_args(
-            ["explore", "--experiment", "palb_washout"]
-        )
-        assert args.experiment == "palb_washout"
+        kwargs = _explore(["--experiment", "palb_washout"])
+        assert kwargs["experiment"] == "palb_washout"
 
     def test_explore_experiment_by_id(self) -> None:
-        parser = get_parser()
-        args = parser.parse_args(["explore", "--experiment", "6"])
-        assert args.experiment == "6"
+        """The option stays a string; main resolves it to an int."""
+        assert _explore(["--experiment", "6"])["experiment"] == "6"
 
     def test_fresh_flag(self) -> None:
-        parser = get_parser()
-        args = parser.parse_args(["explore", "12345", "--fresh"])
-        assert args.fresh is True
+        assert _explore(["12345", "--fresh"])["fresh"] is True
 
     def test_no_napari_flag(self) -> None:
-        parser = get_parser()
-        args = parser.parse_args(["explore", "12345", "--no-napari"])
-        assert args.no_napari is True
+        assert _explore(["12345", "--no-napari"])["no_napari"] is True
 
     def test_code_flag(self) -> None:
-        parser = get_parser()
-        args = parser.parse_args(["explore", "12345", "--code"])
-        assert args.code is True
+        assert _explore(["12345", "--code"])["code"] is True
 
     def test_explore_defaults(self) -> None:
-        parser = get_parser()
-        args = parser.parse_args(["explore"])
-        assert args.plate_ids == []
-        assert args.experiment is None
-        assert args.fresh is False
-        assert args.no_napari is False
-        assert args.code is False
-        assert args.template == "cellcycle"
+        kwargs = _explore([])
+        assert kwargs["plate_ids"] == []
+        assert kwargs["experiment"] is None
+        assert kwargs["fresh"] is False
+        assert kwargs["no_napari"] is False
+        assert kwargs["code"] is False
+        assert kwargs["template"] == "cellcycle"
 
 
 class TestParsePlateIds:
@@ -84,7 +80,10 @@ class TestParsePlateIds:
         assert _parse_plate_ids(["plates_3602_3603.ipynb"]) == [3602, 3603]
 
     def test_notebook_name_full_filename(self) -> None:
-        assert _parse_plate_ids(["explore_plates_3602_3603.ipynb"]) == [3602, 3603]
+        assert _parse_plate_ids(["explore_plates_3602_3603.ipynb"]) == [
+            3602,
+            3603,
+        ]
 
     def test_results_are_sorted(self) -> None:
         assert _parse_plate_ids(["3604", "3602", "3603"]) == [3602, 3603, 3604]
