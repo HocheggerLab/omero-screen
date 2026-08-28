@@ -32,6 +32,10 @@ def test_default_argument_contract() -> None:
         "log_level": None,
         "log_file": None,
         "verbose": False,
+        # Added on main after this contract was first frozen: --delete
+        # (25a9e1d/cc50896 mask-reuse work) and --stitch-config.
+        "delete": False,
+        "stitch_config": None,
     }
 
 

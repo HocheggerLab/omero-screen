@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from cellview.cli import get_parser
 
 
@@ -200,6 +202,10 @@ class TestMigrationContract:
             "ids": [12, 34],
             "interactive": True,
             "nucleus_channel": "H2B_RFP",
+            # Added by 2c82dca (import/delete CLI improvements) after this
+            # contract was first frozen.
+            "project": None,
+            "experiment": None,
         }
 
     def test_explore_options(self) -> None:
