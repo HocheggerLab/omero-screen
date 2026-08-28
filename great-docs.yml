@@ -1,12 +1,13 @@
 # Great Docs configuration — umbrella site for the OMERO-Screen platform.
 #
 # This is the ROOT site, deployed at /. It carries the landing page, the Learn
-# section, and the core `omero_screen` API reference. The other five workspace
-# packages each have their own great-docs.yml and deploy to a subdirectory
-# (/cellview/, /cellclass/, /plots/, /napari/, /utils/) — Great Docs documents
-# exactly one package and one Click CLI per site.
+# section, the core `omero_screen` API reference, and the `omero-screen` CLI.
+# The other five workspace packages each have their own great-docs.yml and
+# deploy to a subdirectory (/cellview/, /cellclass/, /plots/, /napari/,
+# /utils/) — Great Docs documents exactly one package and one Click CLI per
+# site.
 #
-# NOTE: `dynamic: false` plus an explicit `reference:` list is deliberate and
+# NOTE: `dynamic: false` plus an explicit reference list is deliberate and
 # load-bearing. `omero_screen/__init__.py` has no `__all__`, so automatic
 # discovery falls back to a full walk and recurses into the torch / cellpose /
 # trackastra object graphs — it ran 9 minutes at 2.2 GB RSS without finishing.
@@ -33,6 +34,17 @@ user_guide:
     contents:
       - installation.qmd
       - first-plate.qmd
+
+cli:
+  enabled: true
+  module: bin.run_omero_screen
+  name: cli
+  title: "CLI reference"
+  desc: >-
+    `omero-screen ID...` runs the pipeline on one or more plates. Two options
+    keep argparse spellings that Click does not accept natively: `--track`
+    takes an optional model name (a bare flag means `general_2d`), and
+    `--inference` accepts several values after one flag.
 
 reference:
   - title: Pipeline

@@ -1,69 +1,214 @@
-"""Compatibility contract for the pre-Click ``omero-screen`` CLI."""
+"""Behaviour contract for the ``omero-screen`` Click CLI.
 
-from __future__ import annotations
+The pipeline itself is never run here. ``_apply_environment`` and ``_run`` are
+patched out, so what is under test is the command surface: names, types,
+defaults, the two awkward argparse spellings, and the environment variables
+each option sets.
+"""
+
+from unittest.mock import patch
 
 import pytest
+from click.testing import CliRunner
 
-from bin.run_omero_screen import get_parser
+import bin.run_omero_screen as runner_module
+from bin.run_omero_screen import TRACK_DEFAULT_MODEL, cli
 
 
-def test_default_argument_contract() -> None:
-    """Freeze the argparse names, types, and defaults used by the runner."""
-    args = get_parser().parse_args(["1234", "5678"])
+@pytest.fixture
+def runner():
+    return CliRunner()
 
-    assert vars(args) == {
-        "ID": [1234, 5678],
+
+@pytest.fixture
+def parsed(runner):
+    """Invoke the CLI and return the kwargs each collaborator received."""
+
+    def invoke(argv, expect_exit=0):
+        with (
+            patch.object(runner_module, "_apply_environment") as env_mock,
+            patch.object(runner_module, "_run") as run_mock,
+        ):
+            result = runner.invoke(cli, argv)
+        assert result.exit_code == expect_exit, result.output
+        return {
+            "env": env_mock.call_args.kwargs if env_mock.call_args else None,
+            "run": run_mock.call_args.kwargs if run_mock.call_args else None,
+            "output": result.output,
+        }
+
+    return invoke
+
+
+# --------------------------------------------------------------------------
+# Defaults
+# --------------------------------------------------------------------------
+
+
+def test_default_argument_contract(parsed) -> None:
+    """Freeze the names, types and defaults the runner depends on."""
+    got = parsed(["1234", "5678"])
+    assert got["run"] == {
+        "ids": [1234, 5678],
+        "segmentation": False,
+        "stitch": False,
+        "delete": False,
+        "benchmark": False,
+    }
+    assert got["env"] == {
         "env": None,
         "config": None,
-        "inference": None,
+        "stitch_config": None,
+        "inference": (),
         "gallery": 10,
         "batch": 16,
-        "segmentation": False,
-        "cp4": False,
-        "model": None,
-        "benchmark": False,
-        "stitch": False,
-        "stream_stitch": None,
         "track": None,
         "track_mode": "greedy",
         "track_batch_size": 4,
         "track_device": None,
         "track_window": None,
+        "stream_stitch": None,
+        "verbose": False,
         "log_level": None,
         "log_file": None,
-        "verbose": False,
-        # Added on main after this contract was first frozen: --delete
-        # (25a9e1d/cc50896 mask-reuse work) and --stitch-config.
-        "delete": False,
-        "stitch_config": None,
     }
 
 
-def test_representative_override_contract() -> None:
-    """Capture variadic, tri-state, optional-value, and logging options."""
-    args = get_parser().parse_args(
+def test_at_least_one_plate_id_is_required(runner) -> None:
+    assert runner.invoke(cli, []).exit_code == 2
+
+
+def test_plate_ids_must_be_integers(runner) -> None:
+    assert runner.invoke(cli, ["not-a-plate"]).exit_code == 2
+
+
+# --------------------------------------------------------------------------
+# --track: argparse nargs="?" with a const
+# --------------------------------------------------------------------------
+
+
+class TestTrackOptionalValue:
+    """`--track [MODEL]` must keep working in all four spellings."""
+
+    def test_absent_is_none(self, parsed) -> None:
+        assert parsed(["1234"])["env"]["track"] is None
+
+    def test_bare_flag_uses_the_default_model(self, parsed) -> None:
+        got = parsed(["1234", "--track"])
+        assert got["env"]["track"] == TRACK_DEFAULT_MODEL
+
+    def test_space_separated_value(self, parsed) -> None:
+        assert parsed(["1234", "--track", "ilp2d"])["env"]["track"] == "ilp2d"
+
+    def test_equals_separated_value(self, parsed) -> None:
+        assert parsed(["1234", "--track=ilp2d"])["env"]["track"] == "ilp2d"
+
+    def test_bare_flag_before_another_option(self, parsed) -> None:
+        """A bare --track must not swallow the following flag."""
+        got = parsed(["1234", "--track", "--stitch"])
+        assert got["env"]["track"] == TRACK_DEFAULT_MODEL
+        assert got["run"]["stitch"] is True
+
+    def test_greedy_value_matches_argparse(self, parsed) -> None:
+        """argparse's nargs="?" also consumed a following plate ID.
+
+        Verified against the pre-migration parser: `--track 1234 5678`
+        gave track='1234' and ID=[5678], and `--track 1234` alone was a
+        usage error. Click reproduces both.
+        """
+        got = parsed(["--track", "1234", "5678"])
+        assert got["env"]["track"] == "1234"
+        assert got["run"]["ids"] == [5678]
+
+    def test_bare_track_with_no_plate_id_is_a_usage_error(
+        self, parsed
+    ) -> None:
+        parsed(["--track", "1234"], expect_exit=2)
+
+
+# --------------------------------------------------------------------------
+# --stream-stitch: tri-state
+# --------------------------------------------------------------------------
+
+
+class TestStreamStitchTriState:
+    """Omission means 'decide automatically' and must stay distinct."""
+
+    def test_omitted_is_none(self, parsed) -> None:
+        assert parsed(["1234"])["env"]["stream_stitch"] is None
+
+    def test_enabled_is_true(self, parsed) -> None:
+        assert parsed(["1234", "--stream-stitch"])["env"]["stream_stitch"] is (
+            True
+        )
+
+    def test_disabled_is_false(self, parsed) -> None:
+        got = parsed(["1234", "--no-stream-stitch"])
+        assert got["env"]["stream_stitch"] is False
+
+
+# --------------------------------------------------------------------------
+# Variadic and boolean pairs
+# --------------------------------------------------------------------------
+
+
+class TestVariadicInference:
+    """argparse nargs='+' and Click's repeated form must both work."""
+
+    def test_argparse_spelling(self, parsed) -> None:
+        got = parsed(["1234", "--inference", "a.pth", "b.pth"])
+        assert got["env"]["inference"] == ("a.pth", "b.pth")
+
+    def test_click_spelling(self, parsed) -> None:
+        got = parsed(
+            ["1234", "--inference", "a.pth", "--inference", "b.pth"]
+        )
+        assert got["env"]["inference"] == ("a.pth", "b.pth")
+
+    def test_stops_at_the_next_option(self, parsed) -> None:
+        got = parsed(["1234", "--inference", "a.pth", "--stitch"])
+        assert got["env"]["inference"] == ("a.pth",)
+        assert got["run"]["stitch"] is True
+
+
+@pytest.mark.parametrize(
+    ("flag", "key", "where"),
+    [
+        ("--segmentation", "segmentation", "run"),
+        ("--stitch", "stitch", "run"),
+        ("--benchmark", "benchmark", "run"),
+    ],
+)
+def test_boolean_optional_action_pairs(parsed, flag, key, where) -> None:
+    """BooleanOptionalAction became --flag/--no-flag; both sides work."""
+    assert parsed(["1234", flag])[where][key] is True
+    assert parsed(["1234", f"--no-{flag[2:]}"])[where][key] is False
+
+
+def test_delete_is_a_plain_flag(parsed) -> None:
+    assert parsed(["1234", "--delete"])["run"]["delete"] is True
+
+
+# --------------------------------------------------------------------------
+# Validation and overrides
+# --------------------------------------------------------------------------
+
+
+def test_representative_override_contract(parsed) -> None:
+    """Capture variadic, tri-state, optional-value and logging together."""
+    got = parsed(
         [
             "1234",
-            "--env",
-            "production",
-            "--config",
-            "config.json",
             "--inference",
-            "model-a.pt",
-            "model-b.pt",
+            "model_a.pth",
+            "model_b.pth",
             "--gallery",
-            "15",
+            "4",
             "--batch",
             "8",
-            "--segmentation",
-            "--cp4",
-            "--model",
-            "cp4:cpsam",
-            "--benchmark",
             "--stitch",
             "--no-stream-stitch",
             "--track",
-            "custom.ckpt",
             "--track-mode",
             "ilp",
             "--track-batch-size",
@@ -76,41 +221,83 @@ def test_representative_override_contract() -> None:
             "DEBUG",
             "--log-file",
             "none",
-            "--verbose",
+            "-v",
         ]
     )
-
-    assert args.ID == [1234]
-    assert args.inference == ["model-a.pt", "model-b.pt"]
-    assert args.segmentation is True
-    assert args.stream_stitch is False
-    assert args.track == "custom.ckpt"
-    assert args.track_mode == "ilp"
-    assert args.track_device == "cpu"
-    assert args.verbose is True
-
-
-def test_bare_track_uses_general_2d() -> None:
-    """The optional-valued tracking flag is a load-bearing compatibility case."""
-    args = get_parser().parse_args(["1234", "--track"])
-    assert args.track == "general_2d"
+    assert got["env"] == {
+        "env": None,
+        "config": None,
+        "stitch_config": None,
+        "inference": ("model_a.pth", "model_b.pth"),
+        "gallery": 4,
+        "batch": 8,
+        "track": TRACK_DEFAULT_MODEL,
+        "track_mode": "ilp",
+        "track_batch_size": 2,
+        "track_device": "cpu",
+        "track_window": 6,
+        "stream_stitch": False,
+        "verbose": True,
+        "log_level": "DEBUG",
+        "log_file": "none",
+    }
+    assert got["run"]["stitch"] is True
 
 
 @pytest.mark.parametrize(
-    ("flag", "attribute"),
+    "argv",
     [
-        ("--no-segmentation", "segmentation"),
-        ("--no-benchmark", "benchmark"),
-        ("--no-stitch", "stitch"),
+        ["1234", "--track-mode", "bogus"],
+        ["1234", "--track-device", "tpu"],
+        ["1234", "--gallery", "not-a-number"],
     ],
 )
-def test_boolean_optional_negative_forms(flag: str, attribute: str) -> None:
-    """Preserve argparse's generated negative boolean option names."""
-    args = get_parser().parse_args(["1234", flag])
-    assert getattr(args, attribute) is False
+def test_invalid_choices_and_types_exit_two(runner, argv) -> None:
+    assert runner.invoke(cli, argv).exit_code == 2
 
 
-def test_invalid_tracking_mode_exits_two() -> None:
-    """Invalid choices remain command-line usage errors."""
-    with pytest.raises(SystemExit, match="2"):
-        get_parser().parse_args(["1234", "--track-mode", "invalid"])
+@pytest.mark.parametrize("flag", ["--config", "--stitch-config"])
+def test_missing_config_file_fails_before_import(runner, flag) -> None:
+    """A bad path must fail loudly rather than fall back to defaults."""
+    result = runner.invoke(cli, ["1234", flag, "/definitely/missing.json"])
+    assert result.exit_code == 2
+    assert "does not exist" in result.output
+
+
+def test_existing_config_file_is_accepted(parsed, tmp_path) -> None:
+    cfg = tmp_path / "config.json"
+    cfg.write_text("{}")
+    got = parsed(["1234", "--config", str(cfg)])
+    assert got["env"]["config"] == str(cfg)
+
+
+# --------------------------------------------------------------------------
+# Help
+# --------------------------------------------------------------------------
+
+
+def test_help_exits_zero_and_lists_the_hard_options(runner) -> None:
+    result = runner.invoke(cli, ["--help"])
+    assert result.exit_code == 0
+    for opt in ("--track", "--stream-stitch", "--inference", "--stitch"):
+        assert opt in result.output
+
+
+def test_help_does_not_import_the_pipeline() -> None:
+    """Great Docs discovery and --help must stay cheap."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys;"
+        "import bin.run_omero_screen;"
+        "heavy=[m for m in ('torch','cellpose','omero','napari')"
+        " if m in sys.modules];"
+        "print(','.join(heavy))"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True
+    )
+    assert out.stdout.strip() == "", (
+        f"heavy imports at module scope: {out.stdout}"
+    )
