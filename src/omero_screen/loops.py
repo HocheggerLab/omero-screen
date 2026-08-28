@@ -33,6 +33,8 @@ Returns:
 
 import os
 
+from skimage.morphology import erosion
+
 os.environ.setdefault(
     "TQDM_DISABLE", "1"
 )  # suppress Cellpose tile-level progress bars
@@ -55,14 +57,21 @@ from omero_utils.attachments import (
     get_file_attachments,
     parse_csv_data,
 )
-from omero_utils.images import upload_masks
+from omero_utils.images import (
+    delete_masks,
+    fetch_stitched_field_masks_trange,
+    resolve_stitched_mask_ids,
+    upload_masks,
+)
 from omero_utils.map_anns import parse_annotations
 from omero_utils.message import PlateDataError, WellAnnotationError
 from omero_utils.stitching import (
-    OPERETTA_STITCH_DEFAULTS,
-    has_valid_positions,
-    split_stitched_mask_to_fields,
-    stitch_from_positions,
+    STITCH_DEFAULTS,
+    get_overlap,
+    positions_to_offsets,
+    recompose_tiles,
+    split_stitched_from_offsets,
+    stitch_from_offsets,
 )
 
 from omero_screen import default_config
@@ -103,6 +112,7 @@ def plate_loop(
     plate_id: int,
     segmentation_mode: bool = False,
     stitch_mode: bool = False,
+    delete_existing: bool = False,
 ) -> tuple[
     pd.DataFrame, pd.DataFrame | None, pd.DataFrame, dict[str, Figure] | None
 ]:
@@ -113,6 +123,11 @@ def plate_loop(
         plate_id: ID of the plate
         segmentation_mode: Only perform image segmentation
         stitch_mode: Run stitched-well segmentation instead of per-field
+        delete_existing: Delete the plate's stored segmentation masks before
+            running, forcing a fresh segmentation. Without this, both the
+            stitched and per-field paths reuse whatever masks are already
+            in the dataset and only recompute the measurements.
+
     Returns:
         Tuple[DataFrame, DataFrame, DataFrame, Dict]: Three DataFrames containing the final data and quality control data;
         dictionary of matplotlib figures of the inference gallery keyed by class (can be None)
@@ -133,6 +148,16 @@ def plate_loop(
             )
 
     dataset_id = PlateDataset(conn, plate_id).dataset_id
+
+    if delete_existing:
+        # Clear the slate once per plate rather than per well, so both the
+        # stitched and per-field paths simply find nothing to reuse. This
+        # also removes duplicate masks accumulated by older runs.
+        logger.info(
+            f"--delete: removing existing segmentation masks for plate {plate_id}"
+        )
+        with bench.stage("delete_masks"):
+            delete_masks(conn, dataset_id)
 
     with bench.stage("flatfield_correction"):
         flatfield_dict = flatfieldcorr(conn, metadata, dataset_id)
@@ -459,34 +484,55 @@ def _load_well_fields(
     flatfield_dict: dict[str, npt.NDArray[Any]],
 ) -> tuple[
     dict[str, npt.NDArray[Any]],
-    list[tuple[float, float]],
+    npt.NDArray[np.int_],
     list[int],
 ]:
     """Fetch all fields of a well, flatfield-correct, and return per-channel stacks.
 
+    This will ignore downloading images that do not have a canvas offset.
+
     Returns:
-        per_channel: dict mapping channel name to an array of shape (N, T, Y, X)
+        per_channel: dict mapping channel name to an array of shape (M, T, Y, X)
+            where M is the number of fields with valid offsets in the well.
+        offsets: array of (N, (offset_x, offset_y)),
             where N is the number of fields in the well.
-        positions: list of (pos_x, pos_y) per field, in the same order as N.
         image_ids: OMERO image IDs per field, in the same order as N.
     """
     channels = metadata.channel_data
     samples = list(well.listChildren())
 
     # Collect stage positions
-    positions: list[tuple[float, float]] = []
+    positions: list[tuple[float, float] | None] = []
 
     for ws in samples:
         # Stage position via WellSample (microscope reference frame)
         px = ws.getPosX()
         py = ws.getPosY()
-        positions.append(
-            (
-                px.getValue() if px is not None else 0.0,
-                py.getValue() if py is not None else 0.0,
-            )
+        if px is not None and py is not None:
+            positions.append((px.getValue(), py.getValue()))
+        else:
+            positions.append(None)
+
+    first = samples[0].getImage()
+    size_y, size_x = int(first.getSizeY()), int(first.getSizeX())
+    offsets = positions_to_offsets(
+        positions,
+        size_x,
+        size_y,
+        overlap_x=STITCH_DEFAULTS["overlap_x"],
+        overlap_y=STITCH_DEFAULTS["overlap_y"],
+        translate_x=STITCH_DEFAULTS["translate_x"],
+        translate_y=STITCH_DEFAULTS["translate_y"],
+    )
+
+    # Position validation result is logged in positions_to_offsets.
+    # Validate stitching is possible.
+    valid = offsets[:, 0] >= 0
+    if not np.any(valid):
+        raise PlateDataError(
+            f"Unable to stitch well {well.getWellPos()} from stage positions",
+            logger,
         )
-    _validate_stitching(well, positions)
 
     # Collect raw per-field arrays per channel and image ids
     per_channel: dict[str, list[npt.NDArray[Any]]] = {
@@ -494,9 +540,13 @@ def _load_well_fields(
     }
     image_ids: list[int] = []
 
-    for ws in samples:
+    for i, ws in enumerate(samples):
         image_obj = ws.getImage()
         image_ids.append(image_obj.getId())
+
+        # Ignore missing images
+        if not valid[i]:
+            continue
 
         _, array = get_image(conn, image_obj.getId())
         for ch, idx in channels.items():
@@ -522,19 +572,8 @@ def _load_well_fields(
     stacked: dict[str, npt.NDArray[Any]] = {
         ch: np.stack(arrs) for ch, arrs in per_channel.items()
     }
-    return stacked, positions, image_ids
 
-
-def _validate_stitching(
-    well: WellWrapper, positions: list[tuple[float, float]]
-) -> None:
-    """Validate if stitching is possible for the well sample positions."""
-    # has_valid_positions expects list[tuple[float, float] | None]
-    if not has_valid_positions(positions):  # type: ignore[arg-type]
-        raise PlateDataError(
-            f"Unable to stitch well {well.getWellPos()} from stage positions",
-            logger,
-        )
+    return stacked, offsets, image_ids
 
 
 def _nuc_diameter_for_cell_line(cell_line: str) -> int:
@@ -550,7 +589,7 @@ def _segment_stitched_nuclei(
     stitched_img: npt.NDArray[Any],
     nucleus_channel_index: int,
     cell_line: str,
-    border: int,
+    foreground: npt.NDArray[np.bool_] | None,
     channel_name: str = "",
 ) -> npt.NDArray[Any]:
     """Segment the nucleus channel of a stitched (T, Y, X, C) canvas.
@@ -564,7 +603,7 @@ def _segment_stitched_nuclei(
         stitched_img: Stitched canvas of shape (T, Y, X, C).
         nucleus_channel_index: Channel-axis index of the nucleus channel.
         cell_line: Cell line name (used for diameter heuristic).
-        border: Width of the outer-edge border (negative to disable).
+        foreground: Foregound pixels for object filtering.
         channel_name: Nucleus channel name; used to look up a
             ``CHANNEL_SEG_PROFILES`` entry (gamma / cellprob_threshold /
             flow_threshold). Empty string disables the lookup.
@@ -622,10 +661,9 @@ def _segment_stitched_nuclei(
                 normalize=False,
                 **eval_kwargs,
             )
-            # Outer-edge border filter only. clear_border treats the array
-            # edge as the boundary; since this is the full stitched canvas,
-            # only true outer-edge objects are removed.
-            masks[t] = filter_segmentation(mask, border=border)
+            masks[t] = filter_segmentation(
+                mask, border=-1, foreground=foreground
+            )
         except IndexError:
             logger.warning(
                 f"Stitched nucleus segmentation failed (t={t:d}) — returning empty mask."
@@ -640,7 +678,7 @@ def _segment_stitched_cells(
     cell_channel_index: int,
     nucleus_channel_index: int,
     cell_line: str,
-    border: int,
+    foreground: npt.NDArray[np.bool_] | None,
     channel_name: str = "",
 ) -> npt.NDArray[Any]:
     """Segment cells on the stitched canvas using the cell-line cellpose model.
@@ -654,7 +692,7 @@ def _segment_stitched_cells(
         cell_channel_index: Channel-axis index of the cell channel.
         nucleus_channel_index: Channel-axis index of the nucleus channel.
         cell_line: Cell line name (used to select the cellpose model).
-        border: Width of the outer-edge border (negative to disable).
+        foreground: Foregound pixels for object filtering.
         channel_name: Cell channel name; used to look up a
             ``CHANNEL_SEG_PROFILES`` entry (gamma / cellprob_threshold /
             flow_threshold). Empty string disables the lookup.
@@ -703,13 +741,43 @@ def _segment_stitched_cells(
                 normalize=False,
                 **eval_kwargs,
             )
-            masks[t] = filter_segmentation(mask, border=border)
+            masks[t] = filter_segmentation(
+                mask, border=-1, foreground=foreground
+            )
         except IndexError:
             logger.warning(
                 f"Stitched cell segmentation failed (t={t:d}) — returning empty mask."
             )
             # Do nothing as masks[t] is already zero
     return masks
+
+
+def _create_foreground(
+    offsets: npt.NDArray[np.int_], tile_h: int, tile_w: int, border: int
+) -> npt.NDArray[np.bool_] | None:
+    """Create a foreground mask to filter objects touching the edge of stitched tiles."""
+    if border >= 0:
+        max_pos = offsets.max(axis=0)
+        foreground = np.zeros(
+            (
+                # Note: Offset max is (x, y) not (y, x)
+                max_pos[1] + tile_h,
+                max_pos[0] + tile_w,
+            ),
+            dtype=np.bool_,
+        )
+        for xp, yp in offsets:
+            foreground[yp : yp + tile_h, xp : xp + tile_w] = True
+        # to filter objects that touch the edge we
+        # must erode the foreground by at least 1 pixel.
+        # if border=0 the footprint is 3x3.
+        width = 2 * border + 3
+        foot = [
+            (np.ones((width, 1), dtype=np.uint8), 1),
+            (np.ones((1, width), dtype=np.uint8), 1),
+        ]
+        return erosion(foreground, footprint=foot, mode="constant")  # type: ignore[no-any-return]
+    return None
 
 
 def _stitched_cyto(
@@ -724,7 +792,7 @@ def _stitched_cyto(
 
 def _stitch_well(
     per_channel: dict[str, npt.NDArray[Any]],
-    positions: list[tuple[float, float]],
+    offsets: npt.NDArray[np.int_],
 ) -> npt.NDArray[Any]:
     """Stitch per-channel field stacks into a single (T, Y, X, C) canvas.
 
@@ -733,14 +801,17 @@ def _stitch_well(
     """
     ch_names = list(per_channel.keys())
     channel_canvases: list[npt.NDArray[Any]] = []
+    # Auto edge
+    tile_h, tile_w = per_channel[ch_names[0]].shape[-2:]
+    edge = get_overlap(offsets, tile_h, tile_w)
     for ch in ch_names:
-        # per_channel[ch] is (N, T, Y, X). stitch_from_positions expects
+        # per_channel[ch] is (N, T, Y, X). stitch_from_offsets expects
         # (N, T, Y, X, C); we treat each channel as a 1-channel volume.
         stack = per_channel[ch][..., np.newaxis]
-        stitched = stitch_from_positions(
+        stitched = stitch_from_offsets(
             stack,
-            positions,
-            **OPERETTA_STITCH_DEFAULTS,
+            offsets,
+            edge=edge,
         )
         # Result shape (T, Y, X, 1) → squeeze the channel axis
         channel_canvases.append(np.squeeze(stitched, axis=-1))
@@ -822,7 +893,7 @@ def _load_and_stitch_streaming(
     well: WellWrapper,
     metadata: MetadataParser,
     flatfield_dict: dict[str, npt.NDArray[Any]],
-) -> tuple[npt.NDArray[Any], list[tuple[float, float]], list[int], int, int]:
+) -> tuple[npt.NDArray[Any], npt.NDArray[np.int_], list[int], int, int]:
     """Stitch a well one timepoint at a time to bound host RAM.
 
     Produces the same ``(T, Y, X, C)`` float32 canvas as ``_load_well_fields``
@@ -839,7 +910,7 @@ def _load_and_stitch_streaming(
 
     Returns:
         canvas: Stitched ``(T, Y, X, C)`` float32 array.
-        positions: Per-field stage positions, field order.
+        offsets: Per-field canvas offsets, field order.
         image_ids: Per-field OMERO image ids, field order.
         tile_h, tile_w: Per-field (Y, X) size — for splitting masks back to
             fields on upload.
@@ -847,16 +918,13 @@ def _load_and_stitch_streaming(
     channels = metadata.channel_data
 
     samples = list(well.listChildren())
-    positions: list[tuple[float, float]] = []
+    positions: list[tuple[float, float] | None] = []
     for s in samples:
         px, py = s.getPosX(), s.getPosY()
-        positions.append(
-            (
-                px.getValue() if px is not None else 0.0,
-                py.getValue() if py is not None else 0.0,
-            )
-        )
-    _validate_stitching(well, positions)
+        if px is not None and py is not None:
+            positions.append((px.getValue(), py.getValue()))
+        else:
+            positions.append(None)
 
     image_objs = [s.getImage() for s in samples]
     image_ids = [int(o.getId()) for o in image_objs]
@@ -865,6 +933,26 @@ def _load_and_stitch_streaming(
     size_x, size_y = int(first.getSizeX()), int(first.getSizeY())
     size_z, size_c = int(first.getSizeZ()), int(first.getSizeC())
 
+    offsets = positions_to_offsets(
+        positions,
+        size_x,
+        size_y,
+        overlap_x=STITCH_DEFAULTS["overlap_x"],
+        overlap_y=STITCH_DEFAULTS["overlap_y"],
+        translate_x=STITCH_DEFAULTS["translate_x"],
+        translate_y=STITCH_DEFAULTS["translate_y"],
+    )
+
+    # Position validation result is logged in positions_to_offsets.
+    # Validate stitching is possible.
+    valid = offsets[:, 0] >= 0
+    if not np.any(valid):
+        raise PlateDataError(
+            f"Unable to stitch well {well.getWellPos()} from stage positions",
+            logger,
+        )
+    valid_offsets = offsets[valid]
+
     ch_names = list(channels.keys())
     canvas: npt.NDArray[Any] | None = None
     for t in range(n_t):
@@ -872,7 +960,10 @@ def _load_and_stitch_streaming(
             logger.info(f"Streaming stitch: timepoint {t + 1}/{n_t}")
         # One timepoint of every field (all Z, C), flatfield-corrected.
         frame: dict[str, list[npt.NDArray[Any]]] = {ch: [] for ch in ch_names}
-        for fid in image_ids:
+        for i, fid in enumerate(image_ids):
+            # Ignore missing images
+            if not valid[i]:
+                continue
             # start_coords / axis_lengths are XYZCT; the array comes back TZYXC.
             _, arr = get_image(
                 conn,
@@ -895,14 +986,93 @@ def _load_and_stitch_streaming(
         frame_stack = {
             ch: np.stack(frame[ch])[:, np.newaxis] for ch in ch_names
         }
-        stitched_t = _stitch_well(frame_stack, positions)  # (1, Ys, Xs, C)
+        stitched_t = _stitch_well(frame_stack, valid_offsets)  # (1, Ys, Xs, C)
         if canvas is None:
             ys, xs = stitched_t.shape[1], stitched_t.shape[2]
             canvas = np.zeros((n_t, ys, xs, len(ch_names)), dtype=np.float32)
         canvas[t] = stitched_t[0]
 
     assert canvas is not None  # n_t >= 1
-    return canvas, positions, image_ids, size_y, size_x
+    return canvas, offsets, image_ids, size_y, size_x
+
+
+def _reuse_stitched_masks(
+    conn: BlitzGateway,
+    well: WellWrapper,
+    fields: list[int],
+    valid_offsets: npt.NDArray[np.int_],
+) -> tuple[npt.NDArray[Any], npt.NDArray[Any] | None] | None:
+    """Rebuild the canvas masks from a previous run instead of segmenting.
+
+    Segmenting a stitched canvas is the expensive step, and a re-run that
+    only needs new measurements should not repeat it. The per-field tiles
+    uploaded by the previous run came from one canvas-wide segmentation,
+    so label ids are globally unique and :func:`recompose_tiles` puts them
+    back losslessly — the result is identical to re-segmenting, provided
+    the canvas geometry is unchanged.
+
+    Returns ``None`` when the masks cannot be reused (no previous run, or
+    incomplete coverage), leaving the caller to segment from scratch.
+    Never raises for missing data: falling back to segmentation is always
+    correct, just slower.
+
+    Args:
+        conn: OMERO connection.
+        well: Well being processed.
+        fields: Indices of the fields with a valid canvas offset.
+        valid_offsets: Canvas offsets for those fields, ``(len(fields), 2)``.
+
+    Returns:
+        ``(nucleus_mask, cell_mask_or_None)`` shaped ``(T, Y, X)``, or None.
+    """
+    try:
+        mask_ids, source_ids = resolve_stitched_mask_ids(well, fields)
+    except KeyError as e:
+        logger.info(
+            f"No reusable stitched masks for {well.getWellPos()} ({e}); "
+            "segmenting the canvas"
+        )
+        return None
+    try:
+        nuc_fields, cell_fields = fetch_stitched_field_masks_trange(
+            conn, mask_ids, source_ids=source_ids
+        )
+    except Exception:
+        logger.opt(exception=True).warning(
+            f"Could not read stored stitched masks for {well.getWellPos()}; "
+            "segmenting the canvas"
+        )
+        return None
+
+    n_mask = recompose_tiles(nuc_fields, valid_offsets)
+    # An all-zero recomposition means the stored masks are empty. That is
+    # what a well whose segmentation silently failed looks like (see the
+    # plate 4054 wells A2/D1): the mask images exist with the right names
+    # and annotations but hold no labels. Reusing them would propagate the
+    # empty well into a new set of measurements, so re-segment instead.
+    if int(n_mask.max()) == 0:
+        logger.warning(
+            f"Stored stitched masks for {well.getWellPos()} contain no "
+            "labels — ignoring them and segmenting the canvas"
+        )
+        return None
+
+    c_mask: npt.NDArray[Any] | None = None
+    if any(c is not None for c in cell_fields):
+        if not all(c is not None for c in cell_fields):
+            logger.warning(
+                f"Well {well.getWellPos()} has cell masks for some fields "
+                "but not all; segmenting the canvas"
+            )
+            return None
+        c_mask = recompose_tiles(
+            [c for c in cell_fields if c is not None], valid_offsets
+        )
+    logger.info(
+        f"Reusing stored stitched masks for {well.getWellPos()}: "
+        f"{int(n_mask.max()):d} nuclei from {len(fields):d} field(s)"
+    )
+    return n_mask, c_mask
 
 
 def _stitched_well_loop(
@@ -936,224 +1106,276 @@ def _stitched_well_loop(
     n_fields = len(list(well.listChildren()))
     logger.info(f"Stitched analysis: well {well_pos} with {n_fields:d} fields")
 
-    bench = get_benchmark()
-    if prog:
-        prog.set_stage("stitching")
-    # Streaming stitches one timepoint at a time so peak RAM is
-    # (canvas + one frame's fields) rather than (all fields + canvas), at the
-    # cost of n_fields × T OMERO reads. Auto-enabled when the estimated peak
-    # exceeds the host-RAM budget; overridable via --stream-stitch /
-    # --no-stream-stitch.
-    if _should_stream_stitch(well, metadata):
-        with bench.stage("stitched_download"):
-            stitched_img, positions, image_ids, tile_h, tile_w = (
-                _load_and_stitch_streaming(
-                    conn, well, metadata, flatfield_dict
+    with prog.well(well_pos, n_fields) if prog else _nullctx():
+        bench = get_benchmark()
+        if prog:
+            prog.set_stage("stitching")
+        # Streaming stitches one timepoint at a time so peak RAM is
+        # (canvas + one frame's fields) rather than (all fields + canvas), at the
+        # cost of n_fields × T OMERO reads. Auto-enabled when the estimated peak
+        # exceeds the host-RAM budget; overridable via --stream-stitch /
+        # --no-stream-stitch.
+        if _should_stream_stitch(well, metadata):
+            with bench.stage("stitched_download"):
+                stitched_img, offsets, image_ids, tile_h, tile_w = (
+                    _load_and_stitch_streaming(
+                        conn, well, metadata, flatfield_dict
+                    )
                 )
-            )
-        # _stitch_well (used per-frame internally) builds channels in this
-        # order; metadata.channel_data is its source of truth.
-        channel_order = list(metadata.channel_data.keys())
-    else:
-        with bench.stage("stitched_download"):
-            per_channel, positions, image_ids = _load_well_fields(
-                conn, well, metadata, dataset_id, flatfield_dict
-            )
-        # Preserve channel order — _stitch_well builds the canvas in this order
-        channel_order = list(per_channel.keys())
-        # Per-field (T, Y, X) shape — needed later to split the stitched
-        # mask back into per-field tiles for OMERO upload.
-        sample_channel = next(iter(per_channel.values()))
-        tile_h = sample_channel.shape[2]
-        tile_w = sample_channel.shape[3]
-        with bench.stage("stitched_compose"):
-            stitched_img = _stitch_well(per_channel, positions)
-        # Free per-field memory before segmentation — the stitched canvas
-        # holds all the pixels we need from here on.
-        del per_channel
-    # Fallback id used only if tile geometry is unavailable; per-row
-    # image_id resolution by centroid is performed in ImageProperties.
-    synthetic_image_id = image_ids[0]
-    logger.info(
-        f"Stitched canvas for {well_pos}: shape {stitched_img.shape}, dtype {stitched_img.dtype}, {n_fields:d} fields"
-    )
+            valid = offsets[:, 0] >= 0
+            # _stitch_well (used per-frame internally) builds channels in this
+            # order; metadata.channel_data is its source of truth.
+            channel_order = list(metadata.channel_data.keys())
+        else:
+            with bench.stage("stitched_download"):
+                per_channel, offsets, image_ids = _load_well_fields(
+                    conn, well, metadata, dataset_id, flatfield_dict
+                )
+            valid = offsets[:, 0] >= 0
+            # Preserve channel order — _stitch_well builds the canvas in this order
+            channel_order = list(per_channel.keys())
+            # Per-field (T, Y, X) shape — needed later to split the stitched
+            # mask back into per-field tiles for OMERO upload.
+            sample_channel = next(iter(per_channel.values()))
+            tile_h = sample_channel.shape[2]
+            tile_w = sample_channel.shape[3]
+            with bench.stage("stitched_compose"):
+                # Filter valid offsets
+                stitched_img = _stitch_well(per_channel, offsets[valid])
+            # Free per-field memory before segmentation — the stitched canvas
+            # holds all the pixels we need from here on.
+            del per_channel
 
-    nucleus_channel = metadata.channel_roles["nucleus"]
-    if nucleus_channel not in channel_order:
-        raise KeyError(
-            f"Nucleus channel '{nucleus_channel}' missing from channel data; "
-            f"available: {channel_order}"
+        # Save field stitching canvas offsets to the well.
+        # This includes any (-1, -1) entries for missing fields.
+        delete_file_attachment(conn, well, ends_with="canvas.csv")
+        attach_data(
+            conn,
+            pd.DataFrame(
+                {
+                    "field": list(range(len(offsets))),
+                    "ox": offsets[:, 0],
+                    "oy": offsets[:, 1],
+                }
+            ),
+            well,
+            "canvas",
         )
-    nucleus_idx = channel_order.index(nucleus_channel)
-    cell_channel = metadata.channel_roles.get("cell")
-    cell_idx = channel_order.index(cell_channel) if cell_channel else None
-    cell_line = metadata.well_conditions(well_pos)["cell_line"]
 
-    if prog:
-        prog.set_stage("segmentation")
-    with bench.stage("stitched_nucleus_segmentation"):
-        stitched_n_mask = _segment_stitched_nuclei(
-            stitched_img,
-            nucleus_channel_index=nucleus_idx,
-            cell_line=cell_line,
-            border=border,
-            channel_name=nucleus_channel,
-        )
-    logger.info(
-        f"Stitched nucleus mask for {well_pos}: {int(stitched_n_mask.max()):d} nuclei (border={border:d})"
-    )
+        # Create foreground pixels for filtering
+        foreground = _create_foreground(offsets, tile_h, tile_w, border)
 
-    stitched_c_mask: npt.NDArray[Any] | None = None
-    stitched_cyto_mask: npt.NDArray[Any] | None = None
-    if cell_channel is not None and cell_idx is not None:
-        with bench.stage("stitched_cell_segmentation"):
-            stitched_c_mask = _segment_stitched_cells(
-                stitched_img,
-                cell_channel_index=cell_idx,
-                nucleus_channel_index=nucleus_idx,
-                cell_line=cell_line,
-                border=border,
-                channel_name=cell_channel,
-            )
+        # Fallback id used only if tile geometry is unavailable; per-row
+        # image_id resolution by centroid is performed in ImageProperties.
+        synthetic_image_id = image_ids[0]
         logger.info(
-            f"Stitched cell mask for {well_pos}: {int(stitched_c_mask.max()):d} cells (channel={cell_channel})"
+            f"Stitched canvas for {well_pos}: shape {stitched_img.shape}, dtype {stitched_img.dtype}, {sum(valid):d} fields"
         )
-        # Cytoplasm = cell ∖ nucleus (matches Image._get_cyto)
-        stitched_cyto_mask = _stitched_cyto(stitched_n_mask, stitched_c_mask)
 
-    # Track nuclei across the time axis while the well-wide masks are still
-    # coherent (before splitting into per-field tiles). Relabelling the nucleus
-    # mask here makes its labels track ids; the per-field upload below and
-    # ImageProperties downstream then carry track ids with no extra plumbing —
-    # ImageProperties keys on the nucleus ``label``, and the nucleus↔cell
-    # association is spatial, so cell/cyto measurements inherit the track id.
-    tracked = False
-    track_parent_map: dict[int, int] = {}
-    n_timepoints = stitched_img.shape[0]
-    if tracking_model is not None and n_timepoints > 1:
-        from omero_screen.tracking import track_nucleus_mask
+        nucleus_channel = metadata.channel_roles["nucleus"]
+        if nucleus_channel not in channel_order:
+            raise KeyError(
+                f"Nucleus channel '{nucleus_channel}' missing from channel data; "
+                f"available: {channel_order}"
+            )
+        nucleus_idx = channel_order.index(nucleus_channel)
+        cell_channel = metadata.channel_roles.get("cell")
+        cell_idx = channel_order.index(cell_channel) if cell_channel else None
+        cell_line = metadata.well_conditions(well_pos)["cell_line"]
+
+        # Reuse a previous run's masks when they are available and usable.
+        # Segmenting the canvas is by far the most expensive step, so a
+        # re-run that only needs fresh measurements should skip it. Pass
+        # --delete to force a clean segmentation (that path removes the
+        # stored masks up front, so nothing is found here).
+        stitched_c_mask: npt.NDArray[Any] | None = None
+        stitched_cyto_mask: npt.NDArray[Any] | None = None
+        valid_fields = [n for n in range(n_fields) if valid[n]]
+        reused = _reuse_stitched_masks(
+            conn, well, valid_fields, offsets[valid]
+        )
+        if reused is not None:
+            stitched_n_mask, stitched_c_mask = reused
+            if prog:
+                prog.set_stage("reusing masks")
+
+        if reused is None:
+            if prog:
+                prog.set_stage("segmentation")
+            with bench.stage("stitched_nucleus_segmentation"):
+                stitched_n_mask = _segment_stitched_nuclei(
+                    stitched_img,
+                    nucleus_channel_index=nucleus_idx,
+                    cell_line=cell_line,
+                    foreground=foreground,
+                    channel_name=nucleus_channel,
+                )
+            logger.info(
+                f"Stitched nucleus mask for {well_pos}: {int(stitched_n_mask.max()):d} nuclei (border={border:d})"
+            )
+
+        if (
+            reused is None
+            and cell_channel is not None
+            and cell_idx is not None
+        ):
+            with bench.stage("stitched_cell_segmentation"):
+                stitched_c_mask = _segment_stitched_cells(
+                    stitched_img,
+                    cell_channel_index=cell_idx,
+                    nucleus_channel_index=nucleus_idx,
+                    cell_line=cell_line,
+                    foreground=foreground,
+                    channel_name=cell_channel,
+                )
+            logger.info(
+                f"Stitched cell mask for {well_pos}: {int(stitched_c_mask.max()):d} cells (channel={cell_channel})"
+            )
+
+        # Cytoplasm = cell ∖ nucleus (matches Image._get_cyto). Derived from
+        # whichever masks we ended up with, freshly segmented or reused —
+        # cyto is never stored, so the reuse path must rebuild it too.
+        if stitched_c_mask is not None:
+            stitched_cyto_mask = _stitched_cyto(
+                stitched_n_mask, stitched_c_mask
+            )
+
+        # Track nuclei across the time axis while the well-wide masks are still
+        # coherent (before splitting into per-field tiles). Relabelling the nucleus
+        # mask here makes its labels track ids; the per-field upload below and
+        # ImageProperties downstream then carry track ids with no extra plumbing —
+        # ImageProperties keys on the nucleus ``label``, and the nucleus↔cell
+        # association is spatial, so cell/cyto measurements inherit the track id.
+        tracked = False
+        track_parent_map: dict[int, int] = {}
+        n_timepoints = stitched_img.shape[0]
+        if tracking_model is not None and n_timepoints > 1:
+            from omero_screen.tracking import track_nucleus_mask
+
+            if prog:
+                prog.set_stage("tracking")
+            with bench.stage("stitched_tracking"):
+                stitched_n_mask, track_parent_map = track_nucleus_mask(
+                    stitched_img[..., nucleus_idx],
+                    stitched_n_mask,
+                    tracking_model,
+                    mode=tracking_mode,
+                    batch_size=tracking_batch_size,
+                    window=tracking_window,
+                )
+            tracked = True
+            logger.info(
+                f"Tracked well {well_pos}: {len(track_parent_map):d} tracks across {n_timepoints:d} timepoints"
+            )
+
+        # Split the stitched masks back into per-field tiles and upload each
+        # as a sibling Image in the dataset, named
+        # "<field_id>_stitched_segmentation". This avoids the OMERO pyramid
+        # threshold (no individual upload exceeds tile_h × tile_w) and
+        # round-trips the bytes through standard per-field segmentation
+        # artefacts. Each label belongs to exactly one field by centroid,
+        # so the cache layer can restitch with without
+        # ID remapping (Stage 2 concern).
+        valid_offsets = offsets[valid]
+
+        # Reused masks are already stored per field, so writing them back
+        # would be pure churn. Tracking is the exception: it relabels the
+        # nucleus mask with track ids, making the stored tiles stale.
+        if reused is not None and not tracked:
+            logger.info(
+                f"Stitched masks for {well_pos} are unchanged; skipping upload"
+            )
+        else:
+
+            def _split(mask: npt.NDArray[Any]) -> list[npt.NDArray[Any]]:
+                return split_stitched_from_offsets(
+                    mask, valid_offsets, tile_h, tile_w
+                )
+
+            with bench.stage("stitched_mask_split"):
+                per_field_n_masks = _split(stitched_n_mask)
+                per_field_c_masks: list[npt.NDArray[Any]] | None = (
+                    _split(stitched_c_mask)
+                    if stitched_c_mask is not None
+                    else None
+                )
+            with bench.stage("stitched_mask_upload"):
+                # Upload masked for valid canvas positions
+                c = -1
+                for n in range(n_fields):
+                    if not valid[n]:
+                        continue
+                    c += 1
+                    field_img = well.getWellSample(n).getImage()
+                    field_n = per_field_n_masks[c]
+                    field_c = (
+                        per_field_c_masks[c]
+                        if per_field_c_masks is not None
+                        else None
+                    )
+                    upload_masks(
+                        conn,
+                        dataset_id,
+                        field_img,
+                        field_n,
+                        c_mask=field_c,
+                        name_suffix="_stitched_segmentation",
+                        annotation_key="Stitched_Segmentation_Mask",
+                    )
+
+        if segmentation_mode:
+            if prog:
+                for _ in range(n_fields):
+                    prog.image_done()
+            return pd.DataFrame(), pd.DataFrame()
 
         if prog:
-            prog.set_stage("tracking")
-        with bench.stage("stitched_tracking"):
-            stitched_n_mask, track_parent_map = track_nucleus_mask(
-                stitched_img[..., nucleus_idx],
-                stitched_n_mask,
-                tracking_model,
-                mode=tracking_mode,
-                batch_size=tracking_batch_size,
-                window=tracking_window,
+            prog.set_stage("feature extraction")
+        with bench.stage("stitched_feature_extraction"):
+            stitched_image = StitchedWellImage(
+                stitched_img=stitched_img,
+                stitched_mask=stitched_n_mask,
+                channels={ch: idx for idx, ch in enumerate(channel_order)},
+                nucleus_channel=nucleus_channel,
+                well_pos=well_pos,
+                synthetic_image_id=synthetic_image_id,
+                c_mask=stitched_c_mask,
+                cyto_mask=stitched_cyto_mask,
+                cell_channel=cell_channel,
+                field_image_ids=image_ids,
+                field_offsets=offsets,
+                tile_h=tile_h,
+                tile_w=tile_w,
             )
-        tracked = True
+            image_props = ImageProperties(
+                well,
+                stitched_image,  # type: ignore[arg-type]  # StitchedWellImage duck-types Image
+                metadata,
+                image_classifier=image_classifier,
+            )
+        df_well = image_props.image_df
+        df_well_quality = image_props.quality_df
+        # When tracking ran, the nucleus ``label`` is the track id. Derive the
+        # track id and immutable ``_raw`` columns plus the lineage columns.
+        if tracked:
+            from omero_screen.tracking import add_track_columns
+
+            add_track_columns(df_well, track_parent_map)
+        # Mark every measurement row so the cellview importer can populate
+        # repeats.stitch_mode on the way in. Constant column — wasteful by
+        # row but a single source-of-truth check at import time.
+        df_well["stitch_mode"] = True
         logger.info(
-            f"Tracked well {well_pos}: {len(track_parent_map):d} tracks across {n_timepoints:d} timepoints"
+            f"Stitched features for {well_pos}: {len(df_well):d} rows, {len(df_well.columns):d} columns"
         )
 
-    # Split the stitched masks back into per-field tiles and upload each
-    # as a sibling Image in the dataset, named
-    # "<field_id>_stitched_segmentation". This avoids the OMERO pyramid
-    # threshold (no individual upload exceeds tile_h × tile_w) and
-    # round-trips the bytes through standard per-field segmentation
-    # artefacts. Each label belongs to exactly one field by centroid,
-    # so the cache layer can restitch with ``compose_labels`` without
-    # ID remapping (Stage 2 concern).
-    # Pass split params explicitly rather than via a **dict. A dict literal
-    # mixing `positions` (list) with the int params widens to
-    # dict[str, object], which mypy can't match to the typed signature on
-    # unpack — CI mypy flags this even when a cached local run doesn't.
-    def _split(mask: npt.NDArray[Any]) -> list[npt.NDArray[Any]]:
-        return split_stitched_mask_to_fields(
-            mask,
-            positions=positions,
-            tile_h=tile_h,
-            tile_w=tile_w,
-            overlap_x=OPERETTA_STITCH_DEFAULTS["overlap_x"],
-            overlap_y=OPERETTA_STITCH_DEFAULTS["overlap_y"],
-            translate_x=OPERETTA_STITCH_DEFAULTS["translate_x"],
-            translate_y=OPERETTA_STITCH_DEFAULTS["translate_y"],
-        )
-
-    with bench.stage("stitched_mask_split"):
-        per_field_n_masks = _split(stitched_n_mask)
-        per_field_c_masks: list[npt.NDArray[Any]] | None = (
-            _split(stitched_c_mask) if stitched_c_mask is not None else None
-        )
-    with bench.stage("stitched_mask_upload"):
-        for n in range(n_fields):
-            field_img = well.getWellSample(n).getImage()
-            field_n = per_field_n_masks[n]
-            field_c = (
-                per_field_c_masks[n] if per_field_c_masks is not None else None
-            )
-            upload_masks(
-                conn,
-                dataset_id,
-                field_img,
-                field_n,
-                c_mask=field_c,
-                name_suffix="_stitched_segmentation",
-                annotation_key="Stitched_Segmentation_Mask",
-            )
-
-    if segmentation_mode:
         if prog:
+            # Tick once per field so the bar advances at the same rate
+            # as the per-field path.
             for _ in range(n_fields):
                 prog.image_done()
-        return pd.DataFrame(), pd.DataFrame()
 
-    if prog:
-        prog.set_stage("feature extraction")
-    with bench.stage("stitched_feature_extraction"):
-        stitched_image = StitchedWellImage(
-            stitched_img=stitched_img,
-            stitched_mask=stitched_n_mask,
-            channels={ch: idx for idx, ch in enumerate(channel_order)},
-            nucleus_channel=nucleus_channel,
-            well_pos=well_pos,
-            synthetic_image_id=synthetic_image_id,
-            c_mask=stitched_c_mask,
-            cyto_mask=stitched_cyto_mask,
-            cell_channel=cell_channel,
-            field_image_ids=image_ids,
-            field_positions=positions,
-            tile_h=tile_h,
-            tile_w=tile_w,
-            stitch_params={
-                "overlap_x": OPERETTA_STITCH_DEFAULTS["overlap_x"],
-                "overlap_y": OPERETTA_STITCH_DEFAULTS["overlap_y"],
-                "translate_x": OPERETTA_STITCH_DEFAULTS["translate_x"],
-                "translate_y": OPERETTA_STITCH_DEFAULTS["translate_y"],
-            },
-        )
-        image_props = ImageProperties(
-            well,
-            stitched_image,  # type: ignore[arg-type]  # StitchedWellImage duck-types Image
-            metadata,
-            image_classifier=image_classifier,
-        )
-    df_well = image_props.image_df
-    df_well_quality = image_props.quality_df
-    # When tracking ran, the nucleus ``label`` is the track id. Derive the
-    # track id and immutable ``_raw`` columns plus the lineage columns.
-    if tracked:
-        from omero_screen.tracking import add_track_columns
-
-        add_track_columns(df_well, track_parent_map)
-    # Mark every measurement row so the cellview importer can populate
-    # repeats.stitch_mode on the way in. Constant column — wasteful by
-    # row but a single source-of-truth check at import time.
-    df_well["stitch_mode"] = True
-    logger.info(
-        f"Stitched features for {well_pos}: {len(df_well):d} rows, {len(df_well.columns):d} columns"
-    )
-
-    if prog:
-        # Tick once per field so the bar advances at the same rate
-        # as the per-field path.
-        for _ in range(n_fields):
-            prog.image_done()
-
-    return df_well, df_well_quality
+        return df_well, df_well_quality
 
 
 def _well_loop(

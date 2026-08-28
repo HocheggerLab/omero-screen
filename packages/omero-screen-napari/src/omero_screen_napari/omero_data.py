@@ -86,9 +86,7 @@ class OmeroData:
     )
     labels: NDArray[Any] = field(default_factory=lambda: np.empty((0,)))
     # True when the cached per-field labels came from a canvas-wide stitched
-    # segmentation (Phase-1 mode, mask names containing _stitched_segmentation).
-    # Drives the recompose path in _display_plate: stitched → recompose_split_labels
-    # (lossless non-zero copy), legacy → stitch_labels_from_positions (merge_labels).
+    # segmentation (mask names containing _stitched_segmentation).
     label_stitched_mode: bool = False
 
     # Stitched images

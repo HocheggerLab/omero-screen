@@ -199,13 +199,17 @@ QUERIES = {
         (session_id, cell_index, class_label, centroid_row, centroid_col, source_image_id, annotated_at)
         VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     """,
-    "get_used_centroids": """
-        SELECT DISTINCT a.centroid_row, a.centroid_col, a.source_image_id
+    "get_annotated_labels": """
+        SELECT a.source_image_id, a.centroid_row, a.centroid_col,
+               a.class_label
         FROM annotations a
         JOIN annotation_sessions s ON a.session_id = s.id
         JOIN classifiers c ON s.classifier_id = c.id
         WHERE c.name = ? AND s.plate_id = ? AND s.well = ?
+              AND (? IS NULL OR s.timepoint = ?)
               AND a.centroid_row IS NOT NULL AND a.centroid_col IS NOT NULL
+              AND a.source_image_id IS NOT NULL
+        ORDER BY a.annotated_at ASC, a.id ASC
     """,
     "delete_annotations_by_session": """
         DELETE FROM annotations

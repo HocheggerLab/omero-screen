@@ -49,6 +49,8 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
         prog_options += f" --env {args.env}"
     if args.segmentation:
         prog_options += " --segmentation"
+    if args.delete:
+        prog_options += " --delete"
     if args.model:
         prog_options += f" --model {args.model}"
     elif args.cp4:
@@ -75,6 +77,14 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
         if not os.path.exists(config_path):
             raise Exception(f"Missing config file: {config_path}")
         prog_options += f" --config {config_path}"
+    if args.stitch_config:
+        # Resolve to an absolute path now.
+        stitch_config_path = os.path.abspath(args.stitch_config)
+        if not os.path.exists(stitch_config_path):
+            raise Exception(
+                f"Missing stitch config file: {stitch_config_path}"
+            )
+        prog_options += f" --stitch_config {stitch_config_path}"
 
     # Create the job file
     script = f"{name}.sh"
@@ -279,6 +289,18 @@ def _parse_args() -> argparse.Namespace:
         help="Only perform image segmentation (default: %(default)s)",
     )
     group.add_argument(
+        "--delete",
+        default=False,
+        action="store_true",
+        help=(
+            "Delete the plate's existing segmentation masks and segment from "
+            "scratch. Without this, a re-run reuses the stored masks (both "
+            "stitched and per-field) and only recomputes the measurements. "
+            "Use it after changing segmentation settings, or to repair a "
+            "plate whose stored masks are wrong or empty."
+        ),
+    )
+    group.add_argument(
         "--cp4",
         default=False,
         action="store_true",
@@ -305,6 +327,15 @@ def _parse_args() -> argparse.Namespace:
         "multi-channel timelapses (costs n_fields x T OMERO reads). Default: "
         "auto-enable when the estimated peak exceeds the RAM budget; use "
         "--stream-stitch / --no-stream-stitch to force. Requires --stitch.",
+    )
+    group.add_argument(
+        "--stitch-config",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Path to an OMERO_SCREEN_STITCH_CONFIG JSON configuration. "
+        "Overrides the OMERO_SCREEN_STITCH_CONFIG env var. "
+        "Errors if the path does not exist (no silent fallback to defaults).",
     )
     group.add_argument(
         "--track",

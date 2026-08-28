@@ -252,6 +252,16 @@ class CellViewStateCore:
         # any plate annotation or interactive prompt.
         nucleus_flag = getattr(args, "nucleus_channel", None) if args else None
 
+        # Pre-selected import target from ``--project`` / ``--experiment``.
+        # The project and experiment managers both short-circuit when the
+        # ID is already set, so this is what suppresses their prompts.
+        instance.project_id = (
+            getattr(args, "project_id", None) if args else None
+        )
+        instance.experiment_id = (
+            getattr(args, "experiment_id", None) if args else None
+        )
+
         # Initialize from args if provided
         if args and args.csv:
             instance.csv_path = args.csv
@@ -313,9 +323,21 @@ class CellViewStateCore:
 
             # For OMERO imports, we always want to show confirmation dialog
             # The --interactive flag is maintained for backward compatibility but OMERO imports are now always interactive
-            instance.ui.info(
-                "OMERO import detected - will show interactive confirmation for project/experiment metadata"
-            )
+            # ...unless --project/--experiment already named the target, in
+            # which case the managers short-circuit and nothing is prompted.
+            if instance.project_id or instance.experiment_id:
+                target = (
+                    f"experiment {instance.experiment_id}"
+                    if instance.experiment_id
+                    else f"project {instance.project_id}"
+                )
+                instance.ui.info(
+                    f"OMERO import detected - importing into {target}"
+                )
+            else:
+                instance.ui.info(
+                    "OMERO import detected - will show interactive confirmation for project/experiment metadata"
+                )
 
         if instance.nucleus_channel is not None:
             instance.ui.info(

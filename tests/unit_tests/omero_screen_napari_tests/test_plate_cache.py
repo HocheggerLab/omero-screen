@@ -1817,7 +1817,7 @@ class TestCacheVersionInvalidation:
         with (
             patch("omero_screen_napari.plate_cache._cache", fake_cache),
             patch(
-                "omero_screen_napari.plate_cache._fetch_plate_metadata",
+                "omero_screen_napari.plate_cache.fetch_plate_metadata",
                 return_value=sample_meta,
             )
         ):
@@ -1869,10 +1869,10 @@ class TestCacheVersionInvalidation:
 
 
 class TestDetectLabelStitchedMode:
-    """``_detect_label_stitched_mode`` scans the segmentation dataset names."""
+    """``detect_label_stitched_mode`` scans the segmentation dataset names."""
 
     def test_true_when_stitched_mask_present(self):
-        from omero_screen_napari.plate_cache import _detect_label_stitched_mode
+        from omero_screen_napari.plate_cache import detect_label_stitched_mode
 
         child_a = MagicMock()
         child_a.getName.return_value = "10_segmentation"
@@ -1888,10 +1888,10 @@ class TestDetectLabelStitchedMode:
         with patch(
             "omero_screen_napari.plate_cache.get_dataset_id", return_value=999
         ):
-            assert _detect_label_stitched_mode(mock_conn, plate_id=42) is True
+            assert detect_label_stitched_mode(mock_conn, plate_id=42) is True
 
     def test_false_when_only_legacy_masks(self):
-        from omero_screen_napari.plate_cache import _detect_label_stitched_mode
+        from omero_screen_napari.plate_cache import detect_label_stitched_mode
 
         child_a = MagicMock()
         child_a.getName.return_value = "10_segmentation"
@@ -1907,13 +1907,13 @@ class TestDetectLabelStitchedMode:
         with patch(
             "omero_screen_napari.plate_cache.get_dataset_id", return_value=999
         ):
-            assert _detect_label_stitched_mode(mock_conn, plate_id=42) is False
+            assert detect_label_stitched_mode(mock_conn, plate_id=42) is False
 
     def test_false_when_dataset_missing(self):
-        from omero_screen_napari.plate_cache import _detect_label_stitched_mode
+        from omero_screen_napari.plate_cache import detect_label_stitched_mode
 
         mock_conn = MagicMock()
         with patch(
             "omero_screen_napari.plate_cache.get_dataset_id", return_value=None
         ):
-            assert _detect_label_stitched_mode(mock_conn, plate_id=42) is False
+            assert detect_label_stitched_mode(mock_conn, plate_id=42) is False

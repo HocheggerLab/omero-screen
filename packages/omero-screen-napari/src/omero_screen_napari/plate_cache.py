@@ -353,7 +353,7 @@ def get_plate_metadata(
             v = None
     if v is None:
         logger.info(f"Caching plate {plate_id}: fetching metadata")
-        v = _fetch_plate_metadata(connection.get_conn(), plate_id)
+        v = fetch_plate_metadata(connection.get_conn(), plate_id)
         _cache.set(_get_meta_key(plate_id), v, tag=plate_id)
     return v  # type: ignore[no-any-return]
 
@@ -367,7 +367,7 @@ def get_well_data(
     v = get_cached_well_data(plate_id)
     if v is None:
         logger.info(f"Caching plate {plate_id}: fetching well data")
-        v = _fetch_well_map(connection.get_conn(), plate_id)
+        v = fetch_well_map(connection.get_conn(), plate_id)
         _cache.set(_get_well_key(plate_id), v, tag=plate_id)
     return v  # type: ignore[no-any-return]
 
@@ -421,7 +421,7 @@ def _estimate_plate_bytes(
     per-image estimate otherwise.
 
     Args:
-        wells: Well map dict from ``_fetch_well_map()``.
+        wells: Well map dict from ``fetch_well_map()``.
         label_map: Label map dict from ``_fetch_label_map()``.
 
     Returns:
@@ -833,9 +833,15 @@ def _save_estimated_bytes(
 # --------------- Metadata Fetching ---------------
 
 
-def _fetch_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
+def fetch_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
     """Fetch channel_data, pixel_size, intensities, plate_name, flat-field
     correction mask ID from OMERO.
+
+    Always queries OMERO; the disk cache is not consulted. Use
+    :func:`get_plate_metadata` for the cached read. Callers that must see
+    current server state — notably the zarr builder, which depends on
+    ``label_stitched_mode`` reflecting the masks now on the plate — want
+    this one.
 
     Args:
         conn: Active OMERO connection.
@@ -863,12 +869,9 @@ def _fetch_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
     # Flat-field correction image
     ff_mask_id = _fetch_flatfield_mask_id(conn, plate_id)
 
-    # Detect whether the segmentation dataset holds Phase-1 stitched masks
-    # (names like ``{img_id}_stitched_segmentation``). This drives the
-    # napari display-time recompose: stitched plates use
-    # ``recompose_split_labels`` (lossless), legacy plates use
-    # ``stitch_labels_from_positions``.
-    label_stitched_mode = _detect_label_stitched_mode(conn, plate_id)
+    # Detect whether the segmentation dataset holds stitched masks
+    # (names like ``{img_id}_stitched_segmentation``).
+    label_stitched_mode = detect_label_stitched_mode(conn, plate_id)
 
     return {
         "channel_data": channel_data,
@@ -882,10 +885,10 @@ def _fetch_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
     }
 
 
-def _detect_label_stitched_mode(conn: BlitzGateway, plate_id: int) -> bool:
+def detect_label_stitched_mode(conn: BlitzGateway, plate_id: int) -> bool:
     """Return True if the plate's segmentation dataset holds stitched masks.
 
-    Stitched-mode masks (Phase 1) are uploaded with names like
+    Stitched-mode masks are uploaded with names like
     ``{img_id}_stitched_segmentation``. Legacy per-field masks are
     ``{img_id}_segmentation``. The flag is persisted in plate metadata so
     cache-hit loads can restore it without re-querying OMERO.
@@ -1118,12 +1121,13 @@ def _fetch_flatfield_mask_id(
     )
 
 
-def _fetch_well_map(
+def fetch_well_map(
     conn: BlitzGateway, plate_id: int
 ) -> dict[str, dict[str, Any]]:
     """Fetch all wells with metadata, image lists, and stage positions.
 
     Uses a single HQL query for images + positions, plus well annotations.
+    Always queries OMERO; see :func:`get_well_data` for the cached read.
 
     Args:
         conn: Active OMERO connection.

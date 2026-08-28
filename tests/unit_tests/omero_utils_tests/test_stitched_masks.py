@@ -1,4 +1,4 @@
-"""Tests for ``omero_utils.images.fetch_stitched_field_masks``.
+"""Tests for ``omero_utils.images.fetch_stitched_field_masks_trange``.
 
 These run without an OMERO connection — every OMERO object is mocked.
 The goal is to validate the annotation lookup, mask reshape (T,Z,Y,X,C →
@@ -15,7 +15,8 @@ import pytest
 
 from omero_utils.images import (
     STITCHED_MASK_ANNOTATION_KEY,
-    fetch_stitched_field_masks,
+    fetch_stitched_field_masks_trange,
+    resolve_stitched_mask_ids,
 )
 
 
@@ -35,6 +36,7 @@ def _make_well(n_fields: int) -> MagicMock:
         samples.append(ws)
     well.getWellSample = lambda n: samples[n]
     well._field_image_ids = field_image_ids
+    well.countWellSample.return_value = len(samples)
     return well
 
 
@@ -82,7 +84,9 @@ def test_two_channel_round_trip():
         ),
         patch("omero_utils.images.get_image", side_effect=fake_get_image),
     ):
-        nuclei, cells, source_ids = fetch_stitched_field_masks(conn, well)
+        fields = list(range(well.countWellSample()))
+        mask_ids, source_ids = resolve_stitched_mask_ids(well, fields)
+        nuclei, cells = fetch_stitched_field_masks_trange(conn, mask_ids, source_ids=source_ids)
 
     assert source_ids == well._field_image_ids
     assert len(nuclei) == 2
@@ -114,7 +118,9 @@ def test_nucleus_only_returns_none_for_cells():
         ),
         patch("omero_utils.images.get_image", side_effect=fake_get_image),
     ):
-        nuclei, cells, _ = fetch_stitched_field_masks(conn, well)
+        fields = list(range(well.countWellSample()))
+        mask_ids, source_ids = resolve_stitched_mask_ids(well, fields)
+        nuclei, cells = fetch_stitched_field_masks_trange(conn, mask_ids, source_ids=source_ids)
 
     assert len(nuclei) == 2
     assert cells == [None, None]
@@ -129,8 +135,9 @@ def test_missing_annotation_raises_key_error():
         ),  # no stitched annotation on any field
         patch("omero_utils.images.get_image"),
     ):
+        fields = list(range(well.countWellSample()))
         with pytest.raises(KeyError):
-            fetch_stitched_field_masks(MagicMock(), well)
+            resolve_stitched_mask_ids(well, fields)
 
 
 def test_rejects_z_greater_than_one():
@@ -150,8 +157,10 @@ def test_rejects_z_greater_than_one():
             return_value=(None, mask_arrays[mid]),
         ),
     ):
+        fields = list(range(well.countWellSample()))
+        mask_ids, source_ids = resolve_stitched_mask_ids(well, fields)
         with pytest.raises(ValueError, match="Z="):
-            fetch_stitched_field_masks(MagicMock(), well)
+            fetch_stitched_field_masks_trange(MagicMock(), mask_ids, source_ids=source_ids)
 
 
 def test_rejects_unexpected_channel_count():
@@ -170,5 +179,7 @@ def test_rejects_unexpected_channel_count():
             return_value=(None, mask_arrays[mid]),
         ),
     ):
+        fields = list(range(well.countWellSample()))
+        mask_ids, source_ids = resolve_stitched_mask_ids(well, fields)
         with pytest.raises(ValueError, match="C="):
-            fetch_stitched_field_masks(MagicMock(), well)
+            fetch_stitched_field_masks_trange(MagicMock(), mask_ids, source_ids=source_ids)

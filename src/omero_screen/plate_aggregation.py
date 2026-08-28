@@ -154,6 +154,19 @@ def aggregate_plates(
                 row_ind, col_ind = map_partial_linear_sum(c1, c2, threshold)
             elif method == 2:
                 row_ind, col_ind = map_nearest_neighbour(c1, c2, threshold)
+            elif method == 3 and (im1[1] not in map1 or im2[1] not in map2):
+                # A field with no mask is a legitimate state: the stitched
+                # path excludes fields whose acquisition failed (blank
+                # image, no stage position). Nothing to map, so fall
+                # through with empty indices like the no-centroid case
+                # above rather than aborting the aggregation.
+                logger.warning(
+                    f"No segmentation for well {well_pos} image(s) "
+                    f"{[i for i, m in ((im1[1], map1), (im2[1], map2)) if i not in m]}; "
+                    "no label mappings for this field"
+                )
+                row_ind = np.array([], dtype=int)
+                col_ind = row_ind.copy()
             else:
                 a = (
                     plate_alignments[
@@ -978,20 +991,64 @@ def _histogram(
 def _get_mask_map(
     conn: BlitzGateway, plate_id: int
 ) -> dict[int, ImageWrapper]:
-    """Get a map from the original image ID to the segmentation mask image object."""
+    """Get a map from the original image ID to the segmentation mask image object.
+
+    Two different names can claim the same key, so the choice is made
+    explicitly rather than by iteration order:
+
+    1. Stitched masks (``{image_id}_stitched_segmentation``) beat legacy
+       per-field masks (``{image_id}_segmentation``). A plate analysed both
+       ways carries both, and the stitched run is the later, canvas-wide
+       one. This mirrors the precedence in ``omero_utils.delete_masks``.
+    2. Among masks of the same kind, the highest OMERO image id wins — that
+       is the most recent upload. Duplicates only exist on plates analysed
+       before ``upload_masks`` started pruning them; picking whichever
+       ``listChildren()`` happened to yield last meant aggregation could
+       silently use a mask from an earlier run.
+    """
     dataset_id = PlateDataset(conn, plate_id).dataset_id
     dataset = conn.getObject("Dataset", dataset_id)
-    d = {}
+    # image_id -> (is_stitched, mask_image_id, mask_image)
+    best: dict[int, tuple[bool, int, ImageWrapper]] = {}
+    duplicates = 0
     for image in dataset.listChildren():
         name = image.getName()
         s = name.removesuffix("_segmentation")
-        if len(s) < len(name):
-            # Stitched-mode masks are named "{image_id}_stitched_segmentation"
-            # (loops.py); legacy masks are "{image_id}_segmentation". Strip the
-            # optional "_stitched" token so the key is the original image ID.
-            s = s.removesuffix("_stitched")
-            d[int(s)] = image
-    return d
+        if len(s) == len(name):
+            continue
+        stitched = s.endswith("_stitched")
+        s = s.removesuffix("_stitched")
+        try:
+            key = int(s)
+        except ValueError:
+            logger.warning(f"Ignoring mask with unparseable name: {name}")
+            continue
+        rank = (stitched, int(image.getId()))
+        if key in best:
+            duplicates += 1
+            if rank < best[key][:2]:
+                continue
+        best[key] = (*rank, image)
+    if duplicates:
+        logger.warning(
+            f"Plate {plate_id}: {duplicates:d} redundant segmentation mask(s) "
+            "in the dataset; using the stitched/most-recent one for each "
+            "image. Re-run the plate or use "
+            "omero_utils.images.prune_duplicate_masks to clean these up."
+        )
+    return {key: value[2] for key, value in best.items()}
+
+
+def _should_delete_old_mask(old_mask: ImageWrapper, image_id: int) -> bool:
+    """Whether the superseded mask still needs an explicit delete.
+
+    ``upload_masks`` prunes anything sharing the name it just wrote, so an
+    old ``{image_id}_segmentation`` is already gone by the time the caller
+    gets here — deleting it again would double-delete. Only a mask stored
+    under a *different* name is still ours to remove, typically a
+    stitched-mode mask being superseded by a per-field one.
+    """
+    return bool(old_mask.getName() != f"{image_id}_segmentation")
 
 
 def _get_mask_from_map(
@@ -1209,6 +1266,7 @@ def create_cell_masks(
     for plate_other in plate_ids:
         logger.info(f"Creating missing masks for plate: {plate_other}")
         created = 0
+        skipped = 0
         dataset_id2 = PlateDataset(conn, plate_other).dataset_id
         plate_alignments = alignments[alignments["plate"] == plate_other]
         images2 = _get_well_images(conn, plate_other)
@@ -1216,6 +1274,22 @@ def create_cell_masks(
         for im1, im2 in zip(images1, images2, strict=True):
             assert im1[0] == im2[0], "Well positions must match"
             well_pos, image_id1, image_id2 = im1[0], im1[1], im2[1]
+            # A field with no mask is a legitimate state: the stitched path
+            # excludes fields whose acquisition failed (blank image, no
+            # stage position) and uploads masks only for the rest. Skip it
+            # rather than aborting the whole aggregation part-way through.
+            if image_id1 not in map1 or image_id2 not in map2:
+                missing = [
+                    i
+                    for i, m in ((image_id1, map1), (image_id2, map2))
+                    if i not in m
+                ]
+                logger.warning(
+                    f"No segmentation for well {well_pos} image(s) {missing}; "
+                    "skipping this field (excluded from the stitched canvas)"
+                )
+                skipped += 1
+                continue
             # Check for cell mask
             dim = _get_mask_dim(image_id2, map2)
             msg = "Creating"
@@ -1291,13 +1365,19 @@ def create_cell_masks(
                 n_mask2,
                 c_mask2,
             )
-            # Remove current mask (must be done after creating the new
-            # mask otherwise an error can result in no mask for the well image)
-            conn.deleteObject(mask2._obj)
+            # Remove the mask this image was using (after creating the new
+            # one, so a failure never leaves the image with no mask at all).
+            if _should_delete_old_mask(mask2, image_id2):
+                conn.deleteObject(mask2._obj)
             created += 1
         # end well samples
         logger.info(
             f"Created {created:d} / {len(images2):d} missing cell masks for plate {plate_other:d}"
+            + (
+                f"; skipped {skipped:d} field(s) with no mask"
+                if skipped
+                else ""
+            )
         )
     # end plates
 

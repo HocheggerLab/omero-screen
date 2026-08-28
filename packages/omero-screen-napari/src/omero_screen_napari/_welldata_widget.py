@@ -21,10 +21,10 @@ from napari.utils import notifications
 from napari.utils import progress as napari_progress
 from napari.viewer import Viewer
 from omero_utils.stitching import (
-    has_valid_positions,
-    recompose_split_labels,
-    stitch_from_positions,
-    stitch_labels_from_positions,
+    STITCH_DEFAULTS,
+    positions_to_offsets,
+    stitch_from_offsets,
+    stitch_labels_from_offsets,
 )
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
@@ -486,21 +486,10 @@ def _open_plate_info(
     dialog.exec_()
 
 
-# Defaults matching the stitched_data_widget signature (Operetta calibration)
-_STITCH_DEFAULTS: dict[str, Any] = {
-    "stitch": True,
-    "overlap_x": 7,
-    "overlap_y": 7,
-    "translate_x": -3,
-    "translate_y": 3,
-    "edge": 7,
-}
-
-
 def _get_stitch_params() -> dict[str, Any]:
     """Read current stitch parameters from the sibling stitch widget.
 
-    Falls back to Operetta defaults when the widget is not available.
+    Falls back to defaults when the widget is not available.
     """
     w = _stitch_widget_ref
     if w is not None:
@@ -515,7 +504,11 @@ def _get_stitch_params() -> dict[str, Any]:
             }
         except AttributeError:
             pass
-    return _STITCH_DEFAULTS.copy()
+    # OMERO screen stitch defaults matching the stitched_data_widget signature
+    params = STITCH_DEFAULTS.copy()
+    params["stitch"] = True
+    params["edge"] = max(0, params["overlap_x"], params["overlap_y"])
+    return params
 
 
 # Widget to call Omero and load well images
@@ -637,17 +630,30 @@ def _display_plate(viewer: Viewer) -> None:
     # Check all wells can be stitched
     sp = _get_stitch_params()
     stitch = sp.get("stitch") and n_per_well > 0
+    # Stitching offsets
+    well_offsets = []
     if stitch:
         for i in range(n_wells):
             j = i * n_per_well
-            if not has_valid_positions(
-                omero_data.image_positions[j : j + n_per_well]
-            ):
+            # images are N[T]YXC
+            size_y, size_x = omero_data.images[j].shape[-3:-1]
+            offsets = positions_to_offsets(
+                omero_data.image_positions[j : j + n_per_well],
+                size_x,
+                size_y,
+                overlap_x=sp["overlap_x"],
+                overlap_y=sp["overlap_y"],
+                translate_x=sp["translate_x"],
+                translate_y=sp["translate_y"],
+            )
+            valid = offsets[:, 0] >= 0
+            if not np.any(valid):
                 logger.warning(
                     f"Unable to stitch well {omero_data.well_pos_list[i]} from stage positions"
                 )
                 stitch = False
                 break
+            well_offsets.append(offsets)
 
     if stitch:
         logger.info(f"Auto-stitching {n_wells} well(s) from stage positions")
@@ -658,53 +664,28 @@ def _display_plate(viewer: Viewer) -> None:
             start = w * n_per_well
             end = start + n_per_well
             well_images = omero_data.images[start:end]
-            well_positions = omero_data.image_positions[start:end]
-
+            offsets = well_offsets[w]
+            # Ony stitch valid images
+            valid = offsets[:, 0] >= 0
             stitched_imgs.append(
-                stitch_from_positions(
-                    well_images,
-                    well_positions,  # type: ignore[arg-type]
+                stitch_from_offsets(
+                    well_images[valid],
+                    offsets[valid],
                     edge=sp["edge"],
-                    overlap_x=sp["overlap_x"],
-                    overlap_y=sp["overlap_y"],
-                    translate_x=sp["translate_x"],
-                    translate_y=sp["translate_y"],
                 )
             )
 
             if omero_data.labels.size > 0:
                 well_labels = omero_data.labels[start:end]
-                if omero_data.label_stitched_mode:
-                    # Phase-1 stitched-canvas masks: globally-unique IDs,
-                    # lossless reassembly via non-zero copy. Tile size is
-                    # the spatial extent of each per-field mask.
-                    tile_h = int(well_labels.shape[-3])
-                    tile_w = int(well_labels.shape[-2])
-                    stitched_lbls.append(
-                        recompose_split_labels(
-                            well_labels,
-                            well_positions,  # type: ignore[arg-type]
-                            tile_h=tile_h,
-                            tile_w=tile_w,
-                            overlap_x=sp["overlap_x"],
-                            overlap_y=sp["overlap_y"],
-                            translate_x=sp["translate_x"],
-                            translate_y=sp["translate_y"],
-                        )
+                # Stitching ignores any stitched-canvas masks and
+                # computes a label merge. This allows testing different
+                # different overlap and translation.
+                stitched_lbls.append(
+                    stitch_labels_from_offsets(
+                        well_labels[valid],
+                        offsets[valid],
                     )
-                else:
-                    # Legacy per-field-segmentation masks: independent label
-                    # spaces, merged via merge_labels overlap fusion.
-                    stitched_lbls.append(
-                        stitch_labels_from_positions(
-                            well_labels,
-                            well_positions,  # type: ignore[arg-type]
-                            overlap_x=sp["overlap_x"],
-                            overlap_y=sp["overlap_y"],
-                            translate_x=sp["translate_x"],
-                            translate_y=sp["translate_y"],
-                        )
-                    )
+                )
 
         if n_wells == 1:
             result_img = stitched_imgs[0]
@@ -768,8 +749,7 @@ def _plate_is_stitched(plate_id: int) -> bool:
     """
     omero_conn = OmeroConnection()
     try:
-        conn = omero_conn.get_conn()
-        return is_stitched_plate(conn, plate_id)
+        return is_stitched_plate(omero_conn, plate_id)
     finally:
         omero_conn.close(hard=False)
 
@@ -814,8 +794,7 @@ def start_zarr_build_worker(
         # new parent is in a different thread`` and the bar never
         # appears). One small HQL query — typically <1s.
         try:
-            main_conn = omero_conn.get_conn()
-            target_wells = resolve_target_wells(plate_id, main_conn)
+            target_wells = resolve_target_wells(plate_id, omero_conn)
             if wells is not None:
                 # Restrict to the user's ticked wells, but keep the
                 # resolver's empty-well / resumability filtering.
@@ -833,29 +812,28 @@ def start_zarr_build_worker(
             return
 
         total_wells = len(target_wells)
+
+        if total_wells == 0:
+            # Everything already cached / no non-empty wells.
+            # Skip spawning the worker.
+            omero_conn.close(hard=False)
+            msg = f"Plate {plate_id}: zarr cache already complete"
+            if wells:
+                msg += " for requested wells"
+            notifications.show_info(msg)
+            return
+
         # napari's QProgressBar only accepts *integer* values, but we want
         # smooth sub-well animation. Give each well an integer sub-resolution:
         # the bar runs 0..total_wells*STEPS and every update is an int.
         steps = 1000
-        first_well = target_wells[0] if target_wells else None
+        first_well = target_wells[0]
         initial_desc = (
             f"Zarr plate {plate_id}: building {first_well} (0/{total_wells})"
-            if first_well is not None
-            else f"Zarr plate {plate_id}: nothing to build"
         )
         pbr.append(
             napari_progress(total=total_wells * steps, desc=initial_desc)
         )
-
-        if total_wells == 0:
-            # Everything already cached / no non-empty wells. Close the
-            # bar cleanly and skip spawning the worker.
-            pbr[0].close()
-            omero_conn.close(hard=False)
-            notifications.show_info(
-                f"Plate {plate_id}: zarr cache already complete"
-            )
-            return
 
         # Sub-well progress. The builder streams each well's image + label
         # arrays and reports a 0–1 fraction via ``step_cb``; we translate that
@@ -1527,18 +1505,43 @@ def _display_stitched(
 
 @magic_factory(
     call_button="Enter",
-    overlap_x={"step": 1, "min": -50, "max": 50},
-    overlap_y={"step": 1, "min": -50, "max": 50},
-    translate_x={"step": 1, "min": -50, "max": 50},
-    translate_y={"step": 1, "min": -50, "max": 50},
+    overlap_x={
+        "value": STITCH_DEFAULTS["overlap_x"],
+        "step": 1,
+        "min": -100,
+        "max": 100,
+    },
+    overlap_y={
+        "value": STITCH_DEFAULTS["overlap_y"],
+        "step": 1,
+        "min": -100,
+        "max": 100,
+    },
+    translate_x={
+        "value": STITCH_DEFAULTS["translate_x"],
+        "step": 1,
+        "min": -100,
+        "max": 100,
+    },
+    translate_y={
+        "value": STITCH_DEFAULTS["translate_y"],
+        "step": 1,
+        "min": -100,
+        "max": 100,
+    },
+    edge={
+        "value": max(
+            0, STITCH_DEFAULTS["overlap_x"], STITCH_DEFAULTS["overlap_y"]
+        )
+    },
 )
 def stitched_data_widget(
     viewer: Viewer,
     stitch: bool = True,
-    overlap_x: int = 7,
-    overlap_y: int = 7,
-    translate_x: int = -3,
-    translate_y: int = 3,
-    edge: int = 7,
+    overlap_x: int = 0,
+    overlap_y: int = 0,
+    translate_x: int = 0,
+    translate_y: int = 0,
+    edge: int = 0,
 ) -> None:
     _display_plate(viewer)

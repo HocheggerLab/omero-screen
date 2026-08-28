@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import pandas as pd
 from loguru import logger
 from omero.gateway import BlitzGateway
 from omero_utils import omero_connect
@@ -20,6 +21,8 @@ from omero_screen_napari.crop_pipeline import (
     CropSourceError,
     OmeroSource,
     ZarrSource,
+    _centroid_columns,
+    _resolve_centroids,
 )
 from omero_screen_napari.gallery_api import (
     draw_contours,
@@ -30,6 +33,111 @@ from omero_screen_napari.session_utils import apply_masks_to_crops
 if TYPE_CHECKING:
     from omero_screen_napari.gallery_userdata import UserData
     from omero_screen_napari.omero_data import OmeroData
+
+
+def metadata_default_n_crops(metadata: dict[str, Any]) -> int:
+    """Crop count baked into a classifier's ``metadata.json``.
+
+    The classifier metadata records the gallery geometry it was collected
+    with. ``n_crops`` is authoritative when present; otherwise it is the
+    gallery grid ``rows * columns``.
+
+    Args:
+        metadata: Parsed ``metadata.json`` contents.
+
+    Returns:
+        The default number of crops, or 0 when the metadata does not
+        constrain it (meaning "load every crop").
+    """
+    n_crops = int(metadata.get("n_crops", 0) or 0)
+    if n_crops > 0:
+        return n_crops
+
+    user_data_dict = metadata.get("user_data", {})
+    rows = int(user_data_dict.get("rows", 0) or 0)
+    columns = int(user_data_dict.get("columns", 0) or 0)
+    return rows * columns if rows > 0 and columns > 0 else 0
+
+
+def _resolve_n_crops(requested: int | None, metadata: dict[str, Any]) -> int:
+    """Resolve how many crops to keep for this load.
+
+    A caller-supplied count overrides the classifier metadata; ``None``
+    (the dialog's empty field) falls back to the gallery-derived default.
+
+    Args:
+        requested: Caller-supplied crop count, or ``None`` to use the default.
+        metadata: Parsed ``metadata.json`` contents.
+
+    Returns:
+        The crop cap; 0 means no cap (keep every crop).
+    """
+    if requested is None:
+        return metadata_default_n_crops(metadata)
+    return max(int(requested), 0)
+
+
+def load_cell_population(
+    plate_id: int,
+    well_id: str,
+    timepoint: int,
+    segmentation: str,
+    classifier_column: str = "",
+) -> list[tuple[int, int, int, str | None]]:
+    """List the cells CellView holds for one plate/well/timepoint.
+
+    Produces exactly the keys :class:`CropPipeline` would generate for the
+    same selection — same centroid columns, same per-segmentation
+    de-duplication, same int truncation — so the result can be crossed
+    with stored annotations without the two drifting apart.
+
+    Args:
+        plate_id: OMERO plate ID.
+        well_id: Well position (e.g. ``"A1"``).
+        timepoint: Timepoint index.
+        segmentation: ``"nucleus"`` or ``"cell"``.
+        classifier_column: CellView column whose prediction to attach to
+            each cell; empty attaches ``None``.
+
+    Returns:
+        ``(image_id, centroid_row, centroid_col, predicted_class)`` per
+        cell; empty when CellView has nothing for the selection.
+    """
+    df = _load_cellview_well_slice(plate_id, well_id, timepoint)
+    if df is None or df.empty:
+        return []
+
+    has_prediction = (
+        bool(classifier_column) and classifier_column in df.columns
+    )
+
+    cells: list[tuple[int, int, int, str | None]] = []
+    for image_id in sorted(df["image_id"].unique()):
+        image_df = df[df["image_id"] == image_id]
+        rows, cols, _ = _resolve_centroids(image_df, segmentation)  # type: ignore[arg-type]
+        if has_prediction:
+            # _resolve_centroids drops duplicate centroids for cell
+            # segmentation, so re-read predictions from the same rows.
+            predictions = _predictions_for(
+                image_df, segmentation, classifier_column
+            )
+        else:
+            predictions = [None] * len(rows)
+        for row, col, predicted in zip(rows, cols, predictions, strict=False):
+            cells.append((int(image_id), int(row), int(col), predicted))
+    return cells
+
+
+def _predictions_for(
+    image_df: Any, segmentation: str, classifier_column: str
+) -> list[str | None]:
+    """Predicted class per centroid, aligned with ``_resolve_centroids``."""
+    if segmentation == "nucleus":
+        series = image_df[classifier_column]
+    else:
+        c0, c1, _ = _centroid_columns("cell")
+        series = image_df.drop_duplicates(subset=[c0, c1])[classifier_column]
+    return [None if v is None or pd.isna(v) else str(v) for v in series]
 
 
 def _load_cellview_well_slice(
@@ -143,6 +251,8 @@ def load_crops_from_omero(
     classifier_column: str = "",
     classifier_class: str = "",
     timepoint: int | None = None,
+    n_crops: int | None = None,
+    excluded_centroids: set[tuple[int, int, int]] | None = None,
     conn: BlitzGateway | None = None,
 ) -> tuple[bool, str]:
     """Load cell crops directly from OMERO for annotation.
@@ -163,6 +273,14 @@ def load_crops_from_omero(
         timepoint: Timepoint to load (overrides the value baked into the
             classifier's metadata.json). When ``None``, falls back to the
             classifier-metadata value.
+        n_crops: How many crops to keep (randomly sampled when more are
+            available). When ``None``, falls back to the classifier's
+            gallery-derived default; 0 keeps every crop.
+        excluded_centroids: ``(image_id, centroid_row, centroid_col)`` keys to
+            skip — typically the cells already annotated for this classifier
+            (see :meth:`TrainingDB.get_used_centroids`), so a second load of
+            the same well yields unseen cells rather than re-sampling the
+            whole population.
         conn: OMERO connection (injected by decorator)
 
     Returns:
@@ -268,6 +386,7 @@ def load_crops_from_omero(
             crop_size=crop_size,
             timepoint=timepoint,
             intensities=intensities,
+            excluded_centroids=excluded_centroids,
         )
         all_crops = result.crops
         all_crop_labels = result.labels
@@ -275,6 +394,14 @@ def load_crops_from_omero(
         all_cell_meta = result.cell_meta
 
         if not all_crops:
+            if excluded_centroids:
+                return (
+                    False,
+                    "No unannotated cells left in the selected images — "
+                    f"{len(excluded_centroids)} cell(s) have already been "
+                    "labelled for this classifier in this well. Try another "
+                    "well, image or filter.",
+                )
             return (
                 False,
                 "No crops could be generated from any of the selected images",
@@ -284,13 +411,9 @@ def load_crops_from_omero(
             f"Total crops across {len(image_indices)} image(s): {len(all_crops)}"
         )
 
-        # Step 5: Limit to gallery-sized subset
-        n_crops = metadata.get("n_crops", 0)
-        if n_crops <= 0:
-            rows = user_data_dict.get("rows", 0)
-            columns = user_data_dict.get("columns", 0)
-            if rows > 0 and columns > 0:
-                n_crops = rows * columns
+        # Step 5: Limit to the requested subset (caller's count wins over
+        # the gallery-sized default baked into the classifier metadata).
+        n_crops = _resolve_n_crops(n_crops, metadata)
         if n_crops > 0 and len(all_crops) > n_crops:
             import random
 
@@ -475,6 +598,7 @@ def _run_crop_pipeline(
     crop_size: int,
     timepoint: int,
     intensities: dict[int, tuple[float, float]] | None,
+    excluded_centroids: set[tuple[int, int, int]] | None = None,
 ) -> CropResult:
     """Pick a crop source and run :class:`CropPipeline`.
 
@@ -505,6 +629,7 @@ def _run_crop_pipeline(
         segmentation=segmentation,  # type: ignore[arg-type]
         crop_size=crop_size,
         timepoint=timepoint,
+        excluded_centroids=excluded_centroids,
     )
     try:
         return pipeline.run()
@@ -518,4 +643,5 @@ def _run_crop_pipeline(
             segmentation=segmentation,  # type: ignore[arg-type]
             crop_size=crop_size,
             timepoint=timepoint,
+            excluded_centroids=excluded_centroids,
         ).run()

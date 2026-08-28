@@ -136,10 +136,13 @@ def load_plate_to_viewer(
     channel_names = info["channel_names"]
     px = info["pixel_size_um"] or 1.0
     multi = len(target_wells) > 1
+    if multi:
+        _log_canvas_shapes(target_wells, wells_data)
 
     _add_image_layers(viewer, wells_data, channel_names, px, multi)
     _add_label_layers(viewer, wells_data, "nuclei", px, multi)
     _add_label_layers(viewer, wells_data, "cells", px, multi)
+    _add_missing_region_layer(viewer, wells_data, target_wells, px, multi)
 
     if multi:
         # Axis order is (well, T, Y, X). Naming the slider axis improves
@@ -198,6 +201,85 @@ def _resolve_well_list(well_pos_input: str, available: list[str]) -> list[str]:
     return resolved
 
 
+def _canvas_yx(well_data: dict[str, Any]) -> tuple[int, int]:
+    """Level-0 canvas ``(Y, X)`` for one well."""
+    shape = well_data["image"][0].shape
+    return int(shape[-2]), int(shape[-1])
+
+
+def _log_canvas_shapes(
+    well_ids: list[str], wells_data: list[dict[str, Any]]
+) -> None:
+    """Log the per-well canvas sizes when they are not all identical.
+
+    Not an error — the canvas is a per-well property — but silent
+    padding would be hard to explain later, so name the wells and the
+    target size.
+    """
+    shapes = [_canvas_yx(wd) for wd in wells_data]
+    if len(set(shapes)) == 1:
+        return
+    target = (max(s[0] for s in shapes), max(s[1] for s in shapes))
+    detail = ", ".join(
+        f"{w}={y}x{x}"
+        for w, (y, x) in zip(well_ids, shapes, strict=True)
+        if (y, x) != target
+    )
+    logger.info(
+        f"Well canvases differ; padding to {target[0]:d}x{target[1]:d} "
+        f"for stacking (smaller: {detail})"
+    )
+
+
+def _common_level_count(pyramids: list[list[Any]]) -> int:
+    """Number of pyramid levels every well has.
+
+    Wells with different canvas sizes can in principle bottom out at
+    different level counts, and the stack has to be rectangular, so take
+    the shortest rather than trusting the first well.
+    """
+    counts = [len(p) for p in pyramids]
+    if len(set(counts)) > 1:
+        logger.debug(
+            f"Pyramid level counts differ across wells ({counts}); "
+            f"stacking the common {min(counts):d}"
+        )
+    return min(counts)
+
+
+def _pad_to_common_yx(per_well: list[Any]) -> list[Any]:
+    """Zero-pad each array's trailing Y/X up to the set's maximum.
+
+    Canvas size is a per-well property: the plate reader can lay wells
+    out differently, and a field whose autofocus failed has no stage
+    position, so it drops out of the well's offset bounding box and
+    shrinks that well's canvas (by one shear step, ``|translate_x|``,
+    when the dropped field held the extreme offset). Stacking wells for
+    the well slider therefore has to reconcile the shapes here rather
+    than force a plate-wide canvas upstream.
+
+    Padding is lazy (``da.pad`` on the dask graph) and applied per
+    pyramid level from that level's own shapes, so the multiscale
+    downsample factors stay consistent. Pixels are padded at the far
+    edge, which leaves every well's origin — and therefore the canvas
+    coordinates its measurements were computed in — untouched.
+    """
+    max_y = max(int(a.shape[-2]) for a in per_well)
+    max_x = max(int(a.shape[-1]) for a in per_well)
+    out: list[Any] = []
+    for arr in per_well:
+        dy = max_y - int(arr.shape[-2])
+        dx = max_x - int(arr.shape[-1])
+        if dy == 0 and dx == 0:
+            out.append(arr)
+            continue
+        pad_width = [(0, 0)] * arr.ndim
+        pad_width[-2] = (0, dy)
+        pad_width[-1] = (0, dx)
+        out.append(da.pad(arr, pad_width, mode="constant", constant_values=0))  # type: ignore[no-untyped-call]
+    return out
+
+
 def _stack_pyramid_per_channel(
     wells_data: list[dict[str, Any]],
     channel_index: int,
@@ -208,15 +290,19 @@ def _stack_pyramid_per_channel(
     Each pyramid level becomes a dask array of shape
     ``(N_wells, T, Y, X)`` for ``multi=True`` or ``(T, Y, X)`` for a
     single well. Dask wraps the underlying zarr arrays so reads stay
-    lazy — napari only pulls the chunks it renders.
+    lazy — napari only pulls the chunks it renders. Wells with a smaller
+    canvas are padded to the set's maximum (see
+    :func:`_pad_to_common_yx`).
     """
-    n_levels = len(wells_data[0]["image"])
+    n_levels = _common_level_count([wd["image"] for wd in wells_data])
     pyramid: list[Any] = []
     for lvl in range(n_levels):
         per_well = [
             da.from_zarr(wd["image"][lvl])[:, channel_index]  # type: ignore[no-untyped-call]
             for wd in wells_data
         ]
+        if multi:
+            per_well = _pad_to_common_yx(per_well)
         pyramid.append(da.stack(per_well, axis=0) if multi else per_well[0])  # type: ignore[no-untyped-call]
     return pyramid
 
@@ -233,10 +319,13 @@ def _stack_pyramid_labels(
     """
     if any(wd[key] is None for wd in wells_data):
         return None
-    n_levels = len(wells_data[0][key])
+    n_levels = _common_level_count([wd[key] for wd in wells_data])
     pyramid: list[Any] = []
     for lvl in range(n_levels):
         per_well = [da.from_zarr(wd[key][lvl]) for wd in wells_data]  # type: ignore[no-untyped-call]
+        if multi:
+            # Label 0 is background, so a zero pad reads as "no object".
+            per_well = _pad_to_common_yx(per_well)
         pyramid.append(da.stack(per_well, axis=0) if multi else per_well[0])  # type: ignore[no-untyped-call]
     return pyramid
 
@@ -291,6 +380,96 @@ def _add_label_layers(
         else (1.0, pixel_size_um, pixel_size_um)
     )
     viewer.add_labels(pyramid, name=key, scale=scale)
+
+
+def _add_missing_region_layer(
+    viewer: Any,
+    wells_data: list[dict[str, Any]],
+    well_ids: list[str],
+    pixel_size_um: float,
+    multi: bool,
+) -> None:
+    """Outline canvas regions where no field was acquired.
+
+    A failed acquisition leaves a tile-sized blank rectangle in the
+    stitched canvas with no labels in it. Unmarked, that is
+    indistinguishable from a rendering or cache fault, so it gets a
+    dashed outline and a caption naming the well.
+
+    No layer is added when every well is complete — which is the common
+    case — so this stays invisible unless it has something to say.
+    """
+    shapes: list[Any] = []
+    captions: list[str] = []
+    canvas_y, canvas_x = (
+        max(_canvas_yx(wd)[0] for wd in wells_data),
+        max(_canvas_yx(wd)[1] for wd in wells_data),
+    )
+    for index, (data, well_id) in enumerate(
+        zip(wells_data, well_ids, strict=True)
+    ):
+        # Shapes must match the image layers' dimensionality: the
+        # leading axes are the well slider (when stacked) and T.
+        prefix = (index, 0) if multi else (0,)
+        for y0, x0, y1, x1 in data.get("missing_regions", ()):
+            corners = [(y0, x0), (y0, x1), (y1, x1), (y1, x0)]
+            shapes.append([(*prefix, y, x) for y, x in corners])
+            captions.append(f"{well_id}: no acquisition")
+        # A well with a smaller canvas is zero-padded for stacking; mark
+        # the pad so the black strip is not read as absent signal.
+        if not multi:
+            continue
+        well_y, well_x = _canvas_yx(data)
+        for box in _pad_boxes(well_y, well_x, canvas_y, canvas_x):
+            y0, x0, y1, x1 = box
+            corners = [(y0, x0), (y0, x1), (y1, x1), (y1, x0)]
+            shapes.append([(*prefix, y, x) for y, x in corners])
+            captions.append(f"{well_id}: padded to canvas")
+
+    if not shapes:
+        return
+
+    scale = (
+        (1.0, 1.0, pixel_size_um, pixel_size_um)
+        if multi
+        else (1.0, pixel_size_um, pixel_size_um)
+    )
+    viewer.add_shapes(
+        shapes,
+        name="missing fields",
+        shape_type="rectangle",
+        edge_color="red",
+        edge_width=8,
+        face_color="transparent",
+        opacity=0.9,
+        scale=scale,
+        text={
+            "string": captions,
+            "size": 10,
+            "color": "red",
+            "anchor": "upper_left",
+        },
+    )
+    logger.info(
+        f"Marked {len(shapes):d} unimaged region(s) across "
+        f"{len({c.split(':')[0] for c in captions}):d} well(s)"
+    )
+
+
+def _pad_boxes(
+    well_y: int, well_x: int, canvas_y: int, canvas_x: int
+) -> list[tuple[int, int, int, int]]:
+    """``(y0, x0, y1, x1)`` boxes covering the zero pad for one well.
+
+    At most two: a right strip and a bottom strip. Empty when the well
+    already fills the canvas.
+    """
+    boxes: list[tuple[int, int, int, int]] = []
+    if well_x < canvas_x:
+        boxes.append((0, well_x, canvas_y, canvas_x))
+    if well_y < canvas_y:
+        boxes.append((well_y, 0, canvas_y, well_x))
+    return boxes
 
 
 def _intensities_from_canvas(

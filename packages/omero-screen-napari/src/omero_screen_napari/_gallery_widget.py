@@ -1,6 +1,9 @@
+from pathlib import Path
+
 from loguru import logger
 from magicgui import magic_factory
 from magicgui.widgets import Container
+from napari.utils import progress as napari_progress
 from qtpy.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -18,6 +21,7 @@ from omero_screen_napari._setup_training_widget import (
     MetaDataSaver,
 )
 from omero_screen_napari.gallery_api import show_gallery
+from omero_screen_napari.gallery_export import export_galleries
 from omero_screen_napari.gallery_userdata_singleton import userdata
 from omero_screen_napari.omero_data_singleton import omero_data
 
@@ -136,8 +140,13 @@ def gallery_gui_widget() -> Container:  # type: ignore
     init_plugin_logging()
     gallery_widget_instance = gallery_widget()
     reset_widget_instance = reset_widget()
+    export_widget_instance = gallery_export_widget()
     container = Container(  # type: ignore[type-var]
-        widgets=[gallery_widget_instance, reset_widget_instance]
+        widgets=[
+            gallery_widget_instance,
+            reset_widget_instance,
+            export_widget_instance,
+        ]
     )
     setup = ClassifierSetupWidget()
     container.native.layout().addWidget(setup.widget)
@@ -242,6 +251,90 @@ class ClassifierSetupWidget:
         self._name_input.clear()
 
 
+# magicgui needs a concrete default for the directory field; evaluated
+# once at import so ruff's B008 (call in argument default) is satisfied.
+_DEFAULT_EXPORT_DIR = Path.home()
+
+
+def _parse_export_wells(wells: str) -> list[str] | None:
+    """Parse the export widget's well box; None means "every well"."""
+    raw = wells.strip()
+    if not raw or raw.lower() == "all":
+        return None
+    return [w.strip() for w in raw.split(",") if w.strip()]
+
+
+@magic_factory(
+    call_button="Export all wells",
+    output_dir={"mode": "d", "label": "Export folder"},
+    fmt={"choices": ["pdf", "png", "svg"], "label": "File format"},
+    wells={"label": "Wells (All or A1, B2)"},
+    seed={"label": "Sampling seed", "min": 0, "max": 999_999},
+    show_title={"label": "Show title"},
+)
+def gallery_export_widget(
+    output_dir: Path = _DEFAULT_EXPORT_DIR,
+    fmt: str = "pdf",
+    wells: str = "All",
+    seed: int = 0,
+    show_title: bool = False,
+) -> None:
+    """Export one gallery per well using the settings above.
+
+    Uses whatever the gallery widget last ran with — channels, crop size,
+    grid, cell-cycle phase, classifier filter — so dial the gallery in on
+    one well first, then export the plate. Files are named after the well;
+    a ``gallery_export.json`` manifest records the settings used.
+
+    ``show_title`` overrides the gallery widget's own setting and
+    defaults to off: an exported panel is placed under its figure caption,
+    where the well/metadata/settings title is redundant. The settings are
+    still recorded in the manifest either way.
+
+    Synchronous: a 21-well plate takes ~30 s and the window will not
+    repaint until it finishes, hence the progress bar.
+    """
+    target_wells = _parse_export_wells(wells)
+    try:
+        _commit_viewer_contrast_to_intensities()
+        total = len(target_wells) if target_wells else 0
+        bar = napari_progress(
+            total=total, desc=f"Exporting galleries to {output_dir.name}"
+        )
+
+        def _tick(well: str, index: int, n: int) -> None:
+            # Well count is only known inside export_galleries when the
+            # user asked for "All", so set the total on the first tick.
+            if bar.total != n:
+                bar.total = n
+            bar.set_description(f"Gallery {well} ({index + 1}/{n})")
+            bar.update(1)
+
+        try:
+            written = export_galleries(
+                output_dir,
+                wells=target_wells,
+                fmt=fmt,
+                seed=seed,
+                show_title=show_title,
+                on_progress=_tick,
+            )
+        finally:
+            bar.close()
+
+        QMessageBox.information(
+            None,
+            "Gallery Export",
+            f"Wrote {len(written)} gallery/ies to\n{output_dir}",
+        )
+    except ValueError as e:
+        logger.exception(f"Gallery Export Error: {e}")
+        QMessageBox.critical(None, "Gallery Export Error", str(e))
+    except Exception as e:  # noqa: BLE001
+        logger.exception(f"Unexpected Error: {e}")
+        QMessageBox.critical(None, "Unexpected Error", str(e))
+
+
 @magic_factory(
     call_button="Enter",
 )
@@ -269,6 +362,7 @@ def gallery_widget(
     reload: bool = True,
     contour: bool = True,
     no_background: bool = True,
+    show_title: bool = True,
     red_channel: str = "",
     green_channel: str = "",
     blue_channel: str = "",
@@ -301,6 +395,7 @@ def gallery_widget(
         "rows": rows,
         "contour": contour,
         "no_background": no_background,
+        "show_title": show_title,
         "channels": channels,
     }
     try:

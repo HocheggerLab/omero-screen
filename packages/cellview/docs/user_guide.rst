@@ -135,6 +135,26 @@ the OMERO plate already has tags called ``Project: <name>`` and
 ``Experiment: <name>``, CellView reads them automatically and skips the
 interactive step.
 
+**Naming the target up front**
+
+Every import route accepts ``--project`` and ``--experiment``, which take
+existing IDs and skip the prompt altogether:
+
+.. code-block:: bash
+
+   cellview import plate 12345 --experiment 7
+   cellview import plate 12345 12346 12347 --experiment 7
+
+This is worth doing whenever you already know where the data belongs —
+and especially when importing several plates, since otherwise you answer
+the same prompt once per plate.
+
+An experiment already implies its project, so ``--project`` is optional;
+give it on its own to pick the project but still resolve the experiment
+from the plate's own metadata. Both IDs are checked before any plate is
+touched, so a typo fails immediately rather than half-way through a
+multi-plate import, and a mismatched pair is rejected.
+
 From a CSV file
 ~~~~~~~~~~~~~~~
 
@@ -299,16 +319,19 @@ wrangling.
 Deleting Data
 -------------
 
-``cellview delete plate <id>``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+``cellview delete plate <id> [<id> ...]``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
    cellview delete plate 12345
+   cellview delete plate 12345 12346 12347
 
 This removes the plate record and **all** associated data: conditions,
-condition variables, and every single-cell measurement row. A clean-up
-pass runs automatically afterwards to remove any orphaned records.
+condition variables, and every single-cell measurement row. Several
+plates can be given at once; they are deleted in the order listed. A
+single clean-up pass runs automatically afterwards to remove any
+orphaned records.
 
 .. warning::
 
@@ -387,6 +410,8 @@ CLI Quick Reference
      - Import one or more plates from OMERO
    * - ``cellview import plate <ids...> --interactive``
      - Import from OMERO, forcing manual project/experiment selection
+   * - ``cellview import ... --project <id> --experiment <id>``
+     - Import into a known project/experiment, skipping the prompts
    * - ``cellview import screen <id>``
      - Import every plate in an OMERO screen
    * - ``cellview edit project <id>``
@@ -395,8 +420,8 @@ CLI Quick Reference
      - Rename an experiment or update its description
    * - ``cellview export <plate_id>``
      - Print a plate measurement summary to the terminal
-   * - ``cellview delete plate <id>``
-     - Permanently delete a plate and all its measurements
+   * - ``cellview delete plate <id> [<id> ...]``
+     - Permanently delete one or more plates and all their measurements
    * - ``cellview clean``
      - Remove orphaned records from the database
    * - ``cellview explore <plate_ids...>``

@@ -93,6 +93,30 @@ class TestImportCommands:
         )
         assert args.interactive is True
 
+    def test_import_target_defaults_to_none(self) -> None:
+        parser = get_parser()
+        args = parser.parse_args(["import", "plate", "12345"])
+        assert args.project is None
+        assert args.experiment is None
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["import", "plate", "1", "2"],
+            ["import", "screen", "99"],
+            ["import", "csv", "/tmp/data.csv"],
+        ],
+    )
+    def test_import_accepts_project_and_experiment(
+        self, argv: list[str]
+    ) -> None:
+        parser = get_parser()
+        args = parser.parse_args(
+            [*argv, "--project", "3", "--experiment", "7"]
+        )
+        assert args.project == 3
+        assert args.experiment == 7
+
 
 class TestEditCommands:
     """Tests for edit subcommands."""
@@ -129,7 +153,18 @@ class TestDeleteCommand:
         args = parser.parse_args(["delete", "plate", "12345"])
         assert args.command == "delete"
         assert args.delete_command == "plate"
-        assert args.id == 12345
+        assert args.ids == [12345]
+
+    def test_delete_multiple_plates(self) -> None:
+        parser = get_parser()
+        args = parser.parse_args(["delete", "plate", "1", "2", "3"])
+        assert args.delete_command == "plate"
+        assert args.ids == [1, 2, 3]
+
+    def test_delete_plate_requires_at_least_one_id(self) -> None:
+        parser = get_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["delete", "plate"])
 
 
 class TestCleanCommand:

@@ -1,11 +1,59 @@
 """Unit tests for direct OMERO loader functionality."""
 
-import numpy as np
 import pytest
-
 from omero_screen_napari.direct_omero_loader import (
     _parse_image_input,
+    _resolve_n_crops,
+    metadata_default_n_crops,
 )
+
+
+class TestResolveNCrops:
+    """Test how the crop count is resolved from request + metadata."""
+
+    def test_explicit_n_crops_overrides_metadata(self):
+        """A user-supplied count wins over the metadata default."""
+        metadata = {"n_crops": 25, "user_data": {"rows": 5, "columns": 5}}
+
+        assert _resolve_n_crops(60, metadata) == 60
+
+    def test_none_falls_back_to_metadata_n_crops(self):
+        """An empty field uses the metadata's n_crops."""
+        metadata = {"n_crops": 25, "user_data": {"rows": 3, "columns": 3}}
+
+        assert _resolve_n_crops(None, metadata) == 25
+
+    def test_none_falls_back_to_gallery_grid(self):
+        """Without n_crops, the default is the gallery rows * columns."""
+        metadata = {"user_data": {"rows": 4, "columns": 5}}
+
+        assert _resolve_n_crops(None, metadata) == 20
+
+    def test_none_without_metadata_means_no_cap(self):
+        """Metadata that constrains nothing loads every crop."""
+        assert _resolve_n_crops(None, {"user_data": {}}) == 0
+
+    def test_zero_request_means_no_cap(self):
+        """An explicit 0 loads every crop, ignoring the metadata."""
+        metadata = {"n_crops": 25, "user_data": {}}
+
+        assert _resolve_n_crops(0, metadata) == 0
+
+    def test_negative_request_is_clamped_to_no_cap(self):
+        """A negative count is clamped rather than sampled against."""
+        assert _resolve_n_crops(-5, {"n_crops": 25, "user_data": {}}) == 0
+
+    def test_metadata_default_prefers_n_crops_over_grid(self):
+        """n_crops takes precedence over the gallery grid."""
+        metadata = {"n_crops": 12, "user_data": {"rows": 5, "columns": 5}}
+
+        assert metadata_default_n_crops(metadata) == 12
+
+    def test_metadata_default_ignores_partial_grid(self):
+        """A grid with a zero dimension yields no default."""
+        metadata = {"user_data": {"rows": 4, "columns": 0}}
+
+        assert metadata_default_n_crops(metadata) == 0
 
 
 class TestParseImageInput:

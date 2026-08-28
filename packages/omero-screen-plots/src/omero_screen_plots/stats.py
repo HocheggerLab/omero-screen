@@ -46,6 +46,14 @@ class StatResult:
         test: Which test produced the value
             (``paired_t``/``paired_logratio``/``unpaired_t``/
             ``ns_insufficient``).
+        effect: Relative change of the condition's mean repeat-median against
+            the reference's, as a fraction (``0.25`` = +25%). ``nan`` when the
+            reference median is zero or the comparison could not be made.
+            The p-value says whether a shift reproduces; ``effect`` says how
+            big it is. With three repeats those answers diverge sharply --
+            a 2% shift measured on 10,000 cells per well reproduces almost
+            perfectly -- so callers can gate the on-plot marker on ``effect``
+            via ``min_effect``.
     """
 
     reference: str
@@ -55,6 +63,7 @@ class StatResult:
     p_value: float
     significance: str
     test: str
+    effect: float = float("nan")
 
 
 def get_significance_marker(p: float) -> str:
@@ -267,12 +276,23 @@ def compute_significance(
                 or len(cond_series) == 0
             ):
                 p, n, test = 1.0, 0, "ns_insufficient"
+                effect = float("nan")
             else:
                 p, n, test = _pvalue_from_medians(
                     ref_series,
                     cond_series,
                     paired,
                     normalise_within_plate=normalise_within_plate,
+                )
+                # Mean of the per-repeat medians on each side; relative to the
+                # reference so the number is comparable across readouts with
+                # different units.
+                ref_mean = float(ref_series.mean())
+                cond_mean = float(cond_series.mean())
+                effect = (
+                    (cond_mean - ref_mean) / ref_mean
+                    if ref_mean
+                    else float("nan")
                 )
             results.append(
                 StatResult(
@@ -283,6 +303,7 @@ def compute_significance(
                     p_value=p,
                     significance=get_significance_marker(p),
                     test=test,
+                    effect=effect,
                 )
             )
 
@@ -300,9 +321,34 @@ def annotate_significance(
     y: float,
     *,
     fontsize: int = 6,
+    show_ns: bool = True,
+    min_effect: float | None = None,
+    color: str | None = None,
 ) -> None:
-    """Draw significance markers from ``results`` at the given x positions."""
+    """Draw significance markers from ``results`` at the given x positions.
+
+    ``show_ns=False`` draws only the star markers. ``min_effect`` additionally
+    requires ``|effect| >= min_effect`` before a marker is drawn (``0.10`` =
+    10% change against the reference), so a shift that reproduces perfectly
+    but is too small to matter goes unmarked.
+
+    ``color`` tints the markers, so a caller stacking several rows of stars
+    can key each row to the series it belongs to.
+
+    Neither option touches the computation: every comparison, its exact
+    p-value and its effect size are still written to the stats CSV. They
+    suppress markers only, and a pre-specified threshold applied uniformly
+    must be stated in the figure legend to be honest.
+    """
     for result in results:
+        if not show_ns and result.significance == "ns":
+            continue
+        if (
+            min_effect is not None
+            and result.significance != "ns"
+            and not (abs(result.effect) >= min_effect)
+        ):
+            continue
         if 0 <= result.condition_index < len(x_positions):
             axes.annotate(
                 result.significance,
@@ -311,6 +357,7 @@ def annotate_significance(
                 ha="center",
                 va="bottom",
                 fontsize=fontsize,
+                color=color if color else "black",
             )
 
 
@@ -332,6 +379,7 @@ def stats_results_to_dataframe(
                 "condition": result.condition,
                 "n_pairs": result.n_pairs,
                 "p_value": result.p_value,
+                "effect": result.effect,
                 "significance": result.significance,
                 "test": result.test,
             }

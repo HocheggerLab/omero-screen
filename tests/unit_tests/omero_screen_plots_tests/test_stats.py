@@ -272,6 +272,7 @@ class TestStatsTables:
             "condition",
             "n_pairs",
             "p_value",
+            "effect",
             "significance",
             "test",
         ]
@@ -388,6 +389,7 @@ _STATS_COLS = [
     "condition",
     "n_pairs",
     "p_value",
+    "effect",
     "significance",
     "test",
 ]

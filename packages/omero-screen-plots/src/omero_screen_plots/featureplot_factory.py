@@ -41,6 +41,9 @@ class FeaturePlotConfig(BasePlotConfig):
 
     # Figure settings (feature plots use a smaller default than the base 7x7)
     fig_size: tuple[float, float] = (5, 5)
+    # Marker area for the per-cell scatter overlay. Dense panels need this
+    # smaller or the points bury the box/violin underneath them.
+    scatter_size: float = 7.0
 
     # Feature plot specific settings
     scale: bool = False
@@ -551,7 +554,7 @@ class StandardFeaturePlot(BaseFeaturePlot):
                         y_values,
                         color=plate_colors[idx],
                         alpha=0.8,
-                        s=7,
+                        s=self.config.scatter_size,
                         edgecolor=None,
                         linewidth=0.5,
                         zorder=3,
@@ -1070,7 +1073,14 @@ class NormFeaturePlot(BaseFeaturePlot):
             group_size=self.config.group_size,
             paired=self.config.paired,
         )
-        annotate_significance(self.ax, results, x_positions, y_max)
+        annotate_significance(
+            self.ax,
+            results,
+            x_positions,
+            y_max,
+            show_ns=self.config.show_ns,
+            min_effect=self.config.min_effect,
+        )
         self._record_stats(
             medians_df,
             results,

@@ -36,6 +36,9 @@ def feature_plot(
     within_group_spacing: float = 0.2,
     between_group_gap: float = 0.5,
     paired: bool = True,
+    show_ns: bool = True,
+    scatter_size: float = 7.0,
+    min_effect: float | None = None,
     normalise_within_plate: bool = True,
     save: bool = True,
     save_stats: bool = False,
@@ -166,6 +169,9 @@ def feature_plot(
         show_significance=True,
         show_repeat_points=True,
         paired=paired,
+        show_ns=show_ns,
+        scatter_size=scatter_size,
+        min_effect=min_effect,
         normalise_within_plate=normalise_within_plate,
     )
 
@@ -206,6 +212,9 @@ def feature_norm_plot(
     within_group_spacing: float = 0.2,
     between_group_gap: float = 0.5,
     paired: bool = True,
+    show_ns: bool = True,
+    scatter_size: float = 7.0,
+    min_effect: float | None = None,
     save: bool = True,
     save_stats: bool = False,
     path: Optional[Path] = None,
@@ -367,6 +376,9 @@ def feature_norm_plot(
         repeat_offset=0.18,
         max_repeats=3,
         paired=paired,
+        show_ns=show_ns,
+        scatter_size=scatter_size,
+        min_effect=min_effect,
     )
 
     # Use NormFeaturePlot class

@@ -72,6 +72,18 @@ def get_parser() -> argparse.ArgumentParser:
         help="Only perform image segmentation (default: %(default)s)",
     )
     group.add_argument(
+        "--delete",
+        default=False,
+        action="store_true",
+        help=(
+            "Delete the plate's existing segmentation masks and segment from "
+            "scratch. Without this, a re-run reuses the stored masks (both "
+            "stitched and per-field) and only recomputes the measurements. "
+            "Use it after changing segmentation settings, or to repair a "
+            "plate whose stored masks are wrong or empty."
+        ),
+    )
+    group.add_argument(
         "--cp4",
         default=False,
         action="store_true",
@@ -105,6 +117,15 @@ def get_parser() -> argparse.ArgumentParser:
         "n_fields x T OMERO reads). Default: auto-enable when the estimated peak "
         "exceeds the host-RAM budget. Use --stream-stitch / --no-stream-stitch to "
         "force. Requires --stitch.",
+    )
+    group.add_argument(
+        "--stitch-config",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Path to an OMERO_SCREEN_STITCH_CONFIG JSON configuration. "
+        "Overrides the OMERO_SCREEN_STITCH_CONFIG env var. "
+        "Errors if the path does not exist (no silent fallback to defaults).",
     )
     group.add_argument(
         "--track",
@@ -193,6 +214,12 @@ def main() -> None:
         if not os.path.exists(args.config):
             parser.error(f"--config file not found: {args.config}")
         os.environ["OMERO_SCREEN_CONFIG"] = args.config
+    if args.stitch_config:
+        if not os.path.exists(args.stitch_config):
+            parser.error(
+                f"--stitch-config file not found: {args.stitch_config}"
+            )
+        os.environ["OMERO_SCREEN_STITCH_CONFIG"] = args.stitch_config
 
     # Configure logging once, at the entry point. Importing config triggers
     # set_env_vars() (loads .env.{ENV}) so an OMERO_SCREEN_LOG_* override placed
@@ -253,6 +280,7 @@ def main() -> None:
                 plate_id,
                 segmentation_mode=args.segmentation,
                 stitch_mode=args.stitch,
+                delete_existing=args.delete,
             )
             report_path = timer.save_report()
             if args.benchmark:

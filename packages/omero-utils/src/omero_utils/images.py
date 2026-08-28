@@ -5,6 +5,7 @@ This module provides functions for uploading masks and maximum intensity project
 Available functions:
 
 - upload_masks(conn, dataset_id, image, n_mask, c_mask): Uploads generated images to OMERO server and links them to the specified dataset.
+- prune_duplicate_masks(conn, dataset_id, image_name): Removes same-named mask images left by earlier runs.
 - delete_masks(conn, dataset_id): Removes all segmentation masks from an OMERO dataset.
 - parse_mip(conn, image_id, dataset_id): Get the maximum intensity projection of a z-stack image.
 - delete_mip(conn, image_id): Removes a maximum intensity projection of a z-stack image saved in OMERO as an annotation.
@@ -31,6 +32,63 @@ from omero_utils.map_anns import (
     delete_map_annotation,
     parse_annotations,
 )
+
+
+def prune_duplicate_masks(
+    conn: BlitzGateway,
+    dataset_id: int,
+    image_name: str,
+    keep_id: int | None = None,
+    dry_run: bool = False,
+) -> list[int]:
+    """Delete mask images in a dataset that duplicate ``image_name``.
+
+    Mask images are named ``{source_image_id}{suffix}`` and are meant to be
+    unique within the segmentation dataset. Because :func:`upload_masks`
+    historically created a new image on every run without removing the old
+    one, re-analysing a plate left a pile of same-named masks behind. Only
+    the map annotation on the source image was repointed, so anything that
+    resolves masks *by name* — ``plate_aggregation._get_mask_map``, the
+    napari well-data loader — would pick an arbitrary one, potentially a
+    mask from a previous run with different segmentation settings.
+
+    Args:
+        conn: OMERO connection.
+        dataset_id: Segmentation dataset to scan.
+        image_name: Exact mask image name, e.g. ``"1234_segmentation"``.
+            Matched exactly so ``_segmentation`` never catches
+            ``_stitched_segmentation``.
+        keep_id: Mask image id to preserve — normally the one just
+            uploaded. ``None`` keeps the highest id (the newest).
+        dry_run: Report what would be deleted without deleting it.
+
+    Returns:
+        Ids of the deleted masks (or, under ``dry_run``, of those that
+        would be deleted). Empty when there was nothing to prune.
+    """
+    dataset = conn.getObject("Dataset", dataset_id)
+    if dataset is None:
+        return []
+    matches = [
+        int(child.getId())
+        for child in dataset.listChildren()
+        if child.getName() == image_name
+    ]
+    if len(matches) < 2 and keep_id is None:
+        return []
+    if keep_id is None:
+        keep_id = max(matches)
+    stale = sorted(i for i in matches if i != keep_id)
+    if not stale:
+        return []
+    logger.info(
+        f"{'Would delete' if dry_run else 'Deleting'} {len(stale):d} duplicate "
+        f"mask(s) named {image_name!r} in dataset {dataset_id:d}: {stale} "
+        f"(keeping {keep_id:d})"
+    )
+    if not dry_run:
+        conn.deleteObjects("Image", stale, deleteAnns=True, wait=True)
+    return stale
 
 
 def upload_masks(
@@ -97,124 +155,13 @@ def upload_masks(
         ns=OmeroScreenNS.METADATA,
     )
 
-
-def upload_masks_tiled(
-    conn: BlitzGateway,
-    dataset_id: int,
-    image: ImageWrapper,
-    n_mask: npt.NDArray[Any],
-    c_mask: npt.NDArray[Any] | None = None,
-    name_suffix: str = "_segmentation",
-    annotation_key: str = "Segmentation_Mask",
-    tile_size: int = 1024,
-) -> None:
-    """Tile-aware mask upload for canvases larger than OMERO's pyramid threshold.
-
-    OMERO classifies images above ~3000-4000 px per side as pyramidal and
-    rejects whole-plane writes (``setPlane``) — they must use ``setTile``
-    instead. ``upload_masks`` uses ``setPlane`` via
-    ``createImageFromNumpySeq`` and fails for stitched-well canvases.
-    This function creates the image at the right dimensions and writes
-    it tile-by-tile using the lower-level OMERO API.
-
-    Args:
-        conn: OMERO connection
-        dataset_id: ID of the dataset to link the masks to
-        image: Source image (annotated with the new mask's id)
-        n_mask: Nuclei mask of shape (T, Y, X)
-        c_mask: Optional cell mask of shape (T, Y, X)
-        name_suffix: Appended to ``image.getId()`` to form the new image name.
-        annotation_key: Map-annotation key on the source image recording the
-            uploaded mask's id.
-        tile_size: Square tile edge in pixels (default 1024).
-    """
-    if n_mask.ndim != 3:
-        raise ValueError(f"n_mask must be (T, Y, X), got shape {n_mask.shape}")
-
-    size_t, size_y, size_x = n_mask.shape
-    size_c = 2 if c_mask is not None else 1
-    size_z = 1
-
-    # Stack channels along axis 1 for upload: (T, C, Y, X)
-    if c_mask is not None:
-        if c_mask.shape != n_mask.shape:
-            raise ValueError(
-                f"c_mask shape {c_mask.shape} != n_mask shape {n_mask.shape}"
-            )
-        data = np.stack([n_mask, c_mask], axis=1)
-    else:
-        data = n_mask[:, np.newaxis, :, :]
-
-    image_name = f"{image.getId()}{name_suffix}"
-    pixel_dtype = _omero_pixel_type_string(n_mask.dtype)
-
-    pixels_service = conn.c.sf.getPixelsService()
-    query_service = conn.c.sf.getQueryService()
-    pixels_type = query_service.findByQuery(
-        f"from PixelsType as p where p.value='{pixel_dtype}'",
-        None,
-    )
-    if pixels_type is None:
-        raise RuntimeError(
-            f"OMERO server does not know pixel type '{pixel_dtype}'"
-        )
-
-    new_image_id = pixels_service.createImage(
-        size_x,
-        size_y,
-        size_z,
-        size_t,
-        list(range(size_c)),
-        pixels_type,
-        image_name,
-        f"Tiled upload of {n_mask.dtype} mask",
-        conn.SERVICE_OPTS,
-    )
-
-    new_image = conn.getObject("Image", new_image_id.getValue())
-    pixels_id = new_image.getPixelsId()
-    raw = conn.c.sf.createRawPixelsStore()
-    try:
-        raw.setPixelsId(pixels_id, False, conn.SERVICE_OPTS)
-        for t in range(size_t):
-            for c in range(size_c):
-                plane = data[t, c]
-                for y in range(0, size_y, tile_size):
-                    h = min(tile_size, size_y - y)
-                    for x in range(0, size_x, tile_size):
-                        w = min(tile_size, size_x - x)
-                        tile = np.ascontiguousarray(
-                            plane[y : y + h, x : x + w]
-                        )
-                        raw.setTile(
-                            tile.tobytes(),
-                            0,  # z
-                            c,
-                            t,
-                            x,
-                            y,
-                            w,
-                            h,
-                            conn.SERVICE_OPTS,
-                        )
-        raw.save(conn.SERVICE_OPTS)
-    finally:
-        raw.close(conn.SERVICE_OPTS)
-
-    # Link the new image to the dataset
-    dataset = conn.getObject("Dataset", dataset_id)
-    link = dataset._obj.linkImage(new_image._obj)  # noqa: SLF001
-    conn.getUpdateService().saveObject(link, conn.SERVICE_OPTS)
-
-    # Annotate the source image with the new mask's id
-    delete_map_annotation(
-        conn, image, annotation_key, ns=OmeroScreenNS.METADATA
-    )
-    add_map_annotations(
-        conn,
-        image,
-        {annotation_key: new_image.getId()},
-        ns=OmeroScreenNS.METADATA,
+    # Only now drop any same-named masks from earlier runs. Ordering is
+    # deliberate: create → repoint annotation → delete. The source image
+    # therefore always points at a mask that exists, and a crash part-way
+    # leaves duplicates (the status quo) rather than no mask at all. The
+    # next run prunes whatever was left behind.
+    prune_duplicate_masks(
+        conn, dataset_id, image_name, keep_id=int(mask.getId())
     )
 
 
@@ -249,14 +196,18 @@ def delete_masks(conn: BlitzGateway, dataset_id: int) -> None:
 
     """
     dataset = conn.getObject("Dataset", dataset_id)
+    suffixes = ["_stitched_segmentation", "_segmentation"]
+    annotations = ["Stitched_Segmentation_Mask", "Segmentation_Mask"]
     for child in dataset.listChildren():
-        if child.getName().endswith("_segmentation"):
-            image_id = int(child.getName()[: -len("_segmentation")])
-            image = conn.getObject("Image", image_id)
-            delete_map_annotation(
-                conn, image, "Segmentation_Mask", ns=OmeroScreenNS.METADATA
-            )
-            conn.deleteObject(child._obj)
+        for suffix, annotation in zip(suffixes, annotations, strict=True):
+            if child.getName().endswith(suffix):
+                image_id = int(child.getName()[: -len(suffix)])
+                image = conn.getObject("Image", image_id)
+                delete_map_annotation(
+                    conn, image, annotation, ns=OmeroScreenNS.METADATA
+                )
+                conn.deleteObject(child._obj)
+                break
 
 
 def parse_mip(
@@ -388,98 +339,34 @@ def delete_mip(conn: BlitzGateway, image_id: int) -> None:
 STITCHED_MASK_ANNOTATION_KEY = "Stitched_Segmentation_Mask"
 
 
-def fetch_stitched_field_masks(
-    conn: BlitzGateway,
-    well: WellWrapper,
-    *,
-    conn_factory: Any | None = None,
-    max_workers: int = 3,
-) -> tuple[
-    list[npt.NDArray[Any]],
-    list[npt.NDArray[Any] | None],
-    list[int],
-]:
-    """Fetch per-field stitched-mode segmentation masks for one well.
-
-    Stitched-mode masks are uploaded by the omero-screen pipeline via
-    :func:`upload_masks` with ``name_suffix="_stitched_segmentation"`` and
-    annotation key ``Stitched_Segmentation_Mask``. The annotation lives on
-    the original field image and points to the mask image's id.
-
-    For each field (well sample) in ``well`` this function:
-
-    1. Reads the ``Stitched_Segmentation_Mask`` map annotation on the
-       field's source image.
-    2. Downloads the corresponding mask image. The mask has shape
-       ``(T, Z=1, Y, X, C)`` where ``C=1`` for nucleus-only or ``C=2``
-       for nucleus + cell (channel 0 = nuclei, channel 1 = cells).
-    3. Squeezes Z and splits channels into separate ``(T, Y, X)`` arrays.
-
-    Args:
-        conn: OMERO connection.
-        well: Well object whose fields will be queried.
-        conn_factory: Optional zero-arg callable returning a fresh
-            ``BlitzGateway``. When provided, mask downloads run in
-            parallel, one connection per worker thread (BlitzGateway
-            is not thread-safe).
-        max_workers: Concurrency for the parallel download path.
-            Ignored when ``conn_factory`` is ``None``.
-
-    Returns:
-        Tuple ``(nuclei_per_field, cells_per_field, source_image_ids)``:
-
-        * ``nuclei_per_field``: list of ``(T, Y, X)`` ``uint16`` nucleus
-          masks, one per field, in well-sample order.
-        * ``cells_per_field``: list of ``(T, Y, X)`` cell masks (same
-          ordering) or ``None`` for fields that have nucleus-only masks.
-        * ``source_image_ids``: list of original field image IDs in the
-          same order — useful for downstream operations that need to
-          re-link results to the source image.
-
-    Raises:
-        KeyError: If any field is missing a ``Stitched_Segmentation_Mask``
-            annotation. This indicates the well was not processed in
-            stitched mode and the caller should fall back to per-field
-            masks.
-    """
-    mask_ids, source_ids = resolve_stitched_mask_ids(well)
-    nuclei, cells = fetch_stitched_field_masks_trange(
-        conn,
-        mask_ids,
-        source_ids=source_ids,
-        conn_factory=conn_factory,
-        max_workers=max_workers,
-    )
-    return nuclei, cells, source_ids
-
-
 def resolve_stitched_mask_ids(
     well: WellWrapper,
+    fields: list[int],
 ) -> tuple[list[int], list[int]]:
     """Resolve per-field ``(mask_id, source_id)`` for a well's stitched masks.
 
-    The cheap, pixel-free first phase of :func:`fetch_stitched_field_masks`,
+    The cheap, pixel-free first phase of :func:`fetch_stitched_field_masks_trange`,
     split out so a streaming caller can resolve the ids once and then fetch
     pixels per timepoint-block via :func:`fetch_stitched_field_masks_trange`.
 
     Args:
         well: Well object whose fields will be queried.
+        fields: The indices of the fields.
 
     Returns:
-        ``(mask_ids, source_ids)`` in well-sample order.
+        ``(mask_ids, source_ids)`` in the provided field order.
 
     Raises:
         KeyError: If any field lacks a ``Stitched_Segmentation_Mask``
             annotation (well not processed in stitched mode).
     """
-    n_fields = len(list(well.listChildren()))
-    source_ids: list[int] = [0] * n_fields
-    mask_ids: list[int] = [0] * n_fields
-    for n in range(n_fields):
+    source_ids = []
+    mask_ids = []
+    for n in fields:
         ws = well.getWellSample(n)
         field_image = ws.getImage()
-        field_id = field_image.getId()
-        source_ids[n] = field_id
+        field_id = int(field_image.getId())
+        source_ids.append(field_id)
         anns = parse_annotations(field_image, ns=OmeroScreenNS.METADATA)
         if STITCHED_MASK_ANNOTATION_KEY not in anns:
             raise KeyError(
@@ -487,7 +374,7 @@ def resolve_stitched_mask_ids(
                 f"{STITCHED_MASK_ANNOTATION_KEY!r} annotation. "
                 f"Was this well processed in stitched mode?"
             )
-        mask_ids[n] = int(anns[STITCHED_MASK_ANNOTATION_KEY])
+        mask_ids.append(int(anns[STITCHED_MASK_ANNOTATION_KEY]))
     return mask_ids, source_ids
 
 

@@ -1,3 +1,11 @@
+## omero-screen-v0.6.0 (2026-08-26)
+
+### Feat
+
+- **plots**: make the per-cell scatter marker size configurable
+- **plots**: one colour-matched star row per annotated class
+- **plots**: report effect size and gate significance markers on it
+
 ## omero-screen-v0.5.0 (2026-07-21)
 
 ## omero-screen-v0.4.0 (2026-06-16)

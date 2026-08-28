@@ -4,13 +4,11 @@ Tests cover all CRUD operations for classifiers, sessions, and annotations,
 as well as statistics and filtering functionality.
 """
 
-import json
 import sqlite3
 import tempfile
 from pathlib import Path
 
 import pytest
-
 from omero_screen_napari.trainingdata_db import SCHEMA_VERSION, TrainingDB
 
 
@@ -552,6 +550,206 @@ class TestAnnotationOperations:
         # Annotations should be gone
         annotations = db.get_annotations(session_id)
         assert len(annotations) == 0
+
+
+class TestUsedCentroids:
+    """Tests for the already-annotated centroid lookup.
+
+    The returned tuples are fed straight to ``CropPipeline`` as exclusion
+    keys, so the element order is part of the contract: get it wrong and
+    the exclusion silently matches nothing, letting the same cell be
+    labelled again on every reload.
+    """
+
+    def test_returns_image_id_row_col_in_croppipeline_key_order(
+        self, sample_classifier
+    ):
+        """Tuples are (image_id, centroid_row, centroid_col)."""
+        db, _ = sample_classifier
+        session_id = db.create_session(
+            "test-classifier", 1, "A1", 10, 0, "/path.npy"
+        )
+        db.add_annotations(
+            session_id,
+            [(0, "class_a")],
+            cell_meta=[
+                {"centroid_row": 11, "centroid_col": 22, "image_id": 333}
+            ],
+        )
+
+        assert db.get_used_centroids("test-classifier", 1, "A1") == {
+            (333, 11, 22)
+        }
+
+    def test_scoped_to_classifier_plate_and_well(self, sample_classifier):
+        """Annotations from another well don't leak into the exclusion."""
+        db, _ = sample_classifier
+        session_a1 = db.create_session(
+            "test-classifier", 1, "A1", 10, 0, "/a1.npy"
+        )
+        session_b2 = db.create_session(
+            "test-classifier", 1, "B2", 10, 0, "/b2.npy"
+        )
+        db.add_annotations(
+            session_a1,
+            [(0, "class_a")],
+            cell_meta=[{"centroid_row": 1, "centroid_col": 2, "image_id": 10}],
+        )
+        db.add_annotations(
+            session_b2,
+            [(0, "class_b")],
+            cell_meta=[{"centroid_row": 3, "centroid_col": 4, "image_id": 20}],
+        )
+
+        assert db.get_used_centroids("test-classifier", 1, "A1") == {(10, 1, 2)}
+        assert db.get_used_centroids("test-classifier", 1, "B2") == {(20, 3, 4)}
+        assert db.get_used_centroids("test-classifier", 2, "A1") == set()
+
+    def test_accumulates_across_sessions_in_the_same_well(
+        self, sample_classifier
+    ):
+        """A second pass over a well excludes the first pass's cells."""
+        db, _ = sample_classifier
+        first = db.create_session(
+            "test-classifier", 1, "A1", 10, 0, "/first.npy"
+        )
+        second = db.create_session(
+            "test-classifier", 1, "A1", 10, 0, "/second.npy"
+        )
+        db.add_annotations(
+            first,
+            [(0, "class_a")],
+            cell_meta=[{"centroid_row": 1, "centroid_col": 1, "image_id": 10}],
+        )
+        db.add_annotations(
+            second,
+            [(0, "class_b")],
+            cell_meta=[{"centroid_row": 2, "centroid_col": 2, "image_id": 10}],
+        )
+
+        assert db.get_used_centroids("test-classifier", 1, "A1") == {
+            (10, 1, 1),
+            (10, 2, 2),
+        }
+
+    def test_scoped_to_timepoint_when_given(self, sample_classifier):
+        """A cell labelled at another timepoint stays available.
+
+        In a timelapse the same coordinates one frame later are a
+        different observation, so they must not be excluded.
+        """
+        db, _ = sample_classifier
+        session_t10 = db.create_session(
+            "test-classifier", 1, "A1", 10, 10, "/t10.npy"
+        )
+        session_t15 = db.create_session(
+            "test-classifier", 1, "A1", 10, 15, "/t15.npy"
+        )
+        db.add_annotations(
+            session_t10,
+            [(0, "class_a")],
+            cell_meta=[{"centroid_row": 1, "centroid_col": 2, "image_id": 10}],
+        )
+        db.add_annotations(
+            session_t15,
+            [(0, "class_b")],
+            cell_meta=[{"centroid_row": 3, "centroid_col": 4, "image_id": 10}],
+        )
+
+        assert db.get_used_centroids(
+            "test-classifier", 1, "A1", timepoint=10
+        ) == {(10, 1, 2)}
+        assert db.get_used_centroids(
+            "test-classifier", 1, "A1", timepoint=15
+        ) == {(10, 3, 4)}
+
+    def test_same_coordinates_at_different_timepoints_are_independent(
+        self, sample_classifier
+    ):
+        """An unmoved cell is still offered again in the next frame."""
+        db, _ = sample_classifier
+        session_t0 = db.create_session(
+            "test-classifier", 1, "A1", 10, 0, "/t0.npy"
+        )
+        db.add_annotations(
+            session_t0,
+            [(0, "class_a")],
+            cell_meta=[{"centroid_row": 5, "centroid_col": 5, "image_id": 10}],
+        )
+
+        assert db.get_used_centroids(
+            "test-classifier", 1, "A1", timepoint=1
+        ) == set()
+
+    def test_omitting_timepoint_spans_all_timepoints(self, sample_classifier):
+        """The default keeps the pre-timepoint behaviour."""
+        db, _ = sample_classifier
+        for tp, row in ((10, 1), (15, 3)):
+            session_id = db.create_session(
+                "test-classifier", 1, "A1", 10, tp, f"/t{tp}.npy"
+            )
+            db.add_annotations(
+                session_id,
+                [(0, "class_a")],
+                cell_meta=[
+                    {"centroid_row": row, "centroid_col": row, "image_id": 10}
+                ],
+            )
+
+        assert db.get_used_centroids("test-classifier", 1, "A1") == {
+            (10, 1, 1),
+            (10, 3, 3),
+        }
+
+    def test_timepoint_zero_is_not_treated_as_missing(self, sample_classifier):
+        """t=0 is a real timepoint, not a falsy 'no filter' sentinel."""
+        db, _ = sample_classifier
+        session_t0 = db.create_session(
+            "test-classifier", 1, "A1", 10, 0, "/t0.npy"
+        )
+        session_t5 = db.create_session(
+            "test-classifier", 1, "A1", 10, 5, "/t5.npy"
+        )
+        db.add_annotations(
+            session_t0,
+            [(0, "class_a")],
+            cell_meta=[{"centroid_row": 1, "centroid_col": 1, "image_id": 10}],
+        )
+        db.add_annotations(
+            session_t5,
+            [(0, "class_b")],
+            cell_meta=[{"centroid_row": 2, "centroid_col": 2, "image_id": 10}],
+        )
+
+        assert db.get_used_centroids(
+            "test-classifier", 1, "A1", timepoint=0
+        ) == {(10, 1, 1)}
+
+    def test_annotations_without_centroids_are_ignored(
+        self, sample_classifier
+    ):
+        """Pre-v2 rows have NULL centroids and must not crash the lookup."""
+        db, _ = sample_classifier
+        session_id = db.create_session(
+            "test-classifier", 1, "A1", 10, 0, "/path.npy"
+        )
+        db.add_annotations(session_id, [(0, "class_a")])
+
+        assert db.get_used_centroids("test-classifier", 1, "A1") == set()
+
+    def test_annotation_without_image_id_is_ignored(self, sample_classifier):
+        """A centroid with no source image can't form a valid key."""
+        db, _ = sample_classifier
+        session_id = db.create_session(
+            "test-classifier", 1, "A1", 10, 0, "/path.npy"
+        )
+        db.add_annotations(
+            session_id,
+            [(0, "class_a")],
+            cell_meta=[{"centroid_row": 5, "centroid_col": 6}],
+        )
+
+        assert db.get_used_centroids("test-classifier", 1, "A1") == set()
 
 
 class TestStatistics:

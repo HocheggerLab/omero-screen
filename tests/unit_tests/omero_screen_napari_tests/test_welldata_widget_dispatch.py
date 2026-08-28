@@ -1,7 +1,6 @@
 """Tests for label-stitch dispatch in ``_welldata_widget._display_plate``.
 
-The dispatch routes stitched-mode plates through ``recompose_split_labels``
-(lossless non-zero copy) and legacy plates through ``stitch_labels_from_positions``
+The dispatch routes plates through ``stitch_labels_from_offsets``
 (merge_labels overlap fusion).
 """
 
@@ -51,7 +50,7 @@ def _run_display_plate(
 ):
     """Drive ``_display_plate`` with the heavy bits mocked.
 
-    Returns (mock_recompose, mock_legacy_stitch).
+    Returns (mock stitch_labels_from_offsets, mock stitch_from_offsets).
     """
     if stitched_lbls_canvas is None:
         stitched_lbls_canvas = np.zeros((50, 50, 2), dtype=np.uint16)
@@ -62,64 +61,44 @@ def _run_display_plate(
     with (
         patch.object(wd_widget, "omero_data", omero_data),
         patch.object(wd_widget, "_get_stitch_params", return_value=stitch_params),
-        patch.object(wd_widget, "has_valid_positions", return_value=True),
         patch.object(
             wd_widget,
-            "stitch_from_positions",
+            "stitch_from_offsets",
             return_value=np.zeros((50, 50, 2), dtype=np.uint16),
         ) as mock_stitch_img,
         patch.object(
             wd_widget,
-            "recompose_split_labels",
-            return_value=stitched_lbls_canvas,
-        ) as mock_recompose,
-        patch.object(
-            wd_widget,
-            "stitch_labels_from_positions",
+            "stitch_labels_from_offsets",
             return_value=legacy_lbls_canvas,
         ) as mock_legacy,
         patch.object(wd_widget, "clear_viewer_layers"),
         patch.object(wd_widget, "_display_stitched"),
     ):
         wd_widget._display_plate(viewer)
-        return mock_recompose, mock_legacy, mock_stitch_img
+        return mock_legacy, mock_stitch_img
 
 
 class TestDisplayPlateDispatch:
-    def test_stitched_mode_uses_recompose(
-        self, stitched_two_field_omero_data, stitch_params
-    ):
-        stitched_two_field_omero_data.label_stitched_mode = True
-        recompose, legacy, _ = _run_display_plate(
-            stitched_two_field_omero_data, stitch_params
-        )
-        assert recompose.called, "stitched mode should call recompose_split_labels"
-        assert not legacy.called, (
-            "stitched mode must NOT call stitch_labels_from_positions"
-        )
+    """Tests all labels go through the same stitch path in the widget.
 
+    This functionality is required to visualise the effect of changing
+    the stitch parameters."""
     def test_legacy_mode_uses_stitch_labels(
         self, stitched_two_field_omero_data, stitch_params
     ):
         stitched_two_field_omero_data.label_stitched_mode = False
-        recompose, legacy, _ = _run_display_plate(
+        stitch_labels, stitch_images = _run_display_plate(
             stitched_two_field_omero_data, stitch_params
         )
-        assert legacy.called, "legacy mode should call stitch_labels_from_positions"
-        assert not recompose.called, (
-            "legacy mode must NOT call recompose_split_labels"
-        )
+        assert stitch_labels.called, "should call stitch_labels_from_offset"
+        assert stitch_images.called, "should call stitch_from_offset"
 
-    def test_stitched_mode_passes_tile_dimensions(
+    def test_stitched_mode_uses_stitch_labels(
         self, stitched_two_field_omero_data, stitch_params
     ):
-        """Recompose call receives tile_h, tile_w taken from per-field label shape."""
         stitched_two_field_omero_data.label_stitched_mode = True
-        recompose, _, _ = _run_display_plate(
+        stitch_labels, stitch_images = _run_display_plate(
             stitched_two_field_omero_data, stitch_params
         )
-        kwargs = recompose.call_args.kwargs
-        assert kwargs["tile_h"] == 32
-        assert kwargs["tile_w"] == 32
-        assert kwargs["overlap_x"] == 14
-        assert kwargs["overlap_y"] == 14
+        assert stitch_labels.called, "should call stitch_labels_from_offset"
+        assert stitch_images.called, "should call stitch_from_offset"
