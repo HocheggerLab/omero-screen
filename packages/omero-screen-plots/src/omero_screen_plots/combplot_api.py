@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 from matplotlib.axes import Axes
-from matplotlib.figure import Figure
+from matplotlib.figure import Figure, SubFigure
 from matplotlib.gridspec import GridSpec
 
 from omero_screen_plots.cellcycleplot_api import cellcycle_stacked
@@ -118,7 +118,10 @@ def combplot_feature(
     path: Optional[Path] = None,
     file_format: str = "png",
     dpi: int = 300,
-) -> tuple[Figure, list[Any]]:
+    figure: Optional[Union[Figure, SubFigure]] = None,
+    show_ylabel: bool = True,
+    show_xlabel: bool = True,
+) -> tuple[Union[Figure, SubFigure], list[Any]]:
     """Create a combined plot with histograms and scatter plots for feature analysis.
 
     Creates a ``(2 + n_features)×n_conditions`` grid layout that grows
@@ -256,8 +259,12 @@ def combplot_feature(
     # Create figure with GridSpec layout: histogram + EdU + one row per feature.
     n_conditions = len(conditions)
     n_rows = 2 + n_features
-    fig = plt.figure(figsize=fig_size)
-    gs = GridSpec(
+    # ``figure`` lets several combplots share one canvas: pass a SubFigure from
+    # Figure.subfigures() and this draws into it instead of making its own
+    # figure, so a 2x2 of cell lines is one file rather than four. fig_size is
+    # then set by the parent and ignored here.
+    fig = plt.figure(figsize=fig_size) if figure is None else figure
+    gs = fig.add_gridspec(
         n_rows,
         n_conditions,
         height_ratios=[1] + [3] * (1 + n_features),
@@ -277,7 +284,7 @@ def combplot_feature(
 
     # Plot for each condition
     for i, condition in enumerate(conditions):
-        is_first = i == 0
+        is_first = i == 0 and show_ylabel
         # Filter data for this condition
         condition_data = df_filtered[df_filtered[condition_col] == condition]
 
@@ -307,6 +314,10 @@ def combplot_feature(
             edu_limits,
             is_first,
         )
+        # The rows sit at hspace=0.05, so tick labels on an interior row are
+        # clipped by the axes below and render as half-height digits. Only the
+        # bottom row (the last feature scatter) carries them.
+        ax_scatter_edu.set_xticklabels([])
         axes.append(ax_scatter_edu)
 
         # Rows 2..n: one DNA vs feature scatter per feature, with optional
@@ -338,15 +349,22 @@ def combplot_feature(
             axes.append(ax_scatter_feature)
 
     # Set common x-axis label
-    fig.text(0.5, -0.07, "norm. DNA content", ha="center", fontsize=6)
+    if show_xlabel:
+        fig.text(0.5, -0.07, "norm. DNA content", ha="center", fontsize=6)
 
     # Set title
     if not title:
         title = f"combplot_feature_{selector_val or 'all'}"
     fig.suptitle(title, fontsize=8, weight="bold", x=0, y=1.05, ha="left")
 
-    # Save figure
+    # Save figure. Only meaningful when this call owns the figure: a SubFigure
+    # cannot be written on its own, so when composing, the parent saves.
     if save and path:
+        if isinstance(fig, SubFigure):
+            raise ValueError(
+                "save=True is not supported when drawing into a SubFigure; "
+                "save the parent figure instead."
+            )
         figure_title = title.replace(" ", "_")
         save_fig(
             fig,
