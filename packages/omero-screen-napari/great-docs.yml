@@ -1,0 +1,37 @@
+# Great Docs configuration — omero-screen-napari.
+# Sub-site of the OMERO-Screen platform, deployed to /napari/.
+#
+# `dynamic: false` matters here: this package imports napari and Qt, so an
+# automatic full-discovery walk is both slow and fragile in headless CI.
+# Keep the reference list explicit and small — the value of this site is the
+# widget guides and (after the Click migration) the `omero-train` CLI, not a
+# generated dump of Qt widget classes.
+module: omero_screen_napari
+display_name: OMERO-Screen Napari
+parser: google
+dynamic: false
+pypi: false
+repo: https://github.com/HocheggerLab/omero-screen
+site_url: https://hocheggerlab.github.io/omero-screen/napari/
+
+announcement:
+  content: "Part of the **OMERO-Screen** platform — [back to the documentation home](https://hocheggerlab.github.io/omero-screen/)"
+  type: info
+  dismissable: true
+
+hero:
+  enabled: true
+  tagline: "Napari widgets for browsing plates, inspecting cells and labelling training data."
+  badges: false
+
+reference:
+  - title: Data model
+    desc: The shared object the widgets read and write.
+    contents:
+      - omero_data.OmeroData
+      - omero_data.OmeroConnection
+  - title: Loading well data
+    desc: Fetching plate and well data from OMERO into napari.
+    contents:
+      - welldata_api.parse_omero_data
+      - welldata_api.parse_plate_data

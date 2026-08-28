@@ -1,0 +1,26 @@
+# Great Docs configuration — omero-utils.
+# Sub-site of the OMERO-Screen platform, deployed to /utils/.
+module: omero_utils
+display_name: OMERO Utils
+parser: google
+dynamic: false
+pypi: false
+repo: https://github.com/HocheggerLab/omero-screen
+site_url: https://hocheggerlab.github.io/omero-screen/utils/
+
+announcement:
+  content: "Part of the **OMERO-Screen** platform — [back to the documentation home](https://hocheggerlab.github.io/omero-screen/)"
+  type: info
+  dismissable: true
+
+hero:
+  enabled: true
+  tagline: "Connection handling and low-level helpers for the OMERO API."
+  badges: false
+
+reference:
+  - title: Connections
+    desc: Decorator-based OMERO connection lifecycle management.
+    contents:
+      - omero_connect.omero_connect
+      - omero_connect.OmeroConnectionError

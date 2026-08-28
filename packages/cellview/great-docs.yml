@@ -1,0 +1,28 @@
+# Great Docs configuration — cellview.
+# Sub-site of the OMERO-Screen platform, deployed to /cellview/.
+#
+# `cli:` stays disabled until the cellview CLI is migrated from argparse to
+# Click — Great Docs generates CLI reference from Click objects only.
+module: cellview
+display_name: CellView
+parser: google
+dynamic: false
+pypi: false
+repo: https://github.com/HocheggerLab/omero-screen
+site_url: https://hocheggerlab.github.io/omero-screen/cellview/
+
+announcement:
+  content: "Part of the **OMERO-Screen** platform — [back to the documentation home](https://hocheggerlab.github.io/omero-screen/)"
+  type: info
+  dismissable: true
+
+hero:
+  enabled: true
+  tagline: "A DuckDB single-cell database for OMERO-Screen measurements."
+  badges: false
+
+reference:
+  - title: Python API
+    desc: Loading plate measurements into pandas.
+    contents:
+      - api.cellview_load_data
