@@ -1,0 +1,102 @@
+name: Documentation (Great Docs)
+
+# Builds the six-site Great Docs platform documentation.
+#
+# This runs in PARALLEL with docs.yml (Sphinx), which still owns the live
+# GitHub Pages deployment. Nothing here publishes until someone triggers the
+# workflow manually with deploy=true. Retire docs.yml only once this site has
+# passed the content-parity and URL checks.
+
+on:
+  push:
+    branches: ["main", "click-migration"]
+    paths:
+      - "index.qmd"
+      - "user_guide/**"
+      - "assets/**"
+      - "great-docs.yml"
+      - "packages/**/great-docs.yml"
+      - "scripts/build_docs.sh"
+      - ".github/workflows/docs-greatdocs.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "index.qmd"
+      - "user_guide/**"
+      - "great-docs.yml"
+      - "packages/**/great-docs.yml"
+      - "scripts/build_docs.sh"
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Publish to GitHub Pages (replaces the Sphinx site)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: "greatdocs-${{ github.ref }}"
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # Several packages call set_env_vars() at import time, which raises
+      # OSError unless a .env file exists or these four are set. The docs
+      # build never connects to OMERO — these only get it past the import.
+      ENV: development
+      USERNAME: docs-build
+      PASSWORD: docs-build
+      HOST: localhost
+      MPLBACKEND: Agg
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            **/pyproject.toml
+            **/uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Set up Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Build all six sites
+        run: ./scripts/build_docs.sh
+
+      - name: Check for broken internal links
+        run: |
+          uv run --with 'great-docs==0.17.0' great-docs check-links || \
+            echo "::warning::link check reported issues"
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  # Deployment is manual and opt-in while Sphinx still owns the live site.
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
