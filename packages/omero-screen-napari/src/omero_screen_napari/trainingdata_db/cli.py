@@ -1,147 +1,101 @@
-"""CLI tool for managing Omero Screen Training Data.
+"""Click command-line interface for the Omero Screen training-data database.
 
-This module provides a command-line interface for:
+This module provides ``omero-train``:
+
 - Migrating existing training data to the database
 - Listing and managing classifiers
 - Exporting training data
 - Viewing statistics
+
+The exported :data:`cli` group is what Great Docs renders as CLI reference and
+what ``CliRunner`` drives in tests, so it must stay importable without pulling
+in napari, Qt or Torch. Database and pandas imports therefore live inside the
+command callbacks, not at module scope.
 """
 
-import argparse
+from __future__ import annotations
+
 import shutil
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pandas as pd
+import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
-from .database import TrainingDB
-from .migrator import migrate_all_classifiers
+if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
+    from .database import TrainingDB
 
 console = Console()
 
 
-def setup_parser() -> argparse.ArgumentParser:
-    """Create and configure argument parser."""
-    parser = argparse.ArgumentParser(
-        description="""
-Manage Omero Screen Training Data Database.
+class VariadicOptionCommand(click.Command):
+    """Preserve argparse-style ``--option VALUE [VALUE ...]`` options.
 
-This CLI allows you to:
-  - Migrate existing .npy training data files into the SQLite database.
-  - List available classifiers and see summary statistics.
-  - view detailed statistics for specific classifiers/images.
-  - Export training data to CSV, JSON, or Parquet for analysis.
+    argparse's ``nargs="+"`` accepts several values after a single flag;
+    Click's ``multiple=True`` expects the flag to be repeated. Existing shell
+    scripts use the argparse spelling, so rewrite it into the Click form
+    before parsing and accept both.
 
-You can refer to classifiers by either their ID (e.g., 1) or Name (e.g., 'Experiment_1').
-""",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+    A near-identical copy lives in ``cellclass.cli``. The duplication is
+    deliberate: ``omero_utils`` — the obvious shared home — calls
+    ``set_env_vars()`` at import time, which would drag OMERO configuration
+    into every ``--help`` invocation and break the lightweight-import rule.
+    """
 
-    subparsers = parser.add_subparsers(
-        dest="command", help="Command to execute"
-    )
+    def __init__(
+        self,
+        *args: Any,
+        variadic_options: Sequence[str] = (),
+        **kwargs: Any,
+    ) -> None:
+        """Initialise a command with options that consume values until the next flag."""
+        self._variadic_options = frozenset(variadic_options)
+        super().__init__(*args, **kwargs)
 
-    # Command: migrate
-    migrate_parser = subparsers.add_parser(
-        "migrate",
-        help="Migrate existing .npy files to database",
-        description="Scan the specified directory for training data folders and import them into the database.",
-    )
-    migrate_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Simulate migration without writing to DB",
-    )
-    migrate_parser.add_argument(
-        "--path",
-        type=Path,
-        help="Base directory containing classifier folders (default: ~/omeroscreen_trainingdata)",
-    )
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        """Expand variadic values into Click's repeatable-option representation."""
+        expanded: list[str] = []
+        index = 0
+        while index < len(args):
+            token = args[index]
+            if token not in self._variadic_options:
+                expanded.append(token)
+                index += 1
+                continue
 
-    # Command: list
-    subparsers.add_parser(
-        "list",
-        help="List all classifiers",
-        description="Show a table of all available classifiers with their IDs, names, and summary stats.",
-    )
-
-    # Command: stats
-    stats_parser = subparsers.add_parser(
-        "stats",
-        help="Show statistics for a classifier",
-        description="Show general statistics and class distribution for a specific classifier.",
-    )
-    stats_parser.add_argument(
-        "classifier",
-        help="ID or Name of the classifier (e.g., 1 or 'MyClassifier')",
-    )
-
-    # Command: export
-    export_parser = subparsers.add_parser(
-        "export",
-        help="Export training data to file",
-        description="Export annotations to a file (CSV, JSON, Parquet) with optional filtering.",
-    )
-    export_parser.add_argument(
-        "classifier",
-        help="ID or Name of the classifier (e.g., 1 or 'MyClassifier')",
-    )
-    export_parser.add_argument(
-        "--format",
-        choices=["csv", "json", "parquet"],
-        default="csv",
-        help="Output format (default: csv)",
-    )
-    export_parser.add_argument(
-        "--output",
-        "-o",
-        type=Path,
-        help="Output file path (default: {name}_export.{format})",
-    )
-    export_parser.add_argument("--plate", type=int, help="Filter by Plate ID")
-    export_parser.add_argument("--well", help="Filter by Well")
-
-    # Command: delete
-    delete_parser = subparsers.add_parser(
-        "delete",
-        help="Delete a classifier",
-        description="Delete a classifier and all its associated data (classes, sessions, annotations).",
-    )
-    delete_parser.add_argument(
-        "identifiers",
-        nargs="+",
-        help="IDs or Names of the classifiers to delete (e.g., 1 2 'MyClassifier')",
-    )
-    delete_parser.add_argument(
-        "--yes",
-        "-y",
-        action="store_true",
-        help="Skip confirmation prompt",
-    )
-    delete_parser.add_argument(
-        "--plate",
-        type=int,
-        nargs="+",
-        help="Delete only sessions for specific Plate ID(s). If not specified, deletes entire classifier.",
-    )
-
-    return parser
+            index += 1
+            if index == len(args) or args[index].startswith("-"):
+                expanded.append(token)
+                continue
+            while index < len(args) and not args[index].startswith("-"):
+                expanded.extend((token, args[index]))
+                index += 1
+        return super().parse_args(ctx, expanded)
 
 
 def resolve_classifier(db: TrainingDB, identifier: str) -> dict[str, Any]:
-    """Resolve classifier by ID (if int) or name."""
-    # Try as ID first if it looks like an integer
+    """Resolve a classifier by numeric ID, falling back to its name.
+
+    Args:
+        db: An open :class:`TrainingDB` handle.
+        identifier: Either a numeric classifier ID or a classifier name.
+
+    Returns:
+        The classifier record.
+
+    Raises:
+        SystemExit: If no classifier matches, after printing an error.
+    """
     if identifier.isdigit():
         clf = db.get_classifier_by_id(int(identifier))
         if clf:
             return clf
 
-    # Try as name
     clf = db.get_classifier(identifier)
     if clf:
         return clf
@@ -150,23 +104,155 @@ def resolve_classifier(db: TrainingDB, identifier: str) -> dict[str, Any]:
     sys.exit(1)
 
 
-def handle_migrate(args: argparse.Namespace) -> None:
-    """Handle migrate command."""
-    base_dir = args.path
+@click.group(
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
+@click.version_option(package_name="omero-screen-napari")
+def cli() -> None:
+    """Manage the Omero Screen training-data database.
+
+    Migrate existing '.npy' training-data files into the database, list
+    available classifiers, inspect their statistics, and export annotations
+    for analysis.
+
+    Classifiers can be referred to by either their ID (e.g. 1) or their
+    name (e.g. 'Experiment_1').
+    """
+
+
+@cli.command()
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Simulate the migration without writing to the database.",
+)
+@click.option(
+    "--path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help=(
+        "Base directory containing classifier folders "
+        "(default: ~/omeroscreen_trainingdata)."
+    ),
+)
+def migrate(dry_run: bool, path: Path | None) -> None:
+    """Migrate existing .npy files into the database.
+
+    Scans the given directory for training-data folders and imports them.
+    """
+    handle_migrate(path=path, dry_run=dry_run)
+
+
+@cli.command("list")
+def list_command() -> None:
+    """List all classifiers.
+
+    Shows a table of every classifier with its ID, name and summary
+    statistics.
+    """
+    handle_list()
+
+
+@cli.command()
+@click.argument("classifier")
+def stats(classifier: str) -> None:
+    """Show statistics for CLASSIFIER.
+
+    CLASSIFIER is an ID or a name, e.g. 1 or 'MyClassifier'. Prints
+    general statistics, the class distribution, and a per-image breakdown.
+    """
+    handle_stats(classifier=classifier)
+
+
+@cli.command()
+@click.argument("classifier")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["csv", "json", "parquet"]),
+    default="csv",
+    show_default=True,
+    help="Output format.",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output file path (default: {name}_export.{format}).",
+)
+@click.option("--plate", type=int, default=None, help="Filter by plate ID.")
+@click.option("--well", default=None, help="Filter by well.")
+def export(
+    classifier: str,
+    output_format: str,
+    output: Path | None,
+    plate: int | None,
+    well: str | None,
+) -> None:
+    """Export training data for CLASSIFIER to a file.
+
+    CLASSIFIER is an ID or a name. Annotations are written as CSV, JSON or
+    Parquet, optionally filtered by plate and well.
+    """
+    handle_export(
+        classifier=classifier,
+        output_format=output_format,
+        output=output,
+        plate=plate,
+        well=well,
+    )
+
+
+@cli.command(cls=VariadicOptionCommand, variadic_options=("--plate",))
+@click.argument("identifiers", nargs=-1, required=True)
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    help="Skip the confirmation prompt.",
+)
+@click.option(
+    "--plate",
+    type=int,
+    multiple=True,
+    help=(
+        "Delete only sessions for the given plate ID(s). Accepts one or more "
+        "values. If omitted, the entire classifier is deleted."
+    ),
+)
+def delete(
+    identifiers: tuple[str, ...], yes: bool, plate: tuple[int, ...]
+) -> None:
+    """Delete one or more classifiers.
+
+    IDENTIFIERS are IDs or names, e.g. 1 2 'MyClassifier'. Deletes the
+    classifier along with its classes, sessions and annotations, and removes
+    the associated .npy files and folder from disk.
+    """
+    handle_delete(
+        identifiers=list(identifiers), yes=yes, plate=list(plate) or None
+    )
+
+
+def handle_migrate(path: Path | None, dry_run: bool) -> None:
+    """Run the training-data migration and report the outcome."""
+    from .migrator import migrate_all_classifiers
+
     console.print(Panel("Starting Migration", style="bold blue"))
 
-    # The migrator prints its own logs, but we can wrap it or just call it.
-    # Since migrator uses logger, we rely on that or the summary it prints.
-    migrate_all_classifiers(base_dir=base_dir, dry_run=args.dry_run)
+    migrate_all_classifiers(base_dir=path, dry_run=dry_run)
 
-    if args.dry_run:
+    if dry_run:
         console.print(
             "[yellow]This was a DRY RUN. No changes were made.[/yellow]"
         )
 
 
-def handle_list(args: argparse.Namespace) -> None:
-    """Handle list command."""
+def handle_list() -> None:
+    """Print a table of every classifier with its summary statistics."""
+    from .database import TrainingDB
+
     db = TrainingDB()
     classifiers = db.list_classifiers()
 
@@ -214,30 +300,29 @@ def handle_list(args: argparse.Namespace) -> None:
     console.print(table)
 
 
-def handle_stats(args: argparse.Namespace) -> None:
-    """Handle stats command."""
-    db = TrainingDB()
-    identifier = args.classifier
+def handle_stats(classifier: str) -> None:
+    """Print general statistics, class distribution and per-image breakdown."""
+    from .database import TrainingDB
 
-    classifier = resolve_classifier(db, identifier)
-    name = classifier["name"]
+    db = TrainingDB()
+
+    record = resolve_classifier(db, classifier)
+    name = record["name"]
 
     console.print(Panel(f"Statistics for: [bold]{name}[/bold]", style="blue"))
 
-    # General Stats
     n_sessions = db.get_session_count(name)
     n_annotations = db.get_total_annotations(name)
     classes = db.get_classes(name)
 
     grid = Table.grid(padding=1)
-    grid.add_row("ID:", str(classifier["id"]))
+    grid.add_row("ID:", str(record["id"]))
     grid.add_row("Total Sessions:", str(n_sessions))
     grid.add_row("Total Annotations:", str(n_annotations))
     grid.add_row("Defined Classes:", ", ".join(classes))
     console.print(grid)
     console.print()
 
-    # Class Distribution
     dist = db.get_class_distribution(name)
 
     table = Table(title="Class Distribution")
@@ -252,9 +337,8 @@ def handle_stats(args: argparse.Namespace) -> None:
     console.print(table)
     console.print()
 
-    # Detailed Stats
-    stats = db.get_image_stats(name)
-    if not stats:
+    stats_rows = db.get_image_stats(name)
+    if not stats_rows:
         console.print("[yellow]No per-image data found.[/yellow]")
         return
 
@@ -266,7 +350,7 @@ def handle_stats(args: argparse.Namespace) -> None:
     table.add_column("Total Cells", justify="right", style="bold")
     table.add_column("Class Breakdown")
 
-    for s in stats:
+    for s in stats_rows:
         breakdown = ", ".join(
             [f"{k}: {v}" for k, v in s["class_distribution"].items()]
         )
@@ -282,27 +366,23 @@ def handle_stats(args: argparse.Namespace) -> None:
     console.print(table)
 
 
-def handle_delete(args: argparse.Namespace) -> None:
-    """Handle delete command."""
+def handle_delete(
+    identifiers: list[str], yes: bool, plate: list[int] | None
+) -> None:
+    """Delete classifiers, or only their sessions for the given plates."""
+    from .database import TrainingDB
 
-    identifiers = args.identifiers
     db_instance = TrainingDB()
 
-    # Resolve all classifiers first
     targets = []
     for ident in identifiers:
         try:
-            # We use a slight variant of resolve logic here to avoid sys.exit inside loop if possible,
-            # but resolve_classifier currently exits. Let's just use it and fail fast for now,
-            # or better, catch the exit? resolve_classifier exits on failure.
-            # Ideally we refactor resolve, but for now let's assume valid inputs or fail on first invalid.
             clf = resolve_classifier(db_instance, ident)
             targets.append(clf)
         except SystemExit:
             # resolve_classifier printed the error already
             return
 
-    # Collect stats for all targets
     console.print(
         Panel(f"Delete Operation: {len(targets)} classifier(s)", style="red")
     )
@@ -314,36 +394,31 @@ def handle_delete(args: argparse.Namespace) -> None:
     for clf in targets:
         name = clf["name"]
 
-        if args.plate:
-            # Partial delete logic per classifier
+        if plate:
             all_sessions = db_instance.list_sessions(name)
-            target_plates = set(args.plate)
+            target_plates = set(plate)
             sessions_to_delete = [
                 s for s in all_sessions if s["plate_id"] in target_plates
             ]
 
             if not sessions_to_delete:
                 console.print(
-                    f"[yellow]Skipping '{name}': No sessions found for plates {args.plate}.[/yellow]"
+                    f"[yellow]Skipping '{name}': No sessions found for plates {plate}.[/yellow]"
                 )
                 continue
 
             n_sess = len(sessions_to_delete)
-            # Count annotations for these sessions if possible, or just estimate
-            # Since we don't have a cheap way to count annotations for list of sessions without query
-            # We'll just list session count.
             deletion_plan.append(
                 {
                     "type": "partial",
                     "classifier": clf,
                     "sessions": sessions_to_delete,
-                    "desc": f"Sessions for Plate(s) {args.plate}",
+                    "desc": f"Sessions for Plate(s) {plate}",
                 }
             )
             total_sessions += n_sess
 
         else:
-            # Full delete
             n_sess = db_instance.get_session_count(name)
             n_ann = db_instance.get_total_annotations(name)
 
@@ -363,7 +438,6 @@ def handle_delete(args: argparse.Namespace) -> None:
         console.print("[yellow]Nothing to delete.[/yellow]")
         return
 
-    # Summary
     for plan in deletion_plan:
         clf_name = plan["classifier"]["name"]
         if plan["type"] == "full":
@@ -375,7 +449,7 @@ def handle_delete(args: argparse.Namespace) -> None:
                 f"[bold]{clf_name}[/bold]: {plan['desc']} ({len(plan['sessions'])} sessions)"
             )
 
-    if not args.yes:
+    if not yes:
         confirm = console.input(
             "\n[bold red]Are you sure you want to proceed with deletion? [y/N]: [/bold red]"
         )
@@ -383,7 +457,6 @@ def handle_delete(args: argparse.Namespace) -> None:
             console.print("[yellow]Operation cancelled.[/yellow]")
             return
 
-    # Execute
     training_data_dir = Path.home() / "omeroscreen_trainingdata"
 
     try:
@@ -399,14 +472,12 @@ def handle_delete(args: argparse.Namespace) -> None:
                 classifier_dir = training_data_dir / clf_name
 
                 if plan["type"] == "full":
-                    # Delete NPY files for all sessions first
                     all_sessions = db_instance.list_sessions(clf_name)
                     for session in all_sessions:
                         npy_path = Path(session["file_path"])
                         if npy_path.exists():
                             npy_path.unlink()
 
-                    # Delete classifier from DB
                     if db_instance.delete_classifier(clf_name):
                         console.print(
                             f"[green]Deleted classifier '{clf_name}' from database.[/green]"
@@ -416,7 +487,6 @@ def handle_delete(args: argparse.Namespace) -> None:
                             f"[red]Failed to delete classifier '{clf_name}' from database.[/red]"
                         )
 
-                    # Remove classifier folder on disk
                     if classifier_dir.exists():
                         shutil.rmtree(classifier_dir)
                         console.print(
@@ -424,7 +494,6 @@ def handle_delete(args: argparse.Namespace) -> None:
                         )
 
                 else:
-                    # Partial: delete selected sessions + their NPY files
                     count = 0
                     for session in plan["sessions"]:
                         npy_path = Path(session["file_path"])
@@ -436,7 +505,6 @@ def handle_delete(args: argparse.Namespace) -> None:
                         f"[green]Deleted {count} sessions (+ NPY files) from '{clf_name}'.[/green]"
                     )
 
-                    # If no sessions remain, clean up the whole classifier
                     remaining = db_instance.get_session_count(clf_name)
                     if remaining == 0:
                         console.print(
@@ -459,20 +527,28 @@ def handle_delete(args: argparse.Namespace) -> None:
         console.print(f"\n[red]Error during deletion: {e}[/red]")
 
 
-def handle_export(args: argparse.Namespace) -> None:
-    """Handle export command."""
-    db = TrainingDB()
-    identifier = args.classifier
+def handle_export(
+    classifier: str,
+    output_format: str,
+    output: Path | None,
+    plate: int | None,
+    well: str | None,
+) -> None:
+    """Write a classifier's annotations to a CSV, JSON or Parquet file."""
+    import pandas as pd
 
-    classifier = resolve_classifier(db, identifier)
-    name = classifier["name"]
+    from .database import TrainingDB
+
+    db = TrainingDB()
+
+    record = resolve_classifier(db, classifier)
+    name = record["name"]
 
     console.print(f"Fetching data for [bold]{name}[/bold]...")
 
-    # Fetch data
     try:
         data = db.get_annotations_by_classifier(
-            classifier_name=name, plate_id=args.plate, well=args.well
+            classifier_name=name, plate_id=plate, well=well
         )
     except ValueError as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -484,21 +560,16 @@ def handle_export(args: argparse.Namespace) -> None:
 
     df = pd.DataFrame(data)
 
-    # Determine output path
-    if args.output:
-        output_path = args.output
-    else:
-        output_path = Path(f"{name}_export.{args.format}")
+    output_path = output or Path(f"{name}_export.{output_format}")
 
-    # Export
     console.print(f"Exporting {len(df)} rows to {output_path}...")
 
     try:
-        if args.format == "csv":
+        if output_format == "csv":
             df.to_csv(output_path, index=False)
-        elif args.format == "json":
+        elif output_format == "json":
             df.to_json(output_path, orient="records", indent=2)
-        elif args.format == "parquet":
+        elif output_format == "parquet":
             df.to_parquet(output_path, index=False)
 
         console.print(f"[green]Successfully exported to {output_path}[/green]")
@@ -508,28 +579,31 @@ def handle_export(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    """Main entry point."""
-    parser = setup_parser()
-    args = parser.parse_args()
+    """Entry point for the ``omero-train`` console script.
 
-    if not args.command:
-        parser.print_help()
-        sys.exit(1)
-
+    Preserves the pre-Click contract: invoking with no subcommand prints help
+    and exits 1, a user interrupt exits 130, and an unexpected error exits 1.
+    """
     try:
-        if args.command == "migrate":
-            handle_migrate(args)
-        elif args.command == "list":
-            handle_list(args)
-        elif args.command == "stats":
-            handle_stats(args)
-        elif args.command == "export":
-            handle_export(args)
-        elif args.command == "delete":
-            handle_delete(args)
+        cli.main(standalone_mode=False)
+    except click.NoSuchOption as e:
+        console.print(f"[red]{e.format_message()}[/red]")
+        sys.exit(2)
+    except click.UsageError as e:
+        # No subcommand given: argparse printed help and exited 1.
+        if e.ctx is not None and not sys.argv[1:]:
+            click.echo(e.ctx.get_help())
+            sys.exit(1)
+        e.show()
+        sys.exit(e.exit_code)
+    except click.exceptions.Abort:
+        console.print("\n[yellow]Operation cancelled by user.[/yellow]")
+        sys.exit(130)
     except KeyboardInterrupt:
         console.print("\n[yellow]Operation cancelled by user.[/yellow]")
         sys.exit(130)
+    except SystemExit:
+        raise
     except Exception as e:
         console.print(f"\n[bold red]Unexpected error:[/bold red] {e}")
         sys.exit(1)

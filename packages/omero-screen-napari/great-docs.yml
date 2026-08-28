@@ -24,6 +24,24 @@ hero:
   tagline: "Napari widgets for browsing plates, inspecting cells and labelling training data."
   badges: false
 
+cli:
+  enabled: true
+  module: omero_screen_napari.trainingdata_db.cli
+  name: cli
+  title: "CLI reference"
+  desc: >-
+    The `omero-train` command manages the training-data database that backs the
+    napari labelling widgets.
+  sections:
+    - title: "Inspect"
+      desc: "See what classifiers and annotations exist."
+      contents: [list, stats]
+    - title: "Import and export"
+      contents: [migrate, export]
+    - title: "Destructive"
+      desc: "Removes data from the database and from disk."
+      contents: [delete]
+
 reference:
   - title: Data model
     desc: The shared object the widgets read and write.
