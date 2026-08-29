@@ -42,6 +42,19 @@ cli:
       desc: "Removes data from the database and from disk."
       contents: [delete]
 
+user_guide:
+  - section: "Guide"
+    contents:
+      - overview.qmd
+      - installation.qmd
+      - welldata_widget.qmd
+      - gallery_widget.qmd
+      - training_widget.qmd
+      - tracks_widget.qmd
+      - session_manager.qmd
+      - aligned_plate_widget.qmd
+      - cli_reference.qmd
+
 reference:
   - title: Data model
     desc: The shared object the widgets read and write.

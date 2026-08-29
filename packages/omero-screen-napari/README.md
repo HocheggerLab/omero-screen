@@ -26,12 +26,12 @@ A companion command-line tool, `omero-train`, provides database management, stat
 Full user documentation (including workflow guides for non-technical users) is available at the [omero-screen documentation site](https://hocheggerlab.github.io/omero-screen/).
 
 Quick links:
-- [Installation](docs/installation.md)
-- [Welldata Widget — loading images and stitching](docs/welldata_widget.md)
-- [Gallery Widget — cell crops and classifier creation](docs/gallery_widget.md)
-- [Training Widget — annotating cells](docs/training_widget.md)
-- [Session Manager & Direct Load](docs/session_manager.md)
-- [omero-train CLI reference](docs/cli_reference.md)
+- [Installation](user-guide/installation.html)
+- [Welldata Widget — loading images and stitching](user-guide/welldata_widget.html)
+- [Gallery Widget — cell crops and classifier creation](user-guide/gallery_widget.html)
+- [Training Widget — annotating cells](user-guide/training_widget.html)
+- [Session Manager & Direct Load](user-guide/session_manager.html)
+- [omero-train CLI reference](user-guide/cli_reference.html)
 
 ## Installation
 
@@ -72,7 +72,7 @@ omero-train export mitosis-rpe      # export annotations to CSV
 omero-train delete mitosis-rpe      # delete a classifier and its data
 ```
 
-See [CLI reference](docs/cli_reference.md) for full details.
+See [CLI reference](user-guide/cli_reference.html) for full details.
 
 ## Authors
 

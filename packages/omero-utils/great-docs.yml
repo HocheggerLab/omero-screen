@@ -18,6 +18,11 @@ hero:
   tagline: "Connection handling and low-level helpers for the OMERO API."
   badges: false
 
+user_guide:
+  - section: "Guide"
+    contents:
+      - overview.qmd
+
 reference:
   - title: Connections
     desc: Decorator-based OMERO connection lifecycle management.

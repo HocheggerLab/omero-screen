@@ -40,6 +40,16 @@ cli:
       desc: "Edit metadata, delete plates, remove orphaned records."
       contents: [edit, delete, clean]
 
+user_guide:
+  - section: "Guide"
+    contents:
+      - overview.qmd
+      - user-guide.qmd
+      - explore.qmd
+      - api.qmd
+      - data-structure.qmd
+      - developer-guide.qmd
+
 reference:
   - title: Python API
     desc: Loading plate measurements into pandas.

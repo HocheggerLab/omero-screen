@@ -1,0 +1,51 @@
+---
+title: "Normalisation"
+---
+
+The normalise module provides data normalization utilities for immunofluorescence data.
+
+See the [API reference](../reference/index.html) for full signatures and parameter documentation.
+
+## Examples
+
+Normalize by mode:
+
+```python
+from omero_screen_plots.normalise import normalize_by_mode
+import pandas as pd
+
+df = pd.read_csv("sample_plate_data.csv")
+normalized_df = normalize_by_mode(
+    df=df,
+    feature="intensity_mean_p21_nucleus",
+    condition_col="condition",
+    control_condition="DMSO"
+)
+```
+
+Normalize and plot results:
+
+```python
+from omero_screen_plots.normalise import normalize_and_plot
+
+normalize_and_plot(
+    data_path="sample_plate_data.csv",
+    feature="intensity_mean_p21_nucleus",
+    condition_col="condition",
+    control_condition="DMSO",
+    output_path="output/"
+)
+```
+
+Set threshold categories:
+
+```python
+from omero_screen_plots.normalise import set_threshold_categories
+
+df_with_categories = set_threshold_categories(
+    df=df,
+    feature="intensity_mean_p21_nucleus",
+    low_threshold=500,
+    high_threshold=2000
+)
+```

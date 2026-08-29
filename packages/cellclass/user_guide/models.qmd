@@ -1,0 +1,124 @@
+---
+title: "Model Guide"
+---
+
+
+## Overview
+
+cellclass includes a curated set of convolutional architectures suited to small
+fluorescence microscopy crops (typically 50 × 50 px, 1–3 channels). The models fall into
+two groups: **lightweight baselines** that train quickly and are easy to deploy, and
+**pretrained transfer-learning models** that leverage ImageNet features when labelled data
+is scarce.
+
+---
+
+## Recommended models for small cell images
+
+### Lightweight (no pretrained weights)
+
+These models train from scratch and are well suited to grayscale or 2-channel images
+where ImageNet features are less relevant.
+
+| Model | Key strengths | Recommended batch size | Notes |
+|---|---|---|---|
+| `shufflenet2x1_0` | Fast, memory-efficient, excellent accuracy/speed trade-off | 128 | **First choice** for most cell classification tasks |
+| `shufflenet2x1_5` | Slightly wider than `2x1_0`, marginal accuracy gain | 64 | Use when `2x1_0` plateaus |
+| `shufflenet2x2_0` | Widest ShuffleNet, highest capacity | 32 | Use for complex multiclass problems |
+| `squeezenet1_0` | Smallest model, fastest inference | 128 | Good sanity-check / baseline |
+| `densenet121` | Strong regularisation via dense connections | 64 | Reliable performer across datasets |
+| `densenet161` | More capacity than 121 | 32 | Diminishing returns on 50 px crops |
+
+### Pretrained (ImageNet transfer learning)
+
+Use `--freeze-weights` to freeze the backbone and only train the classification head.
+This is beneficial when labelled data is limited (< ~500 crops per class).
+
+| Model | Input size | Key strengths | Notes |
+|---|---|---|---|
+| `efficientnetb3s` | 300 × 300 (resized automatically) | Best accuracy with pretrained features | **Recommended pretrained model** |
+| `efficientnetb4s` | 380 × 380 | Highest accuracy | Slower; use when `b3s` is insufficient |
+
+> **Note on image resizing**: EfficientNet models internally resize inputs. For 50 × 50 px
+> crops this upscaling can hurt performance compared to architectures that accept any input
+> size. If you have ≥ 1000 crops per class, `densenet121` often matches or exceeds
+> EfficientNet.
+
+### Attention models
+
+The following models add spatial or channel attention modules to GoogLeNet- or
+AlexNet-based backbones. They are experimental and have shown mixed results on small crops.
+
+| Model | Description |
+|---|---|
+| `googlenet` / `googlenet_att` | GoogLeNet with optional spatial attention |
+| `alexnet` / `alexnet_att` | AlexNet with optional spatial attention |
+| `simplegooglenet` | Lightweight GoogLeNet using a subset of inception blocks |
+| `simplegooglenet_att` | + spatial attention |
+| `simplegooglenet_ch_att` | + channel attention |
+| `simplegooglenet_ch_sp_att` | + both channel and spatial attention |
+
+---
+
+## Choosing a model: decision tree
+
+```
+Do you have ≥ 500 labelled crops per class?
+├── Yes → Start with shufflenet2x1_0 (fast sweep) + densenet121
+│         Compare on W&B; pick best.
+└── No  → Use efficientnetb3s --freeze-weights
+          Transfer learning compensates for small datasets.
+
+Is inference speed critical (production deployment)?
+├── Yes → shufflenet2x1_0 or squeezenet1_0
+└── No  → Any of the above
+
+Do you have > 3 classes or very similar morphologies?
+└── Yes → Try densenet161 or shufflenet2x2_0 for higher capacity
+```
+
+---
+
+## Hyperparameter guidance
+
+### Learning rate
+
+Always sweep at least two values: `1e-3` and `1e-4`. The plateau scheduler adapts
+automatically, so a higher starting LR rarely hurts.
+
+### Batch size
+
+Larger batches train faster but may reduce generalisation on small datasets. Use the
+recommended defaults from the table above; halve the batch size if you run out of memory.
+
+### Data augmentation (`--flip`)
+
+| Value | Augmentation applied |
+|---|---|
+| `0` | None |
+| `1` | Horizontal flip only |
+| `2` | Vertical flip only |
+| `3` | Both horizontal and vertical flips (**recommended**) |
+
+Cells in fluorescence images have no canonical orientation, so flipping both axes is
+almost always beneficial.
+
+### Class imbalance
+
+By default, cellclass weights the loss function inversely proportional to class frequency.
+Disable with `--no-loss-weights` if your classes are well balanced.
+
+---
+
+## Performance expectations (50 × 50 px, 2-class)
+
+Based on the mitosis-RPE and ppase-screen datasets:
+
+| Model | Typical test accuracy | Training time (per epoch, GPU) |
+|---|---|---|
+| `squeezenet1_0` | 88–92 % | ~5 s |
+| `shufflenet2x1_0` | 92–96 % | ~8 s |
+| `densenet121` | 93–96 % | ~15 s |
+| `efficientnetb3s` (frozen) | 90–95 % | ~20 s |
+
+Accuracy is highly dataset-dependent. Always evaluate on your own held-out test split.

@@ -1,0 +1,34 @@
+---
+title: "Overview"
+---
+
+`omero-utils` is the layer every other OMERO-Screen package uses to talk to an
+OMERO server. It is deliberately small: connection lifecycle, attachments, map
+annotations, image I/O and plate iteration, with no analysis logic.
+
+## The connection decorator
+
+Connections are managed by a decorator rather than by hand, so a function
+never has to open, check or close a session itself.
+
+```python
+from omero_utils.omero_connect import omero_connect
+from omero.gateway import BlitzGateway
+
+
+@omero_connect
+def count_wells(plate_id: int, conn: BlitzGateway | None = None) -> int:
+    assert conn is not None
+    plate = conn.getObject("Plate", plate_id)
+    return len(list(plate.listChildren()))
+
+
+count_wells(1234)   # the connection is opened, injected, and closed for you
+```
+
+Credentials come from the environment (`USERNAME`, `PASSWORD`, `HOST`), loaded
+from the `.env.{ENV}` file — see
+[Install & configure](../../user-guide/installation.html).
+
+If the server cannot be reached the decorator raises `OmeroConnectionError`
+rather than returning a half-open session.

@@ -1,0 +1,65 @@
+---
+title: "SLURM — Training on the Artemis Cluster"
+---
+
+
+The University of Sussex [Artemis HPC cluster](https://artemis-docs.hpc.sussex.ac.uk/artemis/)
+provides GPU nodes for large-scale training. Access requires VPN.
+
+---
+
+## Single job
+
+Submit one training run to SLURM:
+
+```bash
+cellclass sbatch --args ~/data/mitosis-rpe/rois.npz \
+    --model shufflenet2x1_0 --lr 1e-3 --lr-scheduler plateau \
+    --flip 3 --batch-size 128 -d cuda --wandb
+```
+
+`cellclass sbatch` wraps `sbatch` and passes everything after `--args` to `cellclass train`.
+Use `cellclass sbatch --help` to see SLURM-specific options (partition, memory, walltime),
+or read them in the generated [`cellclass sbatch` reference](../reference/cli/sbatch.html).
+
+---
+
+## Batch of SLURM jobs
+
+Use the same `train.txt` batch file as for local training, but pass the SLURM submitter
+as the command:
+
+```bash
+cellclass batch train.txt --script batch.sh --cmd "cellclass sbatch --args"
+bash batch.sh
+```
+
+This generates one `sbatch` submission per line in `train.txt`. Each job runs independently
+on the cluster; results are logged to W&B as they complete.
+
+**Important**: Comment out completed lines in `train.txt` before regenerating `batch.sh` to
+avoid resubmitting finished runs.
+
+---
+
+## Weights & Biases on Artemis
+
+Your W&B credentials stored in `~/.netrc` are available on Artemis if your home directory
+is mounted (it is by default). Verify before submitting jobs:
+
+```bash
+wandb status
+```
+
+If credentials are missing, run `wandb login` from an Artemis login node.
+
+---
+
+## Monitoring jobs
+
+```bash
+squeue -u $USER          # List your queued/running jobs
+scancel <job_id>         # Cancel a job
+```
+
+Training progress is also visible in real time on your W&B dashboard at <https://wandb.ai>.

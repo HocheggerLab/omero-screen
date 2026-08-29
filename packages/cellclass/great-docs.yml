@@ -43,6 +43,18 @@ cli:
       desc: "Extract a trained model and submit cluster jobs."
       contents: [extract, sbatch]
 
+user_guide:
+  - section: "Guide"
+    contents:
+      - overview.qmd
+      - installation.qmd
+      - quickstart.qmd
+      - training_guide.qmd
+      - models.qmd
+      - slurm.qmd
+      - inference.qmd
+      - workflow.qmd
+
 reference:
   - title: Datasets
     desc: Loading labelled crops for training.

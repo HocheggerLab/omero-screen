@@ -18,6 +18,28 @@ hero:
   tagline: "Publication-ready statistical plots for single-cell IF data."
   badges: false
 
+user_guide:
+  - section: "Guide"
+    contents:
+      - overview.qmd
+      - installation.qmd
+      - quickstart.qmd
+      - plot_types.qmd
+      - customization.qmd
+  - section: "Plot gallery"
+    contents:
+      - classificationplot.qmd
+      - featureplot.qmd
+      - featurenormplot.qmd
+      - cellcycleplot.qmd
+      - cellcyclestacked.qmd
+      - histogramplot.qmd
+      - scatterplot.qmd
+      - combplot.qmd
+      - countplot.qmd
+      - normalise.qmd
+      - utils.qmd
+
 reference:
   - title: Cell cycle
     desc: Phase distributions and stacked composition plots.
