@@ -77,11 +77,12 @@ keeps published results reproducible.
 ## See it in action
 
 ::: {.callout-note appearance="simple"}
-**Showcase video placeholder.** Drop the recording at `assets/showcase.mp4`,
-then delete this callout and uncomment the block below.
+**Demo video coming soon** — a walkthrough from raw plate to finished figure.
+In the meantime, [try it on your own machine](user-guide/try-it.html).
 :::
 
-<!--
+<!-- When the recording exists, drop it at assets/showcase.mp4, delete the
+     callout above, and uncomment the line below.
 {{< video assets/showcase.mp4 title="OMERO-Screen: from plate to figure" >}}
 -->
 
