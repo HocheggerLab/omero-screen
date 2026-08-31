@@ -33,11 +33,20 @@ SUBSITES=(
   "packages/omero-utils:utils"
 )
 
-# --offline reuses the cached environment. Without it uv re-resolves the
-# project on every call, which needs to reach GitHub for the zeroc-ice wheel
-# and fails outright when the network is down.
+# Prefer the cached environment: without --offline, uv re-resolves the project
+# on every call, which needs to reach GitHub for the zeroc-ice wheel and fails
+# outright when the network is down. But --offline cannot work on a cold cache
+# (a fresh CI runner), so fall back to a networked run when the cache misses.
+GD_OFFLINE=""
+if uv run --offline --with "great-docs==${GREAT_DOCS_VERSION}" \
+     great-docs --version >/dev/null 2>&1; then
+  GD_OFFLINE="--offline"
+else
+  echo "==> great-docs not in the uv cache; resolving over the network"
+fi
+
 gd() {
-  uv run --offline --with "great-docs==${GREAT_DOCS_VERSION}" great-docs "$@"
+  uv run ${GD_OFFLINE} --with "great-docs==${GREAT_DOCS_VERSION}" great-docs "$@"
 }
 
 echo "==> Cleaning ${OUT}"

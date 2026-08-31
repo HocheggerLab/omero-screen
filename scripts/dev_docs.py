@@ -37,6 +37,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # Bumped after every successful rebuild. The browser polls it and reloads
 # when it changes.
 GENERATION = 0
+_OFFLINE_CACHED: bool | None = None
 BUILDING = False
 
 RELOAD_SNIPPET = b"""
@@ -56,6 +57,33 @@ RELOAD_SNIPPET = b"""
 })();
 </script>
 """
+
+
+def _offline_ok() -> bool:
+    """True when great-docs is already in the uv cache.
+
+    ``--offline`` avoids re-resolving the project on every rebuild, but it
+    cannot work against a cold cache, so probe once before relying on it.
+    """
+    global _OFFLINE_CACHED
+    if _OFFLINE_CACHED is None:
+        _OFFLINE_CACHED = (
+            subprocess.run(
+                [
+                    "uv",
+                    "run",
+                    "--offline",
+                    "--with",
+                    f"great-docs=={GREAT_DOCS_VERSION}",
+                    "great-docs",
+                    "--version",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+            ).returncode
+            == 0
+        )
+    return _OFFLINE_CACHED
 
 
 def watched_files(project: Path) -> list[Path]:
@@ -91,12 +119,13 @@ def build(project: Path) -> bool:
     try:
         result = subprocess.run(
             [
-                # --offline reuses the cached environment; without it uv
+                # Prefer the cached environment: without --offline, uv
                 # re-resolves the project on every rebuild, which needs the
-                # network for the zeroc-ice wheel.
+                # network for the zeroc-ice wheel. Falls back to a networked
+                # run when the cache has no great-docs yet.
                 "uv",
                 "run",
-                "--offline",
+                *(["--offline"] if _offline_ok() else []),
                 "--with",
                 f"great-docs=={GREAT_DOCS_VERSION}",
                 "great-docs",

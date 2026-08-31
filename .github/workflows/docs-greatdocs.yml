@@ -1,40 +1,46 @@
-name: Documentation (Great Docs)
+name: Documentation
 
-# Builds the six-site Great Docs platform documentation.
+# Builds and publishes the six-site Great Docs platform documentation.
 #
-# This runs in PARALLEL with docs.yml (Sphinx), which still owns the live
-# GitHub Pages deployment. Nothing here publishes until someone triggers the
-# workflow manually with deploy=true. Retire docs.yml only once this site has
-# passed the content-parity and URL checks.
+# This workflow owns the GitHub Pages deployment. docs.yml (Sphinx) still
+# builds, so the remaining docs/ tree cannot rot unnoticed, but its deploy job
+# is disabled — two workflows publishing to one Pages environment race, and the
+# loser silently overwrites the winner.
 
 on:
   push:
-    branches: ["main", "click-migration"]
+    branches: ["main"]
     paths:
       - "index.qmd"
+      - "README.md"
       - "user_guide/**"
+      - "cyclic_if/**"
       - "assets/**"
       - "great-docs.yml"
       - "packages/**/great-docs.yml"
+      - "packages/**/user_guide/**"
+      - "packages/**/assets/**"
+      - "packages/**/README.md"
       - "scripts/build_docs.sh"
       - ".github/workflows/docs-greatdocs.yml"
   pull_request:
     branches: ["main"]
     paths:
       - "index.qmd"
+      - "README.md"
       - "user_guide/**"
+      - "cyclic_if/**"
+      - "assets/**"
       - "great-docs.yml"
       - "packages/**/great-docs.yml"
+      - "packages/**/user_guide/**"
+      - "packages/**/assets/**"
+      - "packages/**/README.md"
       - "scripts/build_docs.sh"
   workflow_dispatch:
-    inputs:
-      deploy:
-        description: "Publish to GitHub Pages (replaces the Sphinx site)"
-        type: boolean
-        default: false
 
 concurrency:
-  group: "greatdocs-${{ github.ref }}"
+  group: "pages"
   cancel-in-progress: true
 
 permissions:
@@ -88,9 +94,11 @@ jobs:
         with:
           path: _site
 
-  # Deployment is manual and opt-in while Sphinx still owns the live site.
+  # Publishes on pushes to main, and on a manual run of this workflow.
   deploy:
-    if: github.event_name == 'workflow_dispatch' && inputs.deploy
+    if: |
+      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+      github.event_name == 'workflow_dispatch'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
