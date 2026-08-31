@@ -29,6 +29,11 @@ hero:
   tagline: "One reproducible workflow from a 96-well plate to the figure in your paper."
   badges: false
 
+sections:
+  - title: "4i / Cyclic IF"
+    dir: cyclic_if
+    navbar_after: "User Guide"
+
 user_guide:
   - section: "Start here"
     contents:
@@ -36,7 +41,6 @@ user_guide:
       - first-plate.qmd
       - try-it.qmd
       - architecture.qmd
-      - cyclic-if.qmd
 
 cli:
   enabled: true
