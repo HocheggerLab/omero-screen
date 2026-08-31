@@ -34,7 +34,9 @@ user_guide:
     contents:
       - installation.qmd
       - first-plate.qmd
+      - try-it.qmd
       - architecture.qmd
+      - cyclic-if.qmd
 
 cli:
   enabled: true

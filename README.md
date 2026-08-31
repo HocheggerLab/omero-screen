@@ -14,6 +14,12 @@ biologists running high-content screens.
 [![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
+> [!WARNING]
+> **Active development.** OMERO-Screen is developed alongside ongoing research,
+> so expect frequent changes and occasional breaking ones. A stable release is
+> planned for later in 2026. Pin a commit if you need an analysis to stay
+> reproducible.
+
 ```bash
 omero-screen 1234 --stitch          # segment a plate, write results back to OMERO
 cellview import plate 1234          # pull the measurements into a local database

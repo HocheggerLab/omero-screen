@@ -1,0 +1,157 @@
+---
+title: "4i / cyclic IF"
+---
+
+Cyclic immunofluorescence (4i) images the same plate several times, stripping
+and re-staining between rounds. That multiplies the number of markers you can
+measure per cell far beyond the three or four channels a single round allows —
+but only if the rounds can be registered accurately enough to say that a
+nucleus in round 3 is the *same* nucleus as in round 1.
+
+OMERO-Screen treats each round as an ordinary plate, analysed independently,
+and then aligns and merges them afterwards. Four command-line tools do this.
+
+::: {.callout-note}
+Detailed wet-lab protocols for the stripping and re-staining rounds are being
+prepared and will be added here. This page covers the computational side.
+:::
+
+## The workflow
+
+| Step | Tool | What it does |
+|---|---|---|
+| 1 | `omero-screen` | Analyse **each round** as a normal plate |
+| 2 | `align_plates.py` | Register the rounds against a reference plate |
+| 3 | `create_masks.py` | Fill in cell masks missing from secondary rounds |
+| 4 | `aggregate_plates.py` | Merge per-cell features across rounds |
+| 5 | `alignment_qc.py` | Check the registration actually worked |
+
+The first plate you pass to `align_plates.py` is the **reference**; every other
+round is registered onto it, and the aggregated dataset carries its plate ID.
+
+::: {.callout-warning}
+These are `bin/` utilities and still use argparse, unlike the four main
+commands. That means they keep argparse conventions — including abbreviated
+options — and they are run with `python bin/<name>.py` rather than as installed
+commands.
+:::
+
+## 1. Analyse each round
+
+Run the pipeline on every round separately, exactly as for a single-round
+experiment:
+
+```bash
+uv run omero-screen 4126 --stitch
+uv run omero-screen 4127 --stitch
+uv run omero-screen 4128 --stitch
+```
+
+Each round gets its own segmentation, features and QC. Nothing at this stage
+knows the rounds are related.
+
+## 2. Align the rounds
+
+```bash
+python bin/align_plates.py 4126 4127 4128 [options]
+```
+
+The first ID is the reference. Alignment is computed on a nuclear channel —
+DAPI by default, since it is present in every round and does not move.
+
+| Option | Default | Purpose |
+|---|---|---|
+| `--channel NAME` | `DAPI` | Channel used for registration |
+| `-n N` | 5 | Number of alignments averaged |
+| `--sample-alignments` | off | Per-sample alignments instead of a fixed number |
+| `--threshold N` | 100 | Distance threshold for accepting an alignment |
+| `--tolerance N` | 10 | Allowed distance from the alignment centroid |
+| `--iqr N` | 1.5 | Inter-quartile-range factor for outlier removal (0 disables) |
+| `--gallery N` | 4 | Size of the alignment gallery grid |
+| `--seed N` | random | Random seed for sampling |
+| `--env NAME` | — | Environment file to load |
+
+## 3. Create missing masks
+
+Secondary rounds are often segmented on the nucleus alone, so they lack cell
+masks. This regenerates them from the aligned reference:
+
+```bash
+python bin/create_masks.py 4127
+```
+
+| Option | Default | Purpose |
+|---|---|---|
+| `--sample-alignments` | off | Use per-sample rather than per-well alignments |
+| `--force` | off | Replace masks that already exist |
+| `--env NAME` | — | Environment file to load |
+
+`--sample-alignments` must match how you ran step 2 and how you will run
+step 4 — mixing per-sample and per-well alignments produces silently wrong
+mappings.
+
+## 4. Aggregate the rounds
+
+```bash
+python bin/aggregate_plates.py 4126
+```
+
+Pass the **reference** plate ID. Each cell in the reference is matched to its
+counterpart in every other round, and their features are merged into one
+single-cell table.
+
+| Option | Default | Purpose |
+|---|---|---|
+| `--method {0,1,2,3}` | 3 | Matching strategy — see below |
+| `--threshold N` | 25 | Distance threshold for accepting a mapping |
+| `--std N` | 6 | Standard deviations from the mean distance before exclusion |
+| `--gallery N` | 4 | Size of the mapping gallery grid |
+| `--sample-alignments` | off | Use per-sample rather than per-well alignments |
+| `--seed N` | random | Random seed for sampling |
+| `--env NAME` | — | Environment file to load |
+
+**Matching methods.** `0` minimum distance; `1` KD-tree minimum distance;
+`2` greedy nearest neighbour; `3` mask overlap. The default, mask overlap, is
+the most conservative: it requires the two nuclei to physically overlap rather
+than merely being closest, which is what you want when cells may have moved
+slightly between rounds.
+
+## 5. Check the alignment
+
+Registration failure is the main risk in a 4i experiment, and it is not always
+visible in the final plot. Run the QC report before trusting the data:
+
+```bash
+python bin/alignment_qc.py 4126 -o alignment_qc
+```
+
+Pass several master plate IDs to treat them as biological replicates and get a
+combined, replicate-level analysis.
+
+| Option | Default | Purpose |
+|---|---|---|
+| `-o, --outdir DIR` | `alignment_qc` | Destination for CSVs, tables and figures |
+| `--sample-alignments` | off | Must match how `aggregate_plates` was run |
+| `--iqr N` | 1.5 | IQR factor for per-well agreement outlier removal |
+| `--mask-samples N` | 12 | Fields sampled for nuclear-mask overlap (0 to skip) |
+| `--pixel-size N` | — | Override the pixel size |
+| `--attach` | — | Attach the report back to the OMERO plate |
+| `--seed N` | random | Random seed for sampling |
+| `--env NAME` | — | Environment file to load |
+
+The report collects the raw input CSVs, derived metric tables, summary
+statistics and figures in one directory, so it can be archived alongside the
+analysis.
+
+## Then what
+
+The aggregated plate behaves like any other from here: import it with
+`cellview import plate <reference_id>` and plot it with the usual functions.
+Each cell now carries the features from every round.
+
+::: {.callout-note}
+**A known caveat.** Nuclei with no matching cell mask are dropped during the
+merge rather than carried through with null features. The loss concentrates at
+canvas borders, where cells are more likely to be clipped than nuclei, so raw
+counts near the edge of an imaged region are biased slightly downwards.
+:::

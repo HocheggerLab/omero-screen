@@ -28,6 +28,13 @@ segmentation, feature extraction, cell-cycle assignment, storage,
 classification and plotting as one reproducible workflow. It is built for cell
 biologists running high-content screens, not for image-analysis specialists.
 
+::: {.callout-warning appearance="simple"}
+**Active development.** OMERO-Screen is being developed alongside ongoing
+research, so expect frequent changes and occasional breaking ones. A stable
+release is planned for later in 2026. Pin a commit if you need an analysis to
+stay reproducible.
+:::
+
 ## What makes it different
 
 ### Rapid generation and adaptation of new models
