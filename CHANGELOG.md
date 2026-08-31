@@ -1,3 +1,13 @@
+## omero-screen-v0.7.0 (2026-08-31)
+
+### Feat
+
+- **cellclass**: unify command-line interface with Click
+
+### Fix
+
+- **ci**: stop the two doc workflows cancelling each other
+
 ## omero-screen-v0.6.0 (2026-08-26)
 
 ### Feat
