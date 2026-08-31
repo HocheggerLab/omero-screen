@@ -32,8 +32,12 @@ on:
     branches: [main]
 
 # Allow one concurrent deployment
+# Its own group, NOT "pages". This workflow can no longer deploy (see below),
+# so it does not contend for the Pages environment — and sharing that group
+# made the two doc workflows cancel each other's *builds*, since concurrency
+# applies to the whole workflow rather than to the deploy job alone.
 concurrency:
-  group: "pages"
+  group: "sphinx-legacy-${{ github.ref }}"
   cancel-in-progress: true
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
