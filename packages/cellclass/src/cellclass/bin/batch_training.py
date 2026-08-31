@@ -15,10 +15,6 @@
 """Generate and run batch training shell scripts from a training plan file."""
 
 import argparse
-import pathlib
-import sys
-
-from cellclass.bin_utils import file_path
 
 
 def run(args: argparse.Namespace) -> None:
@@ -119,39 +115,10 @@ def run(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    """Entry point for cellclass-batch CLI."""
-    parser = argparse.ArgumentParser(
-        description="Program to run the training script for a batch file of arguments."
-    )
+    """Entry point for direct execution of the batch command."""
+    from cellclass.cli import batch
 
-    parser.add_argument(
-        "batch", metavar="BATCH", type=file_path, help="Batch arguments file"
-    )
-    parser.add_argument(
-        "--dry-run",
-        default=False,
-        action=argparse.BooleanOptionalAction,
-        help="Perform a dry run (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--background",
-        default=False,
-        action=argparse.BooleanOptionalAction,
-        help="Perform each run as a new background process (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--script",
-        default="batch.sh",
-        help="Batch script (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--cmd",
-        default=str(pathlib.Path(sys.executable).parent / "cellclass-train"),
-        help="Program (default: cellclass-train in the active Python environment)",
-    )
-
-    args = parser.parse_args()
-    run(args)
+    batch.main(prog_name="cellclass-batch")
 
 
 if __name__ == "__main__":

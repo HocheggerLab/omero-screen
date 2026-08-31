@@ -1,0 +1,71 @@
+# Great Docs configuration — umbrella site for the OMERO-Screen platform.
+#
+# This is the ROOT site, deployed at /. It carries the landing page, the Learn
+# section, the core `omero_screen` API reference, and the `omero-screen` CLI.
+# The other five workspace packages each have their own great-docs.yml and
+# deploy to a subdirectory (/cellview/, /cellclass/, /plots/, /napari/,
+# /utils/) — Great Docs documents exactly one package and one Click CLI per
+# site.
+#
+# NOTE: `dynamic: false` plus an explicit reference list is deliberate and
+# load-bearing. `omero_screen/__init__.py` has no `__all__`, so automatic
+# discovery falls back to a full walk and recurses into the torch / cellpose /
+# trackastra object graphs — it ran 9 minutes at 2.2 GB RSS without finishing.
+# Do NOT "fix" this by adding `__all__` to `__init__.py`: that would import the
+# heavy modules at package-import time and break the lightweight-import rule
+# agreed for the Click migration (`import omero_screen` is currently 0.25 s).
+
+module: omero_screen
+display_name: OMERO-Screen
+parser: google
+dynamic: false
+
+repo: https://github.com/HocheggerLab/omero-screen
+pypi: false   # installed from source, not published to PyPI
+site_url: https://hocheggerlab.github.io/omero-screen/
+
+hero:
+  enabled: true
+  tagline: "One reproducible workflow from a 96-well plate to the figure in your paper."
+  badges: false
+
+sections:
+  - title: "4i / Cyclic IF"
+    dir: cyclic_if
+    navbar_after: "User Guide"
+
+user_guide:
+  - section: "Start here"
+    contents:
+      - installation.qmd
+      - first-plate.qmd
+      - try-it.qmd
+      - architecture.qmd
+
+cli:
+  enabled: true
+  module: bin.run_omero_screen
+  name: cli
+  title: "CLI reference"
+  desc: >-
+    `omero-screen ID...` runs the pipeline on one or more plates. Two options
+    keep argparse spellings that Click does not accept natively: `--track`
+    takes an optional model name (a bare flag means `general_2d`), and
+    `--inference` accepts several values after one flag.
+
+reference:
+  - title: Pipeline
+    desc: Running a plate through the analysis pipeline.
+    contents:
+      - loops.plate_loop
+      - plate_dataset.PlateDataset
+  - title: Metadata
+    desc: Plate layout, channel names and channel roles.
+    contents:
+      - metadata_parser.MetadataParser
+      - metadata_parser.resolve_channel_roles
+  - title: Configuration
+    desc: Environment files and logging setup.
+    contents:
+      - config.set_env_vars
+      - config.configure_logging

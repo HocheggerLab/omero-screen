@@ -24,7 +24,7 @@ TorchScript model, using a two-class mitosis classifier as a running example.
 Pack all `.npy` files into a single normalised `.npz` archive:
 
 ```bash
-cellclass-dataset ~/data/mitosis-rpe --name rois
+cellclass dataset ~/data/mitosis-rpe --name rois
 ```
 
 This applies (1, 99) percentile normalisation, zeros all pixels outside each cell mask,
@@ -33,7 +33,7 @@ converts to `uint8`, and writes `~/data/mitosis-rpe/rois.npz`.
 Inspect a random sample of each class as a TIFF montage:
 
 ```bash
-cellclass-sample ~/data/mitosis-rpe/rois.npz --output ~/data/mitosis-rpe
+cellclass sample ~/data/mitosis-rpe/rois.npz --output ~/data/mitosis-rpe
 ```
 
 Open the resulting TIFFs in ImageJ (`Image → Color → Channels Tool → Composite`) to
@@ -73,7 +73,7 @@ Lines starting with `#` are ignored; comment out completed runs before regenerat
 ## Step 3 — Generate and run `batch.sh`
 
 ```bash
-cellclass-batch train.txt --script batch.sh
+cellclass batch train.txt --script batch.sh
 bash batch.sh
 ```
 
@@ -92,7 +92,7 @@ filename of the best run.
 ## Step 5 — Extract the model
 
 ```bash
-cellclass-extract best_run.json --save
+cellclass extract best_run.json --save
 ```
 
 This saves two files alongside the checkpoint:
@@ -108,7 +108,7 @@ classes (`l2`).
 ## Step 6 — Verify the model
 
 ```bash
-cellclass-test -s shufflenet2x1_0_c2_l2.pt ~/data/mitosis-rpe/rois.npz
+cellclass test -s shufflenet2x1_0_c2_l2.pt ~/data/mitosis-rpe/rois.npz
 ```
 
 This prints a full classification report (precision, recall, F1 per class) on the held-out

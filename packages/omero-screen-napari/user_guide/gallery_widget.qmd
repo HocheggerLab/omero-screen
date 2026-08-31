@@ -1,0 +1,134 @@
+---
+title: "Gallery Widget — Cell Crops and Classifier Creation"
+---
+
+## What this widget does
+
+The Gallery Widget takes the images you loaded in the Welldata Widget and cuts out individual cells as small square crops, then displays all of them as a grid (montage). This lets you see many cells at once to get a feel for the data and check that segmentation looks correct.
+
+The widget also contains the **Create Classifier** section, where you define the categories you want to sort cells into and save those settings so the Training Widget knows what classes exist.
+
+## Opening the widget
+
+In Napari, go to **Plugins → Omero Screen Napari → Gallery Widget**.
+
+> **You must load well data first.** The Gallery Widget needs images and segmentation masks in the viewer. Use the [Welldata Widget](welldata_widget.qmd) to load a well before generating a gallery.
+
+---
+
+## Part 1 — Generate a cell gallery
+
+### Gallery parameters
+
+| Field | What it controls | Typical value |
+|-------|-----------------|---------------|
+| **Well** | Which well to crop from. Defaults to the currently loaded well — leave blank unless you want a different one. | `A1` |
+| **Segmentation** | Whether to use nucleus or whole-cell outlines as the crop boundary | `nucleus` |
+| **Crop size** | Side length of each crop in pixels | `50` for most cells; `100` for larger cells |
+| **Cell cycle** | Only show cells in a specific phase: All, G1, S, G2/M, G2, M, or Polyploid | `All` |
+| **Timepoint** | Which timepoint to use for time-series data | `0` |
+| **Columns / Rows** | Grid dimensions. Total crops = rows × columns | 4 × 4 = 16 crops |
+| **Reload** | Re-extract crops from the images. Turn off to reuse the same crops with different display settings | ☑ on |
+| **Contour** | Draw a white outline around each cell to show the segmentation boundary | ☑ on |
+| **No Background** | Set all pixels outside the segmentation mask to black, so only the cell itself is visible | ☑ on |
+| **Blue channel** | Channel name mapped to the blue component of the RGB display | `DAPI` |
+| **Green channel** | Channel name mapped to green | `Tub` |
+| **Red channel** | Channel name mapped to red | `EdU` |
+
+Click **Enter** to generate the gallery. The montage appears as an RGB image layer in the viewer.
+
+### What the gallery shows you
+
+Each tile in the grid is one cell, cropped to the size you specified and centred on its nucleus (or cell body). The channels are merged into a false-colour RGB image using the mapping you set. This is the same representation that will be shown one cell at a time in the Training Widget.
+
+### Adjusting the display
+
+- **Crop size**: Too small and you lose context around the cell; too large and cells overlap. 50 px works for most mammalian cells with a 20× objective; use 100 px for spread-out cells or low magnification.
+- **Cell cycle filter**: If you only want to annotate mitotic cells, set this to `G2/M` or `M`. The gallery will show only cells the pipeline classified in that phase.
+- **No Background**: Very useful when cells are densely packed — it removes signals from neighbouring cells so you are scoring the target cell only.
+- **Contour**: Lets you check whether the segmentation boundary looks correct. If you see many cells where the outline is clearly wrong, the segmentation may need to be re-run.
+
+### The Reset button
+
+Clicking the **Reset** button (just below the gallery parameters) clears all cropped images from memory. Use this before generating a gallery from a new well to avoid mixing crops from different experiments.
+
+---
+
+## Part 2 — Create a new classifier
+
+The **Create Classifier** section at the bottom of the Gallery Widget is where you set up a new classification project. You only need to do this once per classifier.
+
+### What is a classifier?
+
+A classifier is a named collection of training sessions where cells are sorted into defined categories. For example, you might create a classifier called `mitosis-rpe` to distinguish normal interphase cells from cells in different stages of mitosis in RPE cells. Each classifier has its own folder on disk and its own record in the training database.
+
+### Step-by-step: creating a classifier
+
+**1. Define your classes**
+
+Type the name of one class in the **Class name** field and click **Add** (or press Enter). Repeat for each class you want.
+
+> The class `unassigned` is always present — it is the default label for cells you have not yet scored. You do not need to add it.
+
+Example classes for a mitosis classifier:
+- `interphase`
+- `prophase`
+- `metaphase`
+- `anaphase`
+- `telophase`
+
+The class list below the input field shows all classes you have added so far.
+
+**2. Set the cell cycle filter**
+
+The **Cell cycle** dropdown records which cell cycle phase filter was active when this training data was collected. This is stored in the classifier's settings so that when you add more data later (from a different plate), the same filter is applied automatically, keeping all sessions consistent.
+
+If you generated your gallery with `G2/M` filtered, set this to `G2/M`. If you used `All`, leave it at `All`.
+
+**3. Name the classifier**
+
+Type a descriptive name in the **Classifier name** field. Use lowercase letters, numbers, and hyphens — no spaces.
+
+Good examples: `mitosis-rpe`, `apoptosis-hela`, `drug-response-u2os`
+
+**4. Click Save classifier**
+
+The widget will:
+- Create a folder at `~/omeroscreen_trainingdata/<classifier-name>/`
+- Save a `metadata.json` file recording all your settings (crop size, channels, cell cycle filter, class names)
+- Register the classifier in the training database
+- Save the crops currently in memory as the first training session (so you do not need to reload the gallery in the Training Widget)
+
+After saving, the class list and name field reset so you can immediately define another classifier if needed.
+
+### CLI equivalent
+
+You can inspect classifiers from the terminal without opening Napari:
+
+```bash
+omero-train list               # see all classifiers
+omero-train stats mitosis-rpe  # detailed info for one classifier
+```
+
+---
+
+## Channel mapping
+
+The gallery builds an RGB composite from three channels. The default mapping is:
+
+| RGB colour | Default channel name | Typical marker |
+|------------|---------------------|----------------|
+| Blue | DAPI | DNA / chromatin |
+| Green | Tub | Tubulin / cytoplasm |
+| Red | EdU | S-phase marker |
+
+Change the channel names to match your experiment. Channel names must match the names stored in OMERO (visible in the plate metadata). If your experiment only has two channels, leave the third field blank — it will be set to zero. Single-channel images are displayed in greyscale.
+
+---
+
+## Tips
+
+- **Start with a small grid** (4 × 4 = 16 crops) to check that everything looks right. Once satisfied, generate a larger gallery (8 × 8 = 64 crops) to save as your first training session.
+- **Check the contours** before creating a classifier. If many cells have clearly wrong outlines, fix the segmentation first — bad masks produce bad training data.
+- **Filter by cell cycle** when your phenotype of interest is rare. For example, if you are scoring mitotic stages, filter to `G2/M` so the gallery is not dominated by G1 cells.
+- **The same gallery is used for the first session.** When you click Save classifier, the crops currently displayed in the gallery become session 1. Generate your gallery with the grid size you want (e.g. 10 × 10 = 100 crops) before saving.

@@ -1,0 +1,137 @@
+---
+title: "Install & configure"
+---
+
+Getting OMERO-Screen running takes three things: the code, a Python environment,
+and credentials for your OMERO server. Budget about fifteen minutes the first
+time.
+
+## Prerequisites
+
+- **Python 3.12** — the project pins `>=3.12,<3.13`.
+- **[uv](https://docs.astral.sh/uv/)** for dependency management. Never `pip`.
+- **Access to an OMERO server** — a username, password and hostname.
+- **A GPU** is optional but strongly recommended — see below.
+
+## Hardware
+
+Segmentation and tracking are the expensive steps. Everything runs on CPU, but
+some combinations are only practical on the right hardware.
+
+| | Apple silicon (MPS) | NVIDIA (CUDA) | CPU only |
+|---|---|---|---|
+| **Cellpose 3 models** (default) | yes | yes | slow but workable |
+| **Cellpose 4** (`--cp4`, `cpsam`) | not in practice — too slow and too large | yes | impractical |
+| **Tracking** (`--track`) | falls back to CPU | yes | slow |
+| **Classifier inference** | yes | yes | workable |
+
+Two things are worth knowing before you plan a run:
+
+- **Cellpose 4 needs an NVIDIA GPU in practice.** Nothing in the code blocks
+  `cpsam` on Apple silicon, so it will start — it is simply too slow and too
+  memory-hungry to be useful. Stay on the default Cellpose 3 models on a Mac.
+- **Tracking has no MPS backend.** Trackastra ships CUDA and CPU kernels only,
+  so on Apple silicon `--track` silently runs on the CPU. It still produces
+  correct lineages, just slowly. The log line naming the device tells you which
+  one you got.
+
+Device selection is automatic: CUDA if present, then MPS, then CPU. Force CPU
+with `OMERO_SCREEN_USE_GPU=0`, and force the tracking device specifically with
+`--track-device cpu|cuda`.
+
+## Install
+
+```bash
+# Install uv, if you don't have it
+curl -LsSf https://astral.sh/uv/install.sh | sh      # macOS / Linux
+
+# Get the code
+git clone https://github.com/HocheggerLab/omero-screen.git
+cd omero-screen
+
+# Create the environment and install all six packages
+uv sync --dev
+```
+
+`uv sync` installs the whole workspace — the core pipeline plus `cellview`,
+`omero-screen-plots`, `omero-screen-napari`, `cellclass` and `omero-utils`. You
+do not install them separately.
+
+Verify:
+
+```bash
+uv run omero-screen --help
+uv run cellview --help
+```
+
+## Configure
+
+Configuration lives in environment files at the repository root. Which one is
+loaded depends on the `ENV` variable:
+
+| `ENV` value | File loaded |
+|---|---|
+| unset | `.env.development` (the default) |
+| `development` | `.env.development` |
+| `production` | `.env.production` |
+| `e2etest` | `.env.e2etest` |
+
+If no environment-specific file exists, a plain `.env` is used as a fallback.
+
+### Required variables
+
+Create `.env.development` in the repository root:
+
+```bash
+# OMERO server
+USERNAME="your-omero-login"
+PASSWORD="your-omero-password"
+HOST="omero.your-institution.ac.uk"
+DATA_PATH="omero-napari-data"
+
+# CellView database
+TEST_DATABASE=false
+DATABASE_PATH=~/cellview_data/cellview.db
+```
+
+Those six are the minimum. Without them the pipeline cannot connect or store
+results.
+
+### Logging
+
+```bash
+LOG_LEVEL=DEBUG
+LOG_FILE_PATH=logs/app.log
+ENABLE_CONSOLE_LOGGING=False
+ENABLE_FILE_LOGGING=True
+LOG_MAX_BYTES=1048576
+LOG_BACKUP_COUNT=5
+```
+
+### Optional: image cache
+
+Caching downloaded pixel data makes repeated runs on the same plate much faster.
+
+```bash
+OMERO_SCREEN_CACHE_PATH=~/.cache/omero_screen
+OMERO_SCREEN_IMAGE_CACHE_SIZE_LIMIT=4294967296   # 4 GB
+OMERO_SCREEN_IMAGE_CACHE_WORKERS=3
+```
+
+::: {.callout-warning}
+`.env.*` files hold your OMERO password. They are gitignored — keep it that way,
+and never paste one into an issue or a pull request.
+:::
+
+## Check the connection
+
+```bash
+uv run omero-integration-test e2e_connection
+```
+
+A clean run means credentials, hostname and network path are all good. If it
+fails, the error will usually name which of the three is wrong.
+
+## Next
+
+You are ready to [analyse your first plate](first-plate.qmd).

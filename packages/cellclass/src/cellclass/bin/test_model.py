@@ -16,7 +16,6 @@
 
 import argparse
 
-from cellclass.bin_utils import file_path
 from cellclass.models import Model
 
 
@@ -213,116 +212,10 @@ def run(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    """Entry point for cellclass-test CLI."""
-    parser = argparse.ArgumentParser(
-        description="Program to run a model using an ROI dataset."
-    )
+    """Entry point for direct execution of the test command."""
+    from cellclass.cli import test_command
 
-    parser.add_argument(
-        "input",
-        metavar="dataset.npz",
-        type=file_path,
-        help="Dataset file, or training state file",
-    )
-    parser.add_argument(
-        "--size",
-        type=int,
-        default=0,
-        help="Number of images to use (default is all)",
-    )
-    parser.add_argument(
-        "--data-seed",
-        type=int,
-        default=42,
-        help="Random seed to select data (default: %(default)s)",
-    )
-    parser.add_argument(
-        "-d",
-        "--device",
-        dest="device",
-        default="cuda",
-        help="Device (default: %(default)s)",
-    )
-
-    group = parser.add_argument_group("Model")
-    group.add_argument(
-        "--model",
-        dest="model",
-        type=Model,
-        choices=list(Model),
-        default=Model.densenet121,
-        help="Model name (default: %(default)s)",
-    )
-    group.add_argument(
-        "-n",
-        "--name",
-        dest="name",
-        type=file_path,
-        help="Training checkpoint name",
-    )
-    group.add_argument(
-        "-w", "--weights", dest="weights", type=file_path, help="Model weights"
-    )
-    group.add_argument(
-        "-s", "--script", dest="script", type=file_path, help="Model script"
-    )
-
-    group = parser.add_argument_group("Data")
-    group.add_argument(
-        "--testing-size",
-        type=float,
-        default=0.2,
-        help="Testing size (default: %(default)s)",
-    )
-    group.add_argument(
-        "--batch-size",
-        type=int,
-        default=128,
-        help="Batch size for the data loader (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--num-workers",
-        type=int,
-        default=0,
-        help="Number of workers for asynchronous data loading (default: %(default)s)",
-    )
-
-    group = parser.add_argument_group("Misc")
-    group.add_argument(
-        "--log-level",
-        type=int,
-        default=20,
-        help="Log level (default: %(default)s). WARNING=30; INFO=20; DEBUG=10",
-    )
-    parser.add_argument(
-        "--pin-memory",
-        default=False,
-        action=argparse.BooleanOptionalAction,
-        help="Use CUDA pinned memory in the DataLoader",
-    )
-    group.add_argument(
-        "--reorder",
-        nargs="+",
-        type=int,
-        help="""Reorder the labels, e.g. 1, 2, 0. Use if the model was trained on a
-        different class order from the canonical sort order of the labels""",
-    )
-    parser.add_argument(
-        "--plot-matrix",
-        default=False,
-        action=argparse.BooleanOptionalAction,
-        help="Display the confusion matrix",
-    )
-    parser.add_argument(
-        "--matrix-file", help="Save the confusion matrix image to file"
-    )
-    parser.add_argument(
-        "--matrix-csv", help="Save the confusion matrix as a CSV file"
-    )
-
-    args = parser.parse_args()
-
-    run(args)
+    test_command.main(prog_name="cellclass-test")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,70 @@
+---
+title: "4i / Cyclic IF"
+---
+
+Cyclic immunofluorescence images the same plate several times, stripping and
+re-staining between rounds. Instead of the three or four markers a single round
+allows, you measure dozens per cell — provided the rounds can be registered
+accurately enough to say that a nucleus in round 3 is the *same* nucleus as in
+round 1.
+
+That registration problem is what this part of OMERO-Screen solves.
+
+## The idea
+
+Each round is analysed as an ordinary plate: segmented, measured, stored. The
+4i tools then run afterwards, computing a geometric alignment between rounds,
+matching cells across them, and merging the per-round features into one
+single-cell table.
+
+Nothing about the per-round analysis is special. If you can run a plate, you
+can run a 4i experiment.
+
+## The workflow
+
+| Step | Tool | What it does |
+|---|---|---|
+| 1 | `omero-screen` | Analyse **each round** as a normal plate |
+| 2 | [`align_plates.py`](alignment.qmd) | Register the rounds against a reference |
+| 3 | [`create_masks.py`](alignment.qmd#filling-in-missing-masks) | Fill in cell masks missing from secondary rounds |
+| 4 | [`aggregate_plates.py`](aggregation.qmd) | Merge per-cell features across rounds |
+| 5 | [`alignment_qc.py`](quality-control.qmd) | Check the registration actually worked |
+
+The first plate passed to `align_plates.py` is the **reference**. Every other
+round is registered onto it, and the aggregated dataset carries its plate ID.
+
+## Before you start
+
+::: {.callout-warning}
+These are `bin/` utilities and still use argparse, unlike the four main
+commands. They keep argparse conventions — including abbreviated options — and
+are run with `python bin/<name>.py` rather than as installed commands.
+:::
+
+::: {.callout-important}
+`--sample-alignments` must be set **consistently** across steps 2, 3 and 4.
+Mixing per-sample and per-well alignments produces silently wrong mappings —
+no error, just cells matched to the wrong partners.
+:::
+
+## Analysing the rounds
+
+Run the pipeline on each round separately, exactly as for a single-round
+experiment:
+
+```bash
+uv run omero-screen 4126 --stitch
+uv run omero-screen 4127 --stitch
+uv run omero-screen 4128 --stitch
+```
+
+Each round gets its own segmentation, features and QC. At this point nothing
+knows the rounds are related — that begins with
+[alignment](alignment.qmd).
+
+## Protocols
+
+::: {.callout-note}
+Wet-lab protocols for the stripping and re-staining rounds are being prepared
+and will be published here.
+:::

@@ -1,34 +1,32 @@
-"""Main entry point for the CellView application.
+"""Handlers and entry point for the CellView application.
 
-Dispatches CLI subcommands to their handler functions.
+The command surface itself lives in :mod:`cellview.cli`. This module holds the
+handlers that do the work, taking explicit values rather than a parser
+namespace, so they can be called and tested without going through Click.
 """
 
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+import click
 import duckdb
 
-from cellview.db.clean_up import clean_up_db, del_measurements_by_plate_id
-from cellview.db.db import CellViewDB
-from cellview.db.display import (
-    display_experiment,
-    display_plate_summary,
-    display_projects,
-    display_single_project,
-)
-from cellview.db.edit import edit_experiment, edit_project
-from cellview.exporters.db_to_pandas import export_pandas_df
 from cellview.importers import import_data
 from cellview.utils.error_classes import CellViewError, DBError
 from cellview.utils.state import create_cellview_state
 
-from .cli import get_parser, parse_args
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from cellview.cli import Context
 
 
 def _resolve_import_target(
-    args: argparse.Namespace, conn: duckdb.DuckDBPyConnection
+    project_id: int | None,
+    experiment_id: int | None,
+    conn: duckdb.DuckDBPyConnection,
 ) -> tuple[int | None, int | None]:
     """Resolve ``--project`` / ``--experiment`` into validated IDs.
 
@@ -36,7 +34,8 @@ def _resolve_import_target(
     plate is touched, rather than part-way through a multi-plate import.
 
     Args:
-        args: Parsed CLI arguments.
+        project_id: Project ID given on the command line, if any.
+        experiment_id: Experiment ID given on the command line, if any.
         conn: Active DuckDB connection.
 
     Returns:
@@ -48,9 +47,6 @@ def _resolve_import_target(
         DBError: If an ID does not exist, or the experiment does not
             belong to the given project.
     """
-    project_id = getattr(args, "project", None)
-    experiment_id = getattr(args, "experiment", None)
-
     if project_id is not None:
         row = conn.execute(
             "SELECT project_id FROM projects WHERE project_id = ?",
@@ -90,71 +86,122 @@ def _resolve_import_target(
     return project_id, experiment_id
 
 
-def _handle_import(args: argparse.Namespace, db: CellViewDB) -> None:
-    """Handle all import subcommands.
+def _state_args(
+    *,
+    csv: Path | None = None,
+    plate_id: int | None = None,
+    nucleus_channel: str | None,
+    project_id: int | None,
+    experiment_id: int | None,
+) -> argparse.Namespace:
+    """Build the Namespace consumed by ``create_cellview_state``.
 
-    Args:
-        args: Parsed CLI arguments.
-        db: CellView database instance.
+    ``create_cellview_state`` takes a Namespace as its internal data-transfer
+    object. That is a state-construction contract rather than a CLI parsing
+    one, so it is unaffected by the move to Click and left as is.
     """
-    # --nucleus-channel flag (None means: auto-detect from plate annotation
-    # for OMERO routes, or interactive prompt for CSV).
-    nucleus_flag = getattr(args, "nucleus_channel", None)
-    # --project/--experiment pre-select the import target, so the
-    # interactive prompts are skipped for every plate in this run.
-    project_id, experiment_id = _resolve_import_target(args, db.connect())
+    return argparse.Namespace(
+        csv=csv,
+        plate_id=plate_id,
+        nucleus_channel=nucleus_channel,
+        project_id=project_id,
+        experiment_id=experiment_id,
+    )
 
-    def state_args_for(
-        *, csv: Path | None = None, plate_id: int | None = None
-    ) -> argparse.Namespace:
-        """Build the Namespace consumed by ``create_cellview_state``."""
-        return argparse.Namespace(
-            csv=csv,
+
+def handle_import_csv(
+    ctx: Context,
+    *,
+    path: Path,
+    nucleus_channel: str | None,
+    project: int | None,
+    experiment: int | None,
+) -> None:
+    """Import measurements from a CSV file."""
+    project_id, experiment_id = _resolve_import_target(
+        project, experiment, ctx.conn
+    )
+    state = create_cellview_state(
+        _state_args(
+            csv=path,
+            nucleus_channel=nucleus_channel,
+            project_id=project_id,
+            experiment_id=experiment_id,
+        )
+    )
+    import_data(ctx.db, state)
+
+
+def handle_import_plate(
+    ctx: Context,
+    *,
+    ids: list[int],
+    interactive: bool,
+    nucleus_channel: str | None,
+    project: int | None,
+    experiment: int | None,
+) -> None:
+    """Import one or more plates by ID."""
+    project_id, experiment_id = _resolve_import_target(
+        project, experiment, ctx.conn
+    )
+
+    def args_for(plate_id: int) -> argparse.Namespace:
+        return _state_args(
             plate_id=plate_id,
-            nucleus_channel=nucleus_flag,
+            nucleus_channel=nucleus_channel,
             project_id=project_id,
             experiment_id=experiment_id,
         )
 
-    if args.import_command == "csv":
-        state = create_cellview_state(state_args_for(csv=args.path))
-        import_data(db, state)
-
-    elif args.import_command == "plate":
-        if len(args.ids) > 1:
-            temp_state = create_cellview_state(
-                state_args_for(plate_id=args.ids[0])
-            )
-            temp_state.validate_plates_same_screen(args.ids)
-            temp_state.console.print(
-                f"[bold cyan]Importing {len(args.ids)} plates...[/bold cyan]"
-            )
-            for pid in args.ids:
-                temp_state.console.print(
-                    f"\n[bold green]Importing plate {pid}...[/bold green]"
-                )
-                state = create_cellview_state(state_args_for(plate_id=pid))
-                import_data(db, state)
-        else:
-            state = create_cellview_state(state_args_for(plate_id=args.ids[0]))
-            import_data(db, state)
-
-    elif args.import_command == "screen":
-        temp_state = create_cellview_state(state_args_for())
-        plate_ids = temp_state.get_plates_from_screen(args.id)
+    if len(ids) > 1:
+        temp_state = create_cellview_state(args_for(ids[0]))
+        temp_state.validate_plates_same_screen(ids)
         temp_state.console.print(
-            f"[bold cyan]Found {len(plate_ids)} plates "
-            f"in screen {args.id}[/bold cyan]"
+            f"[bold cyan]Importing {len(ids)} plates...[/bold cyan]"
         )
-        for plate_id in plate_ids:
+        for pid in ids:
             temp_state.console.print(
-                f"\n[bold green]Importing plate {plate_id}...[/bold green]"
+                f"\n[bold green]Importing plate {pid}...[/bold green]"
             )
-            state = create_cellview_state(state_args_for(plate_id=plate_id))
-            import_data(db, state)
-
+            import_data(ctx.db, create_cellview_state(args_for(pid)))
     else:
-        get_parser().parse_args(["import", "--help"])
+        import_data(ctx.db, create_cellview_state(args_for(ids[0])))
+
+
+def handle_import_screen(
+    ctx: Context,
+    *,
+    screen_id: int,
+    interactive: bool,
+    nucleus_channel: str | None,
+    project: int | None,
+    experiment: int | None,
+) -> None:
+    """Import every plate belonging to a screen."""
+    project_id, experiment_id = _resolve_import_target(
+        project, experiment, ctx.conn
+    )
+
+    def args_for(plate_id: int | None) -> argparse.Namespace:
+        return _state_args(
+            plate_id=plate_id,
+            nucleus_channel=nucleus_channel,
+            project_id=project_id,
+            experiment_id=experiment_id,
+        )
+
+    temp_state = create_cellview_state(args_for(None))
+    plate_ids = temp_state.get_plates_from_screen(screen_id)
+    temp_state.console.print(
+        f"[bold cyan]Found {len(plate_ids)} plates "
+        f"in screen {screen_id}[/bold cyan]"
+    )
+    for plate_id in plate_ids:
+        temp_state.console.print(
+            f"\n[bold green]Importing plate {plate_id}...[/bold green]"
+        )
+        import_data(ctx.db, create_cellview_state(args_for(plate_id)))
 
 
 def _parse_plate_ids(raw: list[str]) -> list[int]:
@@ -174,8 +221,6 @@ def _parse_plate_ids(raw: list[str]) -> list[int]:
     Raises:
         SystemExit: If parsing fails.
     """
-    import sys
-
     from cellview.utils.ui import ui
 
     # Single argument that looks like a notebook name
@@ -196,131 +241,142 @@ def _parse_plate_ids(raw: list[str]) -> list[int]:
         sys.exit(1)
 
 
-def _handle_explore(args: argparse.Namespace) -> None:
-    """Handle the explore subcommand.
-
-    Args:
-        args: Parsed CLI arguments.
-    """
+def handle_explore(
+    *,
+    plate_ids: list[str],
+    experiment: str | None,
+    template: str,
+    fresh: bool,
+    no_napari: bool,
+    code: bool,
+    json_output: bool,
+) -> None:
+    """Launch or describe an exploration notebook."""
     from cellview.explore._cli import explore_json_command, launch_explore
 
-    experiment: str | int | None = None
-    if args.experiment:
+    target: str | int | None = None
+    if experiment:
         try:
-            experiment = int(args.experiment)
+            target = int(experiment)
         except ValueError:
-            experiment = args.experiment
+            target = experiment
 
-    plate_ids = _parse_plate_ids(args.plate_ids) if args.plate_ids else None
+    ids = _parse_plate_ids(plate_ids) if plate_ids else None
 
-    if getattr(args, "json", False):
-        explore_json_command(plate_ids=plate_ids, experiment=experiment)
+    if json_output:
+        explore_json_command(plate_ids=ids, experiment=target)
         return
 
     launch_explore(
-        plate_ids=plate_ids,
-        experiment=experiment,
-        template=args.template,
-        fresh=args.fresh,
-        no_napari=args.no_napari,
-        code=args.code,
+        plate_ids=ids,
+        experiment=target,
+        template=template,
+        fresh=fresh,
+        no_napari=no_napari,
+        code=code,
     )
 
 
-def _handle_template(
-    args: argparse.Namespace, conn: duckdb.DuckDBPyConnection
-) -> None:
-    """Handle the template subcommand.
-
-    Args:
-        args: Parsed CLI arguments.
-        conn: Active DuckDB connection.
-    """
-    import sys
-
-    from cellview.db.templates import (
-        delete_template,
-        get_template_record,
-        upsert_template,
-    )
+def handle_template_list(conn: duckdb.DuckDBPyConnection) -> None:
+    """List registered templates, syncing built-ins first."""
     from cellview.explore._template_registry import (
-        _extract_description,
-        _fmt_from_path,
         list_templates_from_db,
         sync_filesystem_to_db,
     )
     from cellview.utils.ui import ui
 
-    sub = getattr(args, "template_command", None)
-
-    if sub == "list" or sub is None:
-        # Auto-sync built-in templates so a fresh DB always has something to show
-        sync_filesystem_to_db(conn)
-        templates = list_templates_from_db(conn)
-        if not templates:
-            ui.warning("No templates registered. Run: cellview template sync")
-            return
-        ui.header("Registered templates")
-        for t in templates:
-            marker = (
-                " [dim](file missing)[/dim]" if t.source == "db-only" else ""
-            )
-            desc = f" — {t.description}" if t.description else ""
-            ui.info(f"  {t.name:20s} [{t.fmt:7s}] [{t.source}]{desc}{marker}")
+    # Auto-sync built-in templates so a fresh DB always has something to show
+    sync_filesystem_to_db(conn)
+    templates = list_templates_from_db(conn)
+    if not templates:
+        ui.warning("No templates registered. Run: cellview template sync")
         return
+    ui.header("Registered templates")
+    for t in templates:
+        marker = " [dim](file missing)[/dim]" if t.source == "db-only" else ""
+        desc = f" — {t.description}" if t.description else ""
+        ui.info(f"  {t.name:20s} [{t.fmt:7s}] [{t.source}]{desc}{marker}")
 
-    if sub == "sync":
-        n = sync_filesystem_to_db(conn)
-        ui.success(f"Synced {n} template(s) to the database.")
-        return
 
-    if sub == "add":
-        path = args.path.expanduser().resolve()
-        if not path.exists():
-            ui.error(f"File not found: {path}")
-            sys.exit(1)
-        name = args.name or path.stem
-        fmt = _fmt_from_path(path)
-        description = args.description or _extract_description(path) or None
-        upsert_template(
-            conn, name=name, path=path, fmt=fmt, description=description
-        )
-        ui.success(f"Registered template '{name}' ({fmt}) from {path}")
-        return
+def handle_template_sync(conn: duckdb.DuckDBPyConnection) -> None:
+    """Register every template discovered on the filesystem."""
+    from cellview.explore._template_registry import sync_filesystem_to_db
+    from cellview.utils.ui import ui
 
-    if sub == "remove":
-        removed = delete_template(conn, args.name)
-        if removed:
-            ui.success(f"Removed template '{args.name}' from the database.")
-        else:
-            ui.warning(f"Template '{args.name}' not found in the database.")
-        return
+    n = sync_filesystem_to_db(conn)
+    ui.success(f"Synced {n} template(s) to the database.")
 
-    if sub == "show":
-        sync_filesystem_to_db(conn)
-        rec = get_template_record(conn, args.name)
-        if rec is None:
-            ui.error(f"Template '{args.name}' not found.")
-            sys.exit(1)
-        p = Path(rec.path)
-        exists_tag = "exists" if p.exists() else "MISSING"
-        ui.header(f"Template: {rec.name}")
-        ui.info(f"  Format      : {rec.format}")
-        ui.info(f"  Path        : {rec.path} [{exists_tag}]")
-        ui.info(f"  Description : {rec.description or '(none)'}")
-        ui.info(f"  DB id       : {rec.template_id}")
-        if rec.parent_template_id:
-            ui.info(f"  Derived from: template_id {rec.parent_template_id}")
-        return
 
-    get_parser().parse_args(["template", "--help"])
+def handle_template_add(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    path: Path,
+    name: str | None,
+    description: str | None,
+) -> None:
+    """Register a template file in the database."""
+    from cellview.db.templates import upsert_template
+    from cellview.explore._template_registry import (
+        _extract_description,
+        _fmt_from_path,
+    )
+    from cellview.utils.ui import ui
+
+    resolved = path.expanduser().resolve()
+    if not resolved.exists():
+        ui.error(f"File not found: {resolved}")
+        sys.exit(1)
+    template_name = name or resolved.stem
+    fmt = _fmt_from_path(resolved)
+    desc = description or _extract_description(resolved) or None
+    upsert_template(
+        conn, name=template_name, path=resolved, fmt=fmt, description=desc
+    )
+    ui.success(
+        f"Registered template '{template_name}' ({fmt}) from {resolved}"
+    )
+
+
+def handle_template_remove(
+    conn: duckdb.DuckDBPyConnection, *, name: str
+) -> None:
+    """Remove a template record, leaving the file on disk."""
+    from cellview.db.templates import delete_template
+    from cellview.utils.ui import ui
+
+    if delete_template(conn, name):
+        ui.success(f"Removed template '{name}' from the database.")
+    else:
+        ui.warning(f"Template '{name}' not found in the database.")
+
+
+def handle_template_show(
+    conn: duckdb.DuckDBPyConnection, *, name: str
+) -> None:
+    """Show the stored details for one template."""
+    from cellview.db.templates import get_template_record
+    from cellview.explore._template_registry import sync_filesystem_to_db
+    from cellview.utils.ui import ui
+
+    sync_filesystem_to_db(conn)
+    rec = get_template_record(conn, name)
+    if rec is None:
+        ui.error(f"Template '{name}' not found.")
+        sys.exit(1)
+    p = Path(rec.path)
+    exists_tag = "exists" if p.exists() else "MISSING"
+    ui.header(f"Template: {rec.name}")
+    ui.info(f"  Format      : {rec.format}")
+    ui.info(f"  Path        : {rec.path} [{exists_tag}]")
+    ui.info(f"  Description : {rec.description or '(none)'}")
+    ui.info(f"  DB id       : {rec.template_id}")
+    if rec.parent_template_id:
+        ui.info(f"  Derived from: template_id {rec.parent_template_id}")
 
 
 def main() -> None:
-    """Main entry point for CellView application.
-
-    Dispatches to the appropriate handler based on the CLI subcommand.
-    """
+    """Entry point for the ``cellview`` console script."""
+    from cellview.cli import cli
     from omero_screen.config import configure_logging
 
     # Configure logging once, at the entry point (file @ INFO, console off —
@@ -328,79 +384,18 @@ def main() -> None:
     # $OMERO_SCREEN_LOG_LEVEL / $OMERO_SCREEN_LOG_FILE.
     configure_logging()
 
-    conn = None
     try:
-        args = parse_args()
-
-        # Commands that don't need a DB connection
-        if args.command == "explore":
-            _handle_explore(args)
-            return
-
-        if args.command is None:
-            get_parser().print_help()
-            return
-
-        # All remaining commands need a DB connection
-        db = CellViewDB(args.db)
-        conn = db.connect()
-
-        match args.command:
-            case "projects":
-                display_projects(conn)
-
-            case "project":
-                display_single_project(conn, args.id)
-
-            case "experiment":
-                display_experiment(conn, args.id)
-
-            case "plate":
-                display_plate_summary(args.id, conn)
-
-            case "import":
-                _handle_import(args, db)
-
-            case "edit":
-                if args.edit_command == "project":
-                    edit_project(args.id, conn)
-                elif args.edit_command == "experiment":
-                    edit_experiment(args.id, conn)
-                else:
-                    get_parser().parse_args(["edit", "--help"])
-
-            case "export":
-                df, variable_names = export_pandas_df(args.id, conn)
-                print(
-                    f"Exported plate {args.id}: "
-                    f"{len(df)} rows, variables: {variable_names}"
-                )
-
-            case "delete":
-                if args.delete_command == "plate":
-                    for plate_id in args.ids:
-                        del_measurements_by_plate_id(db, conn, plate_id)
-                    # One pass at the end: cleanup is global (it walks the
-                    # whole project→measurement chain) and prints a results
-                    # table, so per-plate calls would repeat work and noise.
-                    clean_up_db(db, conn)
-                else:
-                    get_parser().parse_args(["delete", "--help"])
-
-            case "clean":
-                clean_up_db(db, conn)
-
-            case "template":
-                _handle_template(args, conn)
-
+        cli.main(standalone_mode=False)
     except CellViewError as e:
         e.display()
-        import sys
-
         sys.exit(1)
-    finally:
-        if conn is not None:
-            conn.close()
+    except click.exceptions.Abort:
+        sys.exit(130)
+    except click.ClickException as e:
+        e.show()
+        sys.exit(e.exit_code)
+    except click.exceptions.Exit as e:
+        sys.exit(e.exit_code)
 
 
 if __name__ == "__main__":

@@ -10,13 +10,13 @@ provides GPU nodes for large-scale training. Access requires VPN.
 Submit one training run to SLURM:
 
 ```bash
-cellclass-sbatch --args ~/data/mitosis-rpe/rois.npz \
+cellclass sbatch --args ~/data/mitosis-rpe/rois.npz \
     --model shufflenet2x1_0 --lr 1e-3 --lr-scheduler plateau \
     --flip 3 --batch-size 128 -d cuda --wandb
 ```
 
-`cellclass-sbatch` wraps `sbatch` and passes everything after `--args` to `cellclass-train`.
-Use `cellclass-sbatch --help` to see SLURM-specific options (partition, memory, walltime).
+`cellclass sbatch` wraps `sbatch` and passes everything after `--args` to `cellclass train`.
+Use `cellclass sbatch --help` to see SLURM-specific options (partition, memory, walltime).
 
 ---
 
@@ -26,7 +26,7 @@ Use the same `train.txt` batch file as for local training, but pass the SLURM su
 as the command:
 
 ```bash
-cellclass-batch train.txt --script batch.sh --cmd "cellclass-sbatch --args"
+cellclass batch train.txt --script batch.sh --cmd "cellclass sbatch --args"
 bash batch.sh
 ```
 

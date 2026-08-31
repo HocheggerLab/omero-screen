@@ -41,7 +41,7 @@ repos:
       - id: mypy
         # Because pre-commit runs mypy from an isolated virtualenv
         # add the typed dependencies to allow analysis
-        additional_dependencies: ["pandas>=2.2.3"]
+        additional_dependencies: ["pandas>=2.2.3", "click>=8.1.8"]
         exclude: ^(tests/|skills/)
         args: ["--config-file=pyproject.toml"]
 

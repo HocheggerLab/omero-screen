@@ -14,7 +14,7 @@ Training data is stored as `.npy` files — pickled Python dicts with the follow
 The [Training Widget](../omero-screen-napari/training_widget.md) produces files in exactly
 this format. Each file contains all annotations from one session (one plate / well / image
 combination). Multiple files can coexist in the same directory and are combined by
-`cellclass-dataset`.
+`cellclass dataset`.
 
 ---
 
@@ -22,7 +22,7 @@ combination). Multiple files can coexist in the same directory and are combined 
 
 :::{tip}
 If you are working in Napari, this step is automated. Open the **Training Widget**, click
-**Manage Sessions**, then **Export Dataset**. This runs `cellclass-dataset` on all sessions
+**Manage Sessions**, then **Export Dataset**. This runs `cellclass dataset` on all sessions
 for the selected classifier and also writes a ready-to-use `train.txt` template — you can
 skip straight to [Step 4](#step-4-generate-and-run-batchsh).
 :::
@@ -30,7 +30,7 @@ skip straight to [Step 4](#step-4-generate-and-run-batchsh).
 To run manually from the command line:
 
 ```bash
-cellclass-dataset <data_dir> --name rois
+cellclass dataset <data_dir> --name rois
 ```
 
 What this does:
@@ -43,13 +43,13 @@ What this does:
 5. Writes `<data_dir>/rois.npz` — a single compressed numpy archive.
 
 The `.npz` contains all crops in a single pool — train/validation/test splitting and
-class imbalance handling are done by `cellclass-train` at training time (see
+class imbalance handling are done by `cellclass train` at training time (see
 [Step 4](#step-4-generate-and-run-batchsh)).
 
 Channel names are read from `metadata.json` in the data directory. Override with `--channels`:
 
 ```bash
-cellclass-dataset ~/data/ppase_screen --channels DAPI RFP --name rois
+cellclass dataset ~/data/ppase_screen --channels DAPI RFP --name rois
 ```
 
 Useful options:
@@ -68,7 +68,7 @@ Useful options:
 Before training, visually verify your dataset:
 
 ```bash
-cellclass-sample ~/data/mitosis-rpe/rois.npz --output ~/data/mitosis-rpe
+cellclass sample ~/data/mitosis-rpe/rois.npz --output ~/data/mitosis-rpe
 ```
 
 This writes one TIFF per class containing a random grid of crops in ImageJ hyperstack
@@ -79,8 +79,8 @@ channel assignments and label quality.
 
 ## Step 3 — Write `train.txt`
 
-A batch file is a plain-text list of arguments for `cellclass-train`, one run per line.
-Comment lines (`#`) and blank lines are ignored. `cellclass-batch` converts this file into
+A batch file is a plain-text list of arguments for `cellclass train`, one run per line.
+Comment lines (`#`) and blank lines are ignored. `cellclass batch` converts this file into
 a `batch.sh` shell script, assigning unique checkpoint filenames automatically so runs
 never overwrite each other.
 
@@ -91,7 +91,7 @@ never overwrite each other.
 #### Input
 
 `dataset.npz` *(positional)*
-: Path to the `.npz` file produced by `cellclass-dataset`. You can also pass a `.json`
+: Path to the `.npz` file produced by `cellclass dataset`. You can also pass a `.json`
   state file to resume a crashed or paused run.
 
 `--size N`
@@ -364,17 +364,17 @@ rois.npz --model efficientnetb3s --no-freeze-weights --lr 1e-4 --lr-scheduler pl
 ## Step 4 — Generate and run `batch.sh`
 
 ```bash
-cellclass-batch train.txt --script batch.sh
+cellclass batch train.txt --script batch.sh
 bash batch.sh
 ```
 
-`cellclass-batch` assigns unique checkpoint and metadata filenames automatically so runs
+`cellclass batch` assigns unique checkpoint and metadata filenames automatically so runs
 never overwrite each other. Comment out completed lines in `train.txt` before regenerating.
 
 To run jobs in parallel (one per GPU on a multi-GPU machine):
 
 ```bash
-cellclass-batch train.txt --script batch.sh --background
+cellclass batch train.txt --script batch.sh --background
 bash batch.sh
 ```
 
@@ -397,10 +397,10 @@ is 20 % of the remaining 80 %). For small datasets try `--testing-size 0.1
 The test split is **not saved to disk** — it is reconstructed at evaluation time by
 replaying the same random split using `--data-seed`. The split is therefore only
 genuinely held-out if you use **the same `.npz` and the same seed** as training. The
-`.json` state file records the seed used, so always pass it to `cellclass-test`:
+`.json` state file records the seed used, so always pass it to `cellclass test`:
 
 ```bash
-cellclass-test rois.npz.1.json --data-seed 42
+cellclass test rois.npz.1.json --data-seed 42
 ```
 
 If you add new annotations and regenerate `rois.npz`, the crop indices shift and the old
@@ -439,14 +439,14 @@ in your working directory.
 ## Step 6 — Extract the model
 
 ```bash
-cellclass-extract best_run.json
+cellclass extract best_run.json
 ```
 
 Without `--save` this prints the performance metrics without writing any files — useful
 for a quick sanity check. Add `--save` to export:
 
 ```bash
-cellclass-extract best_run.json --save
+cellclass extract best_run.json --save
 ```
 
 Output files:
@@ -459,7 +459,7 @@ Output files:
 ## Step 7 — Test the exported model
 
 ```bash
-cellclass-test -s shufflenet2x1_0_c2_l2.pt ~/data/mitosis-rpe/rois.npz
+cellclass test -s shufflenet2x1_0_c2_l2.pt ~/data/mitosis-rpe/rois.npz
 ```
 
 Prints a per-class precision/recall/F1 report and overall accuracy on the test split.
@@ -471,7 +471,7 @@ Prints a per-class precision/recall/F1 report and overall accuracy on the test s
 Training checkpoints are saved after each epoch. To restart from the last checkpoint:
 
 ```bash
-cellclass-train best_run.json
+cellclass train best_run.json
 ```
 
 Passing the metadata JSON resumes from the saved checkpoint. Note: some training state

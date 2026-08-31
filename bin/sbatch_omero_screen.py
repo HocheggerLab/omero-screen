@@ -84,7 +84,7 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
             raise Exception(
                 f"Missing stitch config file: {stitch_config_path}"
             )
-        prog_options += f" --stitch_config {stitch_config_path}"
+        prog_options += f" --stitch-config {stitch_config_path}"
 
     # Create the job file
     script = f"{name}.sh"

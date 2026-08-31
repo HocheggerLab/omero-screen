@@ -1,0 +1,70 @@
+# Great Docs configuration — omero-screen-plots.
+# Sub-site of the OMERO-Screen platform, deployed to /plots/.
+module: omero_screen_plots
+display_name: OMERO-Screen Plots
+parser: google
+dynamic: true
+pypi: false
+repo: https://github.com/HocheggerLab/omero-screen
+site_url: https://hocheggerlab.github.io/omero-screen/plots/
+
+announcement:
+  content: "Part of the **OMERO-Screen** platform — [back to the documentation home](https://hocheggerlab.github.io/omero-screen/)"
+  type: info
+  dismissable: true
+
+hero:
+  enabled: true
+  tagline: "Publication-ready statistical plots for single-cell IF data."
+  badges: false
+
+user_guide:
+  - section: "Guide"
+    contents:
+      - overview.qmd
+      - installation.qmd
+      - quickstart.qmd
+      - plot_types.qmd
+      - customization.qmd
+  - section: "Plot gallery"
+    contents:
+      - classificationplot.qmd
+      - featureplot.qmd
+      - featurenormplot.qmd
+      - cellcycleplot.qmd
+      - cellcyclestacked.qmd
+      - histogramplot.qmd
+      - scatterplot.qmd
+      - combplot.qmd
+      - countplot.qmd
+      - normalise.qmd
+      - utils.qmd
+
+reference:
+  - title: Cell cycle
+    desc: Phase distributions and stacked composition plots.
+    contents:
+      - cellcycle_plot
+      - cellcycle_stacked
+      - combplot_cellcycle
+  - title: Counts and features
+    desc: Cell counts, per-feature comparisons and normalisation.
+    contents:
+      - count_plot
+      - feature_plot
+      - feature_norm_plot
+      - combplot_feature
+      - PlotType
+  - title: Distributions
+    desc: Histograms and scatter plots of single-cell measurements.
+    contents:
+      - histogram_plot
+      - scatter_plot
+  - title: Classification and QC
+    desc: Classifier output and per-well quality control.
+    contents:
+      - classification_plot
+      - well_qc_plot
+  - title: Utilities
+    contents:
+      - save_fig

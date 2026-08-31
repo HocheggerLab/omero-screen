@@ -1,0 +1,48 @@
+---
+title: "Quality control"
+---
+
+Registration failure is the main risk in a cyclic-IF experiment, and it does
+not always announce itself. A misaligned plate still produces a full dataset
+and a plausible-looking plot — the numbers are simply from the wrong cells.
+
+Run the QC report before trusting any 4i result.
+
+```bash
+python bin/alignment_qc.py 4126 -o alignment_qc
+```
+
+Pass several master plate IDs to treat them as biological replicates and add a
+combined, replicate-level analysis.
+
+| Option | Default | Purpose |
+|---|---|---|
+| `-o, --outdir DIR` | `alignment_qc` | Destination for CSVs, tables and figures |
+| `--sample-alignments` | off | **Must match how `aggregate_plates` was run** |
+| `--iqr N` | 1.5 | IQR factor for per-well agreement outlier removal |
+| `--mask-samples N` | 12 | Fields sampled for nuclear-mask overlap (0 to skip) |
+| `--pixel-size N` | — | Override the pixel size |
+| `--attach` | — | Attach the report back to the OMERO plate |
+| `--seed N` | random | Random seed for sampling |
+| `--env NAME` | — | Environment file to load |
+
+## What the report contains
+
+Everything for one run lands in a single directory: the raw input CSVs, the
+derived metric tables, summary and statistics tables, and the figures. That
+makes it archivable alongside the analysis — the evidence that a given dataset
+was correctly registered travels with the dataset.
+
+`--attach` additionally uploads the report to the OMERO plate, which is the
+better choice when the analysis is shared.
+
+## Reading the result
+
+The two questions the report answers are whether individual rounds agree with
+the reference, and whether that agreement is uniform across the plate.
+Registration that is good in the plate centre and poor at the edges points at a
+stage-position or stitching problem rather than a staining one.
+
+`--mask-samples` controls how many fields are sampled for direct nuclear-mask
+overlap. It requires downloading masks, so it is the slow part of the report;
+set it to `0` for a quick pass and raise it when a plate looks suspect.

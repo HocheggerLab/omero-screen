@@ -9,7 +9,7 @@ Executable runbook for the **cellclass** classifier training pipeline. Drives a 
 
 **This skill runs in-place.** It does not SSH anywhere. If training must happen on a GPU box, the user opens a Claude Code session *on that box* and runs this skill there. Device is auto-detected, never hardcoded.
 
-**Background reference:** the conceptual pipeline (stages, internals) is documented in the Obsidian vault note `CellClass training pipeline` under `[[&CellClass]]`. The CLI lives in the `cellclass` package of the omero-screen workspace; its console scripts (`cellclass-dataset`, `cellclass-train`, `cellclass-batch`, `cellclass-extract`) are available in any env that has `omero-screen` installed.
+**Background reference:** the conceptual pipeline (stages, internals) is documented in the Obsidian vault note `CellClass training pipeline` under `[[&CellClass]]`. The CLI lives in the `cellclass` package of the omero-screen workspace; the unified `cellclass` command is available in any environment that has the workspace installed. Legacy `cellclass-*` executables remain compatibility aliases.
 
 ---
 
@@ -21,7 +21,7 @@ labelled .npy crops
        └─[2 sweep]→ train.txt → batch.sh → <name>.npz.{N}.pt(.best) + .json   (one per run)
             └─[3 metrics]→ W&B (group tag)  ||  local .pt.best fallback
                  └─[4 report]→ Jupyter report notebook + vector PDFs (assets/build_report.py)
-                      └─[5 select+extract]→ cellclass-extract <best>.json --save → model.pt + .json
+                      └─[5 select+extract]→ cellclass extract <best>.json --save → model.pt + .json
 ```
 
 Read `references/standard-sweep.md` for the architecture/hyperparameter standard (10x low-res crops) and `references/wandb-pull.md` for the metrics query before running steps 2–4.
@@ -55,9 +55,9 @@ uv run python -c "import wandb;print('wandb entity:', wandb.Api().default_entity
 Crops are a directory of `.npy` files (each a pickled dict of image/mask lists + `target` labels), optionally with a napari `metadata.json` carrying `channels` under `user_data`.
 
 ```bash
-uv run cellclass-dataset <crops_dir> --name <name> --channels <CH1> [<CH2> ...]
+uv run cellclass dataset <crops_dir> --name <name> --channels <CH1> [<CH2> ...]
 ```
-- Pass `--channels` explicitly (the cellclass reader may not parse napari's nested `user_data.channels`). One channel → `c1` models; two → `c2`, etc.
+- Pass `--channels` explicitly (`cellclass dataset` may not parse napari's nested `user_data.channels`). One channel → `c1` models; two → `c2`, etc.
 - `.npz` is written to `--out` (default = crops dir): `<crops_dir>/<name>.npz`.
 
 **Parse the printed class balance.** It lists per-class counts and fractions. If the max:min class ratio is roughly ≥ 3:1, **recommend `--loss-weights`** in the sweep (focal loss is on by default; inverse-frequency weighting handles the imbalance). Note any large `ignored class` count (unassigned crops) for the user.
@@ -69,11 +69,11 @@ uv run cellclass-dataset <crops_dir> --name <name> --channels <CH1> [<CH2> ...]
 Generate `train.txt` from the standard in `references/standard-sweep.md`, substituting: dataset `.npz` path (relative to the dir where `batch.sh` will run), detected device, and a **per-sweep W&B project** (`--project <name>`) on every line so the sweep's runs land in their own project. Use a descriptive name, e.g. `cellclass-<dataset>`. W&B auto-creates the project on the first run.
 
 ```bash
-uv run cellclass-batch <crops_dir>/train.txt --script batch.sh   # writes batch.sh, one cellclass-train per line
+uv run cellclass batch <crops_dir>/train.txt --script batch.sh   # writes batch.sh, one training run per line
 bash batch.sh                                                     # run the sweep
 ```
-- `cellclass-batch` derives per-run output names `<npz>.{N}.pt` / `<npz>.{N}.json` (best checkpoint → `.pt.best`).
-- **Re-runs collide:** `cellclass-train --existing` defaults to `error`, so a second sweep over the same names fails. Remove prior `*.npz.*.pt*` / `*.npz.*.json` (or use a fresh group) before re-running.
+- `cellclass batch` derives per-run output names `<npz>.{N}.pt` / `<npz>.{N}.json` (best checkpoint → `.pt.best`).
+- **Re-runs collide:** `cellclass train --existing` defaults to `error`, so a second sweep over the same names fails. Remove prior `*.npz.*.pt*` / `*.npz.*.json` (or use a fresh group) before re-running.
 - **Long runs:** if on a remote box, advise the user to launch `bash batch.sh` inside `tmux` so it survives SSH drops (the user manages the SSH/tmux session — this skill does not).
 - Use `--dry-run` first to preview, or `--background` to fan out runs as background processes.
 
@@ -89,7 +89,7 @@ After the sweep, gather results. Follow `references/wandb-pull.md`:
 
 ## Step 4 — Build the report notebook
 
-Generate the standard **A–E panel report** with `assets/build_report.py`. Unlike the interactive marimo notebook, this emits the *same* static, re-runnable Jupyter notebook every time, with figures saved as Illustrator-friendly **vector** PDFs (the confusion-matrix heatmap is drawn as rectangles, not a rasterised image — which Illustrator garbles). It also folds in the Step 3 pull. **Run it from the project env** (needs `cellclass-test` on PATH, plus nbformat/wandb/pandas/numpy/pillow):
+Generate the standard **A–E panel report** with `assets/build_report.py`. Unlike the interactive marimo notebook, this emits the *same* static, re-runnable Jupyter notebook every time, with figures saved as Illustrator-friendly **vector** PDFs (the confusion-matrix heatmap is drawn as rectangles, not a rasterised image — which Illustrator garbles). It also folds in the Step 3 pull. **Run it from the project env** (needs `cellclass` on PATH, plus nbformat/wandb/pandas/numpy/pillow):
 
 ```bash
 uv run python <skill_dir>/assets/build_report.py <npz> \
@@ -100,7 +100,7 @@ uv run python <skill_dir>/assets/build_report.py <npz> \
 #   --compare <npz>.{M}.pt.best --compare-model <arch> --compare-label "loss weights"
 ```
 
-This (1) pulls the sweep → `sweep_summary.csv` + `sweep_history.csv`; (2) runs `cellclass-test` for the winner (and `--compare`) → `confusion-matrix.csv` (skipped if it already exists); (3) samples one representative crop per class from the `.npz`; (4) copies the lab style assets (`hhlab_style01.mplstyle`, `colors.py`); (5) writes `<name>_report.ipynb` and, with `--execute`, renders the panel PDFs.
+This (1) pulls the sweep → `sweep_summary.csv` + `sweep_history.csv`; (2) runs `cellclass test` for the winner (and `--compare`) → `confusion-matrix.csv` (skipped if it already exists); (3) samples one representative crop per class from the `.npz`; (4) copies the lab style assets (`hhlab_style01.mplstyle`, `colors.py`); (5) writes `<name>_report.ipynb` and, with `--execute`, renders the panel PDFs.
 
 Panels (fixed order): **A** training curves of the top runs (W&B only) · **B** all runs ranked by test F1 → winner (bold) · **C** winner per-class precision & recall (overlays `--compare` when given) · **D** confusion matrix + representative crops (vector) · **E** placeholder for a napari gallery on unseen data.
 
@@ -115,7 +115,7 @@ Notes:
 
 Pick the run with the highest **test F1** (fall back to val F1 if no test split). Extract its settings JSON to TorchScript:
 ```bash
-uv run cellclass-extract <npz>.{N}.json --save
+uv run cellclass extract <npz>.{N}.json --save
 ```
 Produces `<model>_c<channels>_l<labels>.pt` (TorchScript) + a `.json` metadata sidecar (`labels`, `model`, `channels`, `input_shape`, metrics). This `.pt` is the artefact consumed at inference via `omero-screen <plate> --inference <model>.pt`.
 

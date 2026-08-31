@@ -316,3 +316,5 @@ benchmarks/ls90*/
 # SLURM job scripts and output files
 **/os*.sh
 **/os*.out
+great-docs/
+_site/

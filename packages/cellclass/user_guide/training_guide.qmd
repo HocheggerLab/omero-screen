@@ -1,0 +1,487 @@
+---
+title: "Training Guide"
+---
+
+
+## Data format
+
+Training data is stored as `.npy` files — pickled Python dicts with the following structure:
+
+```python
+{
+    'data': ([img1, img2, ...], [mask1, mask2, ...]),  # images (YXC), masks (YX)
+    'target': ['interphase', 'mitosis', ...]           # string class labels
+}
+```
+
+The [Training Widget](../../napari/user-guide/training_widget.html) produces files in exactly
+this format. Each file contains all annotations from one session (one plate / well / image
+combination). Multiple files can coexist in the same directory and are combined by
+`cellclass dataset`.
+
+---
+
+## Step 1 — Create dataset
+
+::: {.callout-tip}
+If you are working in Napari, this step is automated. Open the **Training Widget**, click
+**Manage Sessions**, then **Export Dataset**. This runs `cellclass dataset` on all sessions
+for the selected classifier and also writes a ready-to-use `train.txt` template — you can
+skip straight to [Step 4](#step-4-generate-and-run-batchsh).
+:::
+
+To run manually from the command line:
+
+```bash
+cellclass dataset <data_dir> --name rois
+```
+
+What this does:
+
+1. Globs all `*.npy` files in `<data_dir>`.
+2. Drops any crop labelled `unassigned` (cells you reviewed but did not classify).
+3. For each remaining crop: applies (1, 99) percentile stretch, centres the cell,
+   and converts to `uint8`.
+4. Deduplicates identical crops (by pixel hash) to avoid overfitting on repeated cells.
+5. Writes `<data_dir>/rois.npz` — a single compressed numpy archive.
+
+The `.npz` contains all crops in a single pool — train/validation/test splitting and
+class imbalance handling are done by `cellclass train` at training time (see
+[Step 4](#step-4-generate-and-run-batchsh)).
+
+Channel names are read from `metadata.json` in the data directory. Override with `--channels`:
+
+```bash
+cellclass dataset ~/data/ppase_screen --channels DAPI RFP --name rois
+```
+
+Useful options:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--name` | `rois` | Output filename stem |
+| `--channels` | from metadata.json | Channel names (order must match image data) |
+| `--ignore` | none | Class labels to exclude |
+| `--size` | none | Resize all crops to `N×N` pixels |
+
+---
+
+## Step 2 — Sample and verify
+
+Before training, visually verify your dataset:
+
+```bash
+cellclass sample ~/data/mitosis-rpe/rois.npz --output ~/data/mitosis-rpe
+```
+
+This writes one TIFF per class containing a random grid of crops in ImageJ hyperstack
+format. Open in ImageJ with `Image → Color → Channels Tool → Composite` to check
+channel assignments and label quality.
+
+---
+
+## Step 3 — Write `train.txt`
+
+A batch file is a plain-text list of arguments for `cellclass train`, one run per line.
+Comment lines (`#`) and blank lines are ignored. `cellclass batch` converts this file into
+a `batch.sh` shell script, assigning unique checkpoint filenames automatically so runs
+never overwrite each other.
+
+---
+
+### Flag reference
+
+::: {.callout-note}
+The authoritative, always-current list of options and defaults is the generated
+[`cellclass train` reference](../reference/cli/train.html). The notes below add
+the reasoning behind each flag — which value to pick, and why.
+:::
+
+#### Input
+
+`dataset.npz` *(positional)*
+: Path to the `.npz` file produced by `cellclass dataset`. You can also pass a `.json`
+  state file to resume a crashed or paused run.
+
+`--size N`
+: Subsample `N` images randomly from the dataset. Default is all images. Useful for quick
+  sanity checks (`--size 200`) without waiting for a full run.
+
+`--data-seed INT` *(default: 42)*
+: Random seed for subsampling. Change this to get a different random subset.
+
+---
+
+#### Model
+
+`--model NAME` *(default: densenet121)*
+: Neural network architecture. Available options:
+
+  | Model | Size | Notes |
+  |---|---|---|
+  | `densenet121` | medium | Strong general-purpose performer |
+  | `efficientnetb3s` | medium | ImageNet pretrained; use with `--freeze-weights` |
+  | `shufflenet2x1_0` | light | Fast training, good baseline |
+  | `squeezenet1_0` | lightest | Minimal memory; useful sanity check |
+
+  See the [Model Guide](models.qmd) for full architecture details.
+
+`--freeze-weights` / `--no-freeze-weights`
+: Freeze the pretrained backbone and only train the classification head. Use this with
+  `efficientnetb3s`, which ships with ImageNet weights. Freezing means the feature extractor
+  is not updated — training is faster and needs less data, but the backbone cannot adapt to
+  your specific channel content. For fluorescence images that look nothing like ImageNet
+  photos, `--no-freeze-weights` often gives better final accuracy at the cost of slower
+  convergence.
+
+`--weights TEXT` *(default: DEFAULT)*
+: PyTorch weights identifier. `DEFAULT` loads the standard pretrained weights for the
+  chosen model. Pass `None` to start from a random initialisation (rarely needed — prefer
+  `--no-freeze-weights` instead).
+
+`--dropout FLOAT` *(default: 0.4)*
+: Dropout rate applied to the final feature vector before the classification layer.
+  Higher values (0.5–0.6) regularise more aggressively and help when the dataset is small
+  or the feature vector is large. Lower values (0.2–0.3) suit larger datasets.
+
+---
+
+#### Learning rate
+
+`--lr FLOAT` *(default: 1e-4)*
+: Initial learning rate for the Adam optimiser. This is the single most important
+  hyperparameter to sweep. Start with `1e-3` and `1e-4`; if both diverge, try `5e-4`.
+  If both converge slowly, `1e-3` is usually better.
+
+`--lr-scheduler TYPE` *(default: step)*
+: How the learning rate decays during training.
+
+  - **`plateau`** — reduces LR by `--lr-factor` when validation loss stops improving for
+    `--lr-patience` epochs. Adapts to your data automatically. **Recommended for most runs.**
+  - **`step`** — multiplies LR by `--lr-gamma` every `--lr-step` epochs regardless of
+    performance. Predictable but requires more tuning.
+
+`--lr-factor FLOAT` *(default: 0.1, plateau only)*
+: Multiplicative factor applied when the plateau scheduler fires. `0.1` drops the LR by
+  10×. Use `0.5` for a gentler reduction if training is unstable.
+
+`--lr-patience INT` *(default: 2, plateau only)*
+: Number of epochs with no improvement before the plateau scheduler fires. Increase to
+  `5–10` if your loss curve is noisy.
+
+`--lr-gamma FLOAT` *(default: 0.1, step only)*
+: Multiplicative factor applied at each step. Same semantics as `--lr-factor` but for the
+  step scheduler.
+
+`--lr-step INT` *(default: 5, step only)*
+: Epoch interval between step scheduler reductions.
+
+`--weight-decay FLOAT` *(default: 1e-4)*
+: L2 regularisation on model weights (Adam's `weight_decay`). Increase to `1e-3` if you
+  see overfitting (training accuracy far above validation accuracy).
+
+---
+
+#### Training loop
+
+`--epochs INT` *(default: 2000)*
+: Maximum number of training epochs. Early stopping (controlled by `--patience`) usually
+  terminates training well before this limit. Set lower (`--epochs 100`) for quick test
+  runs on a laptop.
+
+`--batch-size INT` *(default: 32)*
+: Number of crops per gradient update. Larger batches train faster but require more GPU
+  memory. Recommended values: `64` for medium models (DenseNet, EfficientNet), `128` for
+  lightweight models (ShuffleNet, SqueezeNet).
+
+`--patience INT` *(default: 10)*
+: Early-stopping patience: training stops when validation accuracy has not improved for
+  this many epochs. Increase to `20–30` for noisy datasets where improvement is slow.
+
+`--delta FLOAT` *(default: 0)*
+: Minimum *absolute* improvement in validation accuracy to reset the patience counter.
+  Leave at `0` unless you want to ignore very small improvements.
+
+`--rel-delta FLOAT` *(default: 1e-4)*
+: Minimum *relative* improvement (as a fraction of current accuracy) to count as
+  progress. Prevents tiny numerical fluctuations from resetting the patience counter.
+
+`--validation-size FLOAT` *(default: 0.2)*
+: Fraction of data held out for validation during training. The remaining `1 - validation-size - testing-size` fraction is used for training.
+
+`--seed INT` *(default: 0xDEADBEEF)*
+: Random seed for model initialisation and data splits. Fix this across runs when you want
+  to isolate the effect of a single hyperparameter change.
+
+---
+
+#### Loss function
+
+`--loss-function TYPE` *(default: focal_loss)*
+: Loss function used during training.
+
+  - **`focal_loss`** — down-weights easy examples so the model focuses on hard or rare
+    cases. **Recommended for imbalanced datasets** (e.g. many interphase cells, few mitotic).
+  - **`cross_entropy`** — standard classification loss. Use when classes are balanced.
+
+`--focal-gamma FLOAT` *(default: 2)*
+: Focusing parameter for focal loss. Higher values (3–5) concentrate training even more on
+  hard examples. Effective range is 0.5–5; `2` is the standard from the original paper.
+
+`--loss-weights` / `--no-loss-weights`
+: Weight each class in the loss by the inverse of its frequency. Helps with imbalanced
+  datasets independently of focal loss — you can combine both. Disabled by default.
+
+---
+
+#### Data augmentation
+
+`--flip INT` *(default: 1)*
+: Random flip augmentation applied each epoch.
+
+  | Value | Effect |
+  |---|---|
+  | `0` | No flipping |
+  | `1` | Horizontal flips only |
+  | `2` | Vertical flips only |
+  | `3` | Both horizontal and vertical |
+
+  Use `3` for cell images — cells have no preferred orientation.
+
+`--rotate INT` *(default: 180)*
+: Maximum rotation angle in degrees. Each crop is randomly rotated by ±`rotate` degrees.
+  `180` means full random rotation, which is appropriate for round objects like cells.
+  Set to `0` to disable.
+
+`--translate FLOAT` *(default: 0.1)*
+: Maximum translation as a fraction of image size. `0.1` shifts crops by up to 10% in
+  each direction. Helps the model generalise to slightly off-centre cells.
+
+---
+
+#### Hardware
+
+`-d DEVICE` *(default: cuda)*
+: Compute device.
+
+  | Value | When to use |
+  |---|---|
+  | `cuda` | NVIDIA GPU (Linux/Windows server) |
+  | `cuda:0`, `cuda:1` | Specific GPU on a multi-GPU machine |
+  | `mps` | Apple Silicon (M1/M2/M3 Mac) |
+  | `cpu` | Fallback; very slow for anything but tiny tests |
+
+`--num-workers INT` *(default: 0)*
+: Number of parallel workers for data loading. On Linux with CUDA, `4` or `8` significantly
+  reduces data loading bottlenecks. **Set to `0` on macOS** (MPS does not support forked
+  workers).
+
+`--cudnn-benchmark`
+: Enables cuDNN autotuning — benchmarks convolution algorithms at startup and picks the
+  fastest one for your specific input size. Adds ~30 s startup overhead but speeds up
+  training. **CUDA only; omit on MPS/CPU.**
+
+`--pin-memory`
+: Uses CUDA pinned (page-locked) memory in the DataLoader for faster host→GPU transfers.
+  **CUDA only; omit on MPS/CPU.**
+
+---
+
+#### Testing
+
+`--testing-size FLOAT` *(default: 0.2)*
+: Fraction of data held out as a final test set, evaluated once at the end of training.
+  This split is never seen during training or validation.
+
+`--testing-interval INT` *(default: 5)*
+: Evaluate the held-out test set every N epochs (in addition to the final evaluation).
+  Useful for monitoring generalisation during training; set higher to reduce overhead.
+
+---
+
+#### Weights & Biases
+
+`--wandb`
+: Enable logging to Weights & Biases. Requires a prior `wandb login`. Runs are logged to
+  the `cellclass` project in your own workspace by default.
+
+`--entity TEXT`
+: W&B team or username. Defaults to your logged-in account. Pass `--entity myteam` to log
+  to a shared team project.
+
+`--project TEXT` *(default: cellclass)*
+: W&B project name.
+
+`--run-name TEXT`
+: Human-readable display name for this run in the W&B UI. If not set, W&B generates one.
+
+`--tags TAG [TAG ...]`
+: One or more tags attached to the run, useful for filtering in W&B. Example:
+  `--tags mitosis rpe 50px`.
+
+---
+
+### Standard sweep (GPU server)
+
+The default sweep covers four architectures and two learning rates — six runs total.
+This is a good starting point for any new dataset.
+
+```text
+rois.npz --model efficientnetb3s --freeze-weights --lr 1e-3 --lr-scheduler plateau --flip 3 --batch-size 64 -d cuda --cudnn-benchmark --pin-memory --num-workers 4 --wandb
+rois.npz --model efficientnetb3s --freeze-weights --lr 1e-4 --lr-scheduler plateau --flip 3 --batch-size 64 -d cuda --cudnn-benchmark --pin-memory --num-workers 4 --wandb
+rois.npz --model densenet121 --lr 1e-3 --lr-scheduler plateau --flip 3 --batch-size 64 -d cuda --cudnn-benchmark --pin-memory --num-workers 4 --wandb
+rois.npz --model densenet121 --lr 1e-4 --lr-scheduler plateau --flip 3 --batch-size 64 -d cuda --cudnn-benchmark --pin-memory --num-workers 4 --wandb
+rois.npz --model shufflenet2x1_0 --lr 1e-3 --lr-scheduler plateau --flip 3 --batch-size 128 -d cuda --cudnn-benchmark --pin-memory --num-workers 4 --wandb
+rois.npz --model squeezenet1_0 --lr 1e-3 --lr-scheduler plateau --flip 3 --batch-size 128 -d cuda --cudnn-benchmark --pin-memory --num-workers 4 --wandb
+```
+
+### Quick test on Apple Silicon (M1/M2/M3)
+
+Use a single lightweight model with reduced epochs to verify everything works before
+sending to the GPU server. MPS does not support `--cudnn-benchmark`, `--pin-memory`,
+or `--num-workers > 0`.
+
+```text
+rois.npz --model shufflenet2x1_0 --lr 1e-3 --lr-scheduler plateau --flip 3 --batch-size 32 -d mps --num-workers 0 --epochs 50
+```
+
+### Small or imbalanced dataset
+
+When you have fewer than ~500 annotated cells per class, or a large class imbalance
+(e.g. 10× more interphase than mitotic cells), combine focal loss with loss weights and
+increase regularisation:
+
+```text
+rois.npz --model shufflenet2x1_0 --lr 1e-3 --lr-scheduler plateau --lr-patience 5 --flip 3 --rotate 180 --batch-size 64 -d cuda --loss-function focal_loss --focal-gamma 3 --loss-weights --dropout 0.5 --patience 20 --wandb
+rois.npz --model densenet121 --lr 1e-4 --lr-scheduler plateau --lr-patience 5 --flip 3 --rotate 180 --batch-size 32 -d cuda --loss-function focal_loss --focal-gamma 3 --loss-weights --dropout 0.5 --patience 20 --wandb
+```
+
+### Unfreezing EfficientNet
+
+By default `--freeze-weights` only trains the classification head. If accuracy plateaus,
+add a second run without freezing to let the backbone adapt to fluorescence images:
+
+```text
+# Phase 1: fast convergence with frozen backbone
+rois.npz --model efficientnetb3s --freeze-weights --lr 1e-3 --lr-scheduler plateau --flip 3 --batch-size 64 -d cuda --wandb --run-name effnet-frozen
+# Phase 2: fine-tune full network at lower LR
+rois.npz --model efficientnetb3s --no-freeze-weights --lr 1e-4 --lr-scheduler plateau --flip 3 --batch-size 64 -d cuda --wandb --run-name effnet-finetune
+```
+
+---
+
+## Step 4 — Generate and run `batch.sh`
+
+```bash
+cellclass batch train.txt --script batch.sh
+bash batch.sh
+```
+
+`cellclass batch` assigns unique checkpoint and metadata filenames automatically so runs
+never overwrite each other. Comment out completed lines in `train.txt` before regenerating.
+
+To run jobs in parallel (one per GPU on a multi-GPU machine):
+
+```bash
+cellclass batch train.txt --script batch.sh --background
+bash batch.sh
+```
+
+Each run launches as a background process; add `--device cuda:0`, `cuda:1`, etc. per line
+to assign GPUs explicitly.
+
+### Data splits
+
+The `.npz` is split into three non-overlapping sets at the start of each training run:
+
+- **64 %** training
+- **16 %** validation — monitored each epoch for early stopping
+- **20 %** held-out test set — evaluated once at the end, never seen during training
+
+These come from the defaults `--testing-size 0.2` and `--validation-size 0.2` (validation
+is 20 % of the remaining 80 %). For small datasets try `--testing-size 0.1
+--validation-size 0.1` to get an 80/10/10 split.
+
+::: {.callout-warning}
+The test split is **not saved to disk** — it is reconstructed at evaluation time by
+replaying the same random split using `--data-seed`. The split is therefore only
+genuinely held-out if you use **the same `.npz` and the same seed** as training. The
+`.json` state file records the seed used, so always pass it to `cellclass test`:
+
+```bash
+cellclass test rois.npz.1.json --data-seed 42
+```
+
+If you add new annotations and regenerate `rois.npz`, the crop indices shift and the old
+split no longer applies — the model may be tested on cells it trained on. Only regenerate
+`rois.npz` when you intend to retrain from scratch.
+:::
+
+### Class imbalance
+
+Imbalance is handled in the loss function, not by resampling:
+
+- **Focal loss** (default) down-weights easy, correctly-classified examples so training
+  concentrates on hard or rare cases. This handles moderate imbalance well on its own.
+- **`--loss-weights`** additionally scales each class's loss contribution by its inverse
+  frequency. Combine with focal loss when one class is 5× or more rarer than another.
+
+The splits are not stratified, so with very small datasets (<50 cells per class) the test
+set may by chance contain an unrepresentative ratio. Check per-class counts in the W&B
+logs and fix `--data-seed` if this is a concern.
+
+---
+
+## Step 5 — Compare on Weights & Biases
+
+Open your W&B dashboard at <https://wandb.ai> and navigate to the **cellclass** project in your workspace. The key metrics to compare:
+
+- **val/acc** — validation accuracy (primary metric for model selection).
+- **test/acc** — held-out test accuracy (reported at end of training).
+- **val/loss** — validation loss curve (check for overfitting).
+
+Download the best run's metadata JSON from the W&B artifacts panel, or find it locally
+in your working directory.
+
+---
+
+## Step 6 — Extract the model
+
+```bash
+cellclass extract best_run.json
+```
+
+Without `--save` this prints the performance metrics without writing any files — useful
+for a quick sanity check. Add `--save` to export:
+
+```bash
+cellclass extract best_run.json --save
+```
+
+Output files:
+
+- `<model>_c<channels>_l<labels>.pt` — TorchScript model.
+- `<model>_c<channels>_l<labels>.json` — sidecar metadata (channels, labels, image size).
+
+---
+
+## Step 7 — Test the exported model
+
+```bash
+cellclass test -s shufflenet2x1_0_c2_l2.pt ~/data/mitosis-rpe/rois.npz
+```
+
+Prints a per-class precision/recall/F1 report and overall accuracy on the test split.
+
+---
+
+## Resuming a crashed run
+
+Training checkpoints are saved after each epoch. To restart from the last checkpoint:
+
+```bash
+cellclass train best_run.json
+```
+
+Passing the metadata JSON resumes from the saved checkpoint. Note: some training state
+(e.g. convergence checker) is not persisted and is recreated from scratch.

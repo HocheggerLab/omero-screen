@@ -1,0 +1,150 @@
+---
+title: "Try it locally"
+---
+
+You can run the entire platform against a disposable OMERO server on your own
+machine — no institutional server, no credentials, no data of your own. This is
+the fastest way to see what OMERO-Screen actually does.
+
+::: {.callout-note}
+Allow about 30 minutes end to end, most of which is the first Docker pull and
+the Cellpose model download.
+:::
+
+## What you need
+
+- **Docker**, running. The test server is a container pair (OMERO + Postgres).
+- **Python 3.12** and [uv](https://docs.astral.sh/uv/), as in
+  [Install & configure](installation.qmd).
+- **A GPU helps but is not required.** On CPU, segmentation is slow but works —
+  the sample plate is deliberately small.
+
+## 1. Start the test server
+
+```bash
+./scripts/manage_test_server.sh start
+```
+
+This brings up `docker-compose.test.yml` and waits for OMERO to accept
+connections on port 4064. It is a throwaway instance: `stop` shuts it down,
+and the data lives in a Docker volume you can delete.
+
+```bash
+./scripts/manage_test_server.sh status    # is it up?
+./scripts/manage_test_server.sh stop      # shut it down
+```
+
+Point your environment at it by setting `ENV=e2etest`, which loads
+`.env.e2etest` — that file already contains the container's credentials
+(`root` / `omero` on `localhost`), so nothing needs editing.
+
+```bash
+export ENV=e2etest
+uv run omero-integration-test e2e_connection
+```
+
+A clean run confirms the server is up and the client can authenticate.
+
+## 2. Load the sample plate
+
+::: {.callout-warning}
+**Sample dataset not yet published.** A small multi-well plate with an EdU
+channel is being prepared for deposit, so that every step below can be run
+exactly as written. Until then, use your own Operetta-format plate with
+`scripts/load_plates.sh` (see step 2b).
+:::
+
+<!-- TODO: publish the sample plate and enable this block.
+```bash
+python scripts/download_sample_data.py --plate
+./scripts/load_plates.sh -d data/sample_plate -x
+```
+-->
+
+### 2b. Using your own data
+
+`load_plates.sh` imports Operetta-layout plates — directories containing
+`*/Images/Index.idx.xml` — into a project named "Screens".
+
+```bash
+./scripts/load_plates.sh                        # show the options
+./scripts/load_plates.sh -d /path/to/plates -x  # -x actually executes
+```
+
+Note the plate ID it reports; every command below takes it.
+
+## 3. Run the pipeline
+
+```bash
+uv run omero-screen <plate_id>
+```
+
+Metadata is parsed, flatfield masks are built, every well is segmented with
+Cellpose, features are extracted, and — if an EdU channel is present — each
+cell is assigned a cell-cycle phase. Results are attached back to the plate as
+CSVs, with QC figures alongside.
+
+Add `--stitch` to segment each well as a single canvas instead of field by
+field. See [Your first plate](first-plate.qmd) for what each stage does.
+
+## 4. Inspect the segmentation
+
+```bash
+uv run napari
+```
+
+Open the **Welldata Widget** from the plugin menu, enter the plate ID, and step
+through wells to see the segmentation overlaid on the raw channels. This is the
+quickest way to judge whether the masks are sensible. The
+[napari guide](../../napari/) covers the other widgets.
+
+## 5. Import into the database
+
+```bash
+uv run cellview import plate <plate_id>
+uv run cellview plate <plate_id>      # summary, conditions, measurement counts
+uv run cellview projects              # everything in the database
+```
+
+## 6. Make a figure
+
+```python
+from cellview.api import cellview_load_data
+from omero_screen_plots import cellcycle_plot, save_fig
+
+df, conditions = cellview_load_data(<plate_id>)
+fig, ax = cellcycle_plot(df, conditions=conditions)
+save_fig(fig, "cell-cycle")
+```
+
+The [plots documentation](../../plots/) covers the other plot types and the
+statistics behind them.
+
+## 7. Optional: train a classifier
+
+If you want to exercise the machine-learning path, generate labelled crops
+from the napari training widget, then:
+
+```bash
+uv run cellclass dataset <crops_dir> --name demo --channels DAPI Tub
+uv run cellclass train demo.npz --epochs 50 --no-wandb
+```
+
+The [CellClass guide](../../cellclass/) explains the architecture sweep and
+the metrics.
+
+## Cleaning up
+
+```bash
+./scripts/manage_test_server.sh stop
+docker volume prune          # removes the throwaway OMERO data
+```
+
+## If something fails
+
+| Symptom | Usually means |
+|---|---|
+| `Connection refused` on 4064 | The container is still starting; wait and re-run `status` |
+| Authentication error | `ENV=e2etest` is not exported, so a different `.env` was loaded |
+| "No metadata found" | The plate has no Excel attachment and no map-annotations |
+| Segmentation extremely slow | Running on CPU — expected; use a smaller plate |

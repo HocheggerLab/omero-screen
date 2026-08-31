@@ -1,15 +1,25 @@
 #!/usr/bin/env python3
-"""Main entry point for the OMERO screen application.
+"""Command-line entry point for the OMERO-Screen analysis pipeline.
 
-This module provides the OMERO screen application. It supports configuring the environment
-and running the analysis.
+Running a plate is the whole point of the package: this module configures the
+environment from the command line, then hands the plate IDs to
+``omero_screen.loops.plate_loop``.
 
-Main Functions:
-    - main: Collects arguments to configure the environment and runs OMERO screen plate analysis.
+The exported :data:`cli` command is what Great Docs renders as CLI reference
+and what ``CliRunner`` drives in tests. Every heavy import — OMERO, Torch,
+Cellpose, the pipeline itself — happens inside the callback, after parsing and
+after the environment variables have been set, because the package ``__init__``
+reads several of them at import time.
 """
 
-import argparse
+from __future__ import annotations
+
 import os
+import sys
+from collections.abc import Sequence
+from typing import Any
+
+import click
 
 _CP4_MODELS: dict[str, str] = {
     "nuclei": "cp4:cpsam",
@@ -21,240 +31,413 @@ _CP4_MODELS: dict[str, str] = {
     "PALB": "cp4:cpsam",
 }
 
+TRACK_DEFAULT_MODEL = "general_2d"
 
-def main() -> None:
-    """Main entry point for the OMERO screen application."""
-    parser = argparse.ArgumentParser(
-        description="Program to run OMERO screen for the plate ID."
-    )
-    parser.add_argument("ID", nargs="+", type=int, help="OMERO plate ID")
-    group = parser.add_argument_group("Omero Screen overrides")
 
-    group.add_argument(
-        "--env",
-        type=str,
-        default=None,
-        help="Environment name (requires configuration file .env.{name}).",
-    )
-    group.add_argument(
-        "--config",
-        type=str,
-        default=None,
-        metavar="PATH",
-        help="Path to an OMERO_SCREEN_CONFIG JSON (MODEL_DICT / FEATURELIST / "
+class ArgparseCompatCommand(click.Command):
+    """Preserve two argparse spellings Click does not accept natively.
+
+    ``--inference A B C``
+        argparse's ``nargs="+"`` takes several values after one flag; Click's
+        ``multiple=True`` wants the flag repeated. Values are expanded into
+        the repeated form before parsing, so both spellings work.
+
+    ``--track [MODEL]``
+        argparse's ``nargs="?"`` with a ``const`` makes the value optional:
+        a bare ``--track`` means ``general_2d``. Click 8.3 rejects a bare
+        flag even when ``flag_value`` is set, so a bare occurrence is
+        rewritten to its default value here.
+
+    A cousin of this class lives in ``cellclass.cli`` and
+    ``omero_screen_napari.trainingdata_db.cli``. The duplication is
+    deliberate: ``omero_utils`` — the obvious shared home — calls
+    ``set_env_vars()`` at import, which would drag OMERO configuration into
+    every ``--help``.
+    """
+
+    def __init__(
+        self,
+        *args: Any,
+        variadic_options: Sequence[str] = (),
+        optional_value_options: dict[str, str] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Record which options need argparse-compatible rewriting."""
+        self._variadic_options = frozenset(variadic_options)
+        self._optional_value_options = dict(optional_value_options or {})
+        super().__init__(*args, **kwargs)
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        """Rewrite argparse-style tokens into Click's representation."""
+        expanded: list[str] = []
+        index = 0
+        while index < len(args):
+            token = args[index]
+
+            if token in self._variadic_options:
+                index += 1
+                if index == len(args) or args[index].startswith("-"):
+                    expanded.append(token)
+                    continue
+                while index < len(args) and not args[index].startswith("-"):
+                    expanded.extend((token, args[index]))
+                    index += 1
+                continue
+
+            if token in self._optional_value_options:
+                index += 1
+                if index == len(args) or args[index].startswith("-"):
+                    # Bare flag: supply the argparse `const`.
+                    expanded.append(
+                        f"{token}={self._optional_value_options[token]}"
+                    )
+                    continue
+                expanded.append(f"{token}={args[index]}")
+                index += 1
+                continue
+
+            expanded.append(token)
+            index += 1
+        return super().parse_args(ctx, expanded)
+
+
+@click.command(
+    cls=ArgparseCompatCommand,
+    variadic_options=("--inference",),
+    optional_value_options={"--track": TRACK_DEFAULT_MODEL},
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
+@click.argument("ids", metavar="ID...", nargs=-1, required=True, type=int)
+@click.option(
+    "--env",
+    default=None,
+    help="Environment name (requires configuration file .env.{name}).",
+)
+@click.option(
+    "--config",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    metavar="PATH",
+    help=(
+        "Path to an OMERO_SCREEN_CONFIG JSON (MODEL_DICT / FEATURELIST / "
         "CHANNEL_SEG_PROFILES). Overrides the OMERO_SCREEN_CONFIG env var. "
-        "Errors if the path does not exist (no silent fallback to defaults).",
-    )
-    group.add_argument(
-        "--inference",
-        nargs="+",
-        type=str,
-        default=None,
-        metavar="MODEL",
-        help="Inference model filename(s).",
-    )
-    group.add_argument(
-        "--gallery",
-        type=int,
-        default=10,
-        help="Width N for the inference NxN example gallery (default: %(default)s)",
-    )
-    group.add_argument(
-        "--batch",
-        type=int,
-        default=16,
-        help="Classification batch size (default: %(default)s)",
-    )
-    group.add_argument(
-        "--segmentation",
-        default=False,
-        action=argparse.BooleanOptionalAction,
-        help="Only perform image segmentation (default: %(default)s)",
-    )
-    group.add_argument(
-        "--delete",
-        default=False,
-        action="store_true",
-        help=(
-            "Delete the plate's existing segmentation masks and segment from "
-            "scratch. Without this, a re-run reuses the stored masks (both "
-            "stitched and per-field) and only recomputes the measurements. "
-            "Use it after changing segmentation settings, or to repair a "
-            "plate whose stored masks are wrong or empty."
-        ),
-    )
-    group.add_argument(
-        "--cp4",
-        default=False,
-        action="store_true",
-        help="Use Cellpose 4 (cpsam) for segmentation instead of the default Cellpose 3 models.",
-    )
-    group.add_argument(
-        "--model",
-        type=str,
-        default=None,
-        metavar="MODEL",
-        help="Override all segmentation models with a single model name (e.g. 'cp4:cpsam', 'cp3:cyto3'). Overrides --cp4.",
-    )
-    group.add_argument(
-        "--benchmark",
-        default=False,
-        action=argparse.BooleanOptionalAction,
-        help="Record per-image timing data and write a JSON benchmark report (default: %(default)s)",
-    )
-    group.add_argument(
-        "--stitch",
-        default=False,
-        action=argparse.BooleanOptionalAction,
-        help="Run stitched-well segmentation: assemble all fields per well into one canvas, segment that canvas, and exclude border objects only at the outer edge (default: %(default)s)",
-    )
-    group.add_argument(
-        "--stream-stitch",
-        default=None,
-        action=argparse.BooleanOptionalAction,
-        help="Stitch one timepoint at a time to bound host RAM on long multi-channel "
-        "timelapses (peak ~= canvas + one frame, not all fields + canvas; costs "
-        "n_fields x T OMERO reads). Default: auto-enable when the estimated peak "
-        "exceeds the host-RAM budget. Use --stream-stitch / --no-stream-stitch to "
-        "force. Requires --stitch.",
-    )
-    group.add_argument(
-        "--stitch-config",
-        type=str,
-        default=None,
-        metavar="PATH",
-        help="Path to an OMERO_SCREEN_STITCH_CONFIG JSON configuration. "
+        "Errors if the path does not exist (no silent fallback to defaults)."
+    ),
+)
+@click.option(
+    "--inference",
+    multiple=True,
+    metavar="MODEL",
+    help="Inference model filename(s). Accepts one or more values.",
+)
+@click.option(
+    "--gallery",
+    type=int,
+    default=10,
+    show_default=True,
+    help="Width N for the inference NxN example gallery.",
+)
+@click.option(
+    "--batch",
+    type=int,
+    default=16,
+    show_default=True,
+    help="Classification batch size.",
+)
+@click.option(
+    "--segmentation/--no-segmentation",
+    default=False,
+    show_default=True,
+    help="Only perform image segmentation.",
+)
+@click.option(
+    "--delete",
+    is_flag=True,
+    default=False,
+    help=(
+        "Delete the plate's existing segmentation masks and segment from "
+        "scratch. Without this, a re-run reuses the stored masks (both "
+        "stitched and per-field) and only recomputes the measurements. "
+        "Use it after changing segmentation settings, or to repair a "
+        "plate whose stored masks are wrong or empty."
+    ),
+)
+@click.option(
+    "--cp4",
+    is_flag=True,
+    default=False,
+    help=(
+        "Use Cellpose 4 (cpsam) for segmentation instead of the default "
+        "Cellpose 3 models."
+    ),
+)
+@click.option(
+    "--model",
+    default=None,
+    metavar="MODEL",
+    help=(
+        "Override all segmentation models with a single model name "
+        "(e.g. 'cp4:cpsam', 'cp3:cyto3'). Overrides --cp4."
+    ),
+)
+@click.option(
+    "--benchmark/--no-benchmark",
+    default=False,
+    show_default=True,
+    help="Record per-image timing data and write a JSON benchmark report.",
+)
+@click.option(
+    "--stitch/--no-stitch",
+    default=False,
+    show_default=True,
+    help=(
+        "Run stitched-well segmentation: assemble all fields per well into "
+        "one canvas, segment that canvas, and exclude border objects only at "
+        "the outer edge."
+    ),
+)
+@click.option(
+    "--stream-stitch/--no-stream-stitch",
+    default=None,
+    help=(
+        "Stitch one timepoint at a time to bound host RAM on long "
+        "multi-channel timelapses (peak ~= canvas + one frame, not all "
+        "fields + canvas; costs n_fields x T OMERO reads). Default: "
+        "auto-enable when the estimated peak exceeds the host-RAM budget. "
+        "Use --stream-stitch / --no-stream-stitch to force. Requires --stitch."
+    ),
+)
+@click.option(
+    "--stitch-config",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    metavar="PATH",
+    help=(
+        "Path to an OMERO_SCREEN_STITCH_CONFIG JSON configuration. "
         "Overrides the OMERO_SCREEN_STITCH_CONFIG env var. "
-        "Errors if the path does not exist (no silent fallback to defaults).",
-    )
-    group.add_argument(
-        "--track",
-        type=str,
-        nargs="?",
-        const="general_2d",
-        default=None,
-        metavar="MODEL",
-        help="Track nuclei across time with Trackastra. Optional MODEL is a pretrained name or checkpoint path (default when flag given: %(const)s). Requires --stitch and a timelapse (T>1); a no-op on single-timepoint plates.",
-    )
-    group.add_argument(
-        "--track-mode",
-        type=str,
-        default="greedy",
-        choices=["greedy", "greedy_nodiv", "ilp"],
-        help="Trackastra linking mode (default: %(default)s).",
-    )
-    group.add_argument(
-        "--track-batch-size",
-        type=int,
-        default=4,
-        help="Attention windows Trackastra scores per forward pass (default: %(default)s). "
-        "Caps GPU memory during tracking; lower this if tracking hits CUDA OOM, "
-        "raise it for faster scoring when VRAM allows (Trackastra's own GPU default is 16).",
-    )
-    group.add_argument(
-        "--track-device",
-        type=str,
-        default=None,
-        choices=["cpu", "cuda"],
-        help="Force the tracking device (default: auto-detect). Use 'cpu' when a "
+        "Errors if the path does not exist (no silent fallback to defaults)."
+    ),
+)
+@click.option(
+    "--track",
+    is_flag=False,
+    flag_value=TRACK_DEFAULT_MODEL,
+    default=None,
+    metavar="MODEL",
+    help=(
+        "Track nuclei across time with Trackastra. Optional MODEL is a "
+        f"pretrained name or checkpoint path (default when flag given: "
+        f"{TRACK_DEFAULT_MODEL}). Requires --stitch and a timelapse (T>1); "
+        "a no-op on single-timepoint plates."
+    ),
+)
+@click.option(
+    "--track-mode",
+    type=click.Choice(["greedy", "greedy_nodiv", "ilp"]),
+    default="greedy",
+    show_default=True,
+    help="Trackastra linking mode.",
+)
+@click.option(
+    "--track-batch-size",
+    type=int,
+    default=4,
+    show_default=True,
+    help=(
+        "Attention windows Trackastra scores per forward pass. Caps GPU "
+        "memory during tracking; lower this if tracking hits CUDA OOM, raise "
+        "it for faster scoring when VRAM allows (Trackastra's own GPU "
+        "default is 16)."
+    ),
+)
+@click.option(
+    "--track-device",
+    type=click.Choice(["cpu", "cuda"]),
+    default=None,
+    help=(
+        "Force the tracking device (default: auto-detect). Use 'cpu' when a "
         "dense well exceeds GPU VRAM — runs the identical computation in host "
-        "RAM (slower, but no 44 GiB ceiling and no loss of accuracy).",
-    )
-    group.add_argument(
-        "--track-window",
-        type=int,
-        default=None,
-        help="Override Trackastra's temporal window (frames per attention window). "
-        "Smaller cuts GPU memory ~quadratically at the cost of temporal context; "
-        "default keeps the model's trained window.",
-    )
-    log_group = parser.add_argument_group("Logging")
-    log_group.add_argument(
-        "--log-level",
-        type=str,
-        default=None,
-        help="Log level (DEBUG/INFO/WARNING/ERROR). Overrides "
-        "$OMERO_SCREEN_LOG_LEVEL; default INFO.",
-    )
-    log_group.add_argument(
-        "--log-file",
-        type=str,
-        default=None,
-        help="Log file path, or 'none' to disable file logging. Overrides "
-        "$OMERO_SCREEN_LOG_FILE; default logs/app.log.",
-    )
-    log_group.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Verbose debugging: DEBUG level, console logging on, and rich "
+        "RAM (slower, but no 44 GiB ceiling and no loss of accuracy)."
+    ),
+)
+@click.option(
+    "--track-window",
+    type=int,
+    default=None,
+    help=(
+        "Override Trackastra's temporal window (frames per attention "
+        "window). Smaller cuts GPU memory ~quadratically at the cost of "
+        "temporal context; default keeps the model's trained window."
+    ),
+)
+@click.option(
+    "--log-level",
+    default=None,
+    help=(
+        "Log level (DEBUG/INFO/WARNING/ERROR). Overrides "
+        "$OMERO_SCREEN_LOG_LEVEL; default INFO."
+    ),
+)
+@click.option(
+    "--log-file",
+    default=None,
+    help=(
+        "Log file path, or 'none' to disable file logging. Overrides "
+        "$OMERO_SCREEN_LOG_FILE; default logs/app.log."
+    ),
+)
+@click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    default=False,
+    help=(
+        "Verbose debugging: DEBUG level, console logging on, and rich "
         "tracebacks. Console is off by default so logs don't clutter the "
-        "progress display.",
+        "progress display."
+    ),
+)
+def cli(
+    ids: tuple[int, ...],
+    env: str | None,
+    config: str | None,
+    inference: tuple[str, ...],
+    gallery: int,
+    batch: int,
+    segmentation: bool,
+    delete: bool,
+    cp4: bool,
+    model: str | None,
+    benchmark: bool,
+    stitch: bool,
+    stream_stitch: bool | None,
+    stitch_config: str | None,
+    track: str | None,
+    track_mode: str,
+    track_batch_size: int,
+    track_device: str | None,
+    track_window: int | None,
+    log_level: str | None,
+    log_file: str | None,
+    verbose: bool,
+) -> None:
+    """Run the OMERO-Screen analysis pipeline on one or more plates.
+
+    ID... are OMERO plate IDs. Each plate is segmented, measured and, where
+    an EdU channel is present, assigned cell-cycle phases; results are
+    attached back to the plate in OMERO.
+    """
+    _apply_environment(
+        env=env,
+        config=config,
+        stitch_config=stitch_config,
+        inference=inference,
+        gallery=gallery,
+        batch=batch,
+        track=track,
+        track_mode=track_mode,
+        track_batch_size=track_batch_size,
+        track_device=track_device,
+        track_window=track_window,
+        stream_stitch=stream_stitch,
+        verbose=verbose,
+        log_level=log_level,
+        log_file=log_file,
     )
-    args = parser.parse_args()
 
-    # Note: Lazy import to speed up parsing errors
-
-    # Module initialisation sets the environment variables. Create overrides.
-
-    if args.env:
-        os.environ["ENV"] = args.env
-
-    # Point the config loader at the given JSON before any omero_screen import
-    # triggers it (the package __init__ reads OMERO_SCREEN_CONFIG at import).
-    # An explicit flag fails loudly on a bad path rather than silently falling
-    # back to the built-in defaults.
-    if args.config:
-        if not os.path.exists(args.config):
-            parser.error(f"--config file not found: {args.config}")
-        os.environ["OMERO_SCREEN_CONFIG"] = args.config
-    if args.stitch_config:
-        if not os.path.exists(args.stitch_config):
-            parser.error(
-                f"--stitch-config file not found: {args.stitch_config}"
-            )
-        os.environ["OMERO_SCREEN_STITCH_CONFIG"] = args.stitch_config
-
-    # Configure logging once, at the entry point. Importing config triggers
-    # set_env_vars() (loads .env.{ENV}) so an OMERO_SCREEN_LOG_* override placed
-    # there is honoured; an explicit flag still wins over the env var.
-    from omero_screen.config import configure_logging
-
-    configure_logging(
-        level="DEBUG" if args.verbose else args.log_level,
-        console=args.verbose,
-        diagnose=args.verbose,
-        log_file=args.log_file,
-    )
-    if args.inference:
-        os.environ["OMERO_SCREEN_INFERENCE_MODEL"] = ":".join(args.inference)
-    if args.gallery:
-        os.environ["OMERO_SCREEN_INFERENCE_GALLERY_WIDTH"] = str(args.gallery)
-    if args.batch:
-        os.environ["OMERO_SCREEN_INFERENCE_BATCH_SIZE"] = str(args.batch)
-    if args.track:
-        os.environ["OMERO_SCREEN_TRACKING_MODEL"] = args.track
-        os.environ["OMERO_SCREEN_TRACKING_MODE"] = args.track_mode
-        os.environ["OMERO_SCREEN_TRACKING_BATCH_SIZE"] = str(
-            args.track_batch_size
-        )
-        if args.track_device:
-            os.environ["OMERO_SCREEN_TRACKING_DEVICE"] = args.track_device
-        if args.track_window:
-            os.environ["OMERO_SCREEN_TRACKING_WINDOW"] = str(args.track_window)
-    if args.stream_stitch is not None:
-        os.environ["OMERO_SCREEN_STITCH_STREAMING"] = (
-            "1" if args.stream_stitch else "0"
-        )
-
-    if args.model or args.cp4:
+    if model or cp4:
         from omero_screen import default_config
 
-        model_name = args.model if args.model else "cp4:cpsam"
+        model_name = model if model else "cp4:cpsam"
         default_config.MODEL_DICT = {
             k: model_name for k in default_config.MODEL_DICT
         }
 
+    _run(
+        ids=list(ids),
+        segmentation=segmentation,
+        stitch=stitch,
+        delete=delete,
+        benchmark=benchmark,
+    )
+
+
+def _apply_environment(
+    *,
+    env: str | None,
+    config: str | None,
+    stitch_config: str | None,
+    inference: tuple[str, ...],
+    gallery: int,
+    batch: int,
+    track: str | None,
+    track_mode: str,
+    track_batch_size: int,
+    track_device: str | None,
+    track_window: int | None,
+    stream_stitch: bool | None,
+    verbose: bool,
+    log_level: str | None,
+    log_file: str | None,
+) -> None:
+    """Translate the parsed options into environment variables.
+
+    Order matters. The config paths must be set before anything imports
+    ``omero_screen``, whose package ``__init__`` reads OMERO_SCREEN_CONFIG at
+    import time, and logging must be configured before the pipeline runs.
+    """
+    if env:
+        os.environ["ENV"] = env
+
+    # An explicit flag fails loudly on a bad path rather than silently
+    # falling back to the built-in defaults; Click's exists=True does the
+    # check during parsing, before any import.
+    if config:
+        os.environ["OMERO_SCREEN_CONFIG"] = config
+    if stitch_config:
+        os.environ["OMERO_SCREEN_STITCH_CONFIG"] = stitch_config
+
+    # Importing config triggers set_env_vars() (loads .env.{ENV}) so an
+    # OMERO_SCREEN_LOG_* override placed there is honoured; an explicit flag
+    # still wins over the env var.
+    from omero_screen.config import configure_logging
+
+    configure_logging(
+        level="DEBUG" if verbose else log_level,
+        console=verbose,
+        diagnose=verbose,
+        log_file=log_file,
+    )
+
+    if inference:
+        os.environ["OMERO_SCREEN_INFERENCE_MODEL"] = ":".join(inference)
+    if gallery:
+        os.environ["OMERO_SCREEN_INFERENCE_GALLERY_WIDTH"] = str(gallery)
+    if batch:
+        os.environ["OMERO_SCREEN_INFERENCE_BATCH_SIZE"] = str(batch)
+    if track:
+        os.environ["OMERO_SCREEN_TRACKING_MODEL"] = track
+        os.environ["OMERO_SCREEN_TRACKING_MODE"] = track_mode
+        os.environ["OMERO_SCREEN_TRACKING_BATCH_SIZE"] = str(track_batch_size)
+        if track_device:
+            os.environ["OMERO_SCREEN_TRACKING_DEVICE"] = track_device
+        if track_window:
+            os.environ["OMERO_SCREEN_TRACKING_WINDOW"] = str(track_window)
+    if stream_stitch is not None:
+        os.environ["OMERO_SCREEN_STITCH_STREAMING"] = (
+            "1" if stream_stitch else "0"
+        )
+
+
+def _run(
+    *,
+    ids: list[int],
+    segmentation: bool,
+    stitch: bool,
+    delete: bool,
+    benchmark: bool,
+) -> None:
+    """Connect to OMERO and run the pipeline over every requested plate."""
     from omero.gateway import BlitzGateway
     from omero_utils.omero_connect import omero_connect
 
@@ -267,20 +450,33 @@ def main() -> None:
     ) -> None:
         assert conn is not None
         for plate_id in plate_ids:
-            init_benchmark(enabled=args.benchmark, plate_id=plate_id)
+            init_benchmark(enabled=benchmark, plate_id=plate_id)
             timer = get_benchmark()
             plate_loop(
                 conn,
                 plate_id,
-                segmentation_mode=args.segmentation,
-                stitch_mode=args.stitch,
-                delete_existing=args.delete,
+                segmentation_mode=segmentation,
+                stitch_mode=stitch,
+                delete_existing=delete,
             )
             report_path = timer.save_report()
-            if args.benchmark:
-                print(f"Benchmark report saved to {report_path}")
+            if benchmark:
+                click.echo(f"Benchmark report saved to {report_path}")
 
-    run_plate_loop(args.ID)
+    run_plate_loop(ids)
+
+
+def main() -> None:
+    """Entry point for the ``omero-screen`` console script."""
+    try:
+        cli.main(standalone_mode=False)
+    except click.exceptions.Abort:
+        sys.exit(130)
+    except click.ClickException as e:
+        e.show()
+        sys.exit(e.exit_code)
+    except click.exceptions.Exit as e:
+        sys.exit(e.exit_code)
 
 
 if __name__ == "__main__":

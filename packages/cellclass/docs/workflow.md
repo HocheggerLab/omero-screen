@@ -32,12 +32,12 @@ A typical workflow is to extract the (1, 99) percentile of the image data, zero 
 and convert to unsigned 8-bit format (for memory efficiency). The data can be saved into one numpy file
 to allow fast loading into memory. For example:
 
-    uv run ./create_dataset.py ~/images/training_data --channels DAPI
+    cellclass dataset ~/images/training_data --channels DAPI
 
 Channel names must be specified explicitly using the `--channels` flag, with one name per channel in the
 order they appear in the image data. For example, a two-channel DAPI/RFP dataset:
 
-    uv run ./create_dataset.py ~/images/training_data --channels DAPI RFP
+    cellclass dataset ~/images/training_data --channels DAPI RFP
 
 Alternatively, channel names can be defined in a `metadata.json` file in the data directory (see below),
 in which case the `--channels` flag can be omitted.
@@ -47,7 +47,7 @@ This program has different options; see the help for details.
 
 Examples of each class can be extracted from the dataset using:
 
-    ./sample_images.py ~/images/training_data/rois.npz --output ~/images/training_data
+    cellclass sample ~/images/training_data/rois.npz --output ~/images/training_data
 
 This will create a tif file for each class containing a random selection of images. The tif file has been written
 using `ImageJ` hyperstack format. Multiple channel images can be viewed in `ImageJ` using the channels tool

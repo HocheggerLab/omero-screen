@@ -14,21 +14,23 @@
 
 """Samples images from a training dataset."""
 
-import argparse
 import os
 
-from cellclass.bin_utils import dir_path, file_path
 
-
-def run(args: argparse.Namespace) -> None:
+def run(
+    dataset: str,
+    output: str | None = None,
+    samples: int = 10,
+    crop: int = 0,
+) -> None:
     """Sample and save example images from an .npz dataset."""
     import numpy as np
     from skimage.measure import centroid
     from tifffile import imwrite
 
-    out = args.output if args.output else os.path.dirname(args.dataset)
+    out = output if output else os.path.dirname(dataset)
 
-    data = np.load(args.dataset)
+    data = np.load(dataset)
     X = data["X"]
     y_names = data["y_names"]
     print(f"Sampling images: {X[0].shape}, {X[0].dtype}")
@@ -36,16 +38,16 @@ def run(args: argparse.Namespace) -> None:
     for label, count in zip(labels, counts, strict=False):
         print(f"{label} = {count}")
         s = np.flatnonzero(y_names == label)
-        s = np.random.choice(s, size=min(len(s), args.samples))
-        samples = [X[i] for i in s]
-        if args.crop:
-            for i, s in enumerate(samples):
+        s = np.random.choice(s, size=min(len(s), samples))
+        sampled_images = [X[i] for i in s]
+        if crop:
+            for i, image in enumerate(sampled_images):
                 # Use first channel
-                c = centroid(s[0])  # type: ignore[no-untyped-call]
-                m0 = max(int(c[0]) - args.crop // 2, 0)
-                m1 = max(int(c[1]) - args.crop // 2, 0)
-                samples[i] = s[:, m0 : m0 + args.crop, m1 : m1 + args.crop]
-        img = np.array(samples)
+                c = centroid(image[0])  # type: ignore[no-untyped-call]
+                m0 = max(int(c[0]) - crop // 2, 0)
+                m1 = max(int(c[1]) - crop // 2, 0)
+                sampled_images[i] = image[:, m0 : m0 + crop, m1 : m1 + crop]
+        img = np.array(sampled_images)
         # ImageJ format: TZCYX
         img = np.expand_dims(img, axis=1)
         imwrite(
@@ -57,32 +59,10 @@ def run(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    """Entry point for cellclass-sample CLI."""
-    parser = argparse.ArgumentParser(
-        description="Program to sample images from a training dataset."
-    )
+    """Entry point for direct execution of the sample command."""
+    from cellclass.cli import sample
 
-    parser.add_argument("dataset", type=file_path, help="Dataset")
-    parser.add_argument(
-        "--output",
-        type=dir_path,
-        help="Output path (default: same directory as dataset)",
-    )
-    parser.add_argument(
-        "--samples",
-        type=int,
-        default=10,
-        help="Number of samples (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--crop",
-        type=int,
-        default=0,
-        help="Crop NxN dimension (default: full image)",
-    )
-
-    args = parser.parse_args()
-    run(args)
+    sample.main(prog_name="cellclass-sample")
 
 
 if __name__ == "__main__":

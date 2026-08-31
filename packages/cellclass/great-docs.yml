@@ -1,0 +1,69 @@
+# Great Docs configuration — cellclass.
+# Sub-site of the OMERO-Screen platform, deployed to /cellclass/.
+#
+# This was the first package migrated to Click, which is why it already has a
+# generated CLI reference: `cellclass.cli:cli` is a lightweight group whose
+# seven subcommands render as a nested command tree. Importing it does not pull
+# in Torch — keep it that way.
+module: cellclass
+display_name: CellClass
+parser: google
+dynamic: true
+pypi: false
+repo: https://github.com/HocheggerLab/omero-screen
+site_url: https://hocheggerlab.github.io/omero-screen/cellclass/
+
+announcement:
+  content: "Part of the **OMERO-Screen** platform — [back to the documentation home](https://hocheggerlab.github.io/omero-screen/)"
+  type: info
+  dismissable: true
+
+hero:
+  enabled: true
+  tagline: "Train, sweep and apply CNN classifiers to single-cell crops."
+  badges: false
+
+cli:
+  enabled: true
+  module: cellclass.cli
+  name: cli
+  title: "CLI reference"
+  desc: >-
+    Every command is available both as `cellclass <subcommand>` and as the
+    legacy `cellclass-<subcommand>` executable; both point at the same command
+    object.
+  sections:
+    - title: "Prepare data"
+      desc: "Build and inspect the labelled crop dataset."
+      contents: [dataset, sample]
+    - title: "Train and evaluate"
+      desc: "Fit a model and measure how well it does."
+      contents: [train, test, batch]
+    - title: "Deploy"
+      desc: "Extract a trained model and submit cluster jobs."
+      contents: [extract, sbatch]
+
+user_guide:
+  - section: "Guide"
+    contents:
+      - overview.qmd
+      - installation.qmd
+      - quickstart.qmd
+      - training_guide.qmd
+      - models.qmd
+      - slurm.qmd
+      - inference.qmd
+      - workflow.qmd
+
+reference:
+  - title: Datasets
+    desc: Loading labelled crops for training.
+    contents:
+      - ROIDataset
+      - prepare_dataset
+  - title: Models
+    desc: Model construction and evaluation.
+    contents:
+      - Model
+      - create_model
+      - test_epoch

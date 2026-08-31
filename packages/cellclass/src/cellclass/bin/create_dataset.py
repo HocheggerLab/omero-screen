@@ -21,8 +21,6 @@ import argparse
 import numpy as np
 import numpy.typing as npt
 
-from cellclass.bin_utils import dir_path
-
 
 def _binary_mask(
     mask: npt.NDArray[np.integer],  # type: ignore[type-arg]
@@ -210,56 +208,10 @@ def run(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    """Entry point for cellclass-dataset CLI."""
-    parser = argparse.ArgumentParser(
-        description="""
-        Program to convert cell classification images (YXC) to a dataset.
-        Cell classification images are pickled numpy data saved as dictionary:
-        data: tuple of lists of images and masks;
-        target: list of labels
-        """
-    )
+    """Entry point for direct execution of the dataset command."""
+    from cellclass.cli import dataset
 
-    parser.add_argument(
-        "dir", metavar="DIR", type=dir_path, help="Data directory"
-    )
-    parser.add_argument(
-        "--name",
-        default="rois",
-        help="Output dataset name, .npz suffix is appended (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--out",
-        default=None,
-        type=dir_path,
-        help="Output dataset directory (default is data directory)",
-    )
-    parser.add_argument(
-        "--ignore",
-        nargs="+",
-        default=["unassigned"],
-        help="Labels to ignore (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--duplicates",
-        default=False,
-        action=argparse.BooleanOptionalAction,
-        help="Log duplicates",
-    )
-    parser.add_argument(
-        "--channels",
-        nargs="+",
-        help="Channel names (default: use metadata.json in data directory)",
-    )
-    parser.add_argument(
-        "--single-label",
-        default=True,
-        action=argparse.BooleanOptionalAction,
-        help="Only use single label masks",
-    )
-
-    args = parser.parse_args()
-    run(args)
+    dataset.main(prog_name="cellclass-dataset")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,110 @@
+name: Documentation
+
+# Builds and publishes the six-site Great Docs platform documentation.
+#
+# This workflow owns the GitHub Pages deployment. docs.yml (Sphinx) still
+# builds, so the remaining docs/ tree cannot rot unnoticed, but its deploy job
+# is disabled — two workflows publishing to one Pages environment race, and the
+# loser silently overwrites the winner.
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "index.qmd"
+      - "README.md"
+      - "user_guide/**"
+      - "cyclic_if/**"
+      - "assets/**"
+      - "great-docs.yml"
+      - "packages/**/great-docs.yml"
+      - "packages/**/user_guide/**"
+      - "packages/**/assets/**"
+      - "packages/**/README.md"
+      - "scripts/build_docs.sh"
+      - ".github/workflows/docs-greatdocs.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "index.qmd"
+      - "README.md"
+      - "user_guide/**"
+      - "cyclic_if/**"
+      - "assets/**"
+      - "great-docs.yml"
+      - "packages/**/great-docs.yml"
+      - "packages/**/user_guide/**"
+      - "packages/**/assets/**"
+      - "packages/**/README.md"
+      - "scripts/build_docs.sh"
+  workflow_dispatch:
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # Several packages call set_env_vars() at import time, which raises
+      # OSError unless a .env file exists or these four are set. The docs
+      # build never connects to OMERO — these only get it past the import.
+      ENV: development
+      USERNAME: docs-build
+      PASSWORD: docs-build
+      HOST: localhost
+      MPLBACKEND: Agg
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            **/pyproject.toml
+            **/uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Set up Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Build all six sites
+        run: ./scripts/build_docs.sh
+
+      - name: Check for broken internal links
+        run: |
+          uv run --with 'great-docs==0.17.0' great-docs check-links || \
+            echo "::warning::link check reported issues"
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  # Publishes on pushes to main, and on a manual run of this workflow.
+  deploy:
+    if: |
+      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+      github.event_name == 'workflow_dispatch'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -86,7 +86,7 @@ def test_excel_success(omero_conn):
                     "EdU": "1",
                 },
             },
-            "At least one nuclei channel (DAPI/Hoechst/DNA/RFP) is required",
+            "No nucleus channel found in",
         ),
         # Invalid channel data structure
         (

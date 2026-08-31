@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a deterministic cellclass training-report notebook (panels A-E).
+r"""Generate a deterministic cellclass training-report notebook (panels A-E).
 
 Produces the *same* Jupyter notebook layout for every sweep, so a training run
 always yields a comparable report. Unlike the interactive marimo notebook, the
@@ -17,14 +17,14 @@ What it does:
   1. Pulls the sweep from W&B (--project) or local checkpoints (--runs-dir) and
      writes ``sweep_summary.csv`` (+ ``sweep_history.csv`` for W&B) into --outdir,
      so the notebook reads local files and is reproducible offline.
-  2. Runs ``cellclass-test`` for the winner (--best) and optional --compare model
+  2. Runs ``cellclass test`` for the winner (--best) and optional --compare model
      to produce the confusion-matrix CSV(s); skips a CSV that already exists.
   3. Samples a representative crop per class from the dataset .npz.
   4. Copies the lab style assets (hhlab_style01.mplstyle, colors.py) into --outdir.
   5. Writes ``<name>_report.ipynb`` and, with --execute, renders the panel PDFs.
 
 Run it in the project env (needs nbformat, pandas, numpy, wandb, pillow, and
-``cellclass-test`` on PATH):
+``cellclass`` on PATH):
     uv run python <skill>/assets/build_report.py DATA.npz --best DATA.npz.4.pt.best \\
         --model densenet161 --project cellclass-mydata --execute
 """
@@ -161,7 +161,7 @@ def gather_local(runs_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 # --------------------------------------------------------------------------- #
-# 2. Confusion matrix via cellclass-test
+# 2. Confusion matrix via cellclass test
 # --------------------------------------------------------------------------- #
 def run_confusion(
     npz: Path,
@@ -173,12 +173,13 @@ def run_confusion(
     testing_size: float,
     data_seed: int,
 ) -> None:
-    """Shell out to ``cellclass-test`` to write a confusion-matrix CSV."""
+    """Shell out to ``cellclass test`` to write a confusion-matrix CSV."""
     if out_csv.exists():
         print(f"  reuse existing {out_csv.name}")
         return
     cmd = [
-        "cellclass-test",
+        "cellclass",
+        "test",
         str(npz),
         "--data-seed",
         str(data_seed),
@@ -195,7 +196,7 @@ def run_confusion(
         cmd += ["--model", model, "--name", str(best)]
     else:
         cmd += ["--script", str(best)]
-    print(f"  cellclass-test -> {out_csv.name} ...")
+    print(f"  cellclass test -> {out_csv.name} ...")
     subprocess.run(cmd, check=True)
 
 
@@ -515,6 +516,7 @@ def build_notebook(
 # main
 # --------------------------------------------------------------------------- #
 def main() -> None:
+    """Generate the deterministic CellClass report notebook."""
     p = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,

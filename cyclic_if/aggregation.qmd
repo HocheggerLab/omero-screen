@@ -1,0 +1,63 @@
+---
+title: "Aggregating rounds"
+---
+
+Once the rounds are registered, aggregation matches each cell in the reference
+plate to its counterpart in every other round and merges their features into a
+single row.
+
+```bash
+python bin/aggregate_plates.py 4126
+```
+
+Pass the **reference** plate ID — the first one given to `align_plates.py`.
+
+| Option | Default | Purpose |
+|---|---|---|
+| `--method {0,1,2,3}` | 3 | Matching strategy — see below |
+| `--threshold N` | 25 | Distance threshold for accepting a mapping |
+| `--std N` | 6 | Standard deviations from the mean distance before exclusion |
+| `--gallery N` | 4 | Size of the mapping gallery grid |
+| `--sample-alignments` | off | Use per-sample rather than per-well alignments |
+| `--seed N` | random | Random seed for sampling |
+| `--env NAME` | — | Environment file to load |
+
+## Matching methods
+
+| `--method` | Strategy |
+|---|---|
+| `0` | Minimum distance |
+| `1` | KD-tree minimum distance |
+| `2` | Greedy nearest neighbour |
+| `3` | **Mask overlap** (default) |
+
+Mask overlap is the default because it is the most conservative. The three
+distance-based methods will always find *a* nearest neighbour, even when the
+correct partner is absent — a cell lost between rounds gets matched to whichever
+neighbour happens to be closest. Requiring the two nuclei to physically overlap
+refuses that match instead of inventing it.
+
+Use a distance method only when overlap fails systematically, for instance when
+the rounds are separated by enough time that cells have visibly moved.
+
+## What you get
+
+The aggregated plate behaves like any other from here:
+
+```bash
+uv run cellview import plate 4126
+```
+
+Each cell now carries the features from every round, so a single row holds all
+the markers measured across the experiment.
+
+::: {.callout-warning}
+**Orphan nuclei are dropped.** A nucleus with no matching cell mask is removed
+during the merge rather than carried through with null features. Because cells
+are larger than nuclei, border filtering removes them more often, so the loss
+concentrates at canvas edges and around unimaged regions. Raw counts near those
+edges are biased downwards by an unrecorded amount.
+:::
+
+Before trusting the result, run the [quality-control
+report](quality-control.qmd).

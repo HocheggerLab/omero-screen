@@ -9,6 +9,8 @@ authors = [
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "cellclass",
+    "click>=8.1.8",
+    "rich>=13.9.4",
     "ome-zarr>=0.9,<1.0",
     "zarr>=2.17,<3.0",
     "napari-ome-zarr>=0.6",
@@ -24,7 +26,6 @@ omero-screen-napari = "omero_screen_napari:napari.yaml"
 
 
 [project.scripts]
-omero-screen-napari = "omero_screen_napari:main"
 omero-train = "omero_screen_napari.trainingdata_db.cli:main"
 
 [build-system]

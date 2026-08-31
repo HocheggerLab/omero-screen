@@ -1,0 +1,158 @@
+---
+title: "Your first plate"
+---
+
+One continuous journey: a plate ID on an OMERO server becomes segmented,
+measured single cells, then a local database, then a plot. Nothing here requires
+reading the source code.
+
+**You need:** a working install ([previous page](installation.qmd)) and the
+OMERO ID of a fixed-cell plate you have permission to read.
+
+**You get:** per-cell measurements attached to the plate in OMERO, the same data
+in a local database, and one figure.
+
+---
+
+## 1. Check the plate's metadata
+
+The pipeline reads the experimental layout — which well holds which cell line and
+condition, and what each channel is — from an Excel file attached to the plate
+object in OMERO. This is the single most common thing to get wrong, so look
+before you run.
+
+The sheet needs one row per well, with columns naming at least the cell line and
+the condition, plus a channel sheet mapping channel names to indices. Channel
+names matter: the pipeline recognises nuclear channels (`DAPI`, `Hoechst`),
+a cytoplasm channel used for cell segmentation, and `EdU` if present.
+
+::: {.callout-tip}
+If the plate has been analysed before, the Excel file will already have been
+converted to OMERO map-annotations and removed — that is expected, not a
+problem.
+:::
+
+## 2. Analyse the plate
+
+```bash
+uv run omero-screen 1234
+```
+
+Replace `1234` with your plate ID. That is the whole command; everything else is
+an override.
+
+What happens, in order:
+
+1. **Metadata parsing** — the layout is read and converted to map-annotations.
+2. **Flatfield correction** — per-channel illumination masks are built from a
+   random sample of 100 images and cached in a dedicated OMERO dataset, so later
+   runs skip this step.
+3. **Well loop** — for every non-empty well and every image in it: pixels are
+   downloaded and flatfield-corrected, Cellpose segments nuclei and cells, border
+   objects are filtered, cytoplasm is derived as cell minus nucleus, and
+   `regionprops` extracts area, intensity statistics and centroids. Per-well CSVs
+   are attached to OMERO as it goes, so a crash does not cost you the whole run.
+4. **Cell-cycle analysis** — if an EdU channel is present, integrated DAPI
+   intensity and EdU signal are normalised per cell line and each nucleus is
+   assigned to G1, S, G2/M, sub-G1 or polyploid.
+5. **Save** — plate-level CSVs and QC figures are attached to the plate;
+   intermediate per-well files are deleted.
+
+Expect tens of minutes for a full plate on a GPU, considerably longer on CPU.
+
+### Useful variations
+
+| You want | Add |
+|---|---|
+| Whole-well canvas segmentation instead of field-by-field | `--stitch` |
+| Segmentation only, no cell-cycle or classification | `--segmentation` |
+| A specific Cellpose model | `--model cp4:cpsam` |
+| Live-cell lineages across timepoints | `--stitch --track` |
+| A different environment file | `--env production` |
+
+`--stitch` is worth understanding early. By default each field of view is
+segmented independently, so a cell straddling two fields is cut in half by the
+border filter on each side. Stitched mode assembles all fields of a well into one
+canvas, runs Cellpose once on it, and excludes border objects only at the outer
+edge.
+
+## 3. Check it worked
+
+Look at the plate in OMERO. You should see:
+
+- CSV attachments on the plate object holding the final measurements,
+- QC figures showing segmentation overlays,
+- map-annotations carrying the parsed metadata,
+- a mask image per field (or per well, in stitched mode).
+
+Open one QC figure and confirm the outlines sit on cells. If the masks look
+empty or wildly wrong, stop here — importing bad segmentation into the database
+just moves the problem downstream.
+
+For a closer look, the [napari widgets](../napari/) let you browse wells and
+inspect individual cells interactively.
+
+## 4. Import into CellView
+
+The measurements are now in OMERO, but querying CSV attachments is painful.
+CellView pulls them into a local DuckDB database.
+
+```bash
+uv run cellview import plate 1234
+```
+
+Then look at what arrived:
+
+```bash
+uv run cellview plate 1234      # summary, conditions, measurement counts
+uv run cellview projects        # everything in the database
+```
+
+If the counts look implausible — a well with far fewer cells than its
+neighbours — that is worth chasing before you plot.
+
+## 5. Make a figure
+
+Load the plate into a DataFrame and plot it.
+
+```python
+from cellview.api import cellview_load_data
+from omero_screen_plots import count_plot, cellcycle_plot, save_fig
+
+df, conditions = cellview_load_data(1234)
+
+fig, ax = count_plot(
+    df,
+    norm_control="control",     # the condition everything is normalised to
+    conditions=conditions,
+)
+save_fig(fig, "cell-counts")
+```
+
+`cellview_load_data` returns the measurements and the list of conditions found
+in the plate. Every plot function takes that DataFrame and a `conditions` list,
+so swapping `count_plot` for `cellcycle_plot`, `feature_plot` or
+`classification_plot` needs no other change.
+
+That is the loop: plate → analysis → database → figure.
+
+## Where to go next
+
+- **Plot properly** — the [plots guide](../plots/) covers cell-cycle stacks,
+  feature comparisons, histograms, scatter and synergy plots, with the
+  statistics and styling the lab uses.
+- **Classify cells** — train a CNN on labelled crops with
+  [CellClass](../cellclass/).
+- **Query the database** — [CellView](../cellview/) has a schema reference and
+  an interactive notebook explorer (`cellview explore`).
+- **Track live cells** — add `--stitch --track` for lineages across timepoints.
+
+## When it goes wrong
+
+| Symptom | Usually means |
+|---|---|
+| Connection refused / authentication error | Credentials or `HOST` in your `.env` file; check with `omero-integration-test e2e_connection` |
+| "No metadata found" | The plate has no Excel attachment and no map-annotations |
+| Masks present but empty | A field with no stage position — a failed acquisition. Re-run that plate with `--delete` |
+| Out of memory on a stitched timelapse | Add `--stream-stitch`, which stitches one timepoint at a time |
+| Cell counts lower than expected near well edges | Known behaviour — border and foreground filtering removes cells more often than nuclei |

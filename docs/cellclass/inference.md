@@ -9,7 +9,7 @@ Once you have extracted a TorchScript model you can use it in two ways:
 
 ## Exported model files
 
-`cellclass-extract best_run.json --save` produces two files:
+`cellclass extract best_run.json --save` produces two files:
 
 ```
 shufflenet2x1_0_c2_l2.pt    # TorchScript model (architecture + weights)
@@ -70,7 +70,7 @@ model and display per-class statistics alongside the database annotation counts.
 Before committing to a production run, evaluate the model on your full dataset:
 
 ```bash
-cellclass-test -s shufflenet2x1_0_c2_l2.pt ~/data/mitosis-rpe/rois.npz
+cellclass test -s shufflenet2x1_0_c2_l2.pt ~/data/mitosis-rpe/rois.npz
 ```
 
 This prints precision, recall, and F1 per class, plus overall accuracy, on the held-out

@@ -1,4 +1,10 @@
-name: Documentation
+name: Documentation (Sphinx, legacy)
+
+# SUPERSEDED by docs-greatdocs.yml, which owns the GitHub Pages deployment.
+# This workflow still builds so the remaining docs/ tree cannot rot unnoticed,
+# but its deploy job is disabled: two workflows publishing to the same Pages
+# environment race, and the loser silently overwrites the winner.
+# Delete this file, and docs/, once the Sphinx content has been retired.
 
 on:
   # Manual trigger
@@ -26,8 +32,12 @@ on:
     branches: [main]
 
 # Allow one concurrent deployment
+# Its own group, NOT "pages". This workflow can no longer deploy (see below),
+# so it does not contend for the Pages environment — and sharing that group
+# made the two doc workflows cancel each other's *builds*, since concurrency
+# applies to the whole workflow rather than to the deploy job alone.
 concurrency:
-  group: "pages"
+  group: "sphinx-legacy-${{ github.ref }}"
   cancel-in-progress: true
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
@@ -81,9 +91,8 @@ jobs:
   # Deploy job
   deploy:
     # Deploy on pushes to main or after successful releases
-    if: |
-      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    # Disabled: docs-greatdocs.yml owns the Pages deployment.
+    if: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

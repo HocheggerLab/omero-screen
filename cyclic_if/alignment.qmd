@@ -1,0 +1,66 @@
+---
+title: "Aligning rounds"
+---
+
+Alignment is the step that makes cyclic IF possible. Between rounds the plate
+is removed, stripped, re-stained and re-imaged, so the field of view shifts.
+Registration recovers that shift, so a nucleus can be followed across rounds.
+
+## align_plates.py
+
+```bash
+python bin/align_plates.py 4126 4127 4128 [options]
+```
+
+The first ID is the **reference**; the others are registered onto it.
+
+Alignment is computed on a nuclear channel — DAPI by default, because it is
+present in every round and, unlike an antibody stain, marks the same structure
+each time.
+
+| Option | Default | Purpose |
+|---|---|---|
+| `--channel NAME` | `DAPI` | Channel used for registration |
+| `-n N` | 5 | Number of alignments averaged |
+| `--sample-alignments` | off | Per-sample alignments instead of a fixed number |
+| `--threshold N` | 100 | Distance threshold for accepting an alignment |
+| `--tolerance N` | 10 | Allowed distance from the alignment centroid |
+| `--iqr N` | 1.5 | Inter-quartile-range factor for outlier removal (0 disables) |
+| `--gallery N` | 4 | Size of the alignment gallery grid |
+| `--seed N` | random | Random seed for sampling |
+| `--env NAME` | — | Environment file to load |
+
+### Choosing the parameters
+
+`--threshold` and `--tolerance` control how tolerant the matching is. Raising
+the threshold accepts larger shifts between rounds; lowering the tolerance
+demands that individual alignments agree more closely with their consensus.
+
+`--iqr` removes outlying alignments before averaging. Set it to `0` to keep
+every alignment, which is worth doing once when diagnosing a plate that will
+not register.
+
+`--gallery` writes a visual grid of alignments back to OMERO. Look at it — a
+registration that is numerically plausible but visually wrong is the failure
+mode you most want to catch early.
+
+## Filling in missing masks
+
+Secondary rounds are often segmented on the nucleus alone, so they carry no
+cell masks. This regenerates them using the alignment from the reference:
+
+```bash
+python bin/create_masks.py 4127
+```
+
+| Option | Default | Purpose |
+|---|---|---|
+| `--sample-alignments` | off | Use per-sample rather than per-well alignments |
+| `--force` | off | Replace masks that already exist |
+| `--env NAME` | — | Environment file to load |
+
+`--force` is the flag to reach for after changing alignment parameters —
+without it, masks already present are left untouched, and you would silently
+be aggregating against the old registration.
+
+Next: [aggregating the rounds](aggregation.qmd).
