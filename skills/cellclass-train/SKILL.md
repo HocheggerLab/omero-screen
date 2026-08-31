@@ -57,7 +57,7 @@ Crops are a directory of `.npy` files (each a pickled dict of image/mask lists +
 ```bash
 uv run cellclass dataset <crops_dir> --name <name> --channels <CH1> [<CH2> ...]
 ```
-- Pass `--channels` explicitly (the cellclass reader may not parse napari's nested `user_data.channels`). One channel → `c1` models; two → `c2`, etc.
+- Pass `--channels` explicitly (`cellclass dataset` may not parse napari's nested `user_data.channels`). One channel → `c1` models; two → `c2`, etc.
 - `.npz` is written to `--out` (default = crops dir): `<crops_dir>/<name>.npz`.
 
 **Parse the printed class balance.** It lists per-class counts and fractions. If the max:min class ratio is roughly ≥ 3:1, **recommend `--loss-weights`** in the sweep (focal loss is on by default; inverse-frequency weighting handles the imbalance). Note any large `ignored class` count (unassigned crops) for the user.
