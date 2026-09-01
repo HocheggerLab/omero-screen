@@ -34,9 +34,42 @@ jobs:
       - name: Install commitizen
         run: pip install commitizen
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
       - name: Bump version
+        id: bump
         run: |
-          cz bump --yes || echo "No version bump needed"
+          if cz bump --yes; then
+            echo "bumped=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No version bump needed"
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # cz bump rewrites the version in pyproject.toml and the package
+      # __init__ files, but knows nothing about uv.lock, which pins the
+      # workspace members by version. Without this the lockfile lags a release
+      # behind: `uv sync` then rewrites it on every developer's machine and
+      # leaves the tree dirty, and anyone checking out the tag gets a lockfile
+      # that disagrees with the manifests.
+      #
+      # The tag cz created is still local at this point — nothing has been
+      # pushed — so amending the commit and moving the tag onto it is safe and
+      # needs no force-push.
+      - name: Sync uv.lock to the new version
+        if: steps.bump.outputs.bumped == 'true'
+        run: |
+          uv lock
+          if git diff --quiet uv.lock; then
+            echo "uv.lock already in sync"
+          else
+            TAG="omero-screen-v$(cz version --project)"
+            git add uv.lock
+            git commit --amend --no-edit
+            git tag -f "$TAG"
+            echo "Folded uv.lock into the bump commit and moved $TAG onto it"
+          fi
 
       - name: Push changes
         run: git push --follow-tags
