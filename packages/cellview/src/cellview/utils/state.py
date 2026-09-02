@@ -7,6 +7,7 @@ in the application.
 
 import argparse
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -28,7 +29,9 @@ from cellview.utils.ui import CellViewUI
 JustifyMethod = Literal["default", "left", "center", "right", "full"]
 
 
-def clean_agg_data(df: pd.DataFrame) -> pd.DataFrame:
+def clean_agg_data(
+    df: pd.DataFrame, report: Callable[[str], None] | None = None
+) -> pd.DataFrame:
     """Clean aggregated data by removing redundant columns and empty values.
 
     This is a standalone utility function for cleaning agg_data.csv files
@@ -37,6 +40,12 @@ def clean_agg_data(df: pd.DataFrame) -> pd.DataFrame:
 
     Args:
         df: The raw dataframe from agg_data.csv
+        report: Optional sink for the two facts a user needs to see rather than
+            find in a log file -- which round supplied the normalised DNA
+            column, and how many cells survived complete-case filtering.
+            ``loguru`` alone is not enough: cellview's production logging
+            configures the console sink off, so these messages reach nobody by
+            default. The CLI passes ``ui.info``.
 
     Returns:
         Cleaned dataframe with:
@@ -72,9 +81,15 @@ def clean_agg_data(df: pd.DataFrame) -> pd.DataFrame:
         r"^area_nucleus\.\d+$",
         r"^centroid-0\.\d+$",
         r"^centroid-1\.\d+$",
-        # Match any-fluorophore raw integrated-intensity duplicates, e.g.
-        # ``integrated_int_DAPI.0``, ``integrated_int_Hoechst.1``.
-        r"^integrated_int_[A-Za-z0-9_]+\.\d+$",
+        # Raw integrated-intensity duplicates (``integrated_int_DAPI.0``,
+        # ``integrated_int_Hoechst.1``) are *not* listed here: the negative
+        # lookahead below would be the only thing keeping this pattern from
+        # also matching ``integrated_int_DAPI_norm.2``, and deleting that
+        # column silently destroys the cell-cycle-normalised DNA content.
+        # Step 4's general suffix logic already handles both cases correctly
+        # -- raw duplicates have an unsuffixed base and get dropped, while a
+        # ``_norm`` column contributed by a single restain round has no base
+        # and gets renamed into it, which step 4 logs explicitly.
     ]
 
     for pattern in metadata_patterns:
@@ -119,6 +134,31 @@ def clean_agg_data(df: pd.DataFrame) -> pd.DataFrame:
         df = df.rename(columns=rename_map)
         logger.info(f"Renamed {len(rename_map)} unique suffixed columns")
 
+    # The cell-cycle-normalised DNA column is load-bearing (it defines the 2N
+    # scale every cell-cycle plot is drawn against) and in cyclic-IF data it
+    # usually arrives from a single restain round, so log where it came from.
+    # A plate whose master round has no EdU has no unsuffixed ``_norm`` at
+    # all; if several rounds contributed one, only the first was kept.
+    norm_sources = sorted(
+        src for src, tgt in rename_map.items() if tgt.endswith("_norm")
+    )
+    if norm_sources:
+        _msg = (
+            f"Recovered normalised intensity columns from restain rounds: "
+            f"{', '.join(f'{s} -> {rename_map[s]}' for s in norm_sources)}"
+        )
+        logger.info(_msg)
+        if report is not None:
+            report(_msg)
+    contested = [
+        c for c in drop_cols if re.sub(r"\.\d+$", "", c).endswith("_norm")
+    ]
+    if contested:
+        logger.warning(
+            f"Dropped {len(contested)} further normalised columns from other "
+            f"rounds (first round wins): {', '.join(sorted(contested))}"
+        )
+
     # 5. Rename columns to match DB schema.
     column_mapping = {
         "centroid-0": "centroid-0-nuc",
@@ -130,7 +170,15 @@ def clean_agg_data(df: pd.DataFrame) -> pd.DataFrame:
     # fluorophore so post-refactor plates (Hoechst, H2B_RFP, …) work the
     # same as legacy DAPI plates. Only fires when the ``_norm`` counterpart
     # is absent — protects against clobbering the real normalised column.
-    int_pattern = re.compile(r"^integrated_int_([A-Za-z0-9_]+)$")
+    #
+    # The trailing ``(?<!_norm)`` is load-bearing: ``[A-Za-z0-9_]+`` matches
+    # ``DAPI_norm`` just as happily as ``DAPI``, so without it an already
+    # normalised column is renamed to ``integrated_int_DAPI_norm_norm`` —
+    # a name nothing downstream reads — and the raw column is then promoted
+    # into the vacated ``_norm`` slot. That put raw DNA content (modal peak
+    # ~1e6 rather than 2) into ``integrated_int_DAPI_norm`` for every 4i
+    # plate imported before 2026-09-02.
+    int_pattern = re.compile(r"^integrated_int_[A-Za-z0-9_]+(?<!_norm)$")
     for col in list(df.columns):
         if int_pattern.match(col):
             norm_col = f"{col}_norm"
@@ -150,8 +198,70 @@ def clean_agg_data(df: pd.DataFrame) -> pd.DataFrame:
     df = df.dropna(axis=1, how="all")
     df = df.dropna(axis=0, how="all")
 
-    # 8. Drop ANY rows with NaN values (strict cleaning)
+    # 8. Complete-case filtering.
+    #
+    # Cyclic-IF aggregation joins each restain round onto the master plate
+    # with an outer join, deliberately keeping nuclei that failed to match in
+    # some rounds (see ``omero_screen.plate_aggregation``). Those rows carry
+    # NaN across that round's feature columns, and they cannot be placed in
+    # the multiplexed feature space at all -- PCA, UMAP and the distance
+    # metrics all need complete rows, and imputing a marker that was never
+    # measured in a given cell is worse than dropping it. So the strict drop
+    # is correct; what matters is that it is *counted*, because the recovery
+    # rate across rounds is a reportable property of the assay.
+    #
+    # The two causes are separated because they mean different things:
+    # identity NaNs are malformed input, feature NaNs are the assay's
+    # matching yield.
+    n_before = len(df)
+    identity_cols = [
+        c
+        for c in (
+            "experiment",
+            "plate_id",
+            "well",
+            "well_id",
+            "image_id",
+            "cell_line",
+            "label",
+            "timepoint",
+        )
+        if c in df.columns
+    ]
+    if identity_cols:
+        bad_identity = df[identity_cols].isna().any(axis=1)
+        if bad_identity.any():
+            logger.warning(
+                f"Dropping {int(bad_identity.sum())} rows with missing "
+                f"identity columns ({', '.join(identity_cols)}) -- these are "
+                f"malformed, not unmatched cells"
+            )
+            df = df.loc[~bad_identity]
+
     df = df.dropna(axis=0, how="any")
+    n_incomplete = n_before - len(df)
+    if n_incomplete:
+        # Deliberately phrased as *rows*, not cells. ``n_before`` is the row
+        # count of ``agg_data.csv``, which exceeds the master plate's nucleus
+        # count: ``plate_aggregation`` joins each round with ``join="outer"``
+        # and appends nuclei detected in a restain round that matched no
+        # master nucleus. Those rows have no master identity and their removal
+        # is not a loss of data, so this ratio is NOT the cross-round matching
+        # yield. For that number -- kept cells over nuclei segmented on the
+        # master round -- see ``alignment_matching_yield.parquet`` in the
+        # omero-screen-paper repo, which uses the master plate's own
+        # ``final_data`` as the denominator (93-94% for plates 4126-4128,
+        # against 79-81% if ``n_before`` is misused here).
+        _msg = (
+            f"Kept {len(df):,} complete rows of {n_before:,} aggregated rows "
+            f"({100 * len(df) / n_before:.1f}%); dropped {n_incomplete:,} with "
+            f"a feature missing in at least one round. Note the denominator "
+            f"includes unmatched restain-round detections, so this is not the "
+            f"per-nucleus matching yield."
+        )
+        logger.info(_msg)
+        if report is not None:
+            report(_msg)
 
     # 9. Ensure required columns are present and valid
     # We still cast to int for safety, but we expect no NaNs now
@@ -534,7 +644,13 @@ class CellViewStateCore:
                 context={"plate_id": self.plate_id},
             )
 
-        # First try to find final_data_cc.csv
+        # Preference order is explicit rather than emergent: a cyclic-IF
+        # master plate carries both ``agg_data.csv`` (all rounds, aggregated)
+        # and its own single-round ``final_data_cc.csv``. Iterating the
+        # annotations once and returning on whichever matched first made the
+        # choice depend on OMERO's annotation ordering, so the same plate
+        # could import either the multiplexed or the single-round dataset.
+        # ``agg_data.csv`` always wins.
         for ann in csv_annotations:
             file_name = ann.getFile().getName()
             if file_name and file_name == "agg_data.csv":
@@ -549,7 +665,11 @@ class CellViewStateCore:
                         f"Found aggregated data csv file attached to plate {self.plate_id}"
                     )
                     return df
-            elif file_name and file_name.endswith("final_data_cc.csv"):
+
+        # No aggregated data -- fall back to single-round cell-cycle output.
+        for ann in csv_annotations:
+            file_name = ann.getFile().getName()
+            if file_name and file_name.endswith("final_data_cc.csv"):
                 with self.console.status(
                     "Downloading and parsing CSV...", spinner="dots"
                 ):
@@ -591,7 +711,12 @@ class CellViewStateCore:
         Returns:
             Cleaned dataframe
         """
-        return clean_agg_data(df)
+        # ui is optional on this dataclass in practice (tests and the
+        # napari pathway construct state without one), so fall back to
+        # loguru-only reporting rather than failing the clean.
+        return clean_agg_data(
+            df, report=self.ui.info if self.ui is not None else None
+        )
 
     def _get_project_info(
         self,
