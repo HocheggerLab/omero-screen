@@ -135,8 +135,12 @@ class MeasurementsManager:
         # Add any missing dynamic columns to the measurements table
         self._ensure_dynamic_columns_exist(measurement_cols)
 
-        # Ensure we are working on a copy to avoid SettingWithCopyWarning
-        if self.state.df._is_view:
+        # Ensure we are working on a copy to avoid SettingWithCopyWarning.
+        # pandas 3 removed the private ``_is_view`` flag: under copy-on-write a
+        # write to a slice can no longer reach its parent, so the defensive
+        # copy is only ever needed on pandas 2 and the attribute's absence
+        # correctly means "no copy required".
+        if getattr(self.state.df, "_is_view", False):
             self.state.df = self.state.df.copy()
 
         # Add condition_id to the state's DataFrame
