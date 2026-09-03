@@ -1,0 +1,296 @@
+"""Tests for the per-well cell-cycle montage.
+
+Selection and scaling are what decide what the figure *claims*, so they carry
+the weight here:
+
+* the draw must be reproducible from the seed, or a figure cannot be regenerated
+  and the panels are effectively hand-picked;
+* display limits must be shared across phases, since per-crop scaling would
+  normalise away the size and intensity differences the montage exists to show.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+import polars as pl
+import pytest
+
+from omero_screen_napari.phase_montage import (
+    DEFAULT_PHASES,
+    MontageConfig,
+    MontageError,
+    _crop_pixels,
+    _outline,
+    _resolve_overlay,
+    build_montage,
+    channel_limits,
+    export_well_pdf,
+    select_cells,
+)
+from omero_screen_napari.zarr_cache import PlateZarrWriter
+from omero_screen_napari.zarr_cache.registry import ZarrPlateEntry, upsert
+
+
+@pytest.fixture(autouse=True)
+def isolated_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.setenv("OMERO_SCREEN_CACHE_PATH", str(tmp_path))
+    return tmp_path
+
+
+def _measurements(
+    well: str = "C3", per_phase: dict[str, int] | None = None
+) -> pl.DataFrame:
+    per_phase = per_phase or {"G1": 10, "S": 8, "G2/M": 6, "Polyploid": 5}
+    rng = np.random.default_rng(0)
+    rows = []
+    label = 0
+    for phase, count in per_phase.items():
+        for _ in range(count):
+            label += 1
+            rows.append(
+                {
+                    "plate_id": 99,
+                    "well": well,
+                    "label": label,
+                    "cell_cycle": phase,
+                    "centroid_y": float(rng.integers(60, 450)),
+                    "centroid_x": float(rng.integers(60, 450)),
+                    "area_cell": 900.0 if phase != "Polyploid" else 2500.0,
+                }
+            )
+    return pl.DataFrame(rows)
+
+
+CHANNELS = ["DAPI_R1", "Tub_R1", "Y15_R1", "p21_R2", "TP53_R3"]
+
+
+def _build_plate(plate_id: int = 99, well: str = "C3", size: int = 512):
+    rng = np.random.default_rng(1)
+    image = rng.integers(
+        200, 3000, (1, len(CHANNELS), size, size), dtype=np.uint16
+    )
+    nuc = np.zeros((1, size, size), dtype=np.uint32)
+    cells = np.zeros((1, size, size), dtype=np.uint32)
+    yy, xx = np.ogrid[:size, :size]
+    for label in range(1, 30):
+        cy, cx = rng.integers(60, size - 60, 2)
+        nuc[0][(yy - cy) ** 2 + (xx - cx) ** 2 <= 12**2] = label
+        cells[0][(yy - cy) ** 2 + (xx - cx) ** 2 <= 20**2] = label
+    writer = PlateZarrWriter(plate_id, "demo", CHANNELS, 0.3, 1)
+    with writer:
+        writer.ensure_plate(all_wells=[well])
+        writer.write_well(well, image, nuc, cells)
+    upsert(ZarrPlateEntry(plate_id=plate_id))
+
+
+class TestSelection:
+    def test_takes_the_requested_number_per_phase(self) -> None:
+        cells, warnings = select_cells(
+            _measurements(), "C3", MontageConfig(cells_per_phase=3)
+        )
+        assert {p: len(c) for p, c in cells.items()} == {
+            "G1": 3,
+            "S": 3,
+            "G2/M": 3,
+            "Polyploid": 3,
+        }
+        assert warnings == []
+
+    def test_is_reproducible_from_the_seed(self) -> None:
+        """Without this a published figure cannot be regenerated."""
+        config = MontageConfig(seed=7)
+        first, _ = select_cells(_measurements(), "C3", config)
+        second, _ = select_cells(_measurements(), "C3", config)
+        assert {p: [c.label for c in v] for p, v in first.items()} == {
+            p: [c.label for c in v] for p, v in second.items()
+        }
+
+    def test_a_different_seed_draws_different_cells(self) -> None:
+        a, _ = select_cells(_measurements(), "C3", MontageConfig(seed=1))
+        b, _ = select_cells(_measurements(), "C3", MontageConfig(seed=2))
+        assert [c.label for c in a["G1"]] != [c.label for c in b["G1"]]
+
+    def test_draw_does_not_depend_on_row_order(self) -> None:
+        """The DB may return rows in any order; the draw must not follow it."""
+        df = _measurements()
+        shuffled = df.sample(fraction=1.0, shuffle=True, seed=42)
+        config = MontageConfig(seed=3)
+        a, _ = select_cells(df, "C3", config)
+        b, _ = select_cells(shuffled, "C3", config)
+        assert [c.label for c in a["G1"]] == [c.label for c in b["G1"]]
+
+    def test_no_duplicate_cells_within_a_phase(self) -> None:
+        cells, _ = select_cells(
+            _measurements(), "C3", MontageConfig(cells_per_phase=5)
+        )
+        for refs in cells.values():
+            labels = [c.label for c in refs]
+            assert len(labels) == len(set(labels))
+
+    def test_cells_come_from_the_phase_they_are_filed_under(self) -> None:
+        df = _measurements()
+        cells, _ = select_cells(df, "C3", MontageConfig())
+        by_label = dict(
+            zip(df["label"].to_list(), df["cell_cycle"].to_list(), strict=True)
+        )
+        for phase, refs in cells.items():
+            for ref in refs:
+                assert by_label[ref.label] == phase
+
+    def test_sparse_phase_reports_rather_than_fails(self) -> None:
+        cells, warnings = select_cells(
+            _measurements(per_phase={"G1": 10, "S": 1, "G2/M": 0}),
+            "C3",
+            MontageConfig(cells_per_phase=4, phases=("G1", "S", "G2/M")),
+        )
+        assert len(cells["S"]) == 1
+        assert cells["G2/M"] == []
+        assert any("only 1 S" in w for w in warnings)
+        assert any("no G2/M" in w for w in warnings)
+
+    def test_edge_filter_drops_cells_whose_crop_overruns(self) -> None:
+        df = pl.DataFrame(
+            [
+                {
+                    "plate_id": 99, "well": "C3", "label": 1,
+                    "cell_cycle": "G1", "centroid_y": 5.0,
+                    "centroid_x": 5.0, "area_cell": 900.0,
+                },
+                {
+                    "plate_id": 99, "well": "C3", "label": 2,
+                    "cell_cycle": "G1", "centroid_y": 250.0,
+                    "centroid_x": 250.0, "area_cell": 900.0,
+                },
+            ]
+        )
+        cells, _ = select_cells(
+            df,
+            "C3",
+            MontageConfig(cells_per_phase=2, phases=("G1",)),
+            canvas_hw=(512, 512),
+            crop_px=128,
+        )
+        assert [c.label for c in cells["G1"]] == [2]
+
+    def test_unknown_well_raises(self) -> None:
+        with pytest.raises(MontageError, match="no measurements"):
+            select_cells(_measurements(), "Z9", MontageConfig())
+
+    def test_missing_phase_column_raises(self) -> None:
+        df = _measurements().drop("cell_cycle")
+        with pytest.raises(MontageError, match="cell-cycle column"):
+            select_cells(df, "C3", MontageConfig())
+
+
+class TestCropSizing:
+    def test_sized_from_the_largest_cell(self) -> None:
+        """A constant chosen for G1 would clip polyploid cells."""
+        small, _ = select_cells(
+            _measurements(per_phase={"G1": 5}),
+            "C3",
+            MontageConfig(phases=("G1",)),
+        )
+        big, _ = select_cells(
+            _measurements(per_phase={"Polyploid": 5}),
+            "C3",
+            MontageConfig(phases=("Polyploid",)),
+        )
+        assert _crop_pixels(MontageConfig(), big, 0.3) > _crop_pixels(
+            MontageConfig(), small, 0.3
+        )
+
+    def test_explicit_microns_win(self) -> None:
+        cells, _ = select_cells(_measurements(), "C3", MontageConfig())
+        assert _crop_pixels(MontageConfig(crop_um=30.0), cells, 0.5) == 60
+
+    def test_always_even_and_bounded(self) -> None:
+        cells, _ = select_cells(_measurements(), "C3", MontageConfig())
+        px = _crop_pixels(MontageConfig(), cells, 0.3)
+        assert px % 2 == 0
+        assert 32 <= px <= 1024
+
+
+class TestOverlayResolution:
+    def test_splits_composite_from_greyscale(self) -> None:
+        overlay, grey = _resolve_overlay(CHANNELS, ("dapi", "tub"))
+        assert [CHANNELS[i] for i in overlay] == ["DAPI_R1", "Tub_R1"]
+        assert [CHANNELS[i] for i in grey] == ["Y15_R1", "p21_R2", "TP53_R3"]
+
+    def test_matches_through_the_round_suffix(self) -> None:
+        overlay, _ = _resolve_overlay(["DAPI_R1", "Tub_R1"], ("dapi",))
+        assert overlay == [0]
+
+    def test_repeated_stain_stays_greyscale(self) -> None:
+        """Only the first match per role joins the composite."""
+        names = ["DAPI_R1", "Tub_R1", "DAPI_R2"]
+        overlay, grey = _resolve_overlay(names, ("dapi", "tub"))
+        assert overlay == [0, 1]
+        assert grey == [2]
+
+    def test_absent_overlay_channel_is_skipped(self) -> None:
+        overlay, grey = _resolve_overlay(["p21_R1", "TP53_R1"], ("dapi",))
+        assert overlay == []
+        assert grey == [0, 1]
+
+
+class TestOutline:
+    def test_outlines_only_the_target_cell(self) -> None:
+        mask = np.zeros((40, 40), dtype=np.uint32)
+        mask[5:15, 5:15] = 1
+        mask[25:35, 25:35] = 2
+        outline = _outline(mask, 1)
+        assert outline[:20, :20].any()
+        assert not outline[20:, 20:].any()
+
+    def test_absent_label_outlines_nothing(self) -> None:
+        """The centroid can land on a neighbour; outline nothing, not the wrong cell."""
+        mask = np.zeros((20, 20), dtype=np.uint32)
+        mask[5:10, 5:10] = 3
+        assert not _outline(mask, 99).any()
+
+
+class TestLimitsAndRender:
+    def test_limits_are_per_channel_and_shared(self) -> None:
+        _build_plate()
+        limits = channel_limits(99, "C3")
+        assert set(limits) == set(range(len(CHANNELS)))
+        for lo, hi in limits.values():
+            assert lo < hi
+
+    def test_build_montage_resolves_everything(self) -> None:
+        _build_plate()
+        montage = build_montage(99, "C3", _measurements(), MontageConfig())
+        assert montage.channel_names == CHANNELS
+        assert [montage.channel_names[i] for i in montage.overlay_indices] == [
+            "DAPI_R1",
+            "Tub_R1",
+        ]
+        assert len(montage.grey_indices) == 3
+        assert set(montage.cells) == set(DEFAULT_PHASES)
+        assert montage.pixel_size_um == pytest.approx(0.3)
+
+    def test_missing_zarr_store_raises(self) -> None:
+        with pytest.raises(MontageError, match="no zarr cache"):
+            build_montage(12345, "C3", _measurements(), MontageConfig())
+
+    def test_exports_a_pdf(self, tmp_path: Path) -> None:
+        _build_plate()
+        out = tmp_path / "figs"
+        path = export_well_pdf(
+            99, "C3", _measurements(), out, MontageConfig(cells_per_phase=2)
+        )
+        assert path.exists()
+        assert path.suffix == ".pdf"
+        assert path.read_bytes()[:4] == b"%PDF"
+
+    def test_export_is_reproducible(self, tmp_path: Path) -> None:
+        """Same seed, same plate: the same cells are drawn."""
+        _build_plate()
+        config = MontageConfig(seed=5, cells_per_phase=2)
+        a = build_montage(99, "C3", _measurements(), config)
+        b = build_montage(99, "C3", _measurements(), config)
+        assert {p: [c.label for c in v] for p, v in a.cells.items()} == {
+            p: [c.label for c in v] for p, v in b.cells.items()
+        }

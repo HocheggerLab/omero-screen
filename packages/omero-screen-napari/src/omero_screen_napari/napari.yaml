@@ -17,6 +17,9 @@ contributions:
     - id: omero-screen-napari.tracks_widget
       python_name: omero_screen_napari._tracks_widget:tracks_gui_widget
       title: Make Tracks widget
+    - id: omero-screen-napari.phase_montage_widget
+      python_name: omero_screen_napari._phase_montage_widget:phase_montage_widget_gui
+      title: Make Phase Montage widget
   widgets:
     - command: omero-screen-napari.well_widget_combined
       display_name: Welldata Widget
@@ -28,3 +31,5 @@ contributions:
       display_name: Training Widget
     - command: omero-screen-napari.tracks_widget
       display_name: Tracks Widget
+    - command: omero-screen-napari.phase_montage_widget
+      display_name: Phase Montage Widget
