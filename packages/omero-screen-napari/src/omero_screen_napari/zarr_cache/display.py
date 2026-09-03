@@ -364,6 +364,27 @@ def _round_channel_meta(
     return meta
 
 
+def _channel_starts_visible(
+    rounds: dict[str, Any] | None, round_index: int, redundant: bool
+) -> bool:
+    """Whether a channel's layer should be visible when the plate opens.
+
+    Layers blend additively, so every visible channel adds to the composite. A
+    cyclic-IF plate can carry a dozen channels and turning them all on at once
+    renders a saturated white image in which no individual channel -- and no
+    contrast slider -- appears to do anything. Only the master round opens; the
+    later rounds are one click away in the layer list.
+
+    An ordinary plate is unaffected: it has a handful of channels and no
+    ``rounds`` block, so everything stays visible as before.
+    """
+    if redundant:
+        return False
+    if not rounds:
+        return True
+    return round_index == 0
+
+
 def _add_image_layers(
     viewer: Any,
     wells_data: list[dict[str, Any]],
@@ -393,7 +414,7 @@ def _add_image_layers(
     # Estimate contrast from the first well's first timepoint per channel.
     for c in range(n_channels):
         ch_name = channel_names[c] if c < len(channel_names) else f"ch{c}"
-        position, _round_index, redundant = channel_meta[c]
+        position, round_index, redundant = channel_meta[c]
         pyramid = _stack_pyramid_per_channel(wells_data, c, multi)
         # Scale matches the array axes:
         #   multi: (well, T, Y, X) → (1, 1, px, px)
@@ -403,9 +424,9 @@ def _add_image_layers(
             if multi
             else (1.0, pixel_size_um, pixel_size_um)
         )
-        # Sample the *smallest* pyramid level for the contrast estimate: the
-        # percentiles are the same to within noise and it avoids pulling a
-        # full-resolution canvas per channel just to look at its histogram.
+        # Sample the smallest pyramid level for the contrast estimate: levels
+        # are built with nearest-neighbour downsampling, so the percentiles
+        # match the full-resolution ones while reading far fewer chunks.
         sample = np.asarray(wells_data[0]["image"][-1][0, c])
         layer = viewer.add_image(
             pyramid,
@@ -413,15 +434,20 @@ def _add_image_layers(
             scale=scale,
             colormap=colormaps[c],
             blending="additive",
-            visible=not redundant,
+            visible=_channel_starts_visible(rounds, round_index, redundant),
         )
-        # Order matters, and both lines are needed. Setting the range first
-        # gives the slider the full uint16 span; napari would otherwise infer
-        # it from the data (or from contrast_limits passed to add_image) and
-        # clamp the slider to a narrow window the user cannot widen. The limits
-        # then sit at the 0.1/99.9 percentiles for a sane starting view.
-        # Mirrors the direct-from-OMERO path in _aligned_plate_widget.
-        layer.contrast_limits_range = (0, _UINT16_MAX)
+        # Order matters, and both steps are needed. The range must be widened
+        # first: napari would otherwise infer it from the data (or from a
+        # contrast_limits passed to add_image) and clamp the slider to a narrow
+        # window the user cannot widen. reset_contrast_limits_range() derives
+        # it from the dtype -- the whole uint16 span here -- which is napari's
+        # own supported route; the explicit set covers a non-integer dtype,
+        # which a padded multi-well stack can produce. The limits then sit at
+        # the 0.1/99.9 percentiles for a sane starting view. Mirrors the
+        # direct-from-OMERO path in _aligned_plate_widget.
+        layer.reset_contrast_limits_range()
+        if tuple(layer.contrast_limits_range) != (0, _UINT16_MAX):
+            layer.contrast_limits_range = (0, _UINT16_MAX)
         layer.contrast_limits = _channel_contrast(sample)
 
 
