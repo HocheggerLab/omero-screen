@@ -628,6 +628,70 @@ def stitch_from_offsets(
         )
 
 
+def stitch_into_canvas(
+    images: NDArray[Any],
+    offsets: NDArray[np.int_],
+    canvas_hw: tuple[int, int],
+    edge: int = -1,
+) -> NDArray[Any]:
+    """Stitch images onto a canvas of a fixed size, allowing negative offsets.
+
+    :func:`stitch_from_offsets` rejects negative offsets and *derives* its canvas
+    size from ``offsets.max(axis=0)``. Neither suits placing a cyclic-IF restain
+    round into the master round's frame: the alignment shift is subtracted from
+    the master's canvas offsets, which can push tiles left of or above the origin,
+    and the result must land on a canvas of exactly the master's dimensions so the
+    rounds stack channel-wise.
+
+    This wrapper pads the offsets non-negative, stitches, then crops back to
+    ``canvas_hw``. Tiles (or parts of tiles) falling outside the canvas are
+    dropped; areas no tile covers are left at zero.
+
+    The returned array is **always** exactly ``canvas_hw`` in its spatial
+    dimensions, whatever the offsets. Callers building lazy dask arrays rely on
+    that: the block shape is declared from a probe of the first block, so a
+    stitch that silently returned a different size would corrupt the write rather
+    than raise.
+
+    Args:
+        images: Array of shape (N, Y, X, C) or (N, T, Y, X, C).
+        offsets: Array of [N, (ox, oy)]. May be negative.
+        canvas_hw: Target canvas as (height, width).
+        edge: Edge blending width in pixels (negative to auto-detect).
+            **Pass this explicitly when stitching rounds that must match.**
+            Auto-detection derives the width from the offsets via
+            :func:`get_overlap`, so per-field shifts -- which change the relative
+            tile geometry -- would blend differently between rounds, giving the
+            same stain different pixel values.
+
+    Returns:
+        Stitched array of shape (H, W, C) or (T, H, W, C).
+    """
+    ndim = images.ndim
+    assert ndim in (4, 5), f"Expected 4D or 5D images, got {ndim}D"
+    offsets = np.asarray(offsets)
+    height, width = int(canvas_hw[0]), int(canvas_hw[1])
+
+    # Shift every tile by a constant so the minimum offset is zero. A constant
+    # does not change the relative geometry, so blending is unaffected.
+    pad = np.maximum(0, -offsets.min(axis=0)) if len(offsets) else np.zeros(2)
+    pad_x, pad_y = int(pad[0]), int(pad[1])
+    stitched = stitch_from_offsets(images, offsets + (pad_x, pad_y), edge=edge)
+
+    # The master canvas origin sits at (pad_y, pad_x) in the padded stitch.
+    out = np.zeros(
+        stitched.shape[:-3] + (height, width, stitched.shape[-1]),
+        dtype=stitched.dtype,
+    )
+    copy_h = min(height, int(stitched.shape[-3]) - pad_y)
+    copy_w = min(width, int(stitched.shape[-2]) - pad_x)
+    if copy_h > 0 and copy_w > 0:
+        out[..., :copy_h, :copy_w, :] = stitched[
+            ..., pad_y : pad_y + copy_h, pad_x : pad_x + copy_w, :
+        ]
+    return out
+
+
 def _validate_offsets(offsets: NDArray[np.int_]) -> None:
     """Validates the offsets are all positive."""
     if offsets.min() < 0:
