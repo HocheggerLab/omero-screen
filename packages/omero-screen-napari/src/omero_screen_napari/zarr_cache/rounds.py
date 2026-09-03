@@ -146,7 +146,8 @@ def _stitching_blockers(
 def build_channel_plan(
     group: RoundGroup,
     channel_data_by_plate: dict[int, dict[str, str]],
-) -> tuple[list[str], dict[str, Any]]:
+    include_redundant: bool = False,
+) -> tuple[list[str], dict[str, Any], dict[int, dict[str, str]]]:
     """Flatten every round's channels into one list plus a ``rounds`` descriptor.
 
     Channels are concatenated in round order (master first) and every name is
@@ -156,20 +157,25 @@ def build_channel_plan(
     ``{name: index}`` and duplicates would silently collapse it, breaking
     gallery and classifier channel lookups.
 
-    A channel whose base name already appeared in an earlier round is marked
-    redundant -- in practice the nuclear stain, which is re-imaged every round
-    because it is the registration channel. It is kept rather than dropped: it
-    is the only in-store way to re-verify the alignment, and dropping it would
-    make channel index to round non-uniform. Consumers default redundant layers
-    to hidden.
+    A channel whose base name already appeared in an earlier round is redundant
+    -- in practice the nuclear stain, re-imaged every round because it is the
+    registration channel. By default those are **dropped**: the master's copy is
+    the one the segmentation and ``agg_data.csv`` refer to, and a repeat per
+    round costs download time, store size and a viewer layer for no new
+    information. Pass ``include_redundant=True`` to keep them (they are then
+    marked so consumers can default them to hidden), which is worth doing if you
+    want to re-verify the alignment from the store itself.
 
     Args:
         group: The resolved round group.
         channel_data_by_plate: ``{plate_id: {channel_name: index_string}}`` as
             returned by ``plate_cache.get_plate_metadata``.
+        include_redundant: Keep repeated stains from rounds 2+.
 
     Returns:
-        ``(channel_names, rounds_attrs)`` ready for ``PlateZarrWriter``.
+        ``(channel_names, rounds_attrs, load_channel_data)``. The third element
+        is the per-plate channel data actually to be read -- with dropped
+        channels removed -- so the builder never downloads them.
 
     Raises:
         KeyError: if a round has no channel data.
@@ -177,13 +183,18 @@ def build_channel_plan(
     channel_names: list[str] = []
     entries: list[dict[str, Any]] = []
     seen_base: set[str] = set()
+    load_channel_data: dict[int, dict[str, str]] = {}
 
     for round_index, plate_id in enumerate(group.plate_ids, start=1):
         channel_data = channel_data_by_plate[plate_id]
         # Order by the channel's index on its own plate, not dict order.
         ordered = sorted(channel_data.items(), key=lambda kv: int(kv[1]))
-        for position, (base_name, _) in enumerate(ordered):
-            qualified = f"{base_name}_R{round_index}"
+        kept: dict[str, str] = {}
+        position = 0
+        for base_name, index_str in ordered:
+            redundant = base_name in seen_base
+            if redundant and not include_redundant:
+                continue
             entries.append(
                 {
                     "index": len(channel_names),
@@ -191,10 +202,13 @@ def build_channel_plan(
                     "round": round_index,
                     "name": base_name,
                     "position": position,
-                    "redundant": base_name in seen_base,
+                    "redundant": redundant,
                 }
             )
-            channel_names.append(qualified)
+            channel_names.append(f"{base_name}_R{round_index}")
+            kept[base_name] = index_str
+            position += 1
+        load_channel_data[plate_id] = kept
         seen_base.update(name for name, _ in ordered)
 
     alignment = group.alignment
@@ -206,8 +220,9 @@ def build_channel_plan(
         # Recorded so a reader never has to guess which way the shift goes.
         "shift_convention": "master = restain - (x, y)",
         "channels": entries,
+        "include_redundant": include_redundant,
     }
-    return channel_names, rounds_attrs
+    return channel_names, rounds_attrs, load_channel_data
 
 
 def channel_indices_for_plate(

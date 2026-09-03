@@ -34,6 +34,7 @@ from ome_zarr.writer import (
     write_well_metadata,
 )
 
+from omero_screen_napari.zarr_cache.palette import channel_hex_colors
 from omero_screen_napari.zarr_cache.paths import (
     plate_zarr_path,
     plate_zarr_tmp_path,
@@ -445,22 +446,20 @@ class PlateZarrWriter:
         # at the image-group level, not nested inside it. ``write_image``'s
         # ``**metadata`` puts kwargs inside ``multiscales[0]`` which
         # napari-ome-zarr ignores. Write it directly on the group attrs.
-        # Colour and visibility are assigned by position *within a round*, not
-        # by flat channel index. On a 3-round 4i store the flat index would wrap
-        # the 6-entry palette and give round 1's DAPI and round 3's EdU the same
-        # colour; keying on the within-round position instead means the same
-        # stain looks the same in every round. Only round 1 opens active, or the
-        # viewer would stack a dozen additive layers.
+        # Every channel gets its own hue. A repeating palette would give two
+        # channels the same colour, and since layers blend additively two
+        # identically-coloured layers sum -- reading as one brighter channel
+        # rather than as a colour clash. Only round 1 opens active, or a
+        # multi-round plate would stack a dozen additive layers at once.
         omero_channels = []
+        colors = channel_hex_colors(list(self.channel_names))
         for c, name in enumerate(self.channel_names):
             window = _channel_window(image_tcyx[0, c])
-            position, round_index = self._channel_position(c)
+            _position, round_index = self._channel_position(c)
             omero_channels.append(
                 {
                     "label": name,
-                    "color": _DEFAULT_CHANNEL_COLORS[
-                        position % len(_DEFAULT_CHANNEL_COLORS)
-                    ],
+                    "color": colors[c],
                     "active": round_index == 0,
                     "window": window,
                 }

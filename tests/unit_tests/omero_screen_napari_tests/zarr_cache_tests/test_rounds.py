@@ -59,79 +59,85 @@ class TestRoundGroupProperties:
         assert not blocked.buildable
 
 
+_TWO_ROUND = {
+    4127: {"DAPI": "0", "Tub": "1"},
+    4130: {"DAPI": "0", "EdU": "1"},
+}
+
+
 class TestBuildChannelPlan:
-    def test_channels_concatenated_in_round_order(self) -> None:
-        names, _ = build_channel_plan(
-            _group(4130),
-            {
-                4127: {"DAPI": "0", "Tub": "1"},
-                4130: {"DAPI": "0", "EdU": "1"},
-            },
+    def test_repeated_nuclear_stain_is_dropped(self) -> None:
+        """Only the master's DAPI is kept: the later rounds add nothing."""
+        names, _, _ = build_channel_plan(_group(4130), _TWO_ROUND)
+        assert names == ["DAPI_R1", "Tub_R1", "EdU_R2"]
+
+    def test_dropped_channels_are_not_downloaded(self) -> None:
+        """The third return value is what each round actually reads."""
+        _, _, load = build_channel_plan(_group(4130), _TWO_ROUND)
+        assert load[4127] == {"DAPI": "0", "Tub": "1"}
+        assert load[4130] == {"EdU": "1"}
+
+    def test_include_redundant_keeps_them(self) -> None:
+        names, attrs, load = build_channel_plan(
+            _group(4130), _TWO_ROUND, include_redundant=True
         )
         assert names == ["DAPI_R1", "Tub_R1", "DAPI_R2", "EdU_R2"]
+        assert load[4130] == {"DAPI": "0", "EdU": "1"}
+        by_name = {
+            (e["name"], e["round"]): e["redundant"] for e in attrs["channels"]
+        }
+        assert by_name[("DAPI", 1)] is False
+        assert by_name[("DAPI", 2)] is True
 
     def test_names_are_unique(self) -> None:
         """The property display._populate_singleton depends on."""
-        names, _ = build_channel_plan(
+        names, _, _ = build_channel_plan(
             _group(4130, 4131),
             {
                 4127: {"DAPI": "0", "Tub": "1"},
                 4130: {"DAPI": "0", "EdU": "1"},
-                4131: {"DAPI": "0", "Tub": "1"},
+                4131: {"DAPI": "0", "H3P": "1"},
             },
         )
         assert len(names) == len(set(names))
 
     def test_master_channels_are_suffixed_too(self) -> None:
-        names, _ = build_channel_plan(
+        names, _, _ = build_channel_plan(
             _group(4130), {4127: {"DAPI": "0"}, 4130: {"EdU": "0"}}
         )
         assert names[0] == "DAPI_R1"
 
     def test_ordered_by_index_not_dict_order(self) -> None:
-        names, _ = build_channel_plan(
+        names, _, _ = build_channel_plan(
             _group(),
             {4127: {"Tub": "2", "DAPI": "0", "EdU": "1"}},
         )
         assert names == ["DAPI_R1", "EdU_R1", "Tub_R1"]
 
-    def test_repeated_stain_marked_redundant(self) -> None:
-        _, attrs = build_channel_plan(
+    def test_position_is_contiguous_after_dropping(self) -> None:
+        """Dropping a channel must not leave a gap in the round's positions."""
+        _, attrs, _ = build_channel_plan(
             _group(4130),
             {
                 4127: {"DAPI": "0", "Tub": "1"},
-                4130: {"DAPI": "0", "EdU": "1"},
+                4130: {"DAPI": "0", "EdU": "1", "H3P": "2"},
             },
         )
-        by_name = {
-            (e["name"], e["round"]): e["redundant"]
-            for e in attrs["channels"]
-        }
-        assert by_name[("DAPI", 1)] is False
-        assert by_name[("DAPI", 2)] is True  # registration channel, re-imaged
-        assert by_name[("EdU", 2)] is False
-
-    def test_position_is_within_round(self) -> None:
-        """Colour is keyed on this, so the same stain matches across rounds."""
-        _, attrs = build_channel_plan(
-            _group(4130),
-            {
-                4127: {"DAPI": "0", "Tub": "1"},
-                4130: {"DAPI": "0", "EdU": "1"},
-            },
-        )
-        positions = [e["position"] for e in attrs["channels"]]
-        assert positions == [0, 1, 0, 1]
+        by_round: dict[int, list[int]] = {}
+        for e in attrs["channels"]:
+            by_round.setdefault(e["round"], []).append(e["position"])
+        assert by_round[1] == [0, 1]
+        assert by_round[2] == [0, 1]
 
     def test_flat_index_is_recorded(self) -> None:
-        _, attrs = build_channel_plan(
+        _, attrs, _ = build_channel_plan(
             _group(4130),
             {4127: {"DAPI": "0", "Tub": "1"}, 4130: {"EdU": "0"}},
         )
         assert [e["index"] for e in attrs["channels"]] == [0, 1, 2]
 
     def test_attrs_record_the_group_and_convention(self) -> None:
-        _, attrs = build_channel_plan(
+        _, attrs, _ = build_channel_plan(
             _group(4130, 4131),
             {
                 4127: {"DAPI": "0"},
@@ -145,9 +151,10 @@ class TestBuildChannelPlan:
         assert attrs["alignment_source"] == "sample_alignment"
         # A reader must never have to guess which way the shift goes.
         assert attrs["shift_convention"] == "master = restain - (x, y)"
+        assert attrs["include_redundant"] is False
 
     def test_single_round_group(self) -> None:
-        names, attrs = build_channel_plan(
+        names, attrs, _ = build_channel_plan(
             _group(), {4127: {"DAPI": "0", "Tub": "1"}}
         )
         assert names == ["DAPI_R1", "Tub_R1"]
@@ -160,18 +167,12 @@ class TestBuildChannelPlan:
 
 class TestChannelIndicesForPlate:
     def test_selects_one_round(self) -> None:
-        _, attrs = build_channel_plan(
-            _group(4130),
-            {
-                4127: {"DAPI": "0", "Tub": "1"},
-                4130: {"DAPI": "0", "EdU": "1"},
-            },
-        )
+        _, attrs, _ = build_channel_plan(_group(4130), _TWO_ROUND)
         assert channel_indices_for_plate(attrs, 4127) == [0, 1]
-        assert channel_indices_for_plate(attrs, 4130) == [2, 3]
+        assert channel_indices_for_plate(attrs, 4130) == [2]
 
     def test_unknown_plate_is_empty(self) -> None:
-        _, attrs = build_channel_plan(_group(), {4127: {"DAPI": "0"}})
+        _, attrs, _ = build_channel_plan(_group(), {4127: {"DAPI": "0"}})
         assert channel_indices_for_plate(attrs, 9999) == []
 
 
