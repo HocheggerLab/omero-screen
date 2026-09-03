@@ -234,60 +234,77 @@ def test_overlay_text_includes_metadata(synth_well_data):
 
 
 # ----------------------------------------------------------------------
-# Contrast
+# Contrast and default visibility
 #
-# The slider must span the full uint16 range, with the limits parked at the
-# 0.1/99.9 percentiles. Passing contrast_limits to add_image is not enough:
-# napari then infers the *range* from those limits and clamps the slider to a
-# window the user cannot widen. Setting contrast_limits_range first is what
-# fixes that, mirroring the direct-from-OMERO path in _aligned_plate_widget.
+# These use a real napari ViewerModel rather than a MagicMock. A mock records
+# whatever is assigned to it, so it happily "passes" regardless of what napari
+# would actually do with the layer -- it cannot show that the slider ends up
+# spanning the full uint16 range, which is the property that matters here.
 # ----------------------------------------------------------------------
 
 
+def _real_viewer():
+    from napari.components import ViewerModel
+
+    return ViewerModel()
+
+
+def _image_layers(viewer):
+    return [
+        layer
+        for layer in viewer.layers
+        if hasattr(layer, "contrast_limits_range")
+    ]
+
+
 def test_contrast_range_spans_full_uint16(synth_well_data):
+    """The slider must reach the whole dtype range, not just the data range."""
     _build_two_well_plate(320, synth_well_data)
-    v = _mock_viewer()
+    v = _real_viewer()
     load_plate_to_viewer(v, 320, well_pos_input="A1")
-    layers = [c.return_value for c in [v.add_image]]
-    # Every image layer gets the full uint16 slider range.
-    assert v.add_image.return_value.contrast_limits_range == (0, 65535)
+    layers = _image_layers(v)
     assert layers
+    for layer in layers:
+        assert tuple(layer.contrast_limits_range) == (0, 65535)
 
 
-def test_contrast_limits_set_after_the_range(synth_well_data):
-    """Order matters: the range must be widened before the limits are set."""
+def test_contrast_limits_sit_inside_the_range(synth_well_data):
     _build_two_well_plate(321, synth_well_data)
-    v = _mock_viewer()
-    layer = v.add_image.return_value
-    order: list[str] = []
-    type(layer).contrast_limits_range = property(
-        lambda self: (0, 65535),
-        lambda self, value: order.append("range"),
-    )
-    type(layer).contrast_limits = property(
-        lambda self: (0, 1),
-        lambda self, value: order.append("limits"),
-    )
+    v = _real_viewer()
     load_plate_to_viewer(v, 321, well_pos_input="A1")
-    assert order, "neither contrast property was set"
-    assert order[0] == "range"
-    assert "limits" in order
+    for layer in _image_layers(v):
+        lo, hi = layer.contrast_limits
+        assert 0 <= lo < hi <= 65535
+        # Percentiles, not the full span: a starting view, not everything.
+        assert (lo, hi) != (0, 65535)
 
 
-def test_contrast_limits_not_passed_to_add_image(synth_well_data):
-    """Passing them to add_image would clamp the range napari infers."""
-    _build_two_well_plate(322, synth_well_data)
-    v = _mock_viewer()
-    load_plate_to_viewer(v, 322, well_pos_input="A1")
-    for call in v.add_image.call_args_list:
-        assert "contrast_limits" not in call.kwargs
+def test_channels_get_distinct_colormaps(synth_well_data):
+    """Two layers sharing a colormap would sum under additive blending."""
+    _build_two_well_plate(323, synth_well_data)
+    v = _real_viewer()
+    load_plate_to_viewer(v, 323, well_pos_input="A1")
+    colors = [
+        tuple(map(tuple, layer.colormap.colors))
+        for layer in _image_layers(v)
+    ]
+    assert len(colors) == 2
+    assert colors[0] != colors[1]
+
+
+def test_ordinary_plate_shows_every_channel(synth_well_data):
+    """No rounds block: behaviour is unchanged, everything visible."""
+    _build_two_well_plate(324, synth_well_data)
+    v = _real_viewer()
+    load_plate_to_viewer(v, 324, well_pos_input="A1")
+    assert all(layer.visible for layer in _image_layers(v))
 
 
 def test_channel_contrast_uses_percentiles():
     from omero_screen_napari.zarr_cache.display import _channel_contrast
 
-    # 1000 mid-grey pixels with a single hot pixel: min/max would give
-    # (100, 65535) and wash the image out; percentiles must ignore the outlier.
+    # Mid-grey with a single hot pixel: min/max would give (1000, 65535) and
+    # wash the image out; percentiles must ignore the outlier.
     data = np.full((100, 10), 1000, dtype=np.uint16)
     data[0, 0] = 65535
     lo, hi = _channel_contrast(data)
@@ -302,14 +319,59 @@ def test_channel_contrast_flat_channel_falls_back_to_full_range():
     assert (lo, hi) == (0, 65535)
 
 
-def test_channels_get_distinct_colormaps(synth_well_data):
-    """Two layers sharing a colormap would sum under additive blending."""
-    _build_two_well_plate(323, synth_well_data)
-    v = _mock_viewer()
-    load_plate_to_viewer(v, 323, well_pos_input="A1")
-    colormaps = [
-        call.kwargs["colormap"] for call in v.add_image.call_args_list
-    ]
-    assert len(colormaps) == 2
-    colors = [tuple(map(tuple, c.colors)) for c in colormaps]
-    assert colors[0] != colors[1]
+def test_only_the_master_round_is_visible_on_a_4i_plate(synth_well_data):
+    """A dozen additive layers at once renders a saturated white image."""
+    from omero_screen_napari.zarr_cache.rounds import (
+        RoundGroup,
+        build_channel_plan,
+    )
+
+    names, attrs, _ = build_channel_plan(
+        RoundGroup(330, (331, 332)),
+        {
+            330: {"DAPI": "0", "Tub": "1"},
+            331: {"DAPI": "0", "p21": "1"},
+            332: {"DAPI": "0", "TP53": "1"},
+        },
+    )
+    image, nuc, _ = synth_well_data(c=len(names), h=256, w=256)
+    w = PlateZarrWriter(330, "4i", names, 0.5, 1, rounds=attrs)
+    with w:
+        w.ensure_plate(all_wells=["A1"])
+        w.write_well("A1", image, nuc)
+
+    v = _real_viewer()
+    load_plate_to_viewer(v, 330, well_pos_input="A1")
+    visible = {
+        layer.name: layer.visible
+        for layer in _image_layers(v)
+    }
+    assert visible == {
+        "DAPI_R1": True,
+        "Tub_R1": True,
+        "p21_R2": False,
+        "TP53_R3": False,
+    }
+
+
+def test_4i_layers_still_get_the_full_range(synth_well_data):
+    """Hidden layers must still be usable once switched on."""
+    from omero_screen_napari.zarr_cache.rounds import (
+        RoundGroup,
+        build_channel_plan,
+    )
+
+    names, attrs, _ = build_channel_plan(
+        RoundGroup(340, (341,)),
+        {340: {"DAPI": "0", "Tub": "1"}, 341: {"DAPI": "0", "p21": "1"}},
+    )
+    image, nuc, _ = synth_well_data(c=len(names), h=256, w=256)
+    w = PlateZarrWriter(340, "4i", names, 0.5, 1, rounds=attrs)
+    with w:
+        w.ensure_plate(all_wells=["A1"])
+        w.write_well("A1", image, nuc)
+
+    v = _real_viewer()
+    load_plate_to_viewer(v, 340, well_pos_input="A1")
+    for layer in _image_layers(v):
+        assert tuple(layer.contrast_limits_range) == (0, 65535)
