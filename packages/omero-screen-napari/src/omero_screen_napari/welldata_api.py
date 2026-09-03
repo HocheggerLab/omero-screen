@@ -2379,11 +2379,19 @@ def get_plate_alignments(
         sample_alignments: Set to True to obtain alignments for each well sample
         conn: The BlitzGateway connection
 
+    Both tables carry a ``schema`` column (see
+    ``omero_screen.plate_aggregation.ALIGNMENT_SCHEMA_VERSION``). An
+    ``alignment.csv`` without it predates the 2026-09-03 transposition fix and has
+    its x and y columns swapped, so it is rejected rather than reinterpreted --
+    re-run ``align_plates`` on the plate. A legacy ``sample_alignment.csv`` was
+    never affected and is still accepted.
+
     Returns:
         DataFrame with columns: plate, well, x, y, [image_id if sample_alignments]
 
     Raises:
-        Exception: if plate doesn't exist or alignment CSV not found
+        Exception: if plate doesn't exist, the alignment CSV is not found, or the
+            per-well alignment predates the transposition fix
     """
     if conn is None:
         raise ValueError("Connection is required")
@@ -2410,5 +2418,11 @@ def get_plate_alignments(
     if df is None:
         raise Exception(
             f"Plate {plate_id} is missing alignment result data: {filename}"
+        )
+    if not sample_alignments and "schema" not in df.columns:
+        raise Exception(
+            f"Plate {plate_id} has a pre-2 alignment.csv with transposed x/y "
+            "columns. Re-run align_plates on this plate, or pass "
+            "sample_alignments=True (sample_alignment.csv is unaffected)."
         )
     return df

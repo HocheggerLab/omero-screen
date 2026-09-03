@@ -43,6 +43,17 @@ from scipy.optimize import linear_sum_assignment
 from .metadata_parser import MetadataParser
 from .plate_dataset import PlateDataset
 
+#: Schema version stamped into the ``schema`` column of ``alignment.csv`` and
+#: ``sample_alignment.csv``.
+#:
+#: Version 2 (2026-09-03) fixed a transposition: the per-well ``alignment.csv``
+#: previously wrote the mean Y shift into the ``x`` column and vice versa, while
+#: ``sample_alignment.csv`` was always correct. An attachment without this column
+#: predates the fix, so its per-well x/y are transposed and cannot be used. The
+#: column exists on both files so provenance is explicit, but only the per-well
+#: reader rejects a legacy file -- legacy per-field data is still valid.
+ALIGNMENT_SCHEMA_VERSION = 2
+
 
 def aggregate_plates(
     conn: BlitzGateway,
@@ -107,20 +118,22 @@ def aggregate_plates(
         # Update coordinates with alignment shift per well.
         plate_alignments = alignments[alignments["plate"] == plate_other]
 
+        # Access by column name: the tables carry a trailing ``schema`` column,
+        # so positional unpacking is not safe.
         if per_sample:
-            for _, well, _, image_id, x, y in plate_alignments.itertuples(
-                index=False
-            ):
-                mask = (df2["well"] == well) & (df2["image_id"] == image_id)
+            for row in plate_alignments.itertuples(index=False):
+                mask = (df2["well"] == row.well) & (
+                    df2["image_id"] == row.image_id
+                )
                 c2 = df2[mask][["centroid-1", "centroid-0"]].values
-                c2 = c2 - (x, y)
+                c2 = c2 - (row.x, row.y)
                 df2.loc[mask, ["centroid-1", "centroid-0"]] = c2
         else:
             # per-well
-            for _, well, x, y in plate_alignments.itertuples(index=False):
-                mask = df2["well"] == well
+            for row in plate_alignments.itertuples(index=False):
+                mask = df2["well"] == row.well
                 c2 = df2[mask][["centroid-1", "centroid-0"]].values
-                c2 = c2 - (x, y)
+                c2 = c2 - (row.x, row.y)
                 df2.loc[mask, ["centroid-1", "centroid-0"]] = c2
         # Map each result to the original table using minimum Euclidean distance.
         # This must be done per well sample.
@@ -181,11 +194,15 @@ def aggregate_plates(
                         f"Alignment missing for plate {plate_other} at well {well_pos}",
                         logger,
                     )
-                x, y = a.iloc[0][-2:]
+                # By name, not position: the table carries a trailing ``schema``
+                # column, so ``[-2:]`` would read (y, schema). Named separately
+                # from x/y, which are bound to image-map entries above.
+                shift_x = float(a.iloc[0]["x"])
+                shift_y = float(a.iloc[0]["y"])
                 label1, label2 = map_masks(
                     _get_mask_from_map(conn, im1[1], map1),
                     _get_mask_from_map(conn, im2[1], map2),
-                    (round(y), round(x)),
+                    (round(shift_y), round(shift_x)),
                 )
                 # Convert label1 -> label2 map to the row index -> col index
                 # Note: df1 int columns are converted to float to handle NAs during concatentation
@@ -462,16 +479,26 @@ def align_plates(
                     f"Plate alignment {plate_id} to {plate_other} [{well}] above distance threshold {threshold}: {distances[distances >= threshold]}",
                     logger,
                 )
-            # Compute mean. Reverse YX to XY shifts.
-            a = np.array(shifts).mean(axis=0)
-            b = np.array(shifts).std(axis=0)
-            shift = (a[1], a[0])
+            # Compute the mean. ``shifts`` entries come from _translation, which
+            # already returns XY, so no axis reversal is applied here. Until
+            # 2026-09-03 this line reversed them again, transposing x and y in
+            # alignment.csv relative to sample_alignment.csv; see
+            # ALIGNMENT_SCHEMA_VERSION.
+            # Named rather than reusing a/b, which are bound to plate dimension
+            # tuples earlier in this function.
+            mean_shift = np.array(shifts).mean(axis=0)
+            std_shift = np.array(shifts).std(axis=0)
+            shift = (mean_shift[0], mean_shift[1])
             logger.info(
-                f"Alignment: ({shift[0]:.1f}, {shift[1]:.1f}) +/- ({b[1]:.1f}, {b[0]:.1f})"
+                f"Alignment: ({shift[0]:.1f}, {shift[1]:.1f}) "
+                f"+/- ({std_shift[0]:.1f}, {std_shift[1]:.1f})"
             )
             # Validate all alignments are within a tolerance to the mean
             distances = np.array(
-                [np.sqrt(((np.array(x) - a) ** 2).sum()) for x in shifts]
+                [
+                    np.sqrt(((np.array(x) - mean_shift) ** 2).sum())
+                    for x in shifts
+                ]
             )
             logger.info(f"Alignment distances to centroid: {distances}")
             if np.any(distances >= tolerance):
@@ -489,6 +516,9 @@ def align_plates(
         image_alignments,
         columns=["plate", "well", "sample", "image_id", "x", "y"],
     )
+    # Stamp the schema so readers can tell post-fix files from transposed ones.
+    df["schema"] = ALIGNMENT_SCHEMA_VERSION
+    sdf["schema"] = ALIGNMENT_SCHEMA_VERSION
 
     # Upload result
     logger.info("Saving alignment results to OMERO")
@@ -1095,6 +1125,12 @@ def get_plate_alignments(
     The sample alignments are: plate, well, image_id, x, y.
     The alignment data is created and uploaded to OMERO by align_plates.
 
+    Both tables carry a ``schema`` column (see ALIGNMENT_SCHEMA_VERSION). An
+    ``alignment.csv`` without it predates the 2026-09-03 transposition fix and has
+    its x and y columns swapped, so it is rejected rather than reinterpreted --
+    re-run ``align_plates`` on the plate. A legacy ``sample_alignment.csv`` was
+    never affected and is still accepted.
+
     Args:
         conn: The BlitzGateway connection
         plate_id: The plate ID
@@ -1105,20 +1141,34 @@ def get_plate_alignments(
 
     Raises:
         PlateNotFoundError: if a plate does not exist
-        PlateDataError: if plates are missing the OMERO screen results
+        PlateDataError: if plates are missing the OMERO screen results, or the
+            per-well alignment predates the transposition fix
     """
     # Download the alignments
     plate = conn.getObject("Plate", plate_id)
     if plate is None:
         raise PlateNotFoundError(f"Plate:{plate_id}", logger)
     filename = "sample_alignment.csv" if sample_alignments else "alignment.csv"
-    att = get_file_attachments(plate, filename)
+    # Match the name exactly: get_file_attachments matches by suffix, so asking
+    # for "alignment.csv" would also return "sample_alignment.csv".
+    att = [
+        a
+        for a in (get_file_attachments(plate, filename) or [])
+        if a.getFile().getName().lower() == filename
+    ]
     df = None
     if att:
         df = parse_csv_data(att[0])
     if df is None:
         raise PlateDataError(
             f"Plate {plate_id} is missing alignment result data: {filename}",
+            logger,
+        )
+    if not sample_alignments and "schema" not in df.columns:
+        raise PlateDataError(
+            f"Plate {plate_id} has a pre-{ALIGNMENT_SCHEMA_VERSION} alignment.csv "
+            "with transposed x/y columns. Re-run align_plates on this plate, or "
+            "use sample_alignments=True (sample_alignment.csv is unaffected).",
             logger,
         )
     return df
