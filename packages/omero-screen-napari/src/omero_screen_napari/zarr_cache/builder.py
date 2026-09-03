@@ -32,6 +32,7 @@ import contextlib
 import os
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,7 @@ from omero_utils.stitching import (
     missing_field_boxes,
     recompose_tiles,
     stitch_from_offsets,
+    stitch_into_canvas,
 )
 
 from omero_screen_napari.omero_data import OmeroConnection, get_dataset_id
@@ -63,12 +65,18 @@ from omero_screen_napari.plate_cache import (
     get_well_data,
     is_empty_well,
 )
+from omero_screen_napari.zarr_cache.alignment import AlignmentError
 from omero_screen_napari.zarr_cache.eviction import (
     enforce_size_cap,
     estimate_plate_size_bytes,
+    transient_pin,
 )
 from omero_screen_napari.zarr_cache.paths import plate_zarr_path
 from omero_screen_napari.zarr_cache.registry import ZarrPlateEntry, upsert
+from omero_screen_napari.zarr_cache.rounds import (
+    RoundGroup,
+    build_channel_plan,
+)
 from omero_screen_napari.zarr_cache.writer import PlateZarrWriter
 
 # Timepoints stitched per lazy dask block. The build never holds more than a
@@ -311,11 +319,29 @@ def _stitch_image(
     images_ntyxc: npt.NDArray[Any],
     offsets: npt.NDArray[np.int_],
     edge: int,
+    canvas_hw: tuple[int, int] | None = None,
 ) -> npt.NDArray[Any]:
-    """Stitch (N, T, Y, X, C) → (T, C, Y, X)."""
-    stitched_tyxc = stitch_from_offsets(
-        images_ntyxc, offsets, edge=edge
-    )  # (T, Y, X, C)
+    """Stitch (N, T, Y, X, C) → (T, C, Y, X).
+
+    Args:
+        images_ntyxc: Field stack.
+        offsets: Canvas offsets per field. May be negative when ``canvas_hw`` is
+            given, which happens for a cyclic-IF restain round whose alignment
+            shift pushes tiles left of or above the master's origin.
+        edge: Blend width. Always passed explicitly for a 4i build so every
+            round blends identically.
+        canvas_hw: Force the output canvas to exactly this ``(height, width)``,
+            cropping to the master's frame. None keeps the legacy behaviour of
+            deriving the canvas from the offsets.
+    """
+    if canvas_hw is None:
+        stitched_tyxc = stitch_from_offsets(
+            images_ntyxc, offsets, edge=edge
+        )  # (T, Y, X, C)
+    else:
+        stitched_tyxc = stitch_into_canvas(
+            images_ntyxc, offsets, canvas_hw, edge=edge
+        )
     # Reorder to writer's expected layout (T, C, Y, X).
     return np.transpose(stitched_tyxc, (0, 3, 1, 2))
 
@@ -331,12 +357,19 @@ def _load_stitch_image_block(
     t0: int,
     t1: int,
     plate_id: int,
+    canvas_hw: tuple[int, int] | None = None,
 ) -> npt.NDArray[Any]:
     """Download + flatfield + stitch one timepoint block → ``(bt, C, Y, X)``.
 
     Runs inside a dask task (on a worker thread), so it uses its own
     thread-local BlitzGateway and reads only timepoints ``[t0, t1)`` of each
     field — the image disk-cache makes the probe re-read of block 0 free.
+
+    ``canvas_hw`` forces the output spatial dims, which a cyclic-IF restain
+    round needs so its canvas matches the master's. The result is asserted
+    against it: the caller declares this block's dask shape from a probe of
+    block 0, so a size mismatch would corrupt the written store rather than
+    raise.
     """
     worker_conn = omero_conn.create_conn() if omero_conn is not None else conn
     try:
@@ -364,7 +397,14 @@ def _load_stitch_image_block(
         if omero_conn is not None and worker_conn is not conn:
             with contextlib.suppress(Exception):
                 worker_conn.close()
-    return _stitch_image(images_ntyxc, offsets, edge)  # (bt, C, Y, X)
+    stitched = _stitch_image(
+        images_ntyxc, offsets, edge, canvas_hw
+    )  # (bt, C, Y, X)
+    if canvas_hw is not None:
+        assert stitched.shape[-2:] == canvas_hw, (
+            f"stitched block is {stitched.shape[-2:]}, expected {canvas_hw}"
+        )
+    return stitched
 
 
 def _load_recompose_label_block(
@@ -415,6 +455,42 @@ def _load_recompose_label_block(
     return nuc, cell
 
 
+@dataclass
+class RoundSpec:
+    """One cyclic-IF restain round, resolved for a single well.
+
+    Attributes:
+        plate_id: The restain plate.
+        well: That plate's well object, same position as the master's.
+        shifts: ``(n_master_fields, 2)`` integer ``(dx, dy)``, indexed by master
+            field index. Subtracted from the master's canvas offsets.
+        image_ids: Restain image ID per master field index, or None when the
+            per-well alignment table was used and the mapping is positional.
+        channel_data: ``{channel_name: index_string}`` for this round.
+        flatfield_dict: Per-channel flatfield masks for this round.
+    """
+
+    plate_id: int
+    well: WellWrapper
+    shifts: npt.NDArray[np.int_]
+    image_ids: list[int] | None
+    channel_data: dict[str, str]
+    flatfield_dict: dict[str, npt.NDArray[Any]]
+
+    def field_ids(self, fields: list[int]) -> list[int]:
+        """Restain image IDs for the given master field indices.
+
+        Prefers the IDs carried in ``sample_alignment.csv``: resolving by ID
+        means field correspondence never depends on ``listChildren()`` ordering
+        being stable across two separately-imported plates. Falls back to
+        position only when the per-well table was used, which carries no IDs.
+        """
+        if self.image_ids is not None:
+            return [int(self.image_ids[i]) for i in fields]
+        children = list(self.well.listChildren())
+        return [int(children[i].getImage().getId()) for i in fields]
+
+
 def _build_lazy_well_arrays(
     conn: BlitzGateway,
     omero_conn: Any | None,
@@ -423,6 +499,7 @@ def _build_lazy_well_arrays(
     flatfield_dict: dict[str, npt.NDArray[Any]],
     plate_id: int,
     block_t: int = _CACHE_BLOCK_T,
+    round_specs: list[RoundSpec] | None = None,
 ) -> tuple[
     da.Array,
     da.Array,
@@ -495,6 +572,43 @@ def _build_lazy_well_arrays(
         for t0, t1 in blocks
     ]
     image_dask = da.concatenate(img_parts, axis=0)
+
+    # Cyclic-IF: append each restain round's channels along C. Every round is
+    # stitched onto *this* canvas -- the master's offsets shifted by the
+    # alignment, then cropped back to (cy, cx) -- so all rounds share one frame
+    # and a crop is a single slice across the whole multiplexed stack. Labels
+    # stay master-only; only the master round is segmented.
+    for spec in round_specs or []:
+        round_ids = spec.field_ids(fields)
+        shifted_offsets = valid_offsets - spec.shifts[fields]
+        n_round_ch = len(spec.channel_data)
+        round_parts = [
+            da.from_delayed(
+                delayed(_load_stitch_image_block)(
+                    conn,
+                    omero_conn,
+                    round_ids,
+                    shifted_offsets,
+                    # The master's blend width, not an auto-detected one: the
+                    # shifted offsets have a different relative geometry, so
+                    # auto-detection would blend this round differently and give
+                    # the same stain different pixel values across rounds.
+                    edge,
+                    spec.channel_data,
+                    spec.flatfield_dict,
+                    t0,
+                    t1,
+                    spec.plate_id,
+                    (cy, cx),
+                ),
+                shape=(t1 - t0, n_round_ch, cy, cx),
+                dtype=np.uint16,
+            )
+            for t0, t1 in blocks
+        ]
+        image_dask = da.concatenate(
+            [image_dask, da.concatenate(round_parts, axis=0)], axis=1
+        )
 
     nuc_parts: list[da.Array] = []
     cell_parts: list[da.Array] = []
@@ -573,6 +687,59 @@ def resolve_target_wells(
     return [w for w in candidates if w not in already_built]
 
 
+def _round_specs_for_well(
+    group: RoundGroup,
+    well_pos: str,
+    master_well: WellWrapper,
+    round_well_objs: dict[int, dict[str, WellWrapper]],
+    round_flatfields: dict[int, dict[str, npt.NDArray[Any]]],
+    channel_data_by_plate: dict[int, dict[str, str]],
+) -> list[RoundSpec] | None:
+    """Resolve every restain round for one well, or None if the well must be skipped.
+
+    A well is skipped whole rather than partially: writing a round as zeros
+    would be indistinguishable from a dead stain, and the multiplexed feature
+    space has no meaning for a cell missing a round.
+    """
+    assert group.alignment is not None
+    n_fields = int(master_well.countWellSample())
+    specs: list[RoundSpec] = []
+    for member_id in group.member_plate_ids:
+        round_well = round_well_objs[member_id].get(well_pos)
+        if round_well is None:
+            logger.warning(
+                f"Well {well_pos} missing from restain plate {member_id}; "
+                f"skipping the well for the whole 4i group"
+            )
+            return None
+        round_fields = int(round_well.countWellSample())
+        if round_fields != n_fields:
+            logger.warning(
+                f"Well {well_pos}: master has {n_fields} field(s) but restain "
+                f"plate {member_id} has {round_fields}; skipping the well. "
+                f"Field correspondence across rounds is positional."
+            )
+            return None
+        try:
+            shifts = group.alignment.shifts_for_well(
+                member_id, well_pos, n_fields
+            )
+        except AlignmentError as exc:
+            logger.warning(f"Well {well_pos}: {exc}; skipping the well")
+            return None
+        specs.append(
+            RoundSpec(
+                plate_id=member_id,
+                well=round_well,
+                shifts=shifts.shifts,
+                image_ids=shifts.image_ids,
+                channel_data=channel_data_by_plate[member_id],
+                flatfield_dict=round_flatfields[member_id],
+            )
+        )
+    return specs
+
+
 def build_plate_zarr(
     plate_id: int,
     conn: BlitzGateway,
@@ -582,6 +749,7 @@ def build_plate_zarr(
     step_cb: Callable[[str, float], None] | None = None,
     omero_conn: Any | None = None,
     max_workers: int = 3,
+    round_group: RoundGroup | None = None,
 ) -> Iterator[str]:
     """Build (or extend) the plate.zarr cache for ``plate_id``.
 
@@ -606,7 +774,26 @@ def build_plate_zarr(
             BlitzGateway connections for the parallel download path.
             When ``None``, downloads run sequentially on ``conn``.
         max_workers: Concurrency for the parallel download path.
+        round_group: Build a cyclic-IF (4i) store holding every round's
+            channels pre-aligned into this plate's frame. ``plate_id`` must be
+            the group's master. When None (the default) an ordinary
+            single-plate store is written, byte-identical to the pre-4i format.
+
+    Raises:
+        ValueError: if ``round_group`` is not buildable, or names a different
+            master than ``plate_id``.
     """
+    if round_group is not None:
+        if round_group.master_plate_id != plate_id:
+            raise ValueError(
+                f"round_group is for master plate "
+                f"{round_group.master_plate_id}, not {plate_id}"
+            )
+        if not round_group.buildable:
+            raise ValueError(
+                f"Plate {plate_id} cannot be built as a 4i group: "
+                + "; ".join(round_group.blockers)
+            )
     cache_conn = omero_conn if omero_conn is not None else OmeroConnection()
 
     metadata = get_plate_metadata(cache_conn, plate_id)
@@ -689,10 +876,30 @@ def build_plate_zarr(
     grid_side = math.ceil(math.sqrt(max(n_fields_first, 1)))
     stitched_h = grid_side * field_h
     stitched_w = grid_side * field_w
+    # Per-round channel data, and the flat channel list the store will carry.
+    channel_data_by_plate: dict[int, dict[str, str]] = {plate_id: channel_data}
+    rounds_attrs: dict[str, Any] | None = None
+    store_channel_names = list(channel_data.keys())
+    if round_group is not None:
+        for member_id in round_group.member_plate_ids:
+            channel_data_by_plate[member_id] = get_plate_metadata(
+                cache_conn, member_id
+            )["channel_data"]
+        store_channel_names, rounds_attrs = build_channel_plan(
+            round_group, channel_data_by_plate
+        )
+        logger.info(
+            f"Plate {plate_id}: building 4i store over "
+            f"{round_group.n_rounds} round(s) {list(round_group.plate_ids)} "
+            f"-> {len(store_channel_names)} channels"
+        )
+
     estimated = estimate_plate_size_bytes(
         n_wells=len(target_wells),
         n_timepoints=n_timepoints,
-        n_channels=len(channel_data),
+        # Summed across rounds: passing one round's count would under-reserve
+        # by a factor of N and blow the cap mid-build.
+        n_channels=len(store_channel_names),
         stitched_h=stitched_h,
         stitched_w=stitched_w,
     )
@@ -714,6 +921,27 @@ def build_plate_zarr(
         w.getWellPos(): w for w in plate.listChildren()
     }
 
+    # Per-round well objects and flatfield masks. Each round has its own
+    # channels and its own flatfield correction.
+    round_well_objs: dict[int, dict[str, WellWrapper]] = {}
+    round_flatfields: dict[int, dict[str, npt.NDArray[Any]]] = {}
+    if round_group is not None:
+        for member_id in round_group.member_plate_ids:
+            member_plate = conn.getObject("Plate", member_id)
+            if member_plate is None:
+                raise ValueError(
+                    f"Restain plate {member_id} not found in OMERO"
+                )
+            round_well_objs[member_id] = {
+                w.getWellPos(): w for w in member_plate.listChildren()
+            }
+            round_flatfields[member_id] = _load_flatfield_dict(
+                conn,
+                get_plate_metadata(cache_conn, member_id)["ff_mask_id"],
+                channel_data_by_plate[member_id],
+                plate_id=member_id,
+            )
+
     dataset_id = get_dataset_id(conn, plate_id)
     if not dataset_id:
         raise ValueError(
@@ -724,9 +952,10 @@ def build_plate_zarr(
     writer = PlateZarrWriter(
         plate_id=plate_id,
         plate_name=plate_name,
-        channel_names=list(channel_data.keys()),
+        channel_names=store_channel_names,
         pixel_size_um=pixel_size_um,
         n_timepoints=n_timepoints,
+        rounds=rounds_attrs,
     )
 
     # Stash per-well metadata (cell_line, condition, timepoint, ...) so
@@ -739,7 +968,10 @@ def build_plate_zarr(
     # Bound dask to a few worker threads so the streamed writes hold only a
     # few blocks at once — without this the default scheduler would fan out
     # across all cores and undo the memory bound.
+    # Pin for the duration of the build: a concurrent build's pre-flight
+    # eviction would otherwise be free to reclaim a partially written store.
     with (
+        transient_pin(plate_id),
         dask.config.set(scheduler="threads", num_workers=_CACHE_DASK_WORKERS),
         writer,
     ):
@@ -760,6 +992,19 @@ def build_plate_zarr(
             # block on demand, so the writer (dask-streaming) never holds the
             # whole well in RAM. Probing block 0 also surfaces a non-stitched
             # well via the KeyError from the label id resolution.
+            round_specs: list[RoundSpec] | None = None
+            if round_group is not None:
+                round_specs = _round_specs_for_well(
+                    round_group,
+                    well_pos,
+                    well_obj,
+                    round_well_objs,
+                    round_flatfields,
+                    channel_data_by_plate,
+                )
+                if round_specs is None:
+                    continue
+
             try:
                 image_tcyx, nuc_stitched, cell_stitched = (
                     _build_lazy_well_arrays(
@@ -769,6 +1014,7 @@ def build_plate_zarr(
                         channel_data,
                         flatfield_dict,
                         plate_id,
+                        round_specs=round_specs,
                     )
                 )
             except KeyError as e:
@@ -822,6 +1068,14 @@ def build_plate_zarr(
             plate_name=plate_name,
             size_bytes=_dir_size(plate_zarr_path(plate_id)),
             n_wells_written=len(target_wells),
+            # One entry per store. Recording the restain rounds here is what
+            # stops ``evict_plate(restain_id)`` deleting this store, and what
+            # lets a consumer holding a restain ID find these pixels.
+            member_plate_ids=(
+                list(round_group.member_plate_ids)
+                if round_group is not None
+                else []
+            ),
         )
     )
     logger.info(

@@ -97,6 +97,12 @@ _DEFAULT_CHANNEL_COLORS = [
     "00FFFF",  # cyan
 ]
 
+#: Bumped when the store layout changes. Absent from a store's attrs means 1,
+#: the original single-plate format. 2 adds the cyclic-IF ``rounds`` block.
+#: Distinct from ``plate_cache._CACHE_VERSION``, which versions the *metadata*
+#: disk cache, not the zarr store.
+SCHEMA_VERSION = 2
+
 
 def _channel_window(arr_yx: ArrayLike) -> dict[str, float]:
     """Compute a sensible contrast window from one timepoint's channel data.
@@ -192,13 +198,29 @@ class PlateZarrWriter:
         pixel_size_um: float | None,
         n_timepoints: int,
         frame_interval_s: float | None = None,
+        rounds: dict[str, Any] | None = None,
     ) -> None:
+        """Create a writer for one plate store.
+
+        Args:
+            plate_id: OMERO plate ID. For a cyclic-IF group this is the master.
+            plate_name: Human-readable plate name.
+            channel_names: Flat channel list in array order. For a 4i store this
+                is every round's channels concatenated and round-qualified.
+            pixel_size_um: Pixel size, or None if unknown.
+            n_timepoints: Size of the T axis.
+            frame_interval_s: Seconds between timepoints, if a timelapse.
+            rounds: Cyclic-IF descriptor written to the plate attrs. None for an
+                ordinary single-plate store, which keeps the store
+                byte-identical to the pre-4i format.
+        """
         self.plate_id = plate_id
         self.plate_name = plate_name
         self.channel_names = channel_names
         self.pixel_size_um = pixel_size_um
         self.n_timepoints = n_timepoints
         self.frame_interval_s = frame_interval_s
+        self.rounds = rounds
 
         self.path = plate_zarr_path(plate_id)
         self.tmp_path = plate_zarr_tmp_path(plate_id)
@@ -251,7 +273,7 @@ class PlateZarrWriter:
         )
         # Stash channel + pixel-size hints at plate level for downstream
         # consumers that don't want to walk into every well.
-        root.attrs["omero_screen"] = {
+        attrs: dict[str, Any] = {
             "plate_id": self.plate_id,
             "channel_names": list(self.channel_names),
             "pixel_size_um": self.pixel_size_um,
@@ -261,6 +283,29 @@ class PlateZarrWriter:
             # load path does not need an OMERO connection.
             "well_metadata": dict(well_metadata or {}),
         }
+        if self.rounds is not None:
+            # Only written for a cyclic-IF store, so an ordinary plate's attrs
+            # stay byte-identical to the pre-4i format and existing readers
+            # (which use .get throughout) are unaffected.
+            attrs["schema_version"] = SCHEMA_VERSION
+            attrs["rounds"] = self.rounds
+        root.attrs["omero_screen"] = attrs
+
+    def _channel_position(self, channel_index: int) -> tuple[int, int]:
+        """Map a flat channel index to (position within its round, round index).
+
+        For an ordinary single-plate store every channel is in round 0 and the
+        position is the index itself, so behaviour is unchanged.
+        """
+        if not self.rounds:
+            return channel_index, 0
+        entries = self.rounds.get("channels", [])
+        if channel_index >= len(entries):
+            return channel_index, 0
+        entry = entries[channel_index]
+        return int(entry.get("position", channel_index)), int(
+            entry.get("round", 1)
+        ) - 1
 
     # ------------------------------------------------------------------
     # Per-well write
@@ -400,16 +445,23 @@ class PlateZarrWriter:
         # at the image-group level, not nested inside it. ``write_image``'s
         # ``**metadata`` puts kwargs inside ``multiscales[0]`` which
         # napari-ome-zarr ignores. Write it directly on the group attrs.
+        # Colour and visibility are assigned by position *within a round*, not
+        # by flat channel index. On a 3-round 4i store the flat index would wrap
+        # the 6-entry palette and give round 1's DAPI and round 3's EdU the same
+        # colour; keying on the within-round position instead means the same
+        # stain looks the same in every round. Only round 1 opens active, or the
+        # viewer would stack a dozen additive layers.
         omero_channels = []
         for c, name in enumerate(self.channel_names):
             window = _channel_window(image_tcyx[0, c])
+            position, round_index = self._channel_position(c)
             omero_channels.append(
                 {
                     "label": name,
                     "color": _DEFAULT_CHANNEL_COLORS[
-                        c % len(_DEFAULT_CHANNEL_COLORS)
+                        position % len(_DEFAULT_CHANNEL_COLORS)
                     ],
-                    "active": True,
+                    "active": round_index == 0,
                     "window": window,
                 }
             )

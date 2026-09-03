@@ -18,14 +18,17 @@ it cannot grow without limit. Policies:
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
+from collections.abc import Iterator
 from pathlib import Path
 
 from loguru import logger
 
 from omero_screen_napari.zarr_cache.paths import plate_zarr_path
 from omero_screen_napari.zarr_cache.registry import (
+    find_group,
     list_pinned,
     list_plates,
     remove,
@@ -86,6 +89,24 @@ def pin_plate(plate_id: int, *, persist: bool = True) -> None:
         set_pinned(plate_id, True)
 
 
+@contextlib.contextmanager
+def transient_pin(plate_id: int) -> Iterator[None]:
+    """Pin a plate for the duration of a block, then restore the prior state.
+
+    Used around a build so a concurrent build's pre-flight eviction cannot
+    reclaim a partially written store. Unlike :func:`unpin_plate` this never
+    clears a *durable* pin the user set for Mastodon curation -- it only undoes
+    the pin it added, and only if the plate was not already pinned in-process.
+    """
+    already = plate_id in _pinned_plates
+    _pinned_plates.add(plate_id)
+    try:
+        yield
+    finally:
+        if not already:
+            _pinned_plates.discard(plate_id)
+
+
 def unpin_plate(plate_id: int) -> None:
     """Release a pin acquired via :func:`pin_plate` (transient and durable)."""
     _pinned_plates.discard(plate_id)
@@ -93,15 +114,34 @@ def unpin_plate(plate_id: int) -> None:
 
 
 def is_pinned(plate_id: int) -> bool:
-    """True if a plate is pinned in-process or persistently in the registry."""
-    return plate_id in _pinned_plates or any(
-        e.plate_id == plate_id for e in list_pinned()
-    )
+    """True if a plate is pinned in-process or persistently in the registry.
+
+    A pin covers the whole 4i group: pinning any member protects the store, and
+    a pinned master protects its members. Otherwise the evictor could pick a
+    group member as a victim while the store is in use.
+    """
+    if plate_id in _pinned_plates:
+        return True
+    if any(plate_id in e.covered_plate_ids for e in list_pinned()):
+        return True
+    # A transient pin on the master protects members and vice versa.
+    group = find_group(plate_id)
+    return group is not None and bool(group.covered_plate_ids & _pinned_plates)
 
 
 def pinned_plate_ids() -> set[int]:
-    """All currently-pinned plate ids (in-process ∪ persistent)."""
-    return _pinned_plates | {e.plate_id for e in list_pinned()}
+    """All currently-pinned plate ids (in-process ∪ persistent).
+
+    Expanded across 4i groups, so a pin on one member reports every plate whose
+    pixels share that store.
+    """
+    pinned = _pinned_plates | {e.plate_id for e in list_pinned()}
+    expanded = set(pinned)
+    for plate_id in pinned:
+        group = find_group(plate_id)
+        if group is not None:
+            expanded |= group.covered_plate_ids
+    return expanded
 
 
 def _dir_size_bytes(path: Path) -> int:
@@ -120,7 +160,12 @@ def _dir_size_bytes(path: Path) -> int:
 
 
 def current_size_bytes() -> int:
-    """Total bytes occupied by all registered plate stores."""
+    """Total bytes occupied by all registered plate stores.
+
+    One entry is written per store, so summing entries counts each directory
+    once. Restain members of a 4i group have no entry of their own for that
+    store, so their pixels are counted under the master.
+    """
     return sum(
         _dir_size_bytes(plate_zarr_path(e.plate_id)) for e in list_plates()
     )
@@ -129,18 +174,38 @@ def current_size_bytes() -> int:
 def evict_plate(plate_id: int) -> int:
     """Remove a plate's zarr directory and registry entry.
 
-    Returns the number of bytes reclaimed. Pinned plates are skipped with
-    a warning (returns 0).
+    Refuses when ``plate_id`` is only a restain member of a 4i group: the store
+    belongs to the master, and deleting it here would destroy every round's
+    pixels while dropping a single registry row. Callers should pass the master
+    ID (``registry.find_group(plate_id).plate_id``) to evict a 4i store.
+
+    Returns the number of bytes reclaimed. Pinned plates, and member IDs, are
+    skipped with a warning (returns 0).
     """
     if is_pinned(plate_id):
         logger.warning(f"Skipping eviction of pinned plate {plate_id}")
+        return 0
+    group = find_group(plate_id)
+    if group is not None and group.plate_id != plate_id:
+        logger.warning(
+            f"Refusing to evict plate {plate_id}: its pixels live in the 4i "
+            f"store of master plate {group.plate_id}. Evict the master to "
+            f"remove that store."
+        )
         return 0
     path = plate_zarr_path(plate_id)
     size = _dir_size_bytes(path)
     if path.exists():
         shutil.rmtree(path, ignore_errors=True)
     remove(plate_id)
-    logger.info(f"Evicted plate {plate_id} ({size / 1024 / 1024:.1f} MB)")
+    members = (
+        f" (+{len(group.member_plate_ids)} restain round(s))"
+        if (group is not None and group.is_group)
+        else ""
+    )
+    logger.info(
+        f"Evicted plate {plate_id}{members} ({size / 1024 / 1024:.1f} MB)"
+    )
     return size
 
 

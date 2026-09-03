@@ -64,7 +64,8 @@ from omero_screen_napari.omero_image import (
 
 # Bump this when the on-disk metadata format changes.
 # Caching will delete and re-download plates cached with an older version.
-_CACHE_VERSION = 2
+# 3: added is_4i_master / aligned_plate_ids.
+_CACHE_VERSION = 3
 
 # Configure cache path using environment.
 # Uses the default size limit. The cache is not expected to grow very large
@@ -873,6 +874,9 @@ def fetch_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
     # (names like ``{img_id}_stitched_segmentation``).
     label_stitched_mode = detect_label_stitched_mode(conn, plate_id)
 
+    # Detect whether this is the master plate of a cyclic-IF (4i) experiment.
+    is_4i_master, aligned_plate_ids = detect_4i_master(conn, plate_id)
+
     return {
         "channel_data": channel_data,
         "pixel_size": pixel_size,
@@ -880,9 +884,48 @@ def fetch_plate_metadata(conn: BlitzGateway, plate_id: int) -> dict[str, Any]:
         "plate_name": plate_name,
         "ff_mask_id": ff_mask_id,
         "label_stitched_mode": label_stitched_mode,
+        "is_4i_master": is_4i_master,
+        "aligned_plate_ids": aligned_plate_ids,
         "cache_version": _CACHE_VERSION,
         "cache_date": str(date.today()),
     }
+
+
+def detect_4i_master(
+    conn: BlitzGateway, plate_id: int
+) -> tuple[bool, list[int]]:
+    """Return whether a plate is a 4i master, and its restain plate IDs.
+
+    A cyclic-IF master plate carries an ``alignment.csv`` (and normally a
+    ``sample_alignment.csv``) file annotation written by ``align_plates``; the
+    ``plate`` column lists the restain rounds. Like
+    :func:`detect_label_stitched_mode` the result is persisted in plate metadata
+    so the plate-info dialog can show the badge without re-querying OMERO.
+
+    Detection is one ``listAnnotations()`` round trip. The table is only
+    downloaded when the plate does carry one, and a table that cannot be read
+    (for example a pre-schema per-well file) degrades to ``(False, [])`` rather
+    than raising -- this runs on the Qt thread during dialog construction.
+    """
+    # Imported here, not at module scope: zarr_cache's package __init__ pulls
+    # in the builder, which imports this module.
+    from omero_screen_napari.zarr_cache.alignment import (
+        AlignmentError,
+        has_alignment,
+        load_alignment,
+    )
+
+    plate = conn.getObject("Plate", plate_id)
+    if plate is None:
+        return False, []
+    try:
+        if not has_alignment(plate):
+            return False, []
+        alignment = load_alignment(conn, plate_id)
+    except (AlignmentError, ValueError) as exc:
+        logger.debug(f"Plate {plate_id} is not a usable 4i master: {exc}")
+        return False, []
+    return True, list(alignment.member_plate_ids)
 
 
 def detect_label_stitched_mode(conn: BlitzGateway, plate_id: int) -> bool:
