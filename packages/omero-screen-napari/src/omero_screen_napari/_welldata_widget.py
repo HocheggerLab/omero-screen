@@ -456,7 +456,11 @@ def _open_plate_info(
         welldata_instance.well_pos_list.value = well_pos
         welldata_instance()
 
-    def cache_callback(plate_id: int, wells: list[str] | None = None) -> None:
+    def cache_callback(
+        plate_id: int,
+        wells: list[str] | None = None,
+        rounds: bool = False,
+    ) -> None:
         # Stitched-mode plates use the OME-Zarr cache (lazy chunk loads,
         # bounded memory). Per-field plates use the legacy diskcache.
         # Mirrors the dispatch in CachedPlatesSelector._on_cache_clicked.
@@ -464,7 +468,9 @@ def _open_plate_info(
         # build to a subset — key for huge live-cell plates.
         try:
             if _plate_is_stitched(plate_id):
-                start_zarr_build_worker(plate_id, parent, wells=wells)
+                start_zarr_build_worker(
+                    plate_id, parent, wells=wells, rounds=rounds
+                )
                 if _cached_plates_selector_ref is not None:
                     _cached_plates_selector_ref.enable_cancel_button()
                 return
@@ -755,7 +761,10 @@ def _plate_is_stitched(plate_id: int) -> bool:
 
 
 def start_zarr_build_worker(
-    plate_id: int, parent: QWidget, wells: list[str] | None = None
+    plate_id: int,
+    parent: QWidget,
+    wells: list[str] | None = None,
+    rounds: bool = False,
 ) -> None:
     """Start a background zarr build for ``plate_id``.
 
@@ -766,6 +775,12 @@ def start_zarr_build_worker(
 
     ``wells`` restricts the build to a subset of well positions (e.g. the
     wells ticked in the plate-info dialog); ``None`` builds the whole plate.
+
+    ``rounds`` builds a cyclic-IF (4i) store holding every aligned round's
+    channels pre-aligned into this plate's frame. Resolving the group needs
+    OMERO, so it happens here on the planning step alongside well resolution;
+    if the group turns out not to be buildable the reason is surfaced and the
+    build falls back to this plate alone rather than failing.
     """
     global _active_lock, _active_cache_plate_id, _active_cache_stop_flag
 
@@ -793,6 +808,43 @@ def start_zarr_build_worker(
         # thread (otherwise Qt prints ``setParent: Cannot set parent,
         # new parent is in a different thread`` and the bar never
         # appears). One small HQL query — typically <1s.
+        round_group = None
+        if rounds:
+            # Resolved on the planning step, with the connection already open.
+            # A group that cannot be built (an unstitched round, a pre-schema
+            # alignment table) degrades to a single-plate build with the reason
+            # shown, rather than aborting: the master's own channels are still
+            # worth caching.
+            try:
+                from omero_screen_napari.zarr_cache.rounds import (
+                    resolve_round_group,
+                )
+
+                candidate = resolve_round_group(
+                    omero_conn.get_conn(), plate_id
+                )
+                if candidate.buildable:
+                    round_group = candidate
+                    logger.info(
+                        f"Plate {plate_id:d}: building 4i store over "
+                        f"{candidate.n_rounds:d} rounds "
+                        f"{list(candidate.plate_ids)}"
+                    )
+                else:
+                    reason = "; ".join(candidate.blockers) or "not a 4i master"
+                    logger.warning(
+                        f"Plate {plate_id:d}: building this plate alone -- {reason}"
+                    )
+                    notifications.show_warning(
+                        f"4i build unavailable ({reason}); caching plate "
+                        f"{plate_id:d} alone"
+                    )
+            except Exception as exc:  # noqa: BLE001 — degrade, never block
+                logger.warning(
+                    f"Plate {plate_id:d}: could not resolve the 4i group "
+                    f"({exc}); building this plate alone"
+                )
+
         try:
             target_wells = resolve_target_wells(plate_id, omero_conn)
             if wells is not None:
@@ -882,6 +934,7 @@ def start_zarr_build_worker(
                     # values don't help because the bottleneck is
                     # client-side bandwidth, not server concurrency.
                     max_workers=3,
+                    round_group=round_group,
                 ):
                     if stop_flag.is_set():
                         return "Cancelled by user"
@@ -1379,6 +1432,10 @@ _NUCLEUS_ALIASES = frozenset({"dapi", "hoechst", "dna", "h2b_rfp"})
 _CELL_ALIASES = frozenset({"tub", "gapdh"})
 
 
+#: Trailing cyclic-IF round qualifier, e.g. the ``_r2`` of ``"DAPI_R2"``.
+_ROUND_SUFFIX_RE = re.compile(r"_r\d+$")
+
+
 def _role_based_color_map(channel_names: list[str]) -> dict[str, str]:
     """Build name→colour map by resolving nuclei (blue) and cell (green) roles.
 
@@ -1387,7 +1444,11 @@ def _role_based_color_map(channel_names: list[str]) -> dict[str, str]:
     """
     colors: dict[str, str] = {}
     for name in channel_names:
-        lowered = name.lower()
+        # Strip a cyclic-IF round suffix before matching. A 4i store qualifies
+        # every channel as e.g. "DAPI_R1" to keep names unique across rounds,
+        # which would otherwise stop the nucleus alias matching and leave DAPI
+        # uncoloured.
+        lowered = _ROUND_SUFFIX_RE.sub("", name.lower())
         tokens = {tok for tok in re.split(r"[_-]", lowered) if tok}
         if lowered.endswith("_nucleus"):
             colors[name] = "blue"

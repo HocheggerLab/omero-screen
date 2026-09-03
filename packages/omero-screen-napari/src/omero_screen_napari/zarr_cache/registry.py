@@ -57,6 +57,16 @@ class ZarrPlateEntry:
     # sessions. Set when a well is exported for Mastodon curation (which can
     # span days in a separate Fiji process) and cleared from the UI when done.
     pinned: bool = False
+    # Cyclic-IF (4i) group. A 4i store is keyed by its master plate and holds
+    # every round's channels pre-aligned into the master's frame, so one entry
+    # covers several plate IDs. ``member_plate_ids`` lists the restain plates
+    # (never the master). Empty for an ordinary single-plate store.
+    #
+    # Exactly one entry is written per store. A restain plate may separately
+    # have its own standalone store and its own entry -- those are two real
+    # directories, so no bytes are double counted; the only rule is that
+    # neither may be deleted on behalf of the other (see eviction.evict_plate).
+    member_plate_ids: list[int] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ZarrPlateEntry:
@@ -68,7 +78,22 @@ class ZarrPlateEntry:
             created_at=str(data.get("created_at", _now_iso())),
             last_accessed=str(data.get("last_accessed", _now_iso())),
             pinned=bool(data.get("pinned", False)),
+            # Absent in registries written before 4i support; an empty list
+            # reads back as an ordinary single-plate entry.
+            member_plate_ids=[
+                int(p) for p in data.get("member_plate_ids", [])
+            ],
         )
+
+    @property
+    def is_group(self) -> bool:
+        """True when this entry's store holds more than one plate's channels."""
+        return bool(self.member_plate_ids)
+
+    @property
+    def covered_plate_ids(self) -> set[int]:
+        """Every plate ID whose pixels live in this entry's store."""
+        return {self.plate_id, *self.member_plate_ids}
 
 
 def load_registry() -> dict[int, ZarrPlateEntry]:
@@ -119,6 +144,26 @@ def remove(plate_id: int) -> None:
     if plate_id in entries:
         del entries[plate_id]
         _save_registry(entries)
+
+
+def find_group(plate_id: int) -> ZarrPlateEntry | None:
+    """Find the entry whose store holds ``plate_id``'s pixels.
+
+    Prefers an entry keyed by ``plate_id`` itself (its own standalone store);
+    otherwise returns the 4i group entry that lists it as a restain member. A
+    plate can legitimately have both -- a standalone store built earlier and a
+    later 4i store under a different master -- so the direct hit wins.
+
+    Returns:
+        The entry, or None if the plate has no cached pixels anywhere.
+    """
+    entries = load_registry()
+    if plate_id in entries:
+        return entries[plate_id]
+    for entry in entries.values():
+        if plate_id in entry.member_plate_ids:
+            return entry
+    return None
 
 
 def list_plates() -> list[ZarrPlateEntry]:

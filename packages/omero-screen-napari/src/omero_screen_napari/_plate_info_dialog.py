@@ -152,6 +152,11 @@ def _build_header_info(
         "pixel_size": f"{pixel_size[0]:.3f} x {pixel_size[1]:.3f} \u00b5m",
         "total_wells": len(wells),
         "total_images": total_images,
+        # Persisted in plate metadata by ``fetch_plate_metadata`` so this is a
+        # dict lookup, not an OMERO round trip. Absent on metadata cached
+        # before 4i support, which reads as "not a master".
+        "is_4i_master": bool(meta.get("is_4i_master", False)),
+        "aligned_plate_ids": list(meta.get("aligned_plate_ids", [])),
     }
 
 
@@ -221,7 +226,9 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
         plate_id: OMERO plate ID.
         on_build_callback: Callback used when the plate info has been built (receives plate ID).
         on_load_callback: Callback receiving a well position string (e.g. "A1").
-        on_cache_callback: Callback receiving ``(plate_id, wells)`` to cache.
+        on_cache_callback: Callback receiving ``(plate_id, wells, rounds)``
+            to cache. ``rounds`` is True to build the full cyclic-IF set;
+            it is always False unless the plate is a 4i master.
             ``wells`` is the list of ticked well positions, or ``None`` to
             cache the whole plate when nothing is ticked.
         parent: Parent widget.
@@ -232,7 +239,7 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
         plate_id: int,
         on_build_callback: Callable[[int], None] | None = None,
         on_load_callback: Callable[[str], None] | None = None,
-        on_cache_callback: Callable[[int, list[str] | None], None]
+        on_cache_callback: Callable[[int, list[str] | None, bool], None]
         | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -280,6 +287,17 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
         cache_btn = QPushButton("Cache Plate")
         cache_btn.clicked.connect(self._on_cache_selected)
         button_layout.addWidget(cache_btn)
+        # Only meaningful on a 4i master, so it is created either way (keeping
+        # the attribute always present) but hidden otherwise. Checked by
+        # default: on a master plate the whole point is the multiplexed stack.
+        self._build_4i_cb = QCheckBox("Include aligned 4i rounds")
+        self._build_4i_cb.setChecked(True)
+        self._build_4i_cb.setToolTip(
+            "Build one store holding every round's channels, pre-aligned into "
+            "this plate's frame. Unchecked builds this plate alone."
+        )
+        self._build_4i_cb.setVisible(bool(header_info.get("is_4i_master")))
+        button_layout.addWidget(self._build_4i_cb)
         load_btn = QPushButton("Load Selected")
         load_btn.clicked.connect(self._on_load_selected)
         button_layout.addWidget(load_btn)
@@ -311,6 +329,13 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
             f"<b>Images:</b> {header_info['total_images']}  |  "
             f"<b>Pixel size:</b> {header_info['pixel_size']}"
         )
+        if header_info.get("is_4i_master"):
+            rounds = header_info.get("aligned_plate_ids", [])
+            text += (
+                "<br><b><span style='color:#8000c0'>4i master plate</span></b>"
+                f"  |  <b>Aligned rounds:</b> {len(rounds)} "
+                f"({', '.join(str(p) for p in rounds)})"
+            )
         label = QLabel(text)
         label.setTextFormat(Qt.RichText)  # type: ignore[attr-defined]
         return label
@@ -480,7 +505,10 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
         if self.on_cache_callback is None:
             return
         wells = self._checked_wells()
-        self.on_cache_callback(self.plate_id, wells or None)
+        build_rounds = (
+            self._build_4i_cb.isVisible() and self._build_4i_cb.isChecked()
+        )
+        self.on_cache_callback(self.plate_id, wells or None, build_rounds)
         self._start_cache_monitoring()
 
     def _start_cache_monitoring(self) -> None:

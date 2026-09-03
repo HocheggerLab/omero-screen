@@ -139,7 +139,9 @@ def load_plate_to_viewer(
     if multi:
         _log_canvas_shapes(target_wells, wells_data)
 
-    _add_image_layers(viewer, wells_data, channel_names, px, multi)
+    _add_image_layers(
+        viewer, wells_data, channel_names, px, multi, info.get("rounds")
+    )
     _add_label_layers(viewer, wells_data, "nuclei", px, multi)
     _add_label_layers(viewer, wells_data, "cells", px, multi)
     _add_missing_region_layer(viewer, wells_data, target_wells, px, multi)
@@ -330,18 +332,55 @@ def _stack_pyramid_labels(
     return pyramid
 
 
+def _round_channel_meta(
+    rounds: dict[str, Any] | None, n_channels: int
+) -> list[tuple[int, int, bool]]:
+    """Per-channel ``(position within round, round index, redundant)``.
+
+    For an ordinary store every channel is round 0 at its own position and
+    nothing is redundant, so layer colours and visibility are unchanged.
+    """
+    if not rounds:
+        return [(c, 0, False) for c in range(n_channels)]
+    entries = rounds.get("channels", [])
+    meta: list[tuple[int, int, bool]] = []
+    for c in range(n_channels):
+        if c < len(entries):
+            entry = entries[c]
+            meta.append(
+                (
+                    int(entry.get("position", c)),
+                    int(entry.get("round", 1)) - 1,
+                    bool(entry.get("redundant", False)),
+                )
+            )
+        else:
+            meta.append((c, 0, False))
+    return meta
+
+
 def _add_image_layers(
     viewer: Any,
     wells_data: list[dict[str, Any]],
     channel_names: list[str],
     pixel_size_um: float,
     multi: bool,
+    rounds: dict[str, Any] | None = None,
 ) -> None:
-    """Add one layer per channel, with all wells stacked on axis 0 if multi."""
+    """Add one layer per channel, with all wells stacked on axis 0 if multi.
+
+    On a cyclic-IF store the colour is keyed to the channel's position *within
+    its round*, so the same stain looks the same in every round rather than
+    wrapping the six-entry palette. Redundant channels -- the nuclear stain
+    re-imaged each round for registration -- are added hidden, or opening a
+    three-round plate would stack a dozen additive layers at once.
+    """
     n_channels = wells_data[0]["image"][0].shape[1]
+    channel_meta = _round_channel_meta(rounds, n_channels)
     # Estimate contrast from the first well's first timepoint per channel.
     for c in range(n_channels):
         ch_name = channel_names[c] if c < len(channel_names) else f"ch{c}"
+        position, _round_index, redundant = channel_meta[c]
         pyramid = _stack_pyramid_per_channel(wells_data, c, multi)
         # Scale matches the array axes:
         #   multi: (well, T, Y, X) → (1, 1, px, px)
@@ -357,9 +396,10 @@ def _add_image_layers(
             pyramid,
             name=ch_name,
             scale=scale,
-            colormap=_CHANNEL_COLORMAPS[c % len(_CHANNEL_COLORMAPS)],
+            colormap=_CHANNEL_COLORMAPS[position % len(_CHANNEL_COLORMAPS)],
             blending="additive",
             contrast_limits=_channel_contrast(sample),
+            visible=not redundant,
         )
 
 

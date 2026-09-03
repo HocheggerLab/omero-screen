@@ -43,6 +43,7 @@ from omero.gateway import BlitzGateway
 
 from omero_screen_napari.zarr_cache.builder import build_plate_zarr
 from omero_screen_napari.zarr_cache.paths import plate_zarr_path
+from omero_screen_napari.zarr_cache.registry import find_group
 
 # Default crop size in pixels (square). Matches the per-field gallery
 # default so existing classifier inputs slot in unchanged.
@@ -83,16 +84,29 @@ class ZarrPlateHandle:
 
 
 def resolve_to_zarr(plate_id: int) -> ZarrPlateHandle | None:
-    """Return a handle if a zarr store exists for ``plate_id``, else None.
+    """Return a handle if a zarr store holds ``plate_id``'s pixels, else None.
 
-    Pure filesystem check — no OMERO, no CellView, no DB. The caller
-    decides what to do on a miss (build via :func:`prepare`, fall back
-    to the legacy per-field path, or surface an error).
+    Checks the plate's own store first, then any cyclic-IF (4i) store that
+    carries it as a restain round: a 4i store is keyed by its master, so a
+    caller holding a restain plate ID -- e.g. ``fetch_crop_from_row`` reading
+    ``plate_id`` off an aggregated results row -- would otherwise miss pixels
+    that are cached.
+
+    No OMERO and no CellView; the registry is a local JSON file. The caller
+    decides what to do on a miss (build via :func:`prepare`, fall back to the
+    legacy per-field path, or surface an error).
     """
     path = plate_zarr_path(plate_id)
-    if not path.exists():
+    if path.exists():
+        return ZarrPlateHandle(plate_id=plate_id, path=path)
+
+    group = find_group(plate_id)
+    if group is None or group.plate_id == plate_id:
         return None
-    return ZarrPlateHandle(plate_id=plate_id, path=path)
+    master_path = plate_zarr_path(group.plate_id)
+    if not master_path.exists():
+        return None
+    return ZarrPlateHandle(plate_id=group.plate_id, path=master_path)
 
 
 # ----------------------------------------------------------------------

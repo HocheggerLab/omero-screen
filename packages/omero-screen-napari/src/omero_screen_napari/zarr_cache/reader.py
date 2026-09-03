@@ -88,6 +88,10 @@ def plate_info(plate_id: int) -> dict[str, Any]:
         "columns": [c["name"] for c in plate_attrs.get("columns", [])],
         "wells": list(plate_attrs.get("wells", [])),
         "well_metadata": dict(omero_attrs.get("well_metadata", {})),
+        # Cyclic-IF descriptor, or None for an ordinary single-plate store
+        # (including every store written before 4i support).
+        "schema_version": int(omero_attrs.get("schema_version", 1)),
+        "rounds": omero_attrs.get("rounds"),
     }
 
 
