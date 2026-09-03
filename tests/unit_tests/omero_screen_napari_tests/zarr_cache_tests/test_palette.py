@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from omero_screen_napari.zarr_cache.palette import (
+    CURATED_HEX,
     base_name,
     channel_hex_colors,
 )
@@ -32,6 +33,17 @@ class TestDistinctness:
         assert len(set(colours)) == 4
         assert colours[1] != colours[2]
 
+    def test_curated_sequence_used_before_generated_hues(self) -> None:
+        """Non-role channels take the curated colours in order."""
+        colours = channel_hex_colors(["A", "B", "C", "D"])
+        assert colours == list(CURATED_HEX[:4])
+
+    def test_overflow_only_past_the_curated_sequence(self) -> None:
+        n = len(CURATED_HEX) + 5
+        colours = channel_hex_colors([f"Ch{i}" for i in range(n)])
+        assert colours[: len(CURATED_HEX)] == list(CURATED_HEX)
+        assert len(set(colours)) == n
+
     def test_repeated_stain_across_rounds_still_differs(self) -> None:
         """Only the first nuclear channel takes blue; a later one must not."""
         colours = channel_hex_colors(["DAPI_R1", "DAPI_R2", "DAPI_R3"])
@@ -50,6 +62,10 @@ class TestRoles:
         colours = channel_hex_colors(["DAPI_R1", "Tub_R1", "EdU_R1"])
         assert colours[0] == "0000FF"
         assert colours[1] == "00FF00"
+
+    def test_edu_is_grey(self) -> None:
+        """Matches the direct-from-OMERO path's EdU convention."""
+        assert channel_hex_colors(["EdU_R2", "Foo"])[0] == "808080"
 
     def test_generated_hues_avoid_the_role_colours(self) -> None:
         names = ["DAPI_R1", "Tub_R1"] + [f"Ch{i}" for i in range(18)]

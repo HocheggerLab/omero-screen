@@ -231,3 +231,85 @@ def test_overlay_text_includes_metadata(synth_well_data):
     text = v.text_overlay.text
     # Caption built from metadata bits.
     assert "A1" in text or "U2OS" in text
+
+
+# ----------------------------------------------------------------------
+# Contrast
+#
+# The slider must span the full uint16 range, with the limits parked at the
+# 0.1/99.9 percentiles. Passing contrast_limits to add_image is not enough:
+# napari then infers the *range* from those limits and clamps the slider to a
+# window the user cannot widen. Setting contrast_limits_range first is what
+# fixes that, mirroring the direct-from-OMERO path in _aligned_plate_widget.
+# ----------------------------------------------------------------------
+
+
+def test_contrast_range_spans_full_uint16(synth_well_data):
+    _build_two_well_plate(320, synth_well_data)
+    v = _mock_viewer()
+    load_plate_to_viewer(v, 320, well_pos_input="A1")
+    layers = [c.return_value for c in [v.add_image]]
+    # Every image layer gets the full uint16 slider range.
+    assert v.add_image.return_value.contrast_limits_range == (0, 65535)
+    assert layers
+
+
+def test_contrast_limits_set_after_the_range(synth_well_data):
+    """Order matters: the range must be widened before the limits are set."""
+    _build_two_well_plate(321, synth_well_data)
+    v = _mock_viewer()
+    layer = v.add_image.return_value
+    order: list[str] = []
+    type(layer).contrast_limits_range = property(
+        lambda self: (0, 65535),
+        lambda self, value: order.append("range"),
+    )
+    type(layer).contrast_limits = property(
+        lambda self: (0, 1),
+        lambda self, value: order.append("limits"),
+    )
+    load_plate_to_viewer(v, 321, well_pos_input="A1")
+    assert order, "neither contrast property was set"
+    assert order[0] == "range"
+    assert "limits" in order
+
+
+def test_contrast_limits_not_passed_to_add_image(synth_well_data):
+    """Passing them to add_image would clamp the range napari infers."""
+    _build_two_well_plate(322, synth_well_data)
+    v = _mock_viewer()
+    load_plate_to_viewer(v, 322, well_pos_input="A1")
+    for call in v.add_image.call_args_list:
+        assert "contrast_limits" not in call.kwargs
+
+
+def test_channel_contrast_uses_percentiles():
+    from omero_screen_napari.zarr_cache.display import _channel_contrast
+
+    # 1000 mid-grey pixels with a single hot pixel: min/max would give
+    # (100, 65535) and wash the image out; percentiles must ignore the outlier.
+    data = np.full((100, 10), 1000, dtype=np.uint16)
+    data[0, 0] = 65535
+    lo, hi = _channel_contrast(data)
+    assert lo == 1000
+    assert hi < 65535
+
+
+def test_channel_contrast_flat_channel_falls_back_to_full_range():
+    from omero_screen_napari.zarr_cache.display import _channel_contrast
+
+    lo, hi = _channel_contrast(np.zeros((50, 50), dtype=np.uint16))
+    assert (lo, hi) == (0, 65535)
+
+
+def test_channels_get_distinct_colormaps(synth_well_data):
+    """Two layers sharing a colormap would sum under additive blending."""
+    _build_two_well_plate(323, synth_well_data)
+    v = _mock_viewer()
+    load_plate_to_viewer(v, 323, well_pos_input="A1")
+    colormaps = [
+        call.kwargs["colormap"] for call in v.add_image.call_args_list
+    ]
+    assert len(colormaps) == 2
+    colors = [tuple(map(tuple, c.colors)) for c in colormaps]
+    assert colors[0] != colors[1]

@@ -332,6 +332,11 @@ def _stack_pyramid_labels(
     return pyramid
 
 
+#: Full uint16 span. Source images are uint16 and the stitched canvas keeps
+#: that dtype, so this is the range a contrast slider should offer.
+_UINT16_MAX = 65535
+
+
 def _round_channel_meta(
     rounds: dict[str, Any] | None, n_channels: int
 ) -> list[tuple[int, int, bool]]:
@@ -398,17 +403,26 @@ def _add_image_layers(
             if multi
             else (1.0, pixel_size_um, pixel_size_um)
         )
-        # Sample one Y/X slab of the first well to set sane contrast.
-        sample = np.asarray(wells_data[0]["image"][0][0, c])
-        viewer.add_image(
+        # Sample the *smallest* pyramid level for the contrast estimate: the
+        # percentiles are the same to within noise and it avoids pulling a
+        # full-resolution canvas per channel just to look at its histogram.
+        sample = np.asarray(wells_data[0]["image"][-1][0, c])
+        layer = viewer.add_image(
             pyramid,
             name=ch_name,
             scale=scale,
             colormap=colormaps[c],
             blending="additive",
-            contrast_limits=_channel_contrast(sample),
             visible=not redundant,
         )
+        # Order matters, and both lines are needed. Setting the range first
+        # gives the slider the full uint16 span; napari would otherwise infer
+        # it from the data (or from contrast_limits passed to add_image) and
+        # clamp the slider to a narrow window the user cannot widen. The limits
+        # then sit at the 0.1/99.9 percentiles for a sane starting view.
+        # Mirrors the direct-from-OMERO path in _aligned_plate_widget.
+        layer.contrast_limits_range = (0, _UINT16_MAX)
+        layer.contrast_limits = _channel_contrast(sample)
 
 
 def _add_label_layers(
@@ -549,7 +563,13 @@ def _intensities_from_canvas(
 
 
 def _channel_contrast(level0_yx: np.ndarray[Any, Any]) -> tuple[int, int]:
-    """0.1/99.9-percentile contrast for a sample slice."""
+    """0.1/99.9-percentile contrast for a sample slice.
+
+    Percentiles rather than min/max so a few hot pixels or a dead corner do not
+    flatten the whole channel. Returned as the layer's initial
+    ``contrast_limits``; the slider's *range* is set separately to the full
+    uint16 span so the user can always widen beyond this.
+    """
     if level0_yx.size > 1_000_000:
         flat = level0_yx.ravel()
         idx = np.random.default_rng(0).choice(
@@ -559,6 +579,11 @@ def _channel_contrast(level0_yx: np.ndarray[Any, Any]) -> tuple[int, int]:
     else:
         flat = level0_yx.ravel()
     lo, hi = np.percentile(flat, [0.1, 99.9])
+    if hi <= lo:
+        # A flat or near-empty channel. napari rejects an empty range, and a
+        # blank channel is better shown against the full span than against a
+        # degenerate one.
+        return 0, _UINT16_MAX
     return int(lo), int(hi)
 
 
