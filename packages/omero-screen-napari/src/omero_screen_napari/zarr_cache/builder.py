@@ -885,9 +885,14 @@ def build_plate_zarr(
             channel_data_by_plate[member_id] = get_plate_metadata(
                 cache_conn, member_id
             )["channel_data"]
-        store_channel_names, rounds_attrs = build_channel_plan(
-            round_group, channel_data_by_plate
-        )
+        (
+            store_channel_names,
+            rounds_attrs,
+            load_channel_data,
+        ) = build_channel_plan(round_group, channel_data_by_plate)
+        # Redundant repeats (the per-round nuclear stain) are dropped from the
+        # plan, so restrict what each round downloads to what is kept.
+        channel_data_by_plate = load_channel_data
         logger.info(
             f"Plate {plate_id}: building 4i store over "
             f"{round_group.n_rounds} round(s) {list(round_group.plate_ids)} "

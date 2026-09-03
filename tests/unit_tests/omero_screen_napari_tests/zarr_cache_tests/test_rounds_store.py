@@ -23,16 +23,18 @@ from omero_screen_napari.zarr_cache.writer import SCHEMA_VERSION
 MASTER = 4127
 
 
-def _rounds_attrs() -> tuple[list[str], dict]:
+def _rounds_attrs(include_redundant: bool = False):  # type: ignore[no-untyped-def]
     group = RoundGroup(MASTER, (4130, 4131))
-    return build_channel_plan(
+    names, attrs, _ = build_channel_plan(
         group,
         {
             MASTER: {"DAPI": "0", "Tub": "1"},
             4130: {"DAPI": "0", "EdU": "1"},
             4131: {"DAPI": "0", "H3P": "1"},
         },
+        include_redundant=include_redundant,
     )
+    return names, attrs
 
 
 def _write(plate_id: int, rounds=None, channel_names=None):  # type: ignore[no-untyped-def]
@@ -85,36 +87,34 @@ class TestFourIStore:
             info["rounds"]["shift_convention"] == "master = restain - (x, y)"
         )
 
-    def test_channel_names_are_round_qualified(self) -> None:
+    def test_repeated_nuclear_stain_is_dropped(self) -> None:
+        """Only the master's DAPI: rounds 2+ re-image it for registration only."""
         names, attrs = _rounds_attrs()
         _write(MASTER, rounds=attrs, channel_names=names)
         assert plate_info(MASTER)["channel_names"] == [
             "DAPI_R1",
             "Tub_R1",
-            "DAPI_R2",
             "EdU_R2",
-            "DAPI_R3",
             "H3P_R3",
         ]
 
-    def test_same_stain_same_colour_across_rounds(self) -> None:
-        """Six channels over three rounds would wrap the palette on flat index."""
-        names, attrs = _rounds_attrs()
+    def test_every_channel_gets_a_distinct_colour(self) -> None:
+        """Two identical colours would sum under additive blending."""
+        names, attrs = _rounds_attrs(include_redundant=True)
         _write(MASTER, rounds=attrs, channel_names=names)
         root = zarr.open_group(str(plate_zarr_path(MASTER)), mode="r")
-        channels = root["A/1/0"].attrs["omero"]["channels"]
-        colours = [c["color"] for c in channels]
-        # DAPI is position 0 in each round, the second stain position 1.
-        assert colours[0] == colours[2] == colours[4]
-        assert colours[1] == colours[3] == colours[5]
-        assert colours[0] != colours[1]
+        colours = [
+            c["color"] for c in root["A/1/0"].attrs["omero"]["channels"]
+        ]
+        assert len(colours) == 6
+        assert len(set(colours)) == 6
 
     def test_only_round_one_is_active(self) -> None:
         names, attrs = _rounds_attrs()
         _write(MASTER, rounds=attrs, channel_names=names)
         root = zarr.open_group(str(plate_zarr_path(MASTER)), mode="r")
         active = [c["active"] for c in root["A/1/0"].attrs["omero"]["channels"]]
-        assert active == [True, True, False, False, False, False]
+        assert active == [True, True, False, False]
 
 
 class TestCropResolution:

@@ -22,6 +22,7 @@ import numpy as np
 from loguru import logger
 from omero_screen.config import getenv_as_int
 
+from omero_screen_napari.zarr_cache.palette import channel_colormaps
 from omero_screen_napari.zarr_cache.reader import (
     cached_wells,
     plate_info,
@@ -91,7 +92,6 @@ def _ensure_async_slicing() -> None:
 
 
 # Channel colormap rotation — first four match the omero-screen palette.
-_CHANNEL_COLORMAPS = ["blue", "green", "red", "magenta", "yellow", "cyan"]
 
 
 _WELL_RE = re.compile(r"^[A-Za-z]\d+$")
@@ -369,14 +369,22 @@ def _add_image_layers(
 ) -> None:
     """Add one layer per channel, with all wells stacked on axis 0 if multi.
 
-    On a cyclic-IF store the colour is keyed to the channel's position *within
-    its round*, so the same stain looks the same in every round rather than
-    wrapping the six-entry palette. Redundant channels -- the nuclear stain
-    re-imaged each round for registration -- are added hidden, or opening a
-    three-round plate would stack a dozen additive layers at once.
+    Every channel gets its own hue (see ``zarr_cache.palette``). A repeating
+    palette would give two channels the same colour, and because layers blend
+    additively two identically-coloured layers sum -- the composite reads as one
+    brighter channel rather than as a colour clash.
+
+    Redundant channels -- a nuclear stain re-imaged each round for registration,
+    only present in stores built with ``include_redundant`` -- are added hidden,
+    or opening a three-round plate would stack a dozen additive layers.
     """
     n_channels = wells_data[0]["image"][0].shape[1]
     channel_meta = _round_channel_meta(rounds, n_channels)
+    layer_names = [
+        channel_names[c] if c < len(channel_names) else f"ch{c}"
+        for c in range(n_channels)
+    ]
+    colormaps = channel_colormaps(layer_names)
     # Estimate contrast from the first well's first timepoint per channel.
     for c in range(n_channels):
         ch_name = channel_names[c] if c < len(channel_names) else f"ch{c}"
@@ -396,7 +404,7 @@ def _add_image_layers(
             pyramid,
             name=ch_name,
             scale=scale,
-            colormap=_CHANNEL_COLORMAPS[position % len(_CHANNEL_COLORMAPS)],
+            colormap=colormaps[c],
             blending="additive",
             contrast_limits=_channel_contrast(sample),
             visible=not redundant,
