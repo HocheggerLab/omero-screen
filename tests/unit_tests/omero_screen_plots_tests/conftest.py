@@ -33,7 +33,9 @@ def synthetic_plate_data():
     for plate_id in plates:
         for condition in conditions:
             # Use 2-3 wells per condition
-            wells_for_condition = np.random.choice(wells, size=np.random.randint(2, 4), replace=False)
+            wells_for_condition = np.random.choice(
+                wells, size=np.random.randint(2, 4), replace=False
+            )
 
             for well in wells_for_condition:
                 # 5-10 experiments per well
@@ -54,9 +56,15 @@ def synthetic_plate_data():
                         # Add various measurement columns for feature testing
                         "area_nucleus": np.random.uniform(100, 500),
                         "area_cell": np.random.uniform(200, 800),
-                        "intensity_mean_DAPI_nucleus": np.random.uniform(1000, 20000),
-                        "intensity_mean_GFP_cell": np.random.uniform(500, 15000),
-                        "intensity_median_DAPI_nucleus": np.random.uniform(800, 18000),
+                        "intensity_mean_DAPI_nucleus": np.random.uniform(
+                            1000, 20000
+                        ),
+                        "intensity_mean_GFP_cell": np.random.uniform(
+                            500, 15000
+                        ),
+                        "intensity_median_DAPI_nucleus": np.random.uniform(
+                            800, 18000
+                        ),
                         "perimeter_nucleus": np.random.uniform(50, 150),
                         "eccentricity_nucleus": np.random.uniform(0.1, 0.9),
                         "solidity_nucleus": np.random.uniform(0.7, 1.0),
@@ -68,10 +76,14 @@ def synthetic_plate_data():
                     # Make some features condition-dependent for testing significance
                     if condition == "treatment1":
                         row["area_nucleus"] *= 1.2  # Slightly larger nuclei
-                        row["intensity_mean_DAPI_nucleus"] *= 0.8  # Lower intensity
+                        row["intensity_mean_DAPI_nucleus"] *= (
+                            0.8  # Lower intensity
+                        )
                     elif condition == "treatment2":
                         row["area_nucleus"] *= 0.9  # Slightly smaller nuclei
-                        row["intensity_mean_DAPI_nucleus"] *= 1.3  # Higher intensity
+                        row["intensity_mean_DAPI_nucleus"] *= (
+                            1.3  # Higher intensity
+                        )
 
                     data.append(row)
                     measurement_id += 1
@@ -209,16 +221,22 @@ def many_plates_data():
             for well in ["A1", "A2"]:
                 for exp_num in range(3):  # 3 experiments per well
                     base_area = 250.0 if condition == "control" else 300.0
-                    base_intensity = 10000.0 if condition == "control" else 8000.0
+                    base_intensity = (
+                        10000.0 if condition == "control" else 8000.0
+                    )
 
-                    data.append({
-                        "plate_id": plate_id,
-                        "well": well,
-                        "experiment": f"exp_{plate_id}_{well}_{exp_num}",
-                        "condition": condition,
-                        "area_nucleus": base_area + np.random.normal(0, 50),
-                        "intensity_mean_DAPI_nucleus": base_intensity + np.random.normal(0, 1000),
-                    })
+                    data.append(
+                        {
+                            "plate_id": plate_id,
+                            "well": well,
+                            "experiment": f"exp_{plate_id}_{well}_{exp_num}",
+                            "condition": condition,
+                            "area_nucleus": base_area
+                            + np.random.normal(0, 50),
+                            "intensity_mean_DAPI_nucleus": base_intensity
+                            + np.random.normal(0, 1000),
+                        }
+                    )
 
     return pd.DataFrame(data)
 
@@ -232,17 +250,19 @@ def scaled_feature_data():
     for plate_id in [1001, 1002]:
         for condition in ["control", "treatment1"]:
             for i in range(10):
-                data.append({
-                    "plate_id": plate_id,
-                    "well": f"A{i+1}",
-                    "experiment": f"exp_{plate_id}_{condition}_{i}",
-                    "condition": condition,
-                    "cell_line": "MCF10A",
-                    # Wide range feature (0-65535 range, simulating 16-bit intensity)
-                    "intensity_raw": np.random.uniform(0, 65535),
-                    # Normal range feature
-                    "area_nucleus": np.random.uniform(100, 500),
-                })
+                data.append(
+                    {
+                        "plate_id": plate_id,
+                        "well": f"A{i + 1}",
+                        "experiment": f"exp_{plate_id}_{condition}_{i}",
+                        "condition": condition,
+                        "cell_line": "MCF10A",
+                        # Wide range feature (0-65535 range, simulating 16-bit intensity)
+                        "intensity_raw": np.random.uniform(0, 65535),
+                        # Normal range feature
+                        "area_nucleus": np.random.uniform(100, 500),
+                    }
+                )
 
     return pd.DataFrame(data)
 
@@ -265,7 +285,9 @@ def dna_edu_data():
                 # DNA content (log-normal distribution around 2N and 4N)
                 if np.random.random() < 0.3:  # 30% in S phase
                     dna_content = np.random.uniform(2.2, 3.8)  # S phase
-                    edu_intensity = np.random.uniform(1000, 8000)  # EdU positive
+                    edu_intensity = np.random.uniform(
+                        1000, 8000
+                    )  # EdU positive
                     cell_cycle = "S"
                 elif np.random.random() < 0.6:  # 60% of remaining in G1
                     dna_content = np.random.normal(2.0, 0.1)  # G1 phase
@@ -278,25 +300,32 @@ def dna_edu_data():
 
                 # Add some noise and ensure positive values
                 dna_content = max(1.0, dna_content + np.random.normal(0, 0.1))
-                edu_intensity = max(10, edu_intensity + np.random.normal(0, 100))
+                edu_intensity = max(
+                    10, edu_intensity + np.random.normal(0, 100)
+                )
 
-                data.append({
-                    "plate_id": plate_id,
-                    "well": f"A{measurement_id % 12 + 1}",
-                    "experiment": f"exp_{measurement_id}",
-                    "condition": condition,
-                    "cell_line": "MCF10A",
-                    "measurement_id": measurement_id,
-                    "integrated_int_DAPI_norm": dna_content,
-                    "intensity_mean_EdU_nucleus_norm": edu_intensity,
-                    "intensity_mean_EdU_nucleus": edu_intensity * 1000,  # Non-normalized version
-                    "cell_cycle": cell_cycle,
-                    # Additional features for testing
-                    "area_nucleus": np.random.uniform(100, 500),
-                    "area_cell": np.random.uniform(200, 800),
-                    "intensity_mean_p21_nucleus": np.random.uniform(100, 5000),
-                    "intensity_mean_DAPI_nucleus": dna_content * 10000,
-                })
+                data.append(
+                    {
+                        "plate_id": plate_id,
+                        "well": f"A{measurement_id % 12 + 1}",
+                        "experiment": f"exp_{measurement_id}",
+                        "condition": condition,
+                        "cell_line": "MCF10A",
+                        "measurement_id": measurement_id,
+                        "integrated_int_DAPI_norm": dna_content,
+                        "intensity_mean_EdU_nucleus_norm": edu_intensity,
+                        "intensity_mean_EdU_nucleus": edu_intensity
+                        * 1000,  # Non-normalized version
+                        "cell_cycle": cell_cycle,
+                        # Additional features for testing
+                        "area_nucleus": np.random.uniform(100, 500),
+                        "area_cell": np.random.uniform(200, 800),
+                        "intensity_mean_p21_nucleus": np.random.uniform(
+                            100, 5000
+                        ),
+                        "intensity_mean_DAPI_nucleus": dna_content * 10000,
+                    }
+                )
                 measurement_id += 1
 
     return pd.DataFrame(data)
@@ -309,28 +338,34 @@ def threshold_test_data():
 
     # Create data with clear threshold separation
     for i in range(50):
-        data.append({
-            "plate_id": 1001,
-            "well": "A1",
-            "experiment": f"exp_{i}",
-            "condition": "control",
-            "cell_line": "MCF10A",
-            "integrated_int_DAPI_norm": 2.0 + np.random.normal(0, 0.1),
-            "intensity_mean_p21_nucleus": 2000 + np.random.normal(0, 200),  # Below threshold
-            "area_nucleus": np.random.uniform(100, 300),
-        })
+        data.append(
+            {
+                "plate_id": 1001,
+                "well": "A1",
+                "experiment": f"exp_{i}",
+                "condition": "control",
+                "cell_line": "MCF10A",
+                "integrated_int_DAPI_norm": 2.0 + np.random.normal(0, 0.1),
+                "intensity_mean_p21_nucleus": 2000
+                + np.random.normal(0, 200),  # Below threshold
+                "area_nucleus": np.random.uniform(100, 300),
+            }
+        )
 
     for i in range(50, 100):
-        data.append({
-            "plate_id": 1001,
-            "well": "A2",
-            "experiment": f"exp_{i}",
-            "condition": "treatment1",
-            "cell_line": "MCF10A",
-            "integrated_int_DAPI_norm": 2.0 + np.random.normal(0, 0.1),
-            "intensity_mean_p21_nucleus": 8000 + np.random.normal(0, 500),  # Above threshold
-            "area_nucleus": np.random.uniform(100, 300),
-        })
+        data.append(
+            {
+                "plate_id": 1001,
+                "well": "A2",
+                "experiment": f"exp_{i}",
+                "condition": "treatment1",
+                "cell_line": "MCF10A",
+                "integrated_int_DAPI_norm": 2.0 + np.random.normal(0, 0.1),
+                "intensity_mean_p21_nucleus": 8000
+                + np.random.normal(0, 500),  # Above threshold
+                "area_nucleus": np.random.uniform(100, 300),
+            }
+        )
 
     return pd.DataFrame(data)
 
@@ -360,20 +395,22 @@ def histogram_test_data():
             feature_values = np.concatenate([mode1, mode2])
 
         for value in feature_values:
-            data.append({
-                "plate_id": 1001,
-                "well": f"A{measurement_id % 12 + 1}",
-                "experiment": f"exp_{measurement_id}",
-                "condition": condition,
-                "cell_line": "MCF10A",
-                "measurement_id": measurement_id,
-                # Feature for histogram testing
-                "test_feature": max(10, value),  # Ensure positive values
-                # DNA content feature for log-scale testing
-                "integrated_int_DAPI_norm": np.random.uniform(1.5, 4.5),
-                # Wide range feature for binning tests
-                "wide_range_feature": np.random.uniform(0, 65535),
-            })
+            data.append(
+                {
+                    "plate_id": 1001,
+                    "well": f"A{measurement_id % 12 + 1}",
+                    "experiment": f"exp_{measurement_id}",
+                    "condition": condition,
+                    "cell_line": "MCF10A",
+                    "measurement_id": measurement_id,
+                    # Feature for histogram testing
+                    "test_feature": max(10, value),  # Ensure positive values
+                    # DNA content feature for log-scale testing
+                    "integrated_int_DAPI_norm": np.random.uniform(1.5, 4.5),
+                    # Wide range feature for binning tests
+                    "wide_range_feature": np.random.uniform(0, 65535),
+                }
+            )
             measurement_id += 1
 
     return pd.DataFrame(data)

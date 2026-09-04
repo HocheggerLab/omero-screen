@@ -27,12 +27,16 @@ from omero_screen_napari.phase_montage import (
     _resolve_overlay,
     build_montage,
     channel_limits,
+    axis_column,
+    build_pages,
+    condition_column,
     export_plate_pdfs,
     export_well_pdf,
     plate_wells,
     render_montage,
     resolve_mask_label,
     select_cells,
+    select_grid,
 )
 from omero_screen_napari.zarr_cache import PlateZarrWriter
 from omero_screen_napari.zarr_cache.registry import ZarrPlateEntry, upsert
@@ -326,7 +330,7 @@ class TestOutline:
 class TestLimitsAndRender:
     def test_limits_are_per_channel_and_shared(self) -> None:
         _build_plate()
-        limits = channel_limits(99, "C3")
+        limits = channel_limits(99, ["C3"])
         assert set(limits) == set(range(len(CHANNELS)))
         for lo, hi in limits.values():
             assert lo < hi
@@ -603,7 +607,9 @@ class TestBatchExport:
         paths, failures = export_plate_pdfs(
             99, df, tmp_path, MontageConfig(cells_per_phase=1)
         )
-        assert [p.name for p in paths] == ["plate99_C3_phase_montage.pdf"]
+        # The filename carries the axis: plate 4127 has both a well G1 and a
+        # phase G1, so the value alone would be ambiguous.
+        assert [p.name for p in paths] == ["plate99_well-C3_montage.pdf"]
         assert failures == []
 
     def test_plate_wells_lists_every_well(self) -> None:
@@ -622,18 +628,25 @@ class TestBatchExport:
         )
         assert len(paths) == 1
 
-    def test_a_bad_well_is_reported_not_fatal(self, tmp_path: Path) -> None:
-        """The whole point of the batch: 20 good montages survive 1 bad well."""
+    def test_an_uncached_well_is_excluded_and_reported(
+        self, tmp_path: Path, caplog
+    ) -> None:
+        """The whole point of the batch: good pages survive one bad well.
+
+        A well vanishing because nobody cached it looks identical to a well with
+        no cells in that phase, so it has to be said out loud.
+        """
         _build_plate(well="C3")
         df = pl.concat([_measurements(well="C3"), _measurements(well="Z9")])
-        paths, failures = export_plate_pdfs(
+        pages = build_pages(99, df, MontageConfig(cells_per_phase=1))
+        assert [p.page_label for p in pages] == ["C3"]
+        assert any("not in the zarr cache" in w for w in pages[0].missing)
+        paths, _ = export_plate_pdfs(
             99, df, tmp_path, MontageConfig(cells_per_phase=1)
         )
         assert len(paths) == 1
-        assert len(failures) == 1
-        assert failures[0].startswith("Z9:")
 
-    def test_progress_callback_reports_each_well(self, tmp_path: Path) -> None:
+    def test_progress_callback_reports_each_page(self, tmp_path: Path) -> None:
         _build_plate(well="C3")
         df = pl.concat([_measurements(well="C3"), _measurements(well="A1")])
         seen: list[tuple[str, int, int]] = []
@@ -644,7 +657,8 @@ class TestBatchExport:
             MontageConfig(cells_per_phase=1),
             on_progress=lambda w, i, n: seen.append((w, i, n)),
         )
-        assert seen == [("A1", 0, 2), ("C3", 1, 2)]
+        # Only C3 is cached, so only C3 becomes a page.
+        assert seen == [("C3", 0, 1)]
 
 
 class TestTypography:
@@ -695,3 +709,133 @@ class TestTypography:
         with montage_style():
             assert plt.rcParams["font.size"] == 7
         assert plt.rcParams["font.size"] == before
+
+
+def _two_condition_df() -> pl.DataFrame:
+    """Two siRNAs x two replicate wells each, so replicate spread is testable."""
+    frames = []
+    for sirna, wells in (("Scrm", ["A1", "A2"]), ("PPP4C", ["B1", "B2"])):
+        for well in wells:
+            frames.append(
+                _measurements(well=well).with_columns(
+                    pl.lit(sirna).alias("sirna"),
+                    pl.lit("RPE-1").alias("cell_line"),
+                )
+            )
+    # Labels must be unique per well for the spread assertions to mean anything.
+    out = []
+    for offset, frame in enumerate(frames):
+        out.append(frame.with_columns(pl.col("label") + offset * 1000))
+    return pl.concat(out)
+
+
+class TestConditionAxis:
+    def test_detects_the_column_that_varies(self) -> None:
+        """cell_line is constant on 4127; sirna is the real phenotype axis."""
+        assert condition_column(_two_condition_df()) == "sirna"
+
+    def test_constant_column_is_not_a_condition(self) -> None:
+        df = _measurements().with_columns(pl.lit("RPE-1").alias("cell_line"))
+        assert condition_column(df) is None
+
+    def test_explicit_column_wins(self) -> None:
+        df = _two_condition_df()
+        cfg = MontageConfig(condition_col="cell_line")
+        assert condition_column(df, cfg) == "cell_line"
+
+    def test_unknown_explicit_column_raises(self) -> None:
+        with pytest.raises(MontageError, match="not in the CellView data"):
+            condition_column(
+                _two_condition_df(), MontageConfig(condition_col="nope")
+            )
+
+    def test_condition_axis_without_a_variable_explains_itself(self) -> None:
+        cfg = MontageConfig(pages="phase", rows="condition")
+        with pytest.raises(MontageError, match="nothing to compare"):
+            axis_column(_measurements(), "condition", cfg)
+
+
+class TestGridSelection:
+    def test_pages_and_rows_must_differ(self) -> None:
+        cfg = MontageConfig(pages="phase", rows="phase")
+        with pytest.raises(MontageError, match="must differ"):
+            select_grid(_two_condition_df(), cfg)
+
+    def test_phase_pages_condition_rows(self) -> None:
+        """The requested layout: a page per phase, a row per phenotype."""
+        cfg = MontageConfig(
+            pages="phase", rows="condition", cells_per_phase=1
+        )
+        grid, _ = select_grid(_two_condition_df(), cfg)
+        assert set(grid) == set(DEFAULT_PHASES)
+        assert set(grid["G1"]) == {"Scrm", "PPP4C"}
+        assert len(grid["G1"]["Scrm"]) == 1
+
+    def test_rows_carry_their_condition(self) -> None:
+        cfg = MontageConfig(
+            pages="phase", rows="condition", cells_per_phase=1
+        )
+        grid, _ = select_grid(_two_condition_df(), cfg)
+        assert grid["G1"]["PPP4C"][0].condition == "PPP4C"
+
+    def test_cells_come_from_the_phase_of_their_page(self) -> None:
+        cfg = MontageConfig(
+            pages="phase", rows="condition", cells_per_phase=2
+        )
+        grid, _ = select_grid(_two_condition_df(), cfg)
+        for phase, rows in grid.items():
+            for cells in rows.values():
+                assert all(c.phase == phase for c in cells)
+
+    def test_replicates_are_spread_across_wells(self) -> None:
+        """Two cells for a condition must not both come from one well.
+
+        Otherwise the row is a portrait of that well, and a well-specific
+        artefact reads as a phenotype.
+        """
+        cfg = MontageConfig(
+            pages="phase", rows="condition", cells_per_phase=2
+        )
+        grid, _ = select_grid(_two_condition_df(), cfg)
+        cells = grid["G1"]["Scrm"]
+        assert len(cells) == 2
+        assert {c.well for c in cells} == {"A1", "A2"}
+
+    def test_single_well_group_still_works(self) -> None:
+        """pages=well confines a group to one well; the rotation must no-op."""
+        cfg = MontageConfig(pages="well", rows="phase", cells_per_phase=2)
+        grid, _ = select_grid(_two_condition_df(), cfg)
+        assert {c.well for c in grid["A1"]["G1"]} == {"A1"}
+
+    def test_condition_pages_phase_rows(self) -> None:
+        cfg = MontageConfig(
+            pages="condition", rows="phase", cells_per_phase=1
+        )
+        grid, _ = select_grid(_two_condition_df(), cfg)
+        assert set(grid) == {"Scrm", "PPP4C"}
+        assert set(grid["Scrm"]) == set(DEFAULT_PHASES)
+
+    def test_grid_is_reproducible_from_the_seed(self) -> None:
+        cfg = MontageConfig(
+            pages="phase", rows="condition", cells_per_phase=2, seed=5
+        )
+        df = _two_condition_df()
+        first, _ = select_grid(df, cfg)
+        second, _ = select_grid(df, cfg)
+        assert [c.label for c in first["S"]["Scrm"]] == [
+            c.label for c in second["S"]["Scrm"]
+        ]
+
+
+class TestPageFilenames:
+    def test_filename_carries_the_axis(self, tmp_path: Path) -> None:
+        """Plate 4127 has both a well G1 and a phase G1."""
+        from omero_screen_napari.phase_montage import _safe
+
+        assert _safe("G2/M") == "G2-M"
+        _build_plate(well="C3")
+        paths, _ = export_plate_pdfs(
+            99, _measurements(well="C3"), tmp_path,
+            MontageConfig(cells_per_phase=1),
+        )
+        assert paths[0].name == "plate99_well-C3_montage.pdf"

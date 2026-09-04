@@ -16,6 +16,9 @@ Examples::
     # Two wells, more cells, a different draw
     python bin/phase_montage.py 4127 C3 D4 --cells 6 --seed 12
 
+    # One page per cell-cycle phase, one row per phenotype (siRNA)
+    python bin/phase_montage.py 4127 --pages phase --rows condition
+
     # Include Sub-G1, and outline nuclei rather than whole cells
     python bin/phase_montage.py 4127 --phases G1 S G2/M Polyploid Sub-G1 \\
         --mask nuclei
@@ -97,6 +100,31 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--pages",
+        default="well",
+        choices=["well", "phase", "condition"],
+        help=(
+            "What splits pages (default: %(default)s). "
+            "'--pages phase --rows condition' gives one page per cell-cycle "
+            "phase with a row per phenotype."
+        ),
+    )
+    parser.add_argument(
+        "--rows",
+        default="phase",
+        choices=["well", "phase", "condition"],
+        help="What groups rows; must differ from --pages (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--group-by",
+        dest="condition_col",
+        default=None,
+        help=(
+            "Column holding the phenotype (e.g. sirna, cell_line). "
+            "Default: auto-detect the condition variable that varies."
+        ),
+    )
+    parser.add_argument(
         "--mask",
         default="cells",
         choices=["cells", "nuclei"],
@@ -136,6 +164,9 @@ def main() -> int:
         crop_um=args.crop_um,
         overlay=tuple(o.lower() for o in args.overlay),
         mask=args.mask,
+        pages=args.pages,
+        rows=args.rows,
+        condition_col=args.condition_col,
     )
 
     paths, failures = export_plate_pdfs(
