@@ -29,7 +29,8 @@ Two choices in here are about honesty rather than looks:
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -530,6 +531,12 @@ def _outline(
     return result
 
 
+#: Figure typography. Arial at 7pt is the lab's figure convention; setting it
+#: through an rc_context in :func:`render_montage` rather than mutating
+#: ``rcParams`` keeps it from leaking into any other plot the session draws.
+FONT_FAMILY = "Arial"
+FONT_SIZE = 7
+
 #: Scale-bar length in microns. Stated once in the figure subtitle rather than
 #: labelled on all ~180 panels, which would be pure clutter at this density.
 SCALE_BAR_UM = 20.0
@@ -562,13 +569,45 @@ def _add_scale_bar(ax: Any, crop_px: int, pixel_size_um: float | None) -> None:
     )
 
 
-def render_montage(montage: WellMontage) -> Any:
-    """Draw the montage and return the matplotlib Figure."""
+@contextmanager
+def montage_style() -> Iterator[Any]:
+    """Apply the figure typography, yielding ``pyplot``.
+
+    Must wrap **saving** as well as drawing. Matplotlib bakes a font *size* into
+    a Text artist when it is created but resolves the *family* at draw time, so
+    a context that only covered figure construction still wrote DejaVu Sans into
+    the PDF -- which is exactly what happened first time round.
+    """
     import matplotlib
 
     matplotlib.use("Agg", force=False)
     import matplotlib.pyplot as plt
 
+    with plt.rc_context(
+        {
+            "font.family": "sans-serif",
+            "font.sans-serif": [FONT_FAMILY, "Helvetica", "DejaVu Sans"],
+            "font.size": FONT_SIZE,
+            "axes.titlesize": FONT_SIZE,
+            "axes.labelsize": FONT_SIZE,
+            "figure.titlesize": FONT_SIZE,
+            # TrueType rather than Type 3, so the text stays selectable and
+            # editable in Illustrator instead of arriving as outlines.
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+        }
+    ):
+        yield plt
+
+
+def render_montage(montage: WellMontage) -> Any:
+    """Draw the montage and return the matplotlib Figure."""
+    with montage_style() as plt:
+        return _render(montage, plt)
+
+
+def _render(montage: WellMontage, plt: Any) -> Any:
+    """Draw the figure. Called inside the typography rc_context."""
     cfg = montage.config
     rows = [
         (phase, cell)
@@ -630,7 +669,6 @@ def render_montage(montage: WellMontage) -> Any:
         ax.imshow(rgb, interpolation="nearest")
         ax.set_ylabel(
             f"{phase}\n{montage.well} · {cell.label}",
-            fontsize=6,
             rotation=0,
             ha="right",
             va="center",
@@ -640,7 +678,7 @@ def render_montage(montage: WellMontage) -> Any:
             overlay_label = " + ".join(
                 montage.channel_names[i] for i in montage.overlay_indices
             )
-            ax.set_title(overlay_label, fontsize=6)
+            ax.set_title(overlay_label)
 
         for col, channel in enumerate(montage.grey_indices, start=1):
             gax = axes[row_index][col]
@@ -652,7 +690,7 @@ def render_montage(montage: WellMontage) -> Any:
             panel[outline] = _OUTLINE_RGB
             gax.imshow(panel, interpolation="nearest")
             if row_index == 0:
-                gax.set_title(montage.channel_names[channel], fontsize=6)
+                gax.set_title(montage.channel_names[channel])
 
         for ax_ in axes[row_index]:
             ax_.set_xticks([])
@@ -678,7 +716,7 @@ def render_montage(montage: WellMontage) -> Any:
             f"{montage.well}: no mask found for {len(unoutlined)} cell(s), "
             f"drawn without an outline: {unoutlined}"
         )
-    fig.suptitle(subtitle, fontsize=7)
+    fig.suptitle(subtitle)
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.98))
     return fig
 
@@ -698,11 +736,12 @@ def export_well_pdf(
     montage = build_montage(plate_id, well, df, config)
     for warning in montage.missing:
         logger.warning(warning)
-    fig = render_montage(montage)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"plate{plate_id}_{well}_phase_montage.pdf"
-    fig.savefig(path, format="pdf", bbox_inches="tight")
-    _close(fig)
+    with montage_style():
+        fig = render_montage(montage)
+        fig.savefig(path, format="pdf", bbox_inches="tight")
+        _close(fig)
     logger.info(f"Wrote {path}")
     return path
 
