@@ -49,6 +49,15 @@ def phase_montage_widget_gui() -> Container:  # type: ignore[type-arg]
     seed={"label": "Random seed", "min": 0, "max": 9999},
     include_subg1={"label": "Include Sub-G1"},
     mask={"label": "Outline", "choices": ["cells", "nuclei"]},
+    pages={
+        "label": "Pages split by",
+        "choices": ["well", "phase", "condition"],
+    },
+    rows={
+        "label": "Rows grouped by",
+        "choices": ["well", "phase", "condition"],
+    },
+    condition_col={"label": "Phenotype column (blank = auto)"},
 )
 def phase_montage_widget(
     output_dir: Path = _DEFAULT_OUT,
@@ -58,6 +67,9 @@ def phase_montage_widget(
     seed: int = 0,
     include_subg1: bool = False,
     mask: str = "cells",
+    pages: str = "well",
+    rows: str = "phase",
+    condition_col: str = "",
 ) -> None:
     """Export a cell-cycle montage PDF for one well.
 
@@ -96,7 +108,15 @@ def phase_montage_widget(
         cells_per_phase=cells_per_phase,
         seed=seed,
         mask=mask,
+        pages=pages,
+        rows=rows,
+        condition_col=condition_col.strip() or None,
     )
+    if pages == rows:
+        notifications.show_error(
+            f"Pages and rows are both '{pages}' — they must differ"
+        )
+        return
 
     try:
         df = load_plate_measurements(resolved_plate)

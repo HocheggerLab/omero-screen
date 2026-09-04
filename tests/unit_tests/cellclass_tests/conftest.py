@@ -59,7 +59,9 @@ def _make_npy_data(
     masks: list[np.ndarray] = []
 
     for _ in range(n):
-        img = rng.random((crop_size, crop_size, num_channels), dtype=np.float32)
+        img = rng.random(
+            (crop_size, crop_size, num_channels), dtype=np.float32
+        )
         mask = np.zeros((crop_size, crop_size), dtype=np.int32)
         mask[y0:y1, x0:x1] = 1
         images.append(img)

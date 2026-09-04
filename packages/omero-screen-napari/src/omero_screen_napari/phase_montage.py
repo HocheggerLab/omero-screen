@@ -29,7 +29,7 @@ Two choices in here are about honesty rather than looks:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -96,8 +96,16 @@ class MontageConfig:
         exclude_edge: Drop cells whose crop would run off the canvas. This is
             about the crop being incomplete, not about the cell, so it does not
             bias which cells are shown.
+        pages: Axis that splits pages -- ``"well"``, ``"phase"`` or
+            ``"condition"``.
+        rows: Axis that groups rows. Must differ from ``pages``.
+        condition_col: Column holding the phenotype. ``None`` auto-detects the
+            condition variable that actually varies on the plate.
     """
 
+    pages: str = "well"
+    rows: str = "phase"
+    condition_col: str | None = None
     phases: tuple[str, ...] = DEFAULT_PHASES
     cells_per_phase: int = 4
     seed: int = 0
@@ -121,14 +129,21 @@ class CellRef:
     timepoint: int = 0
     diameter: float | None = None
     """Cell extent in pixels, used to size the crop. None if unavailable."""
+    condition: str = ""
+    """Phenotype label, e.g. the siRNA. Empty when the plate has no variable."""
 
 
 @dataclass
 class WellMontage:
-    """A built montage, ready to render."""
+    """One built page, ready to render.
+
+    A page is a slice along ``config.pages`` -- one well, one phase or one
+    condition -- and its rows are groups along ``config.rows``. The name is kept
+    for continuity with the original well-per-page layout.
+    """
 
     plate_id: int
-    well: str
+    page_label: str
     channel_names: list[str]
     overlay_indices: list[int]
     grey_indices: list[int]
@@ -210,6 +225,113 @@ def _row_diameter(
     return numeric if is_diameter else 2.0 * float(np.sqrt(numeric / np.pi))
 
 
+#: Condition columns to consider as the phenotype axis, in preference order.
+#: These are the CellView condition variables; the one actually used is the
+#: first that takes more than one value on the plate, since a column with a
+#: single value carries no comparison.
+_CONDITION_COLUMNS = (
+    "condition",
+    "sirna",
+    "drug",
+    "antibody",
+    "cell_line",
+    "stimulus",
+)
+
+#: Valid values for ``MontageConfig.pages`` / ``.rows``.
+AXES = ("well", "phase", "condition")
+
+
+def condition_column(
+    df: pl.DataFrame, config: MontageConfig | None = None
+) -> str | None:
+    """The column holding the phenotype, or None if nothing varies.
+
+    Auto-detection takes the first candidate that has more than one value: a
+    column with a single value (``cell_line: RPE-1`` on plate 4127) describes
+    the plate rather than distinguishing anything on it.
+    """
+    if config is not None and config.condition_col:
+        if config.condition_col not in df.columns:
+            raise MontageError(
+                f"Condition column {config.condition_col!r} is not in the "
+                f"CellView data. Available: "
+                f"{[c for c in _CONDITION_COLUMNS if c in df.columns]}"
+            )
+        return config.condition_col
+    for name in _CONDITION_COLUMNS:
+        if name in df.columns and df[name].drop_nulls().n_unique() > 1:
+            return name
+    return None
+
+
+def axis_column(df: pl.DataFrame, axis: str, config: MontageConfig) -> str:
+    """Map an axis name to the DataFrame column that carries it."""
+    if axis == "well":
+        return "well"
+    if axis == "phase":
+        return _phase_column(df)
+    if axis == "condition":
+        column = condition_column(df, config)
+        if column is None:
+            raise MontageError(
+                "This plate has no condition variable that varies, so there is "
+                "nothing to compare across. Use --rows phase / --pages well, "
+                "or name a column with --group-by."
+            )
+        return column
+    raise MontageError(f"Unknown axis {axis!r}; expected one of {list(AXES)}")
+
+
+def axis_values(
+    df: pl.DataFrame, axis: str, config: MontageConfig
+) -> list[str]:
+    """Ordered values along an axis.
+
+    Phases keep cell-cycle order; wells and conditions sort alphabetically so a
+    figure is reproducible rather than following the database's row order.
+    """
+    if axis == "phase":
+        return list(config.phases)
+    column = axis_column(df, axis, config)
+    return sorted(str(v) for v in df[column].drop_nulls().unique().to_list())
+
+
+def _draw_spread_across_wells(
+    subset: pl.DataFrame, count: int, rng: np.random.Generator
+) -> pl.DataFrame:
+    """Take ``count`` rows, rotating through the wells the subset spans.
+
+    A condition usually has several replicate wells. Drawing all of its cells
+    from one well makes the row a portrait of that well rather than of the
+    condition, so a well-specific artefact would read as a phenotype. Taking one
+    cell per well in rotation shows the phenotype recurring across replicates.
+
+    Falls back to a plain draw when the subset is confined to one well, which is
+    what happens when the pages axis is ``well``.
+    """
+    wells = sorted(str(w) for w in subset["well"].unique().to_list())
+    if len(wells) <= 1:
+        picks = rng.choice(subset.height, size=count, replace=False)
+        return subset[sorted(int(i) for i in picks)]
+
+    per_well: dict[str, list[int]] = {}
+    for well in wells:
+        rows = subset.with_row_index("_idx").filter(pl.col("well") == well)
+        indices = [int(i) for i in rows["_idx"].to_list()]
+        rng.shuffle(indices)
+        per_well[well] = indices
+
+    chosen: list[int] = []
+    position = 0
+    while len(chosen) < count and any(per_well.values()):
+        well = wells[position % len(wells)]
+        if per_well[well]:
+            chosen.append(per_well[well].pop())
+        position += 1
+    return subset[sorted(chosen)]
+
+
 def select_cells(
     df: pl.DataFrame,
     well: str,
@@ -266,37 +388,158 @@ def select_cells(
     rng = np.random.default_rng(config.seed)
     selected: dict[str, list[CellRef]] = {}
     warnings: list[str] = []
+    cond_col = condition_column(df, config)
     for phase in config.phases:
         phase_df = well_df.filter(pl.col(phase_col) == phase)
-        n_available = phase_df.height
-        if n_available == 0:
-            warnings.append(f"{well}: no {phase} cells")
-            selected[phase] = []
-            continue
-        take = min(config.cells_per_phase, n_available)
-        if take < config.cells_per_phase:
-            warnings.append(
-                f"{well}: only {n_available} {phase} cell(s), "
-                f"wanted {config.cells_per_phase}"
-            )
-        # Sort first so the draw does not depend on row order from the DB.
-        phase_df = phase_df.sort("label")
-        picks = rng.choice(n_available, size=take, replace=False)
-        rows = phase_df[sorted(int(p) for p in picks)]
-        selected[phase] = [
-            CellRef(
-                phase=phase,
-                well=well,
-                label=int(row["label"]),
-                centroid=(float(row[y_col]), float(row[x_col])),
-                timepoint=int(row.get("timepoint", 0) or 0)
-                if isinstance(row, dict)
-                else 0,
-                diameter=_row_diameter(row, extent),
-            )
-            for row in rows.iter_rows(named=True)
-        ]
+        group, note = _draw_group(
+            phase_df,
+            phase,
+            well,
+            config,
+            rng,
+            cond_col,
+            phase_col,
+            y_col,
+            x_col,
+            extent,
+        )
+        selected[phase] = group
+        warnings.extend(note)
     return selected, warnings
+
+
+def _draw_group(
+    subset: pl.DataFrame,
+    label: str,
+    context: str,
+    config: MontageConfig,
+    rng: np.random.Generator,
+    cond_col: str | None,
+    phase_col: str,
+    y_col: str,
+    x_col: str,
+    extent: tuple[str, bool] | None,
+) -> tuple[list[CellRef], list[str]]:
+    """Draw one group's cells and turn them into :class:`CellRef`s."""
+    warnings: list[str] = []
+    n_available = subset.height
+    if n_available == 0:
+        return [], [f"{context}: no {label} cells"]
+    take = min(config.cells_per_phase, n_available)
+    if take < config.cells_per_phase:
+        warnings.append(
+            f"{context}: only {n_available} {label} cell(s), "
+            f"wanted {config.cells_per_phase}"
+        )
+    # Sorted first so the draw does not depend on row order from the DB.
+    rows = _draw_spread_across_wells(subset.sort(["well", "label"]), take, rng)
+    cells = [
+        CellRef(
+            phase=str(row[phase_col]),
+            well=str(row["well"]),
+            label=int(row["label"]),
+            centroid=(float(row[y_col]), float(row[x_col])),
+            timepoint=int(row.get("timepoint", 0) or 0),
+            diameter=_row_diameter(row, extent),
+            condition=str(row[cond_col]) if cond_col else "",
+        )
+        for row in rows.iter_rows(named=True)
+    ]
+    return cells, warnings
+
+
+def select_grid(
+    df: pl.DataFrame,
+    config: MontageConfig,
+    canvas_lookup: Callable[[str], tuple[int, int] | None] | None = None,
+    crop_px: int | None = None,
+) -> tuple[dict[str, dict[str, list[CellRef]]], list[str]]:
+    """Select cells for the whole ``pages`` x ``rows`` grid.
+
+    Returns:
+        ``({page_value: {row_value: [CellRef, ...]}}, warnings)``.
+
+    Raises:
+        MontageError: if the two axes are the same, or an axis is unknown.
+    """
+    if config.pages == config.rows:
+        raise MontageError(
+            f"pages and rows are both {config.pages!r}; they must differ, "
+            f"otherwise every page has exactly one row"
+        )
+    phase_col = _phase_column(df)
+    y_col = _first_column(df, *_Y_COLUMNS)
+    x_col = _first_column(df, *_X_COLUMNS)
+    if y_col is None or x_col is None:
+        found = sorted(c for c in df.columns if "centroid" in c.lower())
+        raise MontageError(
+            "No usable centroid columns in the CellView data for this plate. "
+            f"Looked for {list(_Y_COLUMNS)} and {list(_X_COLUMNS)}; the plate "
+            f"has {found or 'no centroid columns at all'}."
+        )
+    extent = _extent_column(df)
+    cond_col = condition_column(df, config)
+
+    page_col = axis_column(df, config.pages, config)
+    row_col = axis_column(df, config.rows, config)
+    rng = np.random.default_rng(config.seed)
+
+    grid: dict[str, dict[str, list[CellRef]]] = {}
+    warnings: list[str] = []
+    for page in axis_values(df, config.pages, config):
+        page_df = df.filter(pl.col(page_col).cast(pl.Utf8) == page)
+        if config.exclude_edge and canvas_lookup and crop_px:
+            page_df = _drop_edge_cells(
+                page_df, canvas_lookup, crop_px, y_col, x_col
+            )
+        rows_out: dict[str, list[CellRef]] = {}
+        for row_value in axis_values(df, config.rows, config):
+            subset = page_df.filter(pl.col(row_col).cast(pl.Utf8) == row_value)
+            cells, note = _draw_group(
+                subset,
+                row_value,
+                page,
+                config,
+                rng,
+                cond_col,
+                phase_col,
+                y_col,
+                x_col,
+                extent,
+            )
+            rows_out[row_value] = cells
+            warnings.extend(note)
+        grid[page] = rows_out
+    return grid, warnings
+
+
+def _drop_edge_cells(
+    df: pl.DataFrame,
+    canvas_lookup: Callable[[str], tuple[int, int] | None],
+    crop_px: int,
+    y_col: str,
+    x_col: str,
+) -> pl.DataFrame:
+    """Drop cells whose crop would run off their well's canvas.
+
+    Canvas size is per well -- a well that lost a field to autofocus has a
+    smaller one -- so the bound is applied per well rather than plate-wide.
+    """
+    half = crop_px / 2
+    keep = []
+    for well in sorted(str(w) for w in df["well"].unique().to_list()):
+        canvas = canvas_lookup(well)
+        part = df.filter(pl.col("well") == well)
+        if canvas is not None:
+            h, w = canvas
+            part = part.filter(
+                (pl.col(y_col) >= half)
+                & (pl.col(y_col) <= h - half)
+                & (pl.col(x_col) >= half)
+                & (pl.col(x_col) <= w - half)
+            )
+        keep.append(part)
+    return pl.concat(keep) if keep else df
 
 
 # ----------------------------------------------------------------------
@@ -304,33 +547,56 @@ def select_cells(
 # ----------------------------------------------------------------------
 
 
+#: Wells sampled when computing plate-wide display limits. Pooling a handful is
+#: indistinguishable from pooling all of them for a percentile, at a fraction of
+#: the reads.
+_LIMIT_SAMPLE_WELLS = 4
+
+
 def channel_limits(
     plate_id: int,
-    well: str,
+    wells: Sequence[str],
     percentiles: tuple[float, float] = (0.1, 99.9),
 ) -> dict[int, tuple[float, float]]:
-    """Per-channel display limits for a whole well.
+    """Per-channel display limits pooled across ``wells``.
 
-    Computed once from the well's smallest pyramid level and applied to every
-    crop, so brightness is comparable between phases. Per-crop scaling would
-    normalise away exactly the differences the montage exists to show.
+    Computed once and applied to every crop on every page. The scope has to
+    match the comparison the figure invites: a page that spans conditions spans
+    several wells, so per-well limits would make conditions differ in brightness
+    for reasons that are pure scaling. Plate-wide limits mean a dim condition
+    looks dim because it is.
+
+    Pixels are pooled from the smallest pyramid level of a few evenly spaced
+    wells rather than every well, which changes a percentile negligibly and
+    keeps the read cost flat as the plate grows.
     """
-    data = read_well(plate_id, well)
-    smallest = data["image"][-1]
-    n_channels = int(smallest.shape[1])
+    chosen = list(wells)
+    if len(chosen) > _LIMIT_SAMPLE_WELLS:
+        step = len(chosen) / _LIMIT_SAMPLE_WELLS
+        chosen = [chosen[int(i * step)] for i in range(_LIMIT_SAMPLE_WELLS)]
+
+    pooled: dict[int, list[npt.NDArray[Any]]] = {}
+    for well in chosen:
+        try:
+            smallest = read_well(plate_id, well)["image"][-1]
+        except (KeyError, FileNotFoundError):
+            continue
+        for c in range(int(smallest.shape[1])):
+            pooled.setdefault(c, []).append(np.asarray(smallest[0, c]).ravel())
+    if not pooled:
+        raise MontageError(
+            f"Could not read any of wells {chosen} from plate {plate_id}'s "
+            f"zarr cache to compute display limits"
+        )
+
     limits: dict[int, tuple[float, float]] = {}
-    for c in range(n_channels):
-        plane = np.asarray(smallest[0, c])
-        lo, hi = np.percentile(plane, list(percentiles))
+    for channel, planes in pooled.items():
+        values = np.concatenate(planes)
+        lo, hi = np.percentile(values, list(percentiles))
         if hi <= lo:
             hi = lo + 1.0
-        limits[c] = (float(lo), float(hi))
+        limits[channel] = (float(lo), float(hi))
     return limits
-
-
-# ----------------------------------------------------------------------
-# Assembly
-# ----------------------------------------------------------------------
 
 
 def _resolve_overlay(
@@ -391,19 +657,33 @@ def _crop_pixels(
     return int(np.clip(round(diameter * config.crop_factor / 2) * 2, 32, 1024))
 
 
-def build_montage(
+def _canvas_lookup(plate_id: int, built: set[str]) -> Any:
+    """Return a memoised ``well -> (h, w)``; None for a well not in the cache."""
+    cache: dict[str, tuple[int, int] | None] = {}
+
+    def lookup(well: str) -> tuple[int, int] | None:
+        if well not in cache:
+            if well not in built:
+                cache[well] = None
+            else:
+                shape = read_well(plate_id, well)["image"][0].shape[-2:]
+                cache[well] = (int(shape[0]), int(shape[1]))
+        return cache[well]
+
+    return lookup
+
+
+def build_pages(
     plate_id: int,
-    well: str,
     df: pl.DataFrame,
     config: MontageConfig | None = None,
-) -> WellMontage:
-    """Select cells and resolve everything needed to render one well.
+) -> list[WellMontage]:
+    """Build every page of the ``pages`` x ``rows`` grid.
 
     Does no drawing, so it can be tested without matplotlib.
 
     Raises:
-        MontageError: if the plate has no zarr store, or the well cannot be
-            selected from.
+        MontageError: if the plate has no zarr store, or no page has any cells.
     """
     config = config or MontageConfig()
     if resolve_to_zarr(plate_id) is None:
@@ -415,47 +695,101 @@ def build_montage(
     channel_names: list[str] = list(info["channel_names"])
     pixel_size_um = info.get("pixel_size_um")
 
-    # A well can have measurements without having been built into the cache —
-    # the cache is built per well. Checked up front so a batch run reports it
-    # and moves on, rather than dying on a bare KeyError from deep in zarr.
     built = set(cached_wells(plate_id))
-    if well not in built:
+    if not built:
+        raise MontageError(f"Plate {plate_id} has no wells in its zarr cache")
+
+    # Only wells that are actually cached can be cropped from. Dropping them
+    # is reported rather than silent: a well vanishing from a figure because
+    # nobody built it looks identical to a well with no cells in that phase.
+    measured = {str(w) for w in df["well"].unique().to_list()}
+    uncached = sorted(measured - built)
+    dropped_note = (
+        [
+            f"{len(uncached)} measured well(s) not in the zarr cache, "
+            f"excluded: {uncached}"
+        ]
+        if uncached
+        else []
+    )
+    df = df.filter(pl.col("well").cast(pl.Utf8).is_in(sorted(built)))
+    if df.is_empty():
+        raise MontageError(
+            f"None of the plate's measured wells are in the zarr cache "
+            f"({len(built)} built). Cache the wells first."
+        )
+
+    crop_px = _crop_pixels(config, df, "", pixel_size_um)
+    grid, warnings = select_grid(
+        df, config, _canvas_lookup(plate_id, built), crop_px
+    )
+    warnings = dropped_note + warnings
+    overlay_indices, grey_indices = _resolve_overlay(
+        channel_names, config.overlay
+    )
+    # Plate-scope limits: every panel on every page is directly comparable.
+    limits = channel_limits(plate_id, sorted(built), config.percentiles)
+
+    pages = [
+        WellMontage(
+            plate_id=plate_id,
+            page_label=page,
+            channel_names=channel_names,
+            overlay_indices=overlay_indices,
+            grey_indices=grey_indices,
+            cells=rows,
+            limits=limits,
+            crop_px=crop_px,
+            pixel_size_um=pixel_size_um,
+            config=config,
+            missing=warnings,
+        )
+        for page, rows in grid.items()
+        if any(rows.values())
+    ]
+    if not pages:
+        raise MontageError(
+            f"Plate {plate_id}: no cells matched "
+            f"pages={config.pages} rows={config.rows} "
+            f"phases={list(config.phases)}"
+        )
+    return pages
+
+
+def build_montage(
+    plate_id: int,
+    well: str,
+    df: pl.DataFrame,
+    config: MontageConfig | None = None,
+) -> WellMontage:
+    """Build the single page for one well.
+
+    Thin wrapper over :func:`build_pages` for the well-per-page layout.
+
+    Raises:
+        MontageError: if the well is not cached or has no cells.
+    """
+    config = config or MontageConfig()
+    if config.pages != "well":
+        raise MontageError(
+            f"build_montage is for the well-per-page layout; this config uses "
+            f"pages={config.pages!r}. Use build_pages instead."
+        )
+    built = set(cached_wells(plate_id)) if resolve_to_zarr(plate_id) else set()
+    if resolve_to_zarr(plate_id) is not None and well not in built:
         raise MontageError(
             f"Well {well} is not in plate {plate_id}'s zarr cache "
             f"({len(built)} well(s) built). Cache it first, or pick from: "
             f"{sorted(built)[:12]}"
         )
-
-    well_data = read_well(plate_id, well)
-    canvas = np.asarray(well_data["image"][0].shape[-2:])
-
-    # The crop is sized from the plate, not from this draw, so it is stable
-    # across seeds and comparable across wells; selection then happens once.
-    crop_px = _crop_pixels(config, df, well, pixel_size_um)
-    cells, warnings = select_cells(
-        df,
-        well,
+    if not df.filter(pl.col("well").cast(pl.Utf8) == well).height:
+        raise MontageError(f"Well {well} has no measurements in CellView")
+    pages = build_pages(
+        plate_id,
+        df.filter(pl.col("well").cast(pl.Utf8) == well),
         config,
-        canvas_hw=(int(canvas[0]), int(canvas[1])),
-        crop_px=crop_px,
     )
-
-    overlay_indices, grey_indices = _resolve_overlay(
-        channel_names, config.overlay
-    )
-    return WellMontage(
-        plate_id=plate_id,
-        well=well,
-        channel_names=channel_names,
-        overlay_indices=overlay_indices,
-        grey_indices=grey_indices,
-        cells=cells,
-        limits=channel_limits(plate_id, well, config.percentiles),
-        crop_px=crop_px,
-        pixel_size_um=pixel_size_um,
-        config=config,
-        missing=warnings,
-    )
+    return pages[0]
 
 
 # ----------------------------------------------------------------------
@@ -610,13 +944,13 @@ def _render(montage: WellMontage, plt: Any) -> Any:
     """Draw the figure. Called inside the typography rc_context."""
     cfg = montage.config
     rows = [
-        (phase, cell)
-        for phase in cfg.phases
-        for cell in montage.cells.get(phase, [])
+        (group, cell)
+        for group, cells in montage.cells.items()
+        for cell in cells
     ]
     if not rows:
         raise MontageError(
-            f"Well {montage.well}: no cells in any of {list(cfg.phases)}"
+            f"{montage.page_label}: no cells in any {cfg.rows} group"
         )
     n_cols = 1 + len(montage.grey_indices)
     fig, axes = plt.subplots(
@@ -628,10 +962,10 @@ def _render(montage: WellMontage, plt: Any) -> Any:
 
     mask_name = montage.config.mask
     unoutlined: list[str] = []
-    for row_index, (phase, cell) in enumerate(rows):
+    for row_index, (group, cell) in enumerate(rows):
         crop = fetch_crop(
             montage.plate_id,
-            montage.well,
+            cell.well,
             cell.label,
             centroid=cell.centroid,
             size=montage.crop_px,
@@ -640,7 +974,7 @@ def _render(montage: WellMontage, plt: Any) -> Any:
         try:
             mask = fetch_label_crop(
                 montage.plate_id,
-                montage.well,
+                cell.well,
                 centroid=cell.centroid,
                 size=montage.crop_px,
                 t=cell.timepoint,
@@ -649,7 +983,7 @@ def _render(montage: WellMontage, plt: Any) -> Any:
         except KeyError:
             mask = fetch_label_crop(
                 montage.plate_id,
-                montage.well,
+                cell.well,
                 centroid=cell.centroid,
                 size=montage.crop_px,
                 t=cell.timepoint,
@@ -660,7 +994,7 @@ def _render(montage: WellMontage, plt: Any) -> Any:
         # centre pixel rather than by matching the ID.
         mask_label = resolve_mask_label(mask, cell.label)
         if mask_label is None:
-            unoutlined.append(f"{cell.phase} {cell.label}")
+            unoutlined.append(f"{cell.well} {cell.label}")
         outline = _outline(mask, mask_label)
 
         rgb = _composite(crop, montage.overlay_indices, montage.limits)
@@ -668,7 +1002,7 @@ def _render(montage: WellMontage, plt: Any) -> Any:
         ax = axes[row_index][0]
         ax.imshow(rgb, interpolation="nearest")
         ax.set_ylabel(
-            f"{phase}\n{montage.well} · {cell.label}",
+            f"{group}\n{cell.well} · {cell.label}",
             rotation=0,
             ha="right",
             va="center",
@@ -700,9 +1034,9 @@ def _render(montage: WellMontage, plt: Any) -> Any:
             _add_scale_bar(ax_, montage.crop_px, montage.pixel_size_um)
 
     subtitle = (
-        f"plate {montage.plate_id} · well {montage.well} · "
-        f"{cfg.cells_per_phase} random cells per phase · seed {cfg.seed} · "
-        f"crop {montage.crop_px}px"
+        f"plate {montage.plate_id} · {cfg.pages} {montage.page_label} · "
+        f"rows: {cfg.rows} · {cfg.cells_per_phase} random cell(s) per group · "
+        f"seed {cfg.seed} · crop {montage.crop_px}px"
     )
     if montage.pixel_size_um:
         subtitle += (
@@ -713,12 +1047,41 @@ def _render(montage: WellMontage, plt: Any) -> Any:
         # Visible rather than silent: a panel with no outline is ambiguous
         # about which cell it is showing.
         logger.warning(
-            f"{montage.well}: no mask found for {len(unoutlined)} cell(s), "
+            f"{montage.page_label}: no mask found for {len(unoutlined)} cell(s), "
             f"drawn without an outline: {unoutlined}"
         )
     fig.suptitle(subtitle)
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.98))
     return fig
+
+
+def _safe(value: str) -> str:
+    """Filename-safe form of an axis value, e.g. ``"G2/M"`` -> ``"G2-M"``."""
+    return "".join(
+        c if c.isalnum() or c in "-_" else "-" for c in value
+    ).strip("-")
+
+
+def export_page_pdf(
+    page: WellMontage, out_dir: Path, plt: Any | None = None
+) -> Path:
+    """Write one page as a vector PDF.
+
+    The filename carries the *axis* as well as the value: plate 4127 has both a
+    well called G1 and a phase called G1, so ``plate4127_G1.pdf`` would be
+    ambiguous and silently overwritten.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = (
+        out_dir / f"plate{page.plate_id}_{page.config.pages}-"
+        f"{_safe(page.page_label)}_montage.pdf"
+    )
+    with montage_style():
+        fig = render_montage(page)
+        fig.savefig(path, format="pdf", bbox_inches="tight")
+        _close(fig)
+    logger.info(f"Wrote {path}")
+    return path
 
 
 def export_well_pdf(
@@ -736,14 +1099,7 @@ def export_well_pdf(
     montage = build_montage(plate_id, well, df, config)
     for warning in montage.missing:
         logger.warning(warning)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"plate{plate_id}_{well}_phase_montage.pdf"
-    with montage_style():
-        fig = render_montage(montage)
-        fig.savefig(path, format="pdf", bbox_inches="tight")
-        _close(fig)
-    logger.info(f"Wrote {path}")
-    return path
+    return export_page_pdf(montage, out_dir)
 
 
 def _close(fig: Any) -> None:
@@ -765,38 +1121,43 @@ def export_plate_pdfs(
     wells: list[str] | None = None,
     on_progress: Callable[[str, int, int], None] | None = None,
 ) -> tuple[list[Path], list[str]]:
-    """Export a montage per well. ``wells=None`` means every well.
+    """Export every page of the configured layout.
 
-    One well failing does not abandon the rest of the plate -- a plate usually
-    has a well or two with no cells in some phase, or not built into the zarr
-    cache, and losing 20 good montages to one bad well helps nobody.
+    For the default well-per-page layout this is one PDF per well, and ``wells``
+    restricts it. For any other layout the pages are phases or conditions, so
+    ``wells`` instead restricts which wells the cells are drawn *from*.
 
-    Args:
-        plate_id: OMERO plate ID.
-        df: Measurements for the plate.
-        out_dir: Directory to write into.
-        config: Montage settings.
-        wells: Wells to export, or None for all.
-        on_progress: Called with ``(well, index, total)`` before each well, so a
-            UI can drive a progress bar.
+    One bad page does not abandon the rest -- a plate usually has a well or two
+    with no cells in some phase, or not built into the zarr cache, and losing
+    twenty good pages to one bad one helps nobody.
 
     Returns:
         ``(paths_written, failures)`` where each failure is a
-        ``"<well>: <reason>"`` line.
+        ``"<page>: <reason>"`` line.
     """
-    targets = wells if wells is not None else plate_wells(df)
+    config = config or MontageConfig()
+    if wells is not None:
+        df = df.filter(pl.col("well").cast(pl.Utf8).is_in(wells))
+
+    try:
+        pages = build_pages(plate_id, df, config)
+    except MontageError as exc:
+        logger.warning(f"Plate {plate_id}: {exc}")
+        return [], [f"plate {plate_id}: {exc}"]
+
+    for warning in dict.fromkeys(pages[0].missing):
+        logger.warning(warning)
+
     written: list[Path] = []
     failures: list[str] = []
-    for index, well in enumerate(targets):
+    for index, page in enumerate(pages):
         if on_progress is not None:
-            on_progress(well, index, len(targets))
+            on_progress(page.page_label, index, len(pages))
         try:
-            written.append(
-                export_well_pdf(plate_id, well, df, out_dir, config)
-            )
+            written.append(export_page_pdf(page, out_dir))
         except MontageError as exc:
-            logger.warning(f"Skipping well {well}: {exc}")
-            failures.append(f"{well}: {exc}")
+            logger.warning(f"Skipping {page.page_label}: {exc}")
+            failures.append(f"{page.page_label}: {exc}")
     return written, failures
 
 

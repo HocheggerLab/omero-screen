@@ -26,9 +26,9 @@ from omero_utils.omero_plate import (
 
 
 @pytest.fixture
-def caplog(caplog: pytest.LogCaptureFixture) -> Generator[
-    pytest.LogCaptureFixture, None, None
-]:
+def caplog(
+    caplog: pytest.LogCaptureFixture,
+) -> Generator[pytest.LogCaptureFixture, None, None]:
     """Route loguru output into pytest's ``caplog``.
 
     loguru bypasses the standard library's root logger, so pytest's built-in
