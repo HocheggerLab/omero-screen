@@ -9,8 +9,6 @@ good is cherry-picking by the back door. The seed is stamped on every figure so
 whichever draw you keep is at least reproducible and declared.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from loguru import logger
