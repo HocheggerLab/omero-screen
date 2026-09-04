@@ -15,14 +15,16 @@ from loguru import logger
 from magicgui import magic_factory
 from magicgui.widgets import Container
 from napari.utils import notifications
+from napari.utils import progress as napari_progress
 
 from omero_screen_napari.omero_data_singleton import omero_data
 from omero_screen_napari.phase_montage import (
     DEFAULT_PHASES,
     MontageConfig,
     MontageError,
-    export_well_pdf,
+    export_plate_pdfs,
     load_plate_measurements,
+    plate_wells,
 )
 
 #: Evaluated once at import: magicgui needs a concrete default, and a call
@@ -42,7 +44,7 @@ def phase_montage_widget_gui() -> Container:  # type: ignore[type-arg]
     call_button="Export montage",
     output_dir={"mode": "d", "label": "Output folder"},
     plate_id={"label": "Plate ID (blank = loaded plate)"},
-    well={"label": "Well (blank = loaded well)"},
+    well={"label": "Well (All, or C3, or blank = loaded well)"},
     cells_per_phase={"label": "Cells per phase", "min": 1, "max": 12},
     seed={"label": "Random seed", "min": 0, "max": 9999},
     include_subg1={"label": "Include Sub-G1"},
@@ -73,10 +75,18 @@ def phase_montage_widget(
         notifications.show_error("No plate loaded and no plate ID given")
         return
 
-    resolved_well = well.strip() or (
-        omero_data.well_pos_list[0] if omero_data.well_pos_list else ""
-    )
-    if not resolved_well:
+    # "All" mirrors the gallery exporter's well box, so the two batch widgets
+    # behave the same way. A comma list works too.
+    raw_well = well.strip()
+    export_all = raw_well.lower() == "all"
+    resolved_wells: list[str] | None
+    if export_all:
+        resolved_wells = None
+    elif raw_well:
+        resolved_wells = [w.strip() for w in raw_well.split(",") if w.strip()]
+    elif omero_data.well_pos_list:
+        resolved_wells = [omero_data.well_pos_list[0]]
+    else:
         notifications.show_error("No well loaded and no well given")
         return
 
@@ -90,9 +100,29 @@ def phase_montage_widget(
 
     try:
         df = load_plate_measurements(resolved_plate)
-        path = export_well_pdf(
-            resolved_plate, resolved_well, df, Path(output_dir), config
+        targets = plate_wells(df) if resolved_wells is None else resolved_wells
+        # Synchronous, like the gallery exporter: pyplot figure creation is not
+        # thread-safe, so a worker thread would be a correctness problem rather
+        # than a responsiveness win. ~2 s per well.
+        bar = napari_progress(
+            total=len(targets), desc=f"Montages to {Path(output_dir).name}"
         )
+
+        def _tick(current: str, index: int, total: int) -> None:
+            bar.set_description(f"Montage {current} ({index + 1}/{total})")
+            bar.update(1)
+
+        try:
+            written, failures = export_plate_pdfs(
+                resolved_plate,
+                df,
+                Path(output_dir),
+                config,
+                wells=targets,
+                on_progress=_tick,
+            )
+        finally:
+            bar.close()
     except MontageError as exc:
         notifications.show_error(str(exc))
         return
@@ -101,4 +131,13 @@ def phase_montage_widget(
         notifications.show_error(f"Montage export failed: {exc}")
         return
 
-    notifications.show_info(f"Wrote {path.name} to {path.parent}")
+    if not written:
+        notifications.show_error(
+            "No montages written. " + ("; ".join(failures) or "")
+        )
+        return
+    message = f"Wrote {len(written)} montage(s) to {Path(output_dir)}"
+    if failures:
+        message += f" ({len(failures)} well(s) skipped)"
+        logger.warning(f"Skipped: {failures}")
+    notifications.show_info(message)
