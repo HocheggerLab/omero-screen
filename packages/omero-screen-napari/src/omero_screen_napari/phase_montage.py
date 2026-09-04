@@ -29,6 +29,7 @@ Two choices in here are about honesty rather than looks:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -44,7 +45,11 @@ from omero_screen_napari.zarr_cache.crop import (
     resolve_to_zarr,
 )
 from omero_screen_napari.zarr_cache.palette import base_name
-from omero_screen_napari.zarr_cache.reader import plate_info, read_well
+from omero_screen_napari.zarr_cache.reader import (
+    cached_wells,
+    plate_info,
+    read_well,
+)
 
 #: Phases shown, in cell-cycle order. Sub-G1 is excluded by default: it is
 #: mostly apoptotic bodies and debris, so it reads as a row of noise rather
@@ -409,6 +414,17 @@ def build_montage(
     channel_names: list[str] = list(info["channel_names"])
     pixel_size_um = info.get("pixel_size_um")
 
+    # A well can have measurements without having been built into the cache —
+    # the cache is built per well. Checked up front so a batch run reports it
+    # and moves on, rather than dying on a bare KeyError from deep in zarr.
+    built = set(cached_wells(plate_id))
+    if well not in built:
+        raise MontageError(
+            f"Well {well} is not in plate {plate_id}'s zarr cache "
+            f"({len(built)} well(s) built). Cache it first, or pick from: "
+            f"{sorted(built)[:12]}"
+        )
+
     well_data = read_well(plate_id, well)
     canvas = np.asarray(well_data["image"][0].shape[-2:])
 
@@ -695,6 +711,54 @@ def _close(fig: Any) -> None:
     import matplotlib.pyplot as plt
 
     plt.close(fig)
+
+
+def plate_wells(df: pl.DataFrame) -> list[str]:
+    """Every well the plate has measurements for, sorted."""
+    return sorted(str(w) for w in df["well"].unique().to_list())
+
+
+def export_plate_pdfs(
+    plate_id: int,
+    df: pl.DataFrame,
+    out_dir: Path,
+    config: MontageConfig | None = None,
+    wells: list[str] | None = None,
+    on_progress: Callable[[str, int, int], None] | None = None,
+) -> tuple[list[Path], list[str]]:
+    """Export a montage per well. ``wells=None`` means every well.
+
+    One well failing does not abandon the rest of the plate -- a plate usually
+    has a well or two with no cells in some phase, or not built into the zarr
+    cache, and losing 20 good montages to one bad well helps nobody.
+
+    Args:
+        plate_id: OMERO plate ID.
+        df: Measurements for the plate.
+        out_dir: Directory to write into.
+        config: Montage settings.
+        wells: Wells to export, or None for all.
+        on_progress: Called with ``(well, index, total)`` before each well, so a
+            UI can drive a progress bar.
+
+    Returns:
+        ``(paths_written, failures)`` where each failure is a
+        ``"<well>: <reason>"`` line.
+    """
+    targets = wells if wells is not None else plate_wells(df)
+    written: list[Path] = []
+    failures: list[str] = []
+    for index, well in enumerate(targets):
+        if on_progress is not None:
+            on_progress(well, index, len(targets))
+        try:
+            written.append(
+                export_well_pdf(plate_id, well, df, out_dir, config)
+            )
+        except MontageError as exc:
+            logger.warning(f"Skipping well {well}: {exc}")
+            failures.append(f"{well}: {exc}")
+    return written, failures
 
 
 def load_plate_measurements(plate_id: int) -> pl.DataFrame:

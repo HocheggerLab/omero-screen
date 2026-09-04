@@ -32,7 +32,7 @@ from omero_screen_napari.phase_montage import (
     DEFAULT_PHASES,
     MontageConfig,
     MontageError,
-    export_well_pdf,
+    export_plate_pdfs,
     load_plate_measurements,
 )
 
@@ -52,7 +52,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "wells",
         nargs="*",
-        help="Well labels (e.g. C3 D4). Default: every well with measurements.",
+        help=(
+            "Well labels (e.g. C3 D4), or 'All'. "
+            "Default: every well with measurements."
+        ),
     )
     parser.add_argument(
         "--out",
@@ -120,7 +123,12 @@ def main() -> int:
         logger.error("%s", exc)
         return 2
 
-    wells = args.wells or sorted(str(w) for w in df["well"].unique().to_list())
+    # No wells given, or the literal "All", means every well on the plate.
+    wells = (
+        None
+        if not args.wells or [w.lower() for w in args.wells] == ["all"]
+        else args.wells
+    )
     config = MontageConfig(
         phases=tuple(args.phases),
         cells_per_phase=args.cells,
@@ -130,23 +138,16 @@ def main() -> int:
         mask=args.mask,
     )
 
-    written, failed = 0, 0
-    for well in wells:
-        try:
-            export_well_pdf(args.plate_id, well, df, args.out, config)
-            written += 1
-        except MontageError as exc:
-            # One bad well should not abandon the rest of the plate.
-            logger.warning("Skipping well %s: %s", well, exc)
-            failed += 1
-
+    paths, failures = export_plate_pdfs(
+        args.plate_id, df, args.out, config, wells=wells
+    )
     logger.info(
         "Wrote %d montage(s) to %s%s",
-        written,
+        len(paths),
         args.out,
-        f" ({failed} well(s) skipped)" if failed else "",
+        f" ({len(failures)} well(s) skipped)" if failures else "",
     )
-    return 0 if written else 1
+    return 0 if paths else 1
 
 
 if __name__ == "__main__":

@@ -27,7 +27,9 @@ from omero_screen_napari.phase_montage import (
     _resolve_overlay,
     build_montage,
     channel_limits,
+    export_plate_pdfs,
     export_well_pdf,
+    plate_wells,
     render_montage,
     resolve_mask_label,
     select_cells,
@@ -590,3 +592,56 @@ class TestPanelAnnotation:
             assert not ax.patches
         finally:
             plt.close(fig)
+
+
+class TestBatchExport:
+    """Whole-plate export. One bad well must not abandon the other twenty."""
+
+    def test_all_wells_by_default(self, tmp_path: Path) -> None:
+        _build_plate(well="C3")
+        df = _measurements(well="C3")
+        paths, failures = export_plate_pdfs(
+            99, df, tmp_path, MontageConfig(cells_per_phase=1)
+        )
+        assert [p.name for p in paths] == ["plate99_C3_phase_montage.pdf"]
+        assert failures == []
+
+    def test_plate_wells_lists_every_well(self) -> None:
+        df = pl.concat([_measurements(well="C3"), _measurements(well="A1")])
+        assert plate_wells(df) == ["A1", "C3"]
+
+    def test_explicit_subset_is_honoured(self, tmp_path: Path) -> None:
+        _build_plate(well="C3")
+        df = pl.concat([_measurements(well="C3"), _measurements(well="A1")])
+        paths, _ = export_plate_pdfs(
+            99,
+            df,
+            tmp_path,
+            MontageConfig(cells_per_phase=1),
+            wells=["C3"],
+        )
+        assert len(paths) == 1
+
+    def test_a_bad_well_is_reported_not_fatal(self, tmp_path: Path) -> None:
+        """The whole point of the batch: 20 good montages survive 1 bad well."""
+        _build_plate(well="C3")
+        df = pl.concat([_measurements(well="C3"), _measurements(well="Z9")])
+        paths, failures = export_plate_pdfs(
+            99, df, tmp_path, MontageConfig(cells_per_phase=1)
+        )
+        assert len(paths) == 1
+        assert len(failures) == 1
+        assert failures[0].startswith("Z9:")
+
+    def test_progress_callback_reports_each_well(self, tmp_path: Path) -> None:
+        _build_plate(well="C3")
+        df = pl.concat([_measurements(well="C3"), _measurements(well="A1")])
+        seen: list[tuple[str, int, int]] = []
+        export_plate_pdfs(
+            99,
+            df,
+            tmp_path,
+            MontageConfig(cells_per_phase=1),
+            on_progress=lambda w, i, n: seen.append((w, i, n)),
+        )
+        assert seen == [("A1", 0, 2), ("C3", 1, 2)]
