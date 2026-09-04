@@ -645,3 +645,53 @@ class TestBatchExport:
             on_progress=lambda w, i, n: seen.append((w, i, n)),
         )
         assert seen == [("A1", 0, 2), ("C3", 1, 2)]
+
+
+class TestTypography:
+    """Arial 7pt, embedded editable.
+
+    The style context has to wrap *saving*, not just drawing: matplotlib bakes a
+    font size into a Text artist at creation but resolves the family at draw
+    time, so a context around figure construction alone still wrote DejaVu Sans
+    into the PDF.
+    """
+
+    def test_pdf_embeds_arial(self, tmp_path: Path) -> None:
+        import re
+
+        _build_plate()
+        path = export_well_pdf(
+            99,
+            "C3",
+            _measurements(),
+            tmp_path,
+            MontageConfig(cells_per_phase=1),
+        )
+        fonts = set(
+            re.findall(rb"/BaseFont\s*/([A-Za-z0-9+\-]+)", path.read_bytes())
+        )
+        assert any(b"Arial" in f for f in fonts), f"got {fonts}"
+        assert not any(b"DejaVu" in f for f in fonts), f"got {fonts}"
+
+    def test_text_is_truetype_not_outlines(self, tmp_path: Path) -> None:
+        """Type 3 would arrive in Illustrator as uneditable outlines."""
+        _build_plate()
+        path = export_well_pdf(
+            99,
+            "C3",
+            _measurements(),
+            tmp_path,
+            MontageConfig(cells_per_phase=1),
+        )
+        assert b"/Type3" not in path.read_bytes()
+
+    def test_style_does_not_leak(self) -> None:
+        """A montage export must not restyle every other plot in the session."""
+        import matplotlib.pyplot as plt
+
+        from omero_screen_napari.phase_montage import montage_style
+
+        before = plt.rcParams["font.size"]
+        with montage_style():
+            assert plt.rcParams["font.size"] == 7
+        assert plt.rcParams["font.size"] == before
