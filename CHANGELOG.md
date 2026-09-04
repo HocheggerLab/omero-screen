@@ -1,3 +1,9 @@
+## omero-screen-v0.9.0 (2026-09-04)
+
+### Fix
+
+- **ci**: keep uv.lock in step with the version bump
+
 ## omero-screen-v0.8.0 (2026-09-02)
 
 ### Fix
