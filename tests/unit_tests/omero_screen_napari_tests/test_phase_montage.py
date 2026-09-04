@@ -764,3 +764,179 @@ class TestTypography:
         with montage_style():
             assert plt.rcParams["font.size"] == 7
         assert plt.rcParams["font.size"] == before
+
+
+def _two_condition_df() -> pl.DataFrame:
+    """Two siRNAs x two replicate wells each, so replicate spread is testable."""
+    frames = []
+    for sirna, wells in (("Scrm", ["A1", "A2"]), ("PPP4C", ["B1", "B2"])):
+        for well in wells:
+            frames.append(
+                _measurements(well=well).with_columns(
+                    pl.lit(sirna).alias("sirna"),
+                    pl.lit("RPE-1").alias("cell_line"),
+                )
+            )
+    # Labels must be unique per well for the spread assertions to mean anything.
+    out = []
+    for offset, frame in enumerate(frames):
+        out.append(frame.with_columns(pl.col("label") + offset * 1000))
+    return pl.concat(out)
+
+
+class TestConditionAxis:
+    def test_detects_the_column_that_varies(self) -> None:
+        """cell_line is constant on 4127; sirna is the real phenotype axis."""
+        assert condition_column(_two_condition_df()) == "sirna"
+
+    def test_constant_column_is_not_a_condition(self) -> None:
+        df = _measurements().with_columns(pl.lit("RPE-1").alias("cell_line"))
+        assert condition_column(df) is None
+
+    def test_explicit_column_wins(self) -> None:
+        df = _two_condition_df()
+        cfg = MontageConfig(condition_col="cell_line")
+        assert condition_column(df, cfg) == "cell_line"
+
+    def test_unknown_explicit_column_raises(self) -> None:
+        with pytest.raises(MontageError, match="not in the CellView data"):
+            condition_column(
+                _two_condition_df(), MontageConfig(condition_col="nope")
+            )
+
+    def test_condition_axis_without_a_variable_explains_itself(self) -> None:
+        cfg = MontageConfig(pages="phase", rows="condition")
+        with pytest.raises(MontageError, match="nothing to compare"):
+            axis_column(_measurements(), "condition", cfg)
+
+
+class TestGridSelection:
+    def test_pages_and_rows_must_differ(self) -> None:
+        cfg = MontageConfig(pages="phase", rows="phase")
+        with pytest.raises(MontageError, match="must differ"):
+            select_grid(_two_condition_df(), cfg)
+
+    def test_phase_pages_condition_rows(self) -> None:
+        """The requested layout: a page per phase, a row per phenotype."""
+        cfg = MontageConfig(
+            pages="phase", rows="condition", cells_per_phase=1
+        )
+        grid, _ = select_grid(_two_condition_df(), cfg)
+        assert set(grid) == set(DEFAULT_PHASES)
+        assert set(grid["G1"]) == {"Scrm", "PPP4C"}
+        assert len(grid["G1"]["Scrm"]) == 1
+
+    def test_rows_carry_their_condition(self) -> None:
+        cfg = MontageConfig(
+            pages="phase", rows="condition", cells_per_phase=1
+        )
+        grid, _ = select_grid(_two_condition_df(), cfg)
+        assert grid["G1"]["PPP4C"][0].condition == "PPP4C"
+
+    def test_cells_come_from_the_phase_of_their_page(self) -> None:
+        cfg = MontageConfig(
+            pages="phase", rows="condition", cells_per_phase=2
+        )
+        grid, _ = select_grid(_two_condition_df(), cfg)
+        for phase, rows in grid.items():
+            for cells in rows.values():
+                assert all(c.phase == phase for c in cells)
+
+    def test_replicates_are_spread_across_wells(self) -> None:
+        """Two cells for a condition must not both come from one well.
+
+        Otherwise the row is a portrait of that well, and a well-specific
+        artefact reads as a phenotype.
+        """
+        cfg = MontageConfig(
+            pages="phase", rows="condition", cells_per_phase=2
+        )
+        grid, _ = select_grid(_two_condition_df(), cfg)
+        cells = grid["G1"]["Scrm"]
+        assert len(cells) == 2
+        assert {c.well for c in cells} == {"A1", "A2"}
+
+    def test_single_well_group_still_works(self) -> None:
+        """pages=well confines a group to one well; the rotation must no-op."""
+        cfg = MontageConfig(pages="well", rows="phase", cells_per_phase=2)
+        grid, _ = select_grid(_two_condition_df(), cfg)
+        assert {c.well for c in grid["A1"]["G1"]} == {"A1"}
+
+    def test_condition_pages_phase_rows(self) -> None:
+        cfg = MontageConfig(
+            pages="condition", rows="phase", cells_per_phase=1
+        )
+        grid, _ = select_grid(_two_condition_df(), cfg)
+        assert set(grid) == {"Scrm", "PPP4C"}
+        assert set(grid["Scrm"]) == set(DEFAULT_PHASES)
+
+    def test_grid_is_reproducible_from_the_seed(self) -> None:
+        cfg = MontageConfig(
+            pages="phase", rows="condition", cells_per_phase=2, seed=5
+        )
+        df = _two_condition_df()
+        first, _ = select_grid(df, cfg)
+        second, _ = select_grid(df, cfg)
+        assert [c.label for c in first["S"]["Scrm"]] == [
+            c.label for c in second["S"]["Scrm"]
+        ]
+
+
+class TestPageFilenames:
+    def test_filename_carries_the_axis(self, tmp_path: Path) -> None:
+        """Plate 4127 has both a well G1 and a phase G1."""
+        from omero_screen_napari.phase_montage import _safe
+
+        assert _safe("G2/M") == "G2-M"
+        _build_plate(well="C3")
+        paths, _ = export_plate_pdfs(
+            99, _measurements(well="C3"), tmp_path,
+            MontageConfig(cells_per_phase=1),
+        )
+        assert paths[0].name == "plate99_well-C3_montage.pdf"
+
+
+class TestLabelCollision:
+    """A neighbour's cell label can equal the target's nucleus label.
+
+    Labels are dense small integers and a crop holds ten to twenty cells, so on
+    plate 4127 this happened for 3.9% of cells — and matching on the ID first
+    outlined an unrelated neighbour in 12 of those 13 cases. The centre pixel is
+    authoritative because the nucleus centroid is the crop centre by
+    construction.
+    """
+
+    def _colliding_mask(self) -> np.ndarray:
+        """Target cell 2152 at the centre; an unrelated cell 2184 at the edge."""
+        mask = np.zeros((60, 60), dtype=np.uint32)
+        mask[20:40, 20:40] = 2152  # contains the centre (30, 30)
+        mask[0:8, 0:8] = 2184  # coincidentally equals the nucleus label
+        return mask
+
+    def test_centre_wins_over_a_coincidental_id_match(self) -> None:
+        assert resolve_mask_label(self._colliding_mask(), 2184) == 2152
+
+    def test_the_outline_encloses_the_centre(self) -> None:
+        """The failure was visible as an outline nowhere near the cell."""
+        mask = self._colliding_mask()
+        label = resolve_mask_label(mask, 2184)
+        outline = _outline(mask, label)
+        ys, xs = np.nonzero(outline)
+        assert ys.min() >= 15 and ys.max() <= 45, "outline is at the panel edge"
+
+    def test_nuclei_mask_still_resolves_to_itself(self) -> None:
+        """On the nuclei mask the ID does match, and the centre agrees."""
+        mask = np.zeros((60, 60), dtype=np.uint32)
+        mask[25:35, 25:35] = 2184
+        assert resolve_mask_label(mask, 2184) == 2184
+
+    def test_background_centre_falls_back_only_when_near(self) -> None:
+        """A far-away ID match is the same coincidence without a contradiction."""
+        far = np.zeros((60, 60), dtype=np.uint32)
+        far[0:5, 0:5] = 2184
+        assert resolve_mask_label(far, 2184) is None
+
+        near = np.zeros((60, 60), dtype=np.uint32)
+        near[28:33, 28:33] = 0
+        near[26:29, 26:29] = 2184  # within the centre radius
+        assert resolve_mask_label(near, 2184) == 2184
