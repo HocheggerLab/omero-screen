@@ -827,20 +827,41 @@ def resolve_mask_label(
 ) -> int | None:
     """Find which label in ``mask`` belongs to the target cell.
 
-    CellView's ``label`` is the **nucleus** label. The nuclei mask uses those
-    IDs directly, but the cell mask is labelled independently -- on plate 4127
-    nucleus 2184 sits inside cell 2152 -- so matching on the ID alone finds
-    nothing and silently outlines nobody. The nucleus centroid is at the crop
-    centre by construction, so the label under the centre pixel is the cell that
-    contains it.
+    **The centre pixel is authoritative, not the ID.** CellView's ``label`` is
+    the nucleus label; the nuclei mask uses those IDs directly but the cell mask
+    is labelled independently, so on the cell mask the ID means nothing. Since
+    labels are dense small integers and a crop holds ten to twenty cells, some
+    neighbour's *cell* label frequently equals the target's *nucleus* label by
+    coincidence -- measured at 3.9% of cells on plate 4127, and in 12 of those
+    13 cases matching on the ID outlined an unrelated neighbour.
+
+    The nucleus centroid is the crop centre by construction, so the object under
+    the centre pixel is the target in either mask.
+
+    Args:
+        mask: Label crop, centred on the target's nucleus centroid.
+        nucleus_label: CellView's ``label`` for the target.
 
     Returns:
-        The label to outline, or None if the centre falls on background.
+        The label to outline, or None if nothing identifiable sits at the centre.
     """
-    if (mask == nucleus_label).any():
-        return nucleus_label
-    centre = mask[mask.shape[0] // 2, mask.shape[1] // 2]
-    return int(centre) if centre else None
+    centre_y, centre_x = mask.shape[0] // 2, mask.shape[1] // 2
+    centre = int(mask[centre_y, centre_x])
+    if centre:
+        return centre
+
+    # Centre on background. Only then is the ID worth trying, and only if the
+    # matching region is actually near the centre -- otherwise it is the same
+    # coincidence again, just without a centre label to contradict it.
+    matched = mask == nucleus_label
+    if not matched.any():
+        return None
+    radius = max(2, min(mask.shape) // 10)
+    near = matched[
+        max(0, centre_y - radius) : centre_y + radius + 1,
+        max(0, centre_x - radius) : centre_x + radius + 1,
+    ]
+    return nucleus_label if near.any() else None
 
 
 def _outline(
