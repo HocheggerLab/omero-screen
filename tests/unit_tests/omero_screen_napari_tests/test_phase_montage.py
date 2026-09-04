@@ -19,6 +19,7 @@ import pytest
 
 from omero_screen_napari.phase_montage import (
     DEFAULT_PHASES,
+    _close,
     MontageConfig,
     MontageError,
     _crop_pixels,
@@ -27,6 +28,7 @@ from omero_screen_napari.phase_montage import (
     build_montage,
     channel_limits,
     export_well_pdf,
+    render_montage,
     resolve_mask_label,
     select_cells,
 )
@@ -40,24 +42,46 @@ def isolated_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
+DEFAULT_PER_PHASE = {"G1": 10, "S": 8, "G2/M": 6, "Polyploid": 5}
+
+
+def _cell_positions(
+    per_phase: dict[str, int] | None = None,
+) -> dict[int, tuple[int, int]]:
+    """``{label: (cy, cx)}`` — the single source of truth for cell placement."""
+    per_phase = per_phase or DEFAULT_PER_PHASE
+    rng = np.random.default_rng(0)
+    positions: dict[int, tuple[int, int]] = {}
+    label = 0
+    for count in per_phase.values():
+        for _ in range(count):
+            label += 1
+            positions[label] = (
+                int(rng.integers(80, 430)),
+                int(rng.integers(80, 430)),
+            )
+    return positions
+
+
 def _measurements(
     well: str = "C3", per_phase: dict[str, int] | None = None
 ) -> pl.DataFrame:
-    per_phase = per_phase or {"G1": 10, "S": 8, "G2/M": 6, "Polyploid": 5}
-    rng = np.random.default_rng(0)
+    per_phase = per_phase or DEFAULT_PER_PHASE
+    positions = _cell_positions(per_phase)
     rows = []
     label = 0
     for phase, count in per_phase.items():
         for _ in range(count):
             label += 1
+            cy, cx = positions[label]
             rows.append(
                 {
                     "plate_id": 99,
                     "well": well,
                     "label": label,
                     "cell_cycle": phase,
-                    "centroid_y": float(rng.integers(60, 450)),
-                    "centroid_x": float(rng.integers(60, 450)),
+                    "centroid_y": float(cy),
+                    "centroid_x": float(cx),
                     "equivalent_diameter_area_cell": (
                         34.0 if phase != "Polyploid" else 56.0
                     ),
@@ -69,7 +93,24 @@ def _measurements(
 CHANNELS = ["DAPI_R1", "Tub_R1", "Y15_R1", "p21_R2", "TP53_R3"]
 
 
+#: Realistic for these plates: plate 4127 is 1.187 um/px. The value matters —
+#: at 0.3 um/px a 20 um scale bar is wider than half the crop and is correctly
+#: suppressed, which silently disables the scale-bar assertions.
+PIXEL_SIZE_UM = 1.2
+
+
 def _build_plate(plate_id: int = 99, well: str = "C3", size: int = 512):
+    """Write a synthetic plate whose masks match ``_measurements()``.
+
+    The measurement centroids and the drawn masks are generated from the same
+    RNG stream, so a crop centred on a measurement actually contains that cell.
+    An earlier version drew masks at unrelated positions; every render test then
+    passed against panels with no cell in them, which is precisely the class of
+    fixture unrealism that hid the real-data bugs.
+
+    The cell mask is deliberately labelled **differently** from the nuclei mask
+    (offset by 1000), mirroring plate 4127 where nucleus 2184 sits in cell 2152.
+    """
     rng = np.random.default_rng(1)
     image = rng.integers(
         200, 3000, (1, len(CHANNELS), size, size), dtype=np.uint16
@@ -77,11 +118,10 @@ def _build_plate(plate_id: int = 99, well: str = "C3", size: int = 512):
     nuc = np.zeros((1, size, size), dtype=np.uint32)
     cells = np.zeros((1, size, size), dtype=np.uint32)
     yy, xx = np.ogrid[:size, :size]
-    for label in range(1, 30):
-        cy, cx = rng.integers(60, size - 60, 2)
-        nuc[0][(yy - cy) ** 2 + (xx - cx) ** 2 <= 12**2] = label
-        cells[0][(yy - cy) ** 2 + (xx - cx) ** 2 <= 20**2] = label
-    writer = PlateZarrWriter(plate_id, "demo", CHANNELS, 0.3, 1)
+    for label, (cy, cx) in _cell_positions().items():
+        nuc[0][(yy - cy) ** 2 + (xx - cx) ** 2 <= 10**2] = label
+        cells[0][(yy - cy) ** 2 + (xx - cx) ** 2 <= 18**2] = label + 1000
+    writer = PlateZarrWriter(plate_id, "demo", CHANNELS, PIXEL_SIZE_UM, 1)
     with writer:
         writer.ensure_plate(all_wells=[well])
         writer.write_well(well, image, nuc, cells)
@@ -299,7 +339,7 @@ class TestLimitsAndRender:
         ]
         assert len(montage.grey_indices) == 3
         assert set(montage.cells) == set(DEFAULT_PHASES)
-        assert montage.pixel_size_um == pytest.approx(0.3)
+        assert montage.pixel_size_um == pytest.approx(PIXEL_SIZE_UM)
 
     def test_missing_zarr_store_raises(self) -> None:
         with pytest.raises(MontageError, match="no zarr cache"):
@@ -451,3 +491,102 @@ class TestMaskLabelResolution:
         assert (
             _outline(mask, 3, width=3).sum() > _outline(mask, 3, width=1).sum()
         )
+
+
+class TestPanelAnnotation:
+    """The contour and scale bar go on *every* panel, not just the composite.
+
+    A montage is read panel by panel — a reader looking at one marker in
+    isolation has no other cue to which cell is the subject, or to scale.
+    """
+
+    def _figure(self):  # type: ignore[no-untyped-def]
+        _build_plate()
+        montage = build_montage(
+            99, "C3", _measurements(), MontageConfig(cells_per_phase=1)
+        )
+        return render_montage(montage), montage
+
+    def test_every_panel_has_a_scale_bar(self) -> None:
+        fig, montage = self._figure()
+        try:
+            for ax in fig.axes:
+                assert ax.patches, "panel has no scale bar"
+        finally:
+            _close(fig)
+
+    def test_every_panel_carries_an_image(self) -> None:
+        fig, montage = self._figure()
+        try:
+            n_cols = 1 + len(montage.grey_indices)
+            assert len(fig.axes) == n_cols * sum(
+                len(v) for v in montage.cells.values()
+            )
+            for ax in fig.axes:
+                assert ax.images
+        finally:
+            _close(fig)
+
+    def test_greyscale_panels_are_rgb_so_the_contour_can_be_coloured(
+        self,
+    ) -> None:
+        fig, montage = self._figure()
+        try:
+            # Column 0 is the composite; the rest are the greyscale markers.
+            for ax in fig.axes:
+                data = ax.images[0].get_array()
+                assert data.ndim == 3 and data.shape[2] == 3
+        finally:
+            _close(fig)
+
+    def test_contour_colour_present_on_a_grey_panel(self) -> None:
+        """The grey panel must actually carry the outline pixels."""
+        _build_plate()
+        montage = build_montage(
+            99, "C3", _measurements(), MontageConfig(cells_per_phase=1)
+        )
+        fig = render_montage(montage)
+        try:
+            n_cols = 1 + len(montage.grey_indices)
+            grey_ax = fig.axes[1]  # first row, first greyscale marker
+            data = np.asarray(grey_ax.images[0].get_array())
+            # Outline pixels are the only ones where the three bands differ.
+            assert (data[..., 0] != data[..., 2]).any(), (
+                "greyscale panel carries no coloured contour"
+            )
+            assert n_cols > 1
+        finally:
+            _close(fig)
+
+    def test_no_scale_bar_without_a_pixel_size(self) -> None:
+        """A bar with no known scale would be a lie."""
+        from omero_screen_napari.phase_montage import _add_scale_bar
+
+        fig = None
+        import matplotlib
+
+        matplotlib.use("Agg", force=False)
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        try:
+            _add_scale_bar(ax, 128, None)
+            assert not ax.patches
+        finally:
+            plt.close(fig)
+
+    def test_no_scale_bar_when_it_would_span_the_panel(self) -> None:
+        from omero_screen_napari.phase_montage import _add_scale_bar
+
+        import matplotlib
+
+        matplotlib.use("Agg", force=False)
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        try:
+            # 20 um at 1 um/px is 20px, against a 24px crop.
+            _add_scale_bar(ax, 24, 1.0)
+            assert not ax.patches
+        finally:
+            plt.close(fig)
