@@ -84,6 +84,9 @@ class MontageConfig:
         mask: Label layer outlined, falling back to ``"nuclei"`` when a plate
             has no cell masks.
         percentiles: Low/high percentiles for the per-channel display limits.
+        size_percentile: Percentile of the plate's cell-diameter distribution
+            used to size the crop. High by design -- see :func:`_crop_pixels`.
+        crop_factor: Multiple of that diameter to use as the crop edge.
         exclude_edge: Drop cells whose crop would run off the canvas. This is
             about the crop being incomplete, not about the cell, so it does not
             bias which cells are shown.
@@ -97,6 +100,8 @@ class MontageConfig:
     mask: str = "cells"
     percentiles: tuple[float, float] = (0.1, 99.9)
     exclude_edge: bool = True
+    size_percentile: float = 99.0
+    crop_factor: float = 1.4
 
 
 @dataclass(frozen=True)
@@ -108,7 +113,8 @@ class CellRef:
     label: int
     centroid: tuple[float, float]
     timepoint: int = 0
-    area: float | None = None
+    diameter: float | None = None
+    """Cell extent in pixels, used to size the crop. None if unavailable."""
 
 
 @dataclass
@@ -147,6 +153,57 @@ def _first_column(df: pl.DataFrame, *names: str) -> str | None:
     return next((n for n in names if n in df.columns), None)
 
 
+#: Centroid columns, in preference order. omero-screen writes regionprops names
+#: per compartment (``centroid-0-nuc`` / ``-cell``); the underscored forms are
+#: what a plain single-round export carries. The **nucleus** centroid is
+#: preferred as the crop centre: it is the segmentation anchor the cell-cycle
+#: call is made on, and it stays inside the cell for elongated or lopsided
+#: shapes where the whole-cell centroid can drift off the nucleus entirely.
+_Y_COLUMNS = ("centroid_y", "centroid-0-nuc", "centroid-0", "centroid-0-cell")
+_X_COLUMNS = ("centroid_x", "centroid-1-nuc", "centroid-1", "centroid-1-cell")
+
+#: Columns giving a cell's extent, in preference order, paired with whether the
+#: value is already a diameter. Whole-cell extent is preferred over nuclear:
+#: the crop has to hold the cell, and in polyploid cells the two diverge.
+_EXTENT_COLUMNS: tuple[tuple[str, bool], ...] = (
+    ("equivalent_diameter_area_cell", True),
+    ("area_cell", False),
+    ("area_convex_cell", False),
+    ("area_cyto", False),
+    ("equivalent_diameter_area_nucleus", True),
+    ("area_nucleus", False),
+    ("area", False),
+)
+
+
+def _extent_column(df: pl.DataFrame) -> tuple[str, bool] | None:
+    """The best available cell-extent column and whether it is a diameter."""
+    for name, is_diameter in _EXTENT_COLUMNS:
+        if name in df.columns:
+            return name, is_diameter
+    return None
+
+
+def _row_diameter(
+    row: dict[str, Any], extent: tuple[str, bool] | None
+) -> float | None:
+    """Cell diameter in pixels from whichever extent column the plate carries."""
+    if extent is None:
+        return None
+    name, is_diameter = extent
+    value = row.get(name)
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if numeric <= 0:
+        return None
+    # A region of area A has an equivalent diameter of 2*sqrt(A/pi).
+    return numeric if is_diameter else 2.0 * float(np.sqrt(numeric / np.pi))
+
+
 def select_cells(
     df: pl.DataFrame,
     well: str,
@@ -175,13 +232,16 @@ def select_cells(
         MontageError: if the well has no measurements or no phase column.
     """
     phase_col = _phase_column(df)
-    y_col = _first_column(df, "centroid_y", "centroid-0")
-    x_col = _first_column(df, "centroid_x", "centroid-1")
+    y_col = _first_column(df, *_Y_COLUMNS)
+    x_col = _first_column(df, *_X_COLUMNS)
     if y_col is None or x_col is None:
+        found = sorted(c for c in df.columns if "centroid" in c.lower())
         raise MontageError(
-            "No centroid columns in the CellView data for this plate"
+            "No usable centroid columns in the CellView data for this plate. "
+            f"Looked for {list(_Y_COLUMNS)} and {list(_X_COLUMNS)}; the plate "
+            f"has {found or 'no centroid columns at all'}."
         )
-    area_col = _first_column(df, "area_cell", "area_nucleus", "area")
+    extent = _extent_column(df)
 
     well_df = df.filter(pl.col("well") == well)
     if well_df.is_empty():
@@ -226,7 +286,7 @@ def select_cells(
                 timepoint=int(row.get("timepoint", 0) or 0)
                 if isinstance(row, dict)
                 else 0,
-                area=float(row[area_col]) if area_col else None,
+                diameter=_row_diameter(row, extent),
             )
             for row in rows.iter_rows(named=True)
         ]
@@ -290,24 +350,39 @@ def _resolve_overlay(
 
 def _crop_pixels(
     config: MontageConfig,
-    cells: dict[str, list[CellRef]],
+    df: pl.DataFrame,
+    well: str,
     pixel_size_um: float | None,
 ) -> int:
-    """Crop edge in pixels, sized so the largest selected cell still fits."""
+    """Crop edge in pixels.
+
+    Sized from a high percentile of the cell diameter **across the whole plate**,
+    restricted to the phases being shown, rather than from the cells this draw
+    happened to pick. Two reasons: a draw's maximum is noisy, so the crop would
+    change with the seed; and a plate-level figure wants every well at the same
+    scale, or panels cannot be compared side by side.
+
+    The percentile has to be high. On plate 4127 the p95 cell diameter is 74 px
+    but the polyploid p95 is 114 px, so a crop sized on the pooled p95 would clip
+    exactly the phenotype the montage exists to show.
+    """
     if config.crop_um is not None and pixel_size_um:
         return max(16, int(round(config.crop_um / pixel_size_um)))
-    areas = [
-        cell.area
-        for refs in cells.values()
-        for cell in refs
-        if cell.area is not None and cell.area > 0
-    ]
-    if not areas:
+
+    extent = _extent_column(df)
+    phase_col = _phase_column(df)
+    if extent is None:
         return 128
-    # A cell of area A has a diameter of roughly 2*sqrt(A/pi); 2.5x that leaves
-    # visible surroundings and keeps a polyploid cell inside the frame.
-    diameter = 2.0 * np.sqrt(max(areas) / np.pi)
-    return int(np.clip(round(diameter * 2.5 / 2) * 2, 32, 1024))
+    name, is_diameter = extent
+    shown = df.filter(pl.col(phase_col).is_in(list(config.phases)))
+    values = shown[name].drop_nulls().to_numpy()
+    values = values[values > 0]
+    if values.size == 0:
+        return 128
+    if not is_diameter:
+        values = 2.0 * np.sqrt(values / np.pi)
+    diameter = float(np.percentile(values, config.size_percentile))
+    return int(np.clip(round(diameter * config.crop_factor / 2) * 2, 32, 1024))
 
 
 def build_montage(
@@ -337,10 +412,9 @@ def build_montage(
     well_data = read_well(plate_id, well)
     canvas = np.asarray(well_data["image"][0].shape[-2:])
 
-    # Two passes: an initial selection to size the crop from real cell areas,
-    # then a re-selection with the edge filter applied at that size.
-    provisional, _ = select_cells(df, well, config)
-    crop_px = _crop_pixels(config, provisional, pixel_size_um)
+    # The crop is sized from the plate, not from this draw, so it is stable
+    # across seeds and comparable across wells; selection then happens once.
+    crop_px = _crop_pixels(config, df, well, pixel_size_um)
     cells, warnings = select_cells(
         df,
         well,
@@ -397,17 +471,47 @@ def _composite(
     return np.clip(rgb, 0.0, 1.0)
 
 
-def _outline(mask: npt.NDArray[Any], label: int) -> npt.NDArray[np.bool_]:
-    """Boundary of the target cell only, so neighbours are not outlined."""
+def resolve_mask_label(
+    mask: npt.NDArray[Any], nucleus_label: int
+) -> int | None:
+    """Find which label in ``mask`` belongs to the target cell.
+
+    CellView's ``label`` is the **nucleus** label. The nuclei mask uses those
+    IDs directly, but the cell mask is labelled independently -- on plate 4127
+    nucleus 2184 sits inside cell 2152 -- so matching on the ID alone finds
+    nothing and silently outlines nobody. The nucleus centroid is at the crop
+    centre by construction, so the label under the centre pixel is the cell that
+    contains it.
+
+    Returns:
+        The label to outline, or None if the centre falls on background.
+    """
+    if (mask == nucleus_label).any():
+        return nucleus_label
+    centre = mask[mask.shape[0] // 2, mask.shape[1] // 2]
+    return int(centre) if centre else None
+
+
+def _outline(
+    mask: npt.NDArray[Any], label: int | None, width: int = 2
+) -> npt.NDArray[np.bool_]:
+    """Boundary of the target cell only, so neighbours are not outlined.
+
+    Drawn ``width`` pixels thick: a single-pixel boundary is invisible once the
+    page is scaled down to a montage panel.
+    """
     from skimage.segmentation import find_boundaries
 
+    if label is None:
+        return np.zeros(mask.shape, dtype=bool)
     target = mask == label
     if not target.any():
-        # The centroid can land on a neighbouring label after alignment;
-        # outlining nothing is better than outlining the wrong cell.
         return np.zeros(mask.shape, dtype=bool)
-    boundary: npt.NDArray[np.bool_] = find_boundaries(target, mode="outer")
-    return boundary
+    boundary = find_boundaries(target, mode="outer")
+    for _ in range(max(0, width - 1)):
+        boundary |= np.roll(boundary, 1, axis=0) | np.roll(boundary, 1, axis=1)
+    result: npt.NDArray[np.bool_] = boundary & ~target
+    return result
 
 
 def render_montage(montage: WellMontage) -> Any:
@@ -437,6 +541,7 @@ def render_montage(montage: WellMontage) -> Any:
     )
 
     mask_name = montage.config.mask
+    unoutlined: list[str] = []
     for row_index, (phase, cell) in enumerate(rows):
         crop = fetch_crop(
             montage.plate_id,
@@ -464,7 +569,13 @@ def render_montage(montage: WellMontage) -> Any:
                 t=cell.timepoint,
                 mask_name="nuclei",
             )
-        outline = _outline(mask, cell.label)
+        # CellView's label is the nucleus label; the cell mask is labelled
+        # independently, so the cell has to be found by what sits under the
+        # centre pixel rather than by matching the ID.
+        mask_label = resolve_mask_label(mask, cell.label)
+        if mask_label is None:
+            unoutlined.append(f"{cell.phase} {cell.label}")
+        outline = _outline(mask, mask_label)
 
         rgb = _composite(crop, montage.overlay_indices, montage.limits)
         rgb[outline] = _OUTLINE_RGB
@@ -534,6 +645,13 @@ def render_montage(montage: WellMontage) -> Any:
     )
     if montage.pixel_size_um:
         subtitle += f" ({montage.crop_px * montage.pixel_size_um:.0f} µm)"
+    if unoutlined:
+        # Visible rather than silent: a panel with no outline is ambiguous
+        # about which cell it is showing.
+        logger.warning(
+            f"{montage.well}: no mask found for {len(unoutlined)} cell(s), "
+            f"drawn without an outline: {unoutlined}"
+        )
     fig.suptitle(subtitle, fontsize=7)
     fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.98))
     return fig
