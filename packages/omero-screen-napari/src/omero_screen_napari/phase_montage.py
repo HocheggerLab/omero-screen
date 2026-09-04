@@ -514,13 +514,44 @@ def _outline(
     return result
 
 
+#: Scale-bar length in microns. Stated once in the figure subtitle rather than
+#: labelled on all ~180 panels, which would be pure clutter at this density.
+SCALE_BAR_UM = 20.0
+
+
+def _add_scale_bar(ax: Any, crop_px: int, pixel_size_um: float | None) -> None:
+    """Draw an unlabelled scale bar in the bottom-left of one panel.
+
+    Every panel gets one: a montage is cropped per cell, so a reader looking at
+    any single panel in isolation -- which is how a figure is actually read --
+    has no other cue to size. The length is identical everywhere and is stated
+    in the subtitle, so the bars themselves stay unlabelled.
+    """
+    from matplotlib.patches import Rectangle
+
+    if not pixel_size_um:
+        return
+    bar_px = SCALE_BAR_UM / pixel_size_um
+    if bar_px >= crop_px * 0.6:
+        # Too long to read as a bar rather than as a line across the panel.
+        return
+    ax.add_patch(
+        Rectangle(
+            (crop_px * 0.05, crop_px * 0.93),
+            bar_px,
+            max(crop_px * 0.018, 1.0),
+            color="white",
+            zorder=5,
+        )
+    )
+
+
 def render_montage(montage: WellMontage) -> Any:
     """Draw the montage and return the matplotlib Figure."""
     import matplotlib
 
     matplotlib.use("Agg", force=False)
     import matplotlib.pyplot as plt
-    from matplotlib.patches import Rectangle
 
     cfg = montage.config
     rows = [
@@ -597,13 +628,13 @@ def render_montage(montage: WellMontage) -> Any:
 
         for col, channel in enumerate(montage.grey_indices, start=1):
             gax = axes[row_index][col]
-            gax.imshow(
-                _normalise(crop[channel], montage.limits[channel]),
-                cmap="gray",
-                vmin=0.0,
-                vmax=1.0,
-                interpolation="nearest",
-            )
+            # Rendered as RGB rather than through a grey colormap so the
+            # contour can be drawn in colour on top. The image itself is still
+            # greyscale -- the three bands carry the same values.
+            grey = _normalise(crop[channel], montage.limits[channel])
+            panel = np.repeat(grey[..., np.newaxis], 3, axis=2)
+            panel[outline] = _OUTLINE_RGB
+            gax.imshow(panel, interpolation="nearest")
             if row_index == 0:
                 gax.set_title(montage.channel_names[channel], fontsize=6)
 
@@ -612,31 +643,7 @@ def render_montage(montage: WellMontage) -> Any:
             ax_.set_yticks([])
             for spine in ax_.spines.values():
                 spine.set_visible(False)
-
-    # Scale bar on the last panel of the last row.
-    if montage.pixel_size_um:
-        bar_um = 20.0
-        bar_px = bar_um / montage.pixel_size_um
-        if bar_px < montage.crop_px * 0.9:
-            ax = axes[-1][-1]
-            y = montage.crop_px * 0.92
-            x = montage.crop_px * 0.06
-            ax.add_patch(
-                Rectangle(
-                    (x, y),
-                    bar_px,
-                    max(montage.crop_px * 0.015, 1.0),
-                    color="white",
-                )
-            )
-            ax.text(
-                x,
-                y - montage.crop_px * 0.03,
-                f"{bar_um:.0f} µm",
-                color="white",
-                fontsize=5,
-                va="bottom",
-            )
+            _add_scale_bar(ax_, montage.crop_px, montage.pixel_size_um)
 
     subtitle = (
         f"plate {montage.plate_id} · well {montage.well} · "
@@ -644,7 +651,10 @@ def render_montage(montage: WellMontage) -> Any:
         f"crop {montage.crop_px}px"
     )
     if montage.pixel_size_um:
-        subtitle += f" ({montage.crop_px * montage.pixel_size_um:.0f} µm)"
+        subtitle += (
+            f" ({montage.crop_px * montage.pixel_size_um:.0f} µm)"
+            f" · scale bar {SCALE_BAR_UM:.0f} µm"
+        )
     if unoutlined:
         # Visible rather than silent: a panel with no outline is ambiguous
         # about which cell it is showing.
