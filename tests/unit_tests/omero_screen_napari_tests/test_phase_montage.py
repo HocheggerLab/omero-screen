@@ -839,3 +839,49 @@ class TestPageFilenames:
             MontageConfig(cells_per_phase=1),
         )
         assert paths[0].name == "plate99_well-C3_montage.pdf"
+
+
+class TestLabelCollision:
+    """A neighbour's cell label can equal the target's nucleus label.
+
+    Labels are dense small integers and a crop holds ten to twenty cells, so on
+    plate 4127 this happened for 3.9% of cells — and matching on the ID first
+    outlined an unrelated neighbour in 12 of those 13 cases. The centre pixel is
+    authoritative because the nucleus centroid is the crop centre by
+    construction.
+    """
+
+    def _colliding_mask(self) -> np.ndarray:
+        """Target cell 2152 at the centre; an unrelated cell 2184 at the edge."""
+        mask = np.zeros((60, 60), dtype=np.uint32)
+        mask[20:40, 20:40] = 2152  # contains the centre (30, 30)
+        mask[0:8, 0:8] = 2184  # coincidentally equals the nucleus label
+        return mask
+
+    def test_centre_wins_over_a_coincidental_id_match(self) -> None:
+        assert resolve_mask_label(self._colliding_mask(), 2184) == 2152
+
+    def test_the_outline_encloses_the_centre(self) -> None:
+        """The failure was visible as an outline nowhere near the cell."""
+        mask = self._colliding_mask()
+        label = resolve_mask_label(mask, 2184)
+        outline = _outline(mask, label)
+        ys, xs = np.nonzero(outline)
+        assert ys.min() >= 15 and ys.max() <= 45, "outline is at the panel edge"
+
+    def test_nuclei_mask_still_resolves_to_itself(self) -> None:
+        """On the nuclei mask the ID does match, and the centre agrees."""
+        mask = np.zeros((60, 60), dtype=np.uint32)
+        mask[25:35, 25:35] = 2184
+        assert resolve_mask_label(mask, 2184) == 2184
+
+    def test_background_centre_falls_back_only_when_near(self) -> None:
+        """A far-away ID match is the same coincidence without a contradiction."""
+        far = np.zeros((60, 60), dtype=np.uint32)
+        far[0:5, 0:5] = 2184
+        assert resolve_mask_label(far, 2184) is None
+
+        near = np.zeros((60, 60), dtype=np.uint32)
+        near[28:33, 28:33] = 0
+        near[26:29, 26:29] = 2184  # within the centre radius
+        assert resolve_mask_label(near, 2184) == 2184
