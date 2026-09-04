@@ -27,6 +27,7 @@ from omero_screen_napari.phase_montage import (
     build_montage,
     channel_limits,
     export_well_pdf,
+    resolve_mask_label,
     select_cells,
 )
 from omero_screen_napari.zarr_cache import PlateZarrWriter
@@ -57,7 +58,9 @@ def _measurements(
                     "cell_cycle": phase,
                     "centroid_y": float(rng.integers(60, 450)),
                     "centroid_x": float(rng.integers(60, 450)),
-                    "area_cell": 900.0 if phase != "Polyploid" else 2500.0,
+                    "equivalent_diameter_area_cell": (
+                        34.0 if phase != "Polyploid" else 56.0
+                    ),
                 }
             )
     return pl.DataFrame(rows)
@@ -154,14 +157,22 @@ class TestSelection:
         df = pl.DataFrame(
             [
                 {
-                    "plate_id": 99, "well": "C3", "label": 1,
-                    "cell_cycle": "G1", "centroid_y": 5.0,
-                    "centroid_x": 5.0, "area_cell": 900.0,
+                    "plate_id": 99,
+                    "well": "C3",
+                    "label": 1,
+                    "cell_cycle": "G1",
+                    "centroid_y": 5.0,
+                    "centroid_x": 5.0,
+                    "equivalent_diameter_area_cell": 34.0,
                 },
                 {
-                    "plate_id": 99, "well": "C3", "label": 2,
-                    "cell_cycle": "G1", "centroid_y": 250.0,
-                    "centroid_x": 250.0, "area_cell": 900.0,
+                    "plate_id": 99,
+                    "well": "C3",
+                    "label": 2,
+                    "cell_cycle": "G1",
+                    "centroid_y": 250.0,
+                    "centroid_x": 250.0,
+                    "equivalent_diameter_area_cell": 34.0,
                 },
             ]
         )
@@ -185,29 +196,48 @@ class TestSelection:
 
 
 class TestCropSizing:
-    def test_sized_from_the_largest_cell(self) -> None:
-        """A constant chosen for G1 would clip polyploid cells."""
-        small, _ = select_cells(
-            _measurements(per_phase={"G1": 5}),
-            "C3",
+    def test_large_cells_give_a_larger_crop(self) -> None:
+        """A size tuned for G1 would clip exactly the polyploid phenotype."""
+        small = _crop_pixels(
             MontageConfig(phases=("G1",)),
-        )
-        big, _ = select_cells(
-            _measurements(per_phase={"Polyploid": 5}),
+            _measurements(per_phase={"G1": 20}),
             "C3",
+            0.3,
+        )
+        big = _crop_pixels(
             MontageConfig(phases=("Polyploid",)),
+            _measurements(per_phase={"Polyploid": 20}),
+            "C3",
+            0.3,
         )
-        assert _crop_pixels(MontageConfig(), big, 0.3) > _crop_pixels(
-            MontageConfig(), small, 0.3
+        assert big > small
+
+    def test_does_not_depend_on_the_draw(self) -> None:
+        """Sized from the plate, so the crop is stable across seeds and wells."""
+        df = _measurements()
+        a = _crop_pixels(MontageConfig(seed=1), df, "C3", 0.3)
+        b = _crop_pixels(MontageConfig(seed=99), df, "C3", 0.3)
+        assert a == b
+
+    def test_only_shown_phases_count(self) -> None:
+        """Excluding Polyploid must not leave the crop sized for it."""
+        df = _measurements()
+        with_poly = _crop_pixels(
+            MontageConfig(phases=("G1", "Polyploid")), df, "C3", 0.3
         )
+        without = _crop_pixels(MontageConfig(phases=("G1",)), df, "C3", 0.3)
+        assert with_poly > without
 
     def test_explicit_microns_win(self) -> None:
-        cells, _ = select_cells(_measurements(), "C3", MontageConfig())
-        assert _crop_pixels(MontageConfig(crop_um=30.0), cells, 0.5) == 60
+        assert (
+            _crop_pixels(
+                MontageConfig(crop_um=30.0), _measurements(), "C3", 0.5
+            )
+            == 60
+        )
 
     def test_always_even_and_bounded(self) -> None:
-        cells, _ = select_cells(_measurements(), "C3", MontageConfig())
-        px = _crop_pixels(MontageConfig(), cells, 0.3)
+        px = _crop_pixels(MontageConfig(), _measurements(), "C3", 0.3)
         assert px % 2 == 0
         assert 32 <= px <= 1024
 
@@ -294,3 +324,130 @@ class TestLimitsAndRender:
         assert {p: [c.label for c in v] for p, v in a.cells.items()} == {
             p: [c.label for c in v] for p, v in b.cells.items()
         }
+
+
+class TestRealSchemaColumns:
+    """Column names as omero-screen actually writes them.
+
+    Plate 4127 exports `centroid-0-nuc` / `centroid-1-nuc`, not `centroid_y` /
+    `centroid_x`, so the first run against real data failed with "No centroid
+    columns". regionprops names are per compartment and the montage has to
+    accept all of them.
+    """
+
+    def _regionprops_df(self) -> pl.DataFrame:
+        return pl.DataFrame(
+            [
+                {
+                    "plate_id": 4127,
+                    "well": "C3",
+                    "label": 2184,
+                    "cell_cycle": "G1",
+                    "centroid-0-nuc": 900.0,
+                    "centroid-1-nuc": 800.0,
+                    "centroid-0-cell": 905.0,
+                    "centroid-1-cell": 812.0,
+                    "equivalent_diameter_area_cell": 41.0,
+                    "equivalent_diameter_area_nucleus": 14.0,
+                }
+            ]
+        )
+
+    def test_regionprops_centroid_columns_resolve(self) -> None:
+        cells, _ = select_cells(
+            self._regionprops_df(), "C3", MontageConfig(phases=("G1",))
+        )
+        assert len(cells["G1"]) == 1
+
+    def test_nucleus_centroid_is_preferred_over_cell(self) -> None:
+        """The nucleus is the segmentation anchor the phase call is made on."""
+        cells, _ = select_cells(
+            self._regionprops_df(), "C3", MontageConfig(phases=("G1",))
+        )
+        assert cells["G1"][0].centroid == (900.0, 800.0)
+
+    def test_cell_extent_preferred_over_nuclear(self) -> None:
+        """The crop must hold the cell; in polyploid cells the two diverge."""
+        cells, _ = select_cells(
+            self._regionprops_df(), "C3", MontageConfig(phases=("G1",))
+        )
+        assert cells["G1"][0].diameter == 41.0
+
+    def test_error_names_the_columns_it_found(self) -> None:
+        df = (
+            self._regionprops_df()
+            .rename(
+                {
+                    "centroid-0-nuc": "y_position",
+                    "centroid-1-nuc": "x_position",
+                }
+            )
+            .drop(["centroid-0-cell", "centroid-1-cell"])
+        )
+        with pytest.raises(MontageError, match="no centroid columns at all"):
+            select_cells(df, "C3", MontageConfig())
+
+    def test_area_columns_still_work(self) -> None:
+        """Plates without an equivalent-diameter column fall back to area."""
+        df = (
+            self._regionprops_df()
+            .drop(
+                [
+                    "equivalent_diameter_area_cell",
+                    "equivalent_diameter_area_nucleus",
+                ]
+            )
+            .with_columns(pl.lit(1256.0).alias("area_cell"))
+        )
+        cells, _ = select_cells(df, "C3", MontageConfig(phases=("G1",)))
+        # area 1256 -> equivalent diameter 2*sqrt(1256/pi) ~= 40
+        assert cells["G1"][0].diameter == pytest.approx(40.0, abs=0.5)
+
+
+class TestMaskLabelResolution:
+    """CellView's `label` is the nucleus label; the cell mask is labelled independently.
+
+    On plate 4127, nucleus 2184 sits inside cell 2152. Matching on the ID alone
+    found nothing and every panel was drawn with no outline at all — silently,
+    because an empty boundary is a valid array.
+    """
+
+    def _mask(self, label: int) -> np.ndarray:
+        mask = np.zeros((40, 40), dtype=np.uint32)
+        mask[10:30, 10:30] = label
+        return mask
+
+    def test_matching_label_is_used_directly(self) -> None:
+        assert resolve_mask_label(self._mask(2184), 2184) == 2184
+
+    def test_falls_back_to_the_label_under_the_centre(self) -> None:
+        """The nucleus centroid is the crop centre by construction."""
+        assert resolve_mask_label(self._mask(2152), 2184) == 2152
+
+    def test_background_centre_resolves_to_nothing(self) -> None:
+        mask = np.zeros((40, 40), dtype=np.uint32)
+        mask[0:5, 0:5] = 7
+        assert resolve_mask_label(mask, 2184) is None
+
+    def test_outline_is_drawn_for_the_resolved_label(self) -> None:
+        mask = self._mask(2152)
+        outline = _outline(mask, resolve_mask_label(mask, 2184))
+        assert outline.any(), "the cell must be outlined via the centre lookup"
+
+    def test_outline_of_none_is_empty_not_an_error(self) -> None:
+        assert not _outline(self._mask(5), None).any()
+
+    def test_outline_does_not_cover_the_cell_interior(self) -> None:
+        """It is an outline, not a filled overlay — the pixels must stay visible."""
+        mask = self._mask(3)
+        outline = _outline(mask, 3, width=3)
+        interior = np.zeros_like(mask, dtype=bool)
+        interior[15:25, 15:25] = True
+        assert not (outline & interior).any()
+
+    def test_outline_width_is_thicker_than_one_pixel(self) -> None:
+        """A 1px boundary is invisible once scaled to a montage panel."""
+        mask = self._mask(3)
+        assert (
+            _outline(mask, 3, width=3).sum() > _outline(mask, 3, width=1).sum()
+        )
