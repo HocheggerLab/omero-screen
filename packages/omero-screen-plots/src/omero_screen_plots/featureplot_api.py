@@ -36,6 +36,7 @@ def feature_plot(
     within_group_spacing: float = 0.2,
     between_group_gap: float = 0.5,
     paired: bool = True,
+    show_significance: bool = True,
     show_ns: bool = True,
     scatter_size: float = 7.0,
     min_effect: float | None = None,
@@ -89,6 +90,11 @@ def feature_plot(
     paired : bool, default=True
         Use a paired t-test (ttest_rel, matched by plate_id) for significance;
         set False for the unpaired ttest_ind.
+    show_significance : bool, default=True
+        Annotate significance marks. Set False to plot the distributions and
+        the per-repeat medians without a test -- appropriate when n is small
+        enough that the reader should judge the spread directly, or when many
+        comparisons are shown side by side without correction.
     normalise_within_plate : bool, default=True
         Test the per-plate log fold-change ln(cond/control) vs 0 rather than the
         absolute feature difference. Removes a multiplicative plate baseline so
@@ -166,7 +172,7 @@ def feature_plot(
         between_group_gap=between_group_gap,
         show_x_labels=x_label,
         rotation=45,
-        show_significance=True,
+        show_significance=show_significance,
         show_repeat_points=True,
         paired=paired,
         show_ns=show_ns,
