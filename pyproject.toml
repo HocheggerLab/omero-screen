@@ -266,4 +266,9 @@ version_provider = "commitizen"
 major_version_zero = true
 bump_message = "bump: version $current_version → $new_version"
 update_changelog_on_bump = true
+# uv.lock pins the workspace members by version, so it has to be regenerated
+# with the new version before the bump is committed. cz runs pre_bump_hooks
+# after rewriting the version files and commits with `git commit -a`, so the
+# refreshed lockfile is swept into the bump commit itself.
+pre_bump_hooks = ["uv lock"]
 annotated_tag = true
