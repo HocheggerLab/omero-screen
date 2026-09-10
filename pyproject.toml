@@ -260,6 +260,9 @@ version_files = [
     "packages/omero-utils/pyproject.toml:version",
     "packages/omero-utils/src/omero_utils/__init__.py:__version__",
     "packages/omero-utils/README.md:version-[0-9]+\\.[0-9]+\\.[0-9]+",
+    "packages/cellclass/pyproject.toml:version",
+    "packages/cellclass/src/cellclass/__init__.py:__version__",
+    "packages/cellclass/README.md:version-[0-9]+\\.[0-9]+\\.[0-9]+",
     "README.md:version-[0-9]+\\.[0-9]+\\.[0-9]+",
 ]
 version_provider = "commitizen"

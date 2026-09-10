@@ -357,7 +357,7 @@ wheels = [
 
 [[package]]
 name = "cellclass"
-version = "0.1.0"
+version = "0.7.1"
 source = { editable = "packages/cellclass" }
 dependencies = [
     { name = "click" },
