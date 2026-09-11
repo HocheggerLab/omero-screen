@@ -1,0 +1,5 @@
+{
+  "defaultProvider": "ollama-tailscale",
+  "defaultModel": "qwen38-agent:latest",
+  "enabledModels": ["ollama-tailscale/qwen38-agent:latest"]
+}

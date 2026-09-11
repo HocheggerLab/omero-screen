@@ -1,0 +1,16 @@
+{
+  "providers": {
+    "ollama-tailscale": {
+      "baseUrl": "__OLLAMA_BASE_URL__",
+      "api": "openai-completions",
+      "apiKey": "ollama",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        { "id": "qwen38-agent:latest", "name": "Qwen 3.8 Agent (Ollama via Tailscale)" }
+      ]
+    }
+  }
+}
