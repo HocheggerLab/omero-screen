@@ -59,6 +59,11 @@ services:
       - omeroserver
     volumes:
       - "./.env:/app/.env:ro"
+      # Cellpose models. MODEL_DICT names custom lab models that do not exist
+      # on cellpose.org, so a run without these fails at model download. The
+      # image sets CELLPOSE_LOCAL_MODELS_PATH=/models. A bind mount copies
+      # nothing, so pointing at the whole directory is free.
+      - "${CELLPOSE_MODELS:-$HOME/.cellpose/models}:/models:ro"
     command: ["omero-screen", "--help"]
 
   # Same image, CUDA build. Needs a host driver supporting CUDA 12.8 and the
@@ -77,6 +82,11 @@ services:
       - omero
     volumes:
       - "./.env:/app/.env:ro"
+      # Cellpose models. MODEL_DICT names custom lab models that do not exist
+      # on cellpose.org, so a run without these fails at model download. The
+      # image sets CELLPOSE_LOCAL_MODELS_PATH=/models. A bind mount copies
+      # nothing, so pointing at the whole directory is free.
+      - "${CELLPOSE_MODELS:-$HOME/.cellpose/models}:/models:ro"
     deploy:
       resources:
         reservations:
