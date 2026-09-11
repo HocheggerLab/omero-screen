@@ -1,0 +1,20 @@
+# Keep the build context small: it is copied wholesale in the source stage.
+.git
+.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/*.egg-info
+.env
+.env.*
+_site
+great-docs
+docs/_build
+notebooks
+**/.ipynb_checkpoints
+*.zarr
+*.npz
+*.npy
+logs

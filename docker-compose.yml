@@ -37,6 +37,55 @@ services:
     depends_on:
       - omeroserver
 
+  # Headless pipeline runtime. Behind a profile so `docker compose up` still
+  # brings up only the server stack:
+  #
+  #   docker compose --profile pipeline run --rm pipeline omero-screen --help
+  #
+  # Credentials come from a .env you supply at the repo root, mounted
+  # read-only. Note that omero_screen loads it with override=True, so the FILE
+  # WINS over any -e flag or `environment:` entry — to talk to the compose
+  # server the file must itself say `HOST=omeroserver`, not localhost.
+  pipeline:
+    profiles: ["pipeline"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        TORCH_EXTRA: cpu
+    networks:
+      - omero
+    depends_on:
+      - omeroserver
+    volumes:
+      - "./.env:/app/.env:ro"
+    command: ["omero-screen", "--help"]
+
+  # Same image, CUDA build. Needs a host driver supporting CUDA 12.8 and the
+  # NVIDIA container toolkit:
+  #
+  #   docker compose --profile pipeline-gpu run --rm pipeline-gpu \
+  #       python -c "import torch; print(torch.cuda.is_available())"
+  pipeline-gpu:
+    profiles: ["pipeline-gpu"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        TORCH_EXTRA: cu128
+    networks:
+      - omero
+    volumes:
+      - "./.env:/app/.env:ro"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: ["omero-screen", "--help"]
+
 networks:
   omero:
 
