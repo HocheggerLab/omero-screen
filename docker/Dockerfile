@@ -1,21 +1,20 @@
 # Headless omero-screen runtime.
 #
-# Two build variants, selected by TORCH_EXTRA:
-#   cpu    -> torch 2.9.1+cpu, no CUDA payload (linux/arm64 and amd64)
-#   cu128  -> torch 2.9.1+cu128, needs `--gpus all` and a host driver
-#             supporting CUDA 12.8
+# torch comes from PyPI: on linux/arm64 that wheel is CPU-only, on
+# linux/amd64 it carries the CUDA stack and works with `--gpus all`. Selecting
+# a build via the PyTorch indexes was tried and reverted — that index serves a
+# torchvision 0.24.1+d801a34 with only win_arm64 wheels, which uv picks as the
+# highest version and which then fails to install anywhere else.
 #
-# Neither installs napari: `--no-default-groups` drops the `gui` group, which is
+# The image does not install napari: `--no-default-groups` drops the `gui` group, which is
 # the whole point — napari[all] pulls pyqt5, pyqt5-qt5 and triangle, none of
 # which ship linux/arm64 wheels. The core pipeline never imports napari.
 #
-#   docker build -f docker/Dockerfile --build-arg TORCH_EXTRA=cu128 -t omero-screen:cu128 .
-#   docker run --rm --gpus all --env-file .env.production omero-screen:cu128 omero-screen --help
+#   docker build -f docker/Dockerfile -t omero-screen .
+#   docker run --rm --gpus all -v "$PWD/.env:/app/.env:ro" omero-screen omero-screen --help
 
 # ---------------------------------------------------------------- builder ---
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
-
-ARG TORCH_EXTRA=cpu
 
 # numcodecs (via trackastra -> geff) ships no linux/arm64 wheel and compiles
 # from source, so the builder needs a C/C++ toolchain. It stays in this stage.
@@ -38,7 +37,7 @@ COPY packages/omero-screen-plots/pyproject.toml packages/omero-screen-plots/
 COPY packages/cellview/pyproject.toml packages/cellview/
 COPY packages/cellclass/pyproject.toml packages/cellclass/
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-default-groups --extra "${TORCH_EXTRA}" --no-install-workspace
+    uv sync --locked --no-default-groups --no-install-workspace
 
 # Then the source, and a second pass to install the workspace packages.
 # An explicit allowlist rather than `COPY . .`: with a blanket copy the
@@ -52,7 +51,7 @@ COPY tests/ tests/
 COPY packages/ packages/
 COPY skills/ skills/
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-default-groups --extra "${TORCH_EXTRA}"
+    uv sync --locked --no-default-groups
 
 # ---------------------------------------------------------------- runtime ---
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime

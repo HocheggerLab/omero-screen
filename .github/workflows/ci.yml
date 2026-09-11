@@ -68,14 +68,11 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        # Not `--all-extras`: `cpu` and `cu128` select torch from different
-        # PyTorch indexes and are declared as conflicting, so --all-extras
-        # fails resolution outright. CI is CPU-only, so name `cpu` — which
-        # also stops CI downloading the 15 nvidia-* packages and triton it
-        # could never use. The `gui` group stays in by default, so napari is
-        # still installed for its tests.
+        # Plain sync: the default groups (dev, gui) cover the test suite,
+        # napari included. There are no torch extras to name — torch comes
+        # from PyPI as it always did.
         run: |
-          uv sync --extra cpu --dev
+          uv sync --dev
 
       - name: Lint with Ruff
         run: uv run ruff check .

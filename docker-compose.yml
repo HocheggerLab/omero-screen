@@ -51,8 +51,6 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-      args:
-        TORCH_EXTRA: cpu
     networks:
       - omero
     depends_on:
@@ -76,8 +74,6 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-      args:
-        TORCH_EXTRA: cu128
     networks:
       - omero
     volumes:

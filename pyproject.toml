@@ -30,7 +30,7 @@ dependencies = [
     "tqdm>=4.67.1",
     "matplotlib>=3.10.1",
     "numpy>=1.26.4",
-    "torch==2.9.1",
+    "torch>=2.7.0",
     "seaborn>=0.13.2",
     "duckdb>=1.2.2",
     "cellview",
@@ -57,19 +57,6 @@ dependencies = [
 # linux/arm64 wheels. src/omero_screen never imports napari — only the
 # bin/phase_montage.py utility does — so the core pipeline is unaffected.
 gui = ["omero-screen-napari[qt]"]
-
-# Torch build selection. PyPI's default linux/x86_64 torch wheel drags in 15
-# nvidia-* packages plus triton, which a CPU container does not want and cannot
-# use. These two extras are mutually exclusive: sync `cpu` in the container,
-# `cu128` on the RTX5090 box and Artemis. Syncing neither leaves torch on the
-# default PyPI wheel.
-# Pinned exactly, not ranged: the resolver forks these extras create otherwise
-# let each fork drift to a different torch, and a bare `uv sync` on macOS was
-# silently jumping 2.9.1 -> 2.14.0. Segmentation and tracking numerics depend on
-# this version, so it moves deliberately or not at all. cu128, not cu126 — the
-# cu126 index has no 2.9.1 (it starts at 2.10.0).
-cpu = ["torch==2.9.1", "torchvision==0.24.1"]
-cu128 = ["torch==2.9.1", "torchvision==0.24.1"]
 
 [project.scripts]
 omero-screen = "bin.run_omero_screen:main"
@@ -101,17 +88,6 @@ members = [
 # `gui` is a default group so a bare `uv sync` still gives a developer napari,
 # exactly as before. The container opts out with `uv sync --no-default-groups`.
 default-groups = ["dev", "gui"]
-conflicts = [[{ extra = "cpu" }, { extra = "cu128" }]]
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
-[[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
-explicit = true
 
 [tool.uv.sources]
 omero-screen = { workspace = true }
@@ -119,14 +95,6 @@ omero-utils = { workspace = true }
 omero-screen-napari = { workspace = true }
 omero-screen-plots = { workspace = true }
 cellview = { workspace = true }
-torch = [
-    { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-cu128", extra = "cu128" },
-]
-torchvision = [
-    { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-cu128", extra = "cu128" },
-]
 
 
 [dependency-groups]
