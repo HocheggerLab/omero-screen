@@ -8,6 +8,12 @@ authors = [
 ]
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    # napari itself belongs here, in the package that imports it — it used to be
+    # declared only in the root project, so this package silently relied on the
+    # root to supply it. The Qt backend is a separate `qt` extra: it is what has
+    # no linux/arm64 wheels, and a headless consumer of this package (the
+    # montage CLI, the trainingdata_db tools) does not need it.
+    "napari>=0.6.2",
     "cellclass",
     "click>=8.1.8",
     "rich>=13.9.4",
@@ -19,6 +25,11 @@ dependencies = [
     # a track in napari to render its lineage.
     "napari-arboretum>=0.2",
 ]
+
+[project.optional-dependencies]
+# The desktop GUI stack. pyqt5-qt5 and triangle (both pulled by napari[all])
+# have no linux/arm64 wheels, so this must stay opt-in.
+qt = ["napari[all]>=0.6.2"]
 
 [project.entry-points."napari.manifest"]
 omero-screen-napari = "omero_screen_napari:napari.yaml"

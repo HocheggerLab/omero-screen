@@ -4,10 +4,13 @@ WORKDIR /app
 
 COPY . .
 
-# Install uv and use it to install dependencies
+# Install uv and use it to install dependencies.
+# Not `--all-extras`: the cpu and cu128 extras are declared as conflicting in
+# pyproject.toml (they select torch from different PyTorch indexes), so
+# --all-extras now fails resolution. Name the one this image wants.
 RUN pip install uv && \
     uv venv && \
-    uv sync --all-extras --dev
+    uv sync --extra cpu --dev
 
 # Set environment variables
 ENV ENV=development \
