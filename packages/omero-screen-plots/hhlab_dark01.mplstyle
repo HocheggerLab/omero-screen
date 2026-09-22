@@ -1,0 +1,72 @@
+# Dark mirror of hhlab_style01.mplstyle, for slides and screen viewing.
+#
+# Only the chrome differs: background, text, spines and ticks. Type, sizes,
+# spines shown, padding and font embedding are identical to the light sheet, so
+# a panel built either way has the same geometry and the same 6 pt labels.
+#
+# The background is #14181C rather than pure black. Black clips on projectors
+# and makes the palette's darker entries unreadable; a near-black with a slight
+# blue cast keeps the lab colours legible and looks correct on both LCD and
+# projector.
+#
+# NOTE ON DATA COLOURS. This sheet cannot fix the colourmaps, and switching to
+# it alone will misrepresent any diverging panel. The light sheet's signed
+# colourmaps interpolate through white because white is the background there,
+# so zero reads as absent. On this sheet white is the loudest colour available,
+# so a map through white makes zero the most salient value in the panel --
+# exactly backwards. Signed colourmaps must be rebuilt to pass through
+# axes.facecolor. The palette's darker entries (BLUE #526C94, PURPLE #654875,
+# OLIVE #889466) also sink into this background and need lightening.
+
+figure.facecolor: 14181C
+axes.facecolor: 14181C
+savefig.facecolor: 14181C
+axes.edgecolor: C8CDD2
+
+# Lightened prop cycle. Same hues and order as the light sheet, raised in
+# luminance so every entry separates from the background rather than only the
+# pale ones.
+axes.prop_cycle: cycler('color', ['7E9BC9', 'E8D98A', '9CCBE2', 'EC8EA4', 'DCDBD7', '2FD8CB', 'DDE9BE', 'A9B587', 'D6C6DF', '9B7BAE'])
+
+axes.linewidth:  0.5
+axes.spines.top: False
+axes.spines.left: True
+axes.spines.right: False
+axes.spines.bottom: True
+text.color: E6E9EC
+axes.labelcolor: E6E9EC
+axes.labelpad: 2
+xtick.color: C8CDD2
+ytick.color: C8CDD2
+lines.linewidth: 0.5
+lines.solid_capstyle: butt
+axes.grid: false
+figure.subplot.left: 0.01
+figure.subplot.right: 0.99
+figure.subplot.bottom: 0.01
+figure.figsize: 2.4, 1.3
+figure.dpi: 150
+savefig.dpi:       300
+savefig.transparent: false
+savefig.bbox:      tight
+savefig.pad_inches:   0.2
+legend.framealpha: 1
+pdf.fonttype: 42
+ps.fonttype: 42
+font.family: sans-serif
+font.sans-serif: Arial, Liberation Sans, DejaVu Sans
+legend.frameon: true
+legend.facecolor: 14181C
+legend.edgecolor: 3A4148
+legend.scatterpoints: 3
+legend.fontsize: 6
+legend.title_fontsize: 6
+legend.labelspacing:0.25
+axes.labelsize: 6
+xtick.labelsize: 6
+ytick.labelsize: 6
+font.size: 6
+xtick.major.pad: 2
+ytick.major.pad: 2
+axes.titlelocation: left
+axes.titlepad: 3
