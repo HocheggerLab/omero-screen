@@ -1,3 +1,10 @@
+## omero-screen-v0.7.2 (2026-09-28)
+
+### Fix
+
+- **pipeline**: link nuclei to cells per frame and keep tracked nuclei
+- **napari**: drop lineage edges to parent tracks with no rows
+
 ## omero-screen-v0.7.1 (2026-09-01)
 
 ### Fix
