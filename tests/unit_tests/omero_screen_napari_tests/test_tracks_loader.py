@@ -9,7 +9,6 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import pytest
-
 from omero_screen_napari.tracks_loader import (
     TracksData,
     export_track_csv,
@@ -70,6 +69,29 @@ class TestLoadTracksForWell:
         # Daughters 3 and 4 point to parent 2; founders absent.
         assert result.graph == {3: [2], 4: [2]}
 
+    def test_lineage_graph_drops_missing_parent(self) -> None:
+        # Track 5's parent (99) has no rows, e.g. dropped at measurement.
+        lf = pl.concat(
+            [
+                _tracked_frame(),
+                pl.LazyFrame(
+                    {
+                        "well": ["C4"],
+                        "track_id": [5],
+                        "parent_track_id": [99],
+                        "timepoint": [2],
+                        "centroid-0-nuc": [20.0],
+                        "centroid-1-nuc": [20.0],
+                        "cell_cycle": ["G1"],
+                    }
+                ),
+            ]
+        )
+        result = load_tracks_for_well(lf, "C4")
+        assert result is not None
+        assert result.graph == {3: [2], 4: [2]}
+        assert 5 in result.data[:, 0]
+
     def test_properties_include_track_id_and_cell_cycle(self) -> None:
         result = load_tracks_for_well(_tracked_frame(), "C4")
         assert result is not None
@@ -129,9 +151,7 @@ class TestExportTrackCsv:
 
     def test_wrong_well_raises(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="No measurements"):
-            export_track_csv(
-                _tracked_frame(), "Z9", 1, tmp_path / "wrong.csv"
-            )
+            export_track_csv(_tracked_frame(), "Z9", 1, tmp_path / "wrong.csv")
 
     def test_no_track_column_raises(self, tmp_path: Path) -> None:
         lf = pl.LazyFrame({"well": ["C4"], "area_nucleus": [10.0]})

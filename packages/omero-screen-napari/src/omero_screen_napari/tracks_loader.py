@@ -24,6 +24,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
+from loguru import logger
 from numpy.typing import NDArray
 
 # CellView renames the raw regionprops ``centroid-0``/``centroid-1`` columns to
@@ -176,12 +177,26 @@ def _build_graph(df: pl.DataFrame) -> dict[int, list[int]]:
     """Map each child track id to its parent(s) from the parent column.
 
     A ``parent_track_id`` of 0 marks a founder (no parent) and is skipped.
+
+    Edges whose parent track has no rows in ``df`` are also dropped. The
+    pipeline's parent map covers every Trackastra track, but measurement rows
+    are lost downstream (e.g. nuclei with no overlapping cell mask), so a
+    whole parent track can be absent. napari rejects a graph that references
+    unknown track ids, so such daughters are shown as founders instead.
     """
+    present = df[TRACK_ID_COL].unique().implode()
     pairs = (
         df.select([TRACK_ID_COL, PARENT_COL])
         .unique()
         .filter(pl.col(PARENT_COL) != 0)
     )
+    orphans = pairs.filter(~pl.col(PARENT_COL).is_in(present))
+    if orphans.height:
+        logger.warning(
+            f"{orphans.height} division link(s) point to parent tracks with no "
+            "measurement rows; showing those daughters as founders."
+        )
+        pairs = pairs.filter(pl.col(PARENT_COL).is_in(present))
     graph: dict[int, list[int]] = {}
     for child, parent in zip(
         pairs[TRACK_ID_COL].to_list(), pairs[PARENT_COL].to_list(), strict=True
