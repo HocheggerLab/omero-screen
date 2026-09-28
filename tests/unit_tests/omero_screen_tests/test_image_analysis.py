@@ -820,3 +820,86 @@ class TestMultiTimepoint:
 
         # Verify mask has correct shape (T, Y, X)
         assert img.n_mask.shape == (3, 128, 128)
+
+
+class TestTimelapseNucleusCellLink:
+    """Nucleus↔cell linking on timelapses, where cell labels change per frame.
+
+    Two frames, two nuclei with constant (tracked) labels 5 and 7:
+
+    - frame 0: nucleus 5 sits in cell 1, nucleus 7 sits in cell 2.
+    - frame 1: the cell labels swap — nucleus 5 sits in cell 2 — and
+      nucleus 7 has no cell at all.
+    """
+
+    @staticmethod
+    def _props(keep_unmatched_nuclei: bool) -> ImageProperties:
+        n_mask = np.zeros((2, 8, 8), dtype=np.uint32)
+        c_mask = np.zeros((2, 8, 8), dtype=np.uint32)
+        n_mask[:, 1:3, 1:3] = 5
+        n_mask[:, 5:7, 5:7] = 7
+        c_mask[0, 0:4, 0:4] = 1
+        c_mask[0, 4:8, 4:8] = 2
+        c_mask[1, 0:4, 0:4] = 2
+        cyto_mask = c_mask * ((c_mask != 0) & (n_mask == 0))
+        img = np.arange(2 * 8 * 8, dtype=np.float32).reshape(2, 8, 8)
+
+        props = object.__new__(ImageProperties)
+        props._image = MagicMock(
+            n_mask=n_mask,
+            c_mask=c_mask,
+            cyto_mask=cyto_mask,
+            img_dict={"DAPI": img},
+            _nucleus_channel="DAPI",
+            _cell_channel="DAPI",
+        )
+        props._keep_unmatched_nuclei = keep_unmatched_nuclei
+        props._overlay = props._overlay_mask()
+        return props
+
+    def _data(self, keep_unmatched_nuclei: bool):
+        props = self._props(keep_unmatched_nuclei)
+        df = props._channel_data(
+            "DAPI", ["label", "centroid", "intensity_mean"], ["area"]
+        )
+        return df.set_index(["label", "timepoint"]).sort_index()
+
+    def test_overlay_is_keyed_per_timepoint(self):
+        overlay = self._props(False)._overlay
+        links = {
+            (r.label, r.timepoint): r.Cyto_ID for r in overlay.itertuples()
+        }
+        assert links == {(5, 0): 1, (7, 0): 2, (5, 1): 2}
+
+    def test_overlay_picks_majority_cell(self):
+        props = self._props(False)
+        # Nucleus 5 in frame 0: 1 px in cell 3, 3 px in cell 1.
+        props._image.c_mask[0, 1, 1] = 3
+        overlay = props._overlay_mask()
+        row = overlay[(overlay.label == 5) & (overlay.timepoint == 0)]
+        assert row.Cyto_ID.tolist() == [1]
+
+    def test_cell_values_come_from_the_right_frame(self):
+        df = self._data(False)
+        assert df.loc[(5, 0), "Cyto_ID"] == 1
+        assert df.loc[(5, 1), "Cyto_ID"] == 2
+        # Cell 1 in frame 0 and cell 2 in frame 1 are both 4x4 = 16 px.
+        assert df.loc[(5, 0), "area_cell"] == 16
+        assert df.loc[(5, 1), "area_cell"] == 16
+
+    def test_default_drops_nucleus_without_cell(self):
+        df = self._data(False)
+        assert (7, 1) not in df.index
+        assert len(df) == 3
+
+    def test_keep_unmatched_keeps_nucleus_with_nan_cell_columns(self):
+        df = self._data(True)
+        assert len(df) == 4
+        row = df.loc[(7, 1)]
+        assert row["Cyto_ID"] == 0
+        assert np.isnan(row["area_cell"])
+        assert np.isnan(row["area_cyto"])
+        assert row["area_nucleus"] == 4
+        # Matched rows are unchanged by keep mode.
+        assert df.loc[(5, 1), "Cyto_ID"] == 2
+        assert df["Cyto_ID"].dtype == np.int64

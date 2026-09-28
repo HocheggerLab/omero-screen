@@ -637,7 +637,10 @@ class ImageProperties:
         _well_id (int): OMERO Well ID.
         _image (Image): Image object containing segmentation masks and corrected images.
         _meta_data (MetadataParser): Metadata parser with channel and plate information.
-        _overlay (pd.DataFrame): DataFrame linking nuclear IDs with cell IDs.
+        _overlay (pd.DataFrame): DataFrame linking nuclear IDs with cell IDs
+            per timepoint.
+        _keep_unmatched_nuclei (bool): Keep nuclei without a cell/cyto match
+            (``Cyto_ID == 0``, cell/cyto columns NaN) instead of dropping them.
     """
 
     def __init__(
@@ -647,6 +650,7 @@ class ImageProperties:
         meta_data: MetadataParser,
         featurelist: FeatureConfig = default_config.FEATURELIST,
         image_classifier: None | list[ImageClassifier] = None,
+        keep_unmatched_nuclei: bool = False,
     ):
         """Initializes the ImageProperties object for feature extraction and data aggregation.
 
@@ -658,11 +662,16 @@ class ImageProperties:
                 "morphology": [...]}`` or a legacy flat list. Defaults to
                 ``default_config.FEATURELIST``.
             image_classifier (optional): Optional image classifier(s) for additional processing. Defaults to None.
+            keep_unmatched_nuclei: Keep every nucleus even if it has no
+                overlapping cell (or an empty cytoplasm); its cell/cyto
+                columns are left NaN and ``Cyto_ID`` is 0. Used for tracked
+                timelapses, where dropping a row breaks the track.
         """
         self._well = well
         self._well_id = well.getId()
         self._image = image_obj
         self._meta_data = meta_data
+        self._keep_unmatched_nuclei = keep_unmatched_nuclei
 
         # Assumes the well parent is the plate
         self.plate_name = well.getParent().getName()
@@ -724,28 +733,45 @@ class ImageProperties:
             self.image_df[col] = self.image_df["timepoint"].map(bg_values)
 
     def _overlay_mask(self) -> pd.DataFrame:
-        """Links nuclear IDs with cell IDs.
+        """Links nuclear IDs with cell IDs, per timepoint.
 
-        This method creates a DataFrame linking nuclear IDs with cell IDs.
+        Cell labels are assigned independently in every frame, so the link
+        must be keyed on ``(label, timepoint)``: a single map over the whole
+        stack would attach a tracked nucleus to whichever cell it overlapped
+        last. Each nucleus is linked to the cell covering most of its pixels.
 
         Returns:
-            pd.DataFrame: DataFrame linking nuclear IDs with cell IDs.
+            pd.DataFrame: ``label``, ``timepoint``, ``Cyto_ID`` — one row per
+            nucleus that overlaps a cell.
         """
         if self._image.c_mask is None:
             return pd.DataFrame({"label": self._image.n_mask.flatten()})
 
-        overlap = (self._image.c_mask != 0) * (self._image.n_mask != 0)
-        stack = np.stack(
-            [self._image.n_mask[overlap], self._image.c_mask[overlap]]
-        )
-        list_n_masks = stack[-2].tolist()
-        list_masks = stack[-1].tolist()
-        overlay_all = {
-            list_n_masks[i]: list_masks[i] for i in range(len(list_n_masks))
-        }
-        return pd.DataFrame(
-            list(overlay_all.items()), columns=["label", "Cyto_ID"]
-        )
+        n_mask = np.squeeze(self._image.n_mask)
+        c_mask = np.squeeze(self._image.c_mask)
+        if n_mask.ndim == 2:
+            n_mask, c_mask = n_mask[np.newaxis], c_mask[np.newaxis]
+
+        frames = []
+        for t in range(n_mask.shape[0]):
+            overlap = (n_mask[t] != 0) & (c_mask[t] != 0)
+            pixels = pd.DataFrame(
+                {
+                    "label": n_mask[t][overlap].astype(np.int64),
+                    "Cyto_ID": c_mask[t][overlap].astype(np.int64),
+                }
+            )
+            best = (
+                pixels.value_counts(sort=True)
+                .reset_index()
+                .drop_duplicates(subset="label", keep="first")
+                .drop(columns="count")
+            )
+            best["timepoint"] = t
+            frames.append(best)
+        return pd.concat(frames, ignore_index=True)[
+            ["label", "timepoint", "Cyto_ID"]
+        ]
 
     def _combine_channels(self, featurelist: FeatureConfig) -> pd.DataFrame:
         """Combines feature measurements from different channels into a single DataFrame.
@@ -859,10 +885,22 @@ class ImageProperties:
             morphology_names,
         )
         # merge channel data, outer merge combines all area columns into 1
+        # ``_keep_unmatched_nuclei`` swaps the complete-case outer merges for
+        # left merges from the nucleus side: every nucleus survives, and the
+        # cell/cyto columns are NaN where no cell (or no cytoplasm) matched.
+        merge = (
+            self._left_merge
+            if self._keep_unmatched_nuclei
+            else self._outer_merge
+        )
         if self._image.c_mask is not None:
-            nucleus_data = self._outer_merge(
-                nucleus_data, self._overlay, "label"
+            nucleus_data = merge(
+                nucleus_data, self._overlay, ["label", "timepoint"]
             )
+            if self._keep_unmatched_nuclei:
+                nucleus_data["Cyto_ID"] = (
+                    nucleus_data["Cyto_ID"].fillna(0).astype(np.int64)
+                )
         if channel == self._image._nucleus_channel:
             # Build the integrated-intensity column using the actual nucleus
             # channel token, so cellcycle_analysis (parameterised by
@@ -900,13 +938,9 @@ class ImageProperties:
                 cell_features,
                 morphology_names,
             )
-            merge_1 = self._outer_merge(
-                cell_data, cyto_data, ["label", "timepoint"]
-            )
+            merge_1 = merge(cell_data, cyto_data, ["label", "timepoint"])
             merge_1 = merge_1.rename(columns={"label": "Cyto_ID"})
-            return self._outer_merge(
-                nucleus_data, merge_1, ["Cyto_ID", "timepoint"]
-            )
+            return merge(nucleus_data, merge_1, ["Cyto_ID", "timepoint"])
         else:
             return nucleus_data
 
@@ -1046,6 +1080,28 @@ class ImageProperties:
         for c in df2.columns:
             if is_integer_dtype(df2[c].dtype) and not is_integer_dtype(
                 df[c].dtype
+            ):
+                df[c] = df[c].astype(df2[c].dtype)
+        return df
+
+    @staticmethod
+    def _left_merge(
+        df1: pd.DataFrame, df2: pd.DataFrame, on: list[str] | str
+    ) -> pd.DataFrame:
+        """Left-join ``df2`` onto ``df1``, keeping every ``df1`` row.
+
+        Unmatched rows carry NaN in ``df2``'s columns. Integer ``df2`` columns
+        are restored only where no NaN was introduced.
+
+        Returns:
+            pd.DataFrame: Merged DataFrame in ``df1`` row order.
+        """
+        df = pd.merge(df1, df2, how="left", on=on)
+        for c in df2.columns:
+            if (
+                is_integer_dtype(df2[c].dtype)
+                and not is_integer_dtype(df[c].dtype)
+                and not df[c].isna().any()
             ):
                 df[c] = df[c].astype(df2[c].dtype)
         return df

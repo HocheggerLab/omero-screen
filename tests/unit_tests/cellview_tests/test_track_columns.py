@@ -9,11 +9,9 @@ CellView must (a) declare them in the static schema for fresh databases and
 import duckdb
 import pandas as pd
 import pytest
-
 from cellview.db.db import CellViewDB
 from cellview.importers.measurements import _TRACK_COLUMNS, MeasurementsManager
 from cellview.utils.state import CellViewStateCore
-
 
 TRACK_COL_NAMES = {
     "track_id",
@@ -175,3 +173,44 @@ def test_insert_with_track_columns_round_trip(tmp_path) -> None:
         "SELECT track_id, parent_track_id FROM measurements ORDER BY track_id"
     ).fetchall()
     assert rows == [(1, 0), (2, 0), (3, 2), (4, 2)]
+
+
+def test_tracked_nucleus_without_cell_imports_with_null_cell_columns() -> None:
+    """A tracked nucleus with no cell mask keeps its row; cell columns go NULL.
+
+    omero-screen keeps such nuclei on tracked plates (``Cyto_ID == 0``, cell
+    and cyto columns NaN) so tracks have no gaps. The single-round import
+    path must carry the row through type optimisation and INSERT intact.
+    """
+    conn = duckdb.connect(":memory:")
+    _legacy_measurements_table(conn)
+    conn.execute('ALTER TABLE measurements ADD COLUMN area_cell FLOAT')
+    state = CellViewStateCore(ui=None)  # type: ignore[arg-type]
+    state.df = pd.DataFrame(
+        {
+            "image_id": [1, 1],
+            "timepoint": [0, 1],
+            "label": ["7", "7"],
+            "area_nucleus": [40.0, 42.0],
+            "area_cell": [160.0, float("nan")],
+            "track_id": [7, 7],
+            "track_id_raw": [7, 7],
+            "parent_track_id": [0, 0],
+            "parent_track_id_raw": [0, 0],
+        }
+    )
+    state._optimize_measurement_types()
+    assert len(state.df) == 2
+    manager = MeasurementsManager(db_conn=conn, state=state)  # type: ignore[arg-type]
+    manager._ensure_dynamic_columns_exist(list(state.df.columns))
+    conn.register("temp_df", state.df)
+    conn.execute(
+        "INSERT INTO measurements (image_id, timepoint, label, area_nucleus, "
+        "area_cell, track_id) "
+        "SELECT image_id, timepoint, label, area_nucleus, area_cell, track_id "
+        "FROM temp_df"
+    )
+    rows = conn.execute(
+        "SELECT timepoint, area_cell FROM measurements ORDER BY timepoint"
+    ).fetchall()
+    assert rows == [(0, 160.0), (1, None)]

@@ -1352,6 +1352,9 @@ def _stitched_well_loop(
                 stitched_image,  # type: ignore[arg-type]  # StitchedWellImage duck-types Image
                 metadata,
                 image_classifier=image_classifier,
+                # A tracked nucleus without a cell mask in some frame must
+                # keep its row, or the track gains a gap (or vanishes).
+                keep_unmatched_nuclei=tracked,
             )
         df_well = image_props.image_df
         df_well_quality = image_props.quality_df
