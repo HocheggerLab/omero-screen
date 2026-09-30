@@ -8,9 +8,12 @@ import pytest
 import random
 from skimage.measure import label
 
+import omero_utils.stitching as stitching_module
 from omero_utils.stitching import (
+    STITCH_CALIBRATIONS,
     STITCH_DEFAULTS,
     load_stitching_config,
+    resolve_stitch_params,
     positions_to_offsets,
     get_overlap,
     merge_labels,
@@ -490,3 +493,70 @@ class TestLoadStitchingConfig:
         finally:
             # Reset changes
             STITCH_DEFAULTS.update(config)
+            stitching_module._config_loaded = False
+
+
+class TestResolveStitchParams:
+    """Pixel-size selection of the per-objective stitch calibration."""
+
+    @pytest.fixture(autouse=True)
+    def _no_explicit_config(self):
+        """Ensure no leaked ``load_stitching_config`` state selects the defaults."""
+        previous = stitching_module._config_loaded
+        stitching_module._config_loaded = False
+        yield
+        stitching_module._config_loaded = previous
+
+    @pytest.mark.parametrize("name", list(STITCH_CALIBRATIONS))
+    def test_exact_pixel_size_matches_its_calibration(self, name):
+        entry = STITCH_CALIBRATIONS[name]
+        expected = {
+            k: int(v) for k, v in entry.items() if k != "pixel_size_um"
+        }
+        assert resolve_stitch_params(entry["pixel_size_um"]) == expected
+
+    def test_10x_resolves_to_the_historic_defaults(self):
+        # The 10x path must stay bit-identical to the previous global constants.
+        assert resolve_stitch_params(1.2) == STITCH_DEFAULTS
+
+    def test_20x_differs_from_the_defaults(self):
+        assert resolve_stitch_params(0.6) != STITCH_DEFAULTS
+
+    @pytest.mark.parametrize("pixel_size", [0.57, 0.63])
+    def test_within_tolerance_still_matches(self, pixel_size):
+        assert resolve_stitch_params(pixel_size) == resolve_stitch_params(0.6)
+
+    @pytest.mark.parametrize("pixel_size", [0.2, 0.8, 3.0])
+    def test_outside_tolerance_falls_back_to_defaults(self, pixel_size):
+        assert resolve_stitch_params(pixel_size) == STITCH_DEFAULTS
+
+    @pytest.mark.parametrize("pixel_size", [None, 0, 0.0])
+    def test_unknown_pixel_size_falls_back_to_defaults(self, pixel_size):
+        # MetadataParser initialises pixel_size to 0 when it has not been read.
+        assert resolve_stitch_params(pixel_size) == STITCH_DEFAULTS
+
+    def test_result_is_a_copy(self):
+        params = resolve_stitch_params(0.6)
+        params["overlap_x"] = 999
+        assert resolve_stitch_params(0.6)["overlap_x"] != 999
+
+    def test_keys_match_positions_to_offsets_kwargs(self):
+        assert set(resolve_stitch_params(0.6)) == set(STITCH_DEFAULTS)
+
+    def test_explicit_config_disables_pixel_size_selection(self, tmp_path):
+        original = STITCH_DEFAULTS.copy()
+        path = tmp_path / "stitch.json"
+        override = {
+            "overlap_x": 42,
+            "overlap_y": -9,
+            "translate_x": 11,
+            "translate_y": -8,
+        }
+        try:
+            path.write_text(json.dumps(override), encoding="utf-8")
+            load_stitching_config(str(path))
+            # A 20x pixel size must not override an explicit configuration.
+            assert resolve_stitch_params(0.6) == override
+        finally:
+            STITCH_DEFAULTS.update(original)
+            stitching_module._config_loaded = False

@@ -21,8 +21,10 @@ from napari.utils import notifications
 from napari.utils import progress as napari_progress
 from napari.viewer import Viewer
 from omero_utils.stitching import (
+    STITCH_CALIBRATIONS,
     STITCH_DEFAULTS,
     positions_to_offsets,
+    resolve_stitch_params,
     stitch_from_offsets,
     stitch_labels_from_offsets,
 )
@@ -492,10 +494,45 @@ def _open_plate_info(
     dialog.exec_()
 
 
+def _plate_stitch_params() -> dict[str, int]:
+    """Stitch calibration for the loaded plate, selected by its pixel size."""
+    px = omero_data.pixel_size[0] if omero_data.pixel_size else None
+    return resolve_stitch_params(px)
+
+
+def _sync_stitch_widget_to_plate() -> None:
+    """Seed the stitch spinboxes from the loaded plate's calibration.
+
+    The ``@magic_factory`` defaults are baked from ``STITCH_DEFAULTS`` at import
+    time, so without this a 20x plate would be displayed with the 10x values.
+    Only runs when the widget is still showing an untouched calibration, so a
+    value the user typed is never overwritten.
+    """
+    w = _stitch_widget_ref
+    if w is None:
+        return
+    params = _plate_stitch_params()
+    try:
+        current = {k: getattr(w, k).value for k in params}
+        if current != params and current in (
+            STITCH_DEFAULTS,
+            *(
+                {k: int(v) for k, v in entry.items() if k != "pixel_size_um"}
+                for entry in STITCH_CALIBRATIONS.values()
+            ),
+        ):
+            for key, value in params.items():
+                getattr(w, key).value = value
+            w.edge.value = max(0, params["overlap_x"], params["overlap_y"])
+    except AttributeError:
+        pass
+
+
 def _get_stitch_params() -> dict[str, Any]:
     """Read current stitch parameters from the sibling stitch widget.
 
-    Falls back to defaults when the widget is not available.
+    Falls back to the loaded plate's calibration when the widget is not
+    available.
     """
     w = _stitch_widget_ref
     if w is not None:
@@ -510,8 +547,8 @@ def _get_stitch_params() -> dict[str, Any]:
             }
         except AttributeError:
             pass
-    # OMERO screen stitch defaults matching the stitched_data_widget signature
-    params = STITCH_DEFAULTS.copy()
+    # Matches the stitched_data_widget signature
+    params: dict[str, Any] = dict(_plate_stitch_params())
     params["stitch"] = True
     params["edge"] = max(0, params["overlap_x"], params["overlap_y"])
     return params
@@ -634,6 +671,7 @@ def _display_plate(viewer: Viewer) -> None:
     iw_override = None
 
     # Check all wells can be stitched
+    _sync_stitch_widget_to_plate()
     sp = _get_stitch_params()
     stitch = sp.get("stitch") and n_per_well > 0
     # Stitching offsets

@@ -49,6 +49,104 @@ STITCH_DEFAULTS: dict[str, int] = {
     "translate_y": 3,
 }
 
+# Per-objective calibrations, selected by the plate's pixel size.
+#
+# ``layout_to_offsets`` spaces tiles by ``tile_w - overlap_x`` in pixels, so the
+# correct overlap is objective-dependent: the same physical overlap covers twice
+# as many pixels at 20x as at 10x. ``translate_*`` models the stage-grid skew and
+# scales the same way. A single global set of constants is therefore only ever
+# right for one objective.
+#
+# ``pixel_size_um`` is matched against ``MetadataParser.pixel_size``, which is
+# rounded to one decimal place. That is ample to separate objectives (1.2 vs 0.6)
+# while tolerating small differences between plates.
+#
+# Provenance:
+#   10x - long-standing lab values; confirmed on plate 3868 (5x5 grid), which
+#         shows no duplicated objects at the tile seams.
+#   20x - measured on plate 5054, where the 10x constants left a duplication
+#         offset of ~18 px in x and ~19 px in y at every seam (excess-weighted
+#         centre, pooled over wells C2-C4, 2846 and 2618 on-seam pairs).
+#         Reproduce with scripts/diagnose_stitch_seams.py.
+#
+# Add an entry per objective rather than widening the tolerance. For a different
+# microscope entirely, use OMERO_SCREEN_STITCH_CONFIG, which overrides this table.
+STITCH_CALIBRATIONS: dict[str, dict[str, float]] = {
+    "10x": {
+        "pixel_size_um": 1.2,
+        "overlap_x": 7,
+        "overlap_y": 7,
+        "translate_x": -3,
+        "translate_y": 3,
+    },
+    "20x": {
+        "pixel_size_um": 0.6,
+        "overlap_x": 25,
+        "overlap_y": 26,
+        "translate_x": -5,
+        "translate_y": 4,
+    },
+}
+
+# Set when OMERO_SCREEN_STITCH_CONFIG (or an explicit load_stitching_config call)
+# has supplied values. An explicit configuration is a deliberate override for a
+# microscope the table does not cover, so it disables pixel-size selection.
+_config_loaded = False
+
+
+def resolve_stitch_params(
+    pixel_size_um: float | None, tolerance: float = 0.1
+) -> dict[str, int]:
+    """Select the stitch calibration matching a plate's pixel size.
+
+    Falls back to ``STITCH_DEFAULTS`` — loudly — when the pixel size is unknown
+    or matches no calibration, so an uncalibrated microscope is visible in the
+    log rather than silently mis-stitched.
+
+    An explicitly loaded stitch configuration always wins: it is the escape
+    hatch for microscopes absent from ``STITCH_CALIBRATIONS``.
+
+    Args:
+        pixel_size_um: Plate pixel size in micrometres, or ``None`` if unknown.
+        tolerance: Maximum relative difference from a calibration's
+            ``pixel_size_um`` for it to match.
+
+    Returns:
+        The four ``layout_to_offsets`` parameters: ``overlap_x``, ``overlap_y``,
+        ``translate_x``, ``translate_y``.
+    """
+    if _config_loaded:
+        logger.info(
+            "Stitch parameters from OMERO_SCREEN_STITCH_CONFIG "
+            f"(pixel-size selection disabled): {STITCH_DEFAULTS}"
+        )
+        return STITCH_DEFAULTS.copy()
+
+    if pixel_size_um:
+        best = min(
+            STITCH_CALIBRATIONS.items(),
+            key=lambda kv: abs(kv[1]["pixel_size_um"] - pixel_size_um),
+        )
+        name, entry = best
+        reference = entry["pixel_size_um"]
+        if abs(reference - pixel_size_um) <= tolerance * reference:
+            params = {
+                k: int(v) for k, v in entry.items() if k != "pixel_size_um"
+            }
+            logger.info(
+                f"Stitch calibration '{name}' selected for pixel size "
+                f"{pixel_size_um} um: {params}"
+            )
+            return params
+
+    logger.warning(
+        f"No stitch calibration for pixel size {pixel_size_um} um "
+        f"(known: {[e['pixel_size_um'] for e in STITCH_CALIBRATIONS.values()]}). "
+        f"Falling back to {STITCH_DEFAULTS}. Tiles may be misaligned at the "
+        "seams; calibrate this objective or set OMERO_SCREEN_STITCH_CONFIG."
+    )
+    return STITCH_DEFAULTS.copy()
+
 
 def load_stitching_config(path: str) -> None:
     """Load stitching configuration from a JSON config file.
@@ -62,6 +160,7 @@ def load_stitching_config(path: str) -> None:
         ValueError: If there are unrecognised or missing keys, or the key values
             are not integers.
     """
+    global _config_loaded
     try:
         with open(path) as f:
             data = json.load(f)
@@ -72,6 +171,8 @@ def load_stitching_config(path: str) -> None:
                 )
             for k, v in data.items():
                 STITCH_DEFAULTS[k] = int(v)
+            # Explicit configuration overrides pixel-size based selection.
+            _config_loaded = True
     except Exception as e:  # noqa: BLE001
         logger.error(f"Failed to load stitch configuration '{path}': {e}")
         raise e

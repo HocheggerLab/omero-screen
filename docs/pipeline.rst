@@ -63,8 +63,10 @@ acquisitions on Operetta / Opera / similar systems), the ``--stitch`` flag
 switches to a **whole-well canvas** workflow:
 
 1. All fields of a well are downloaded and flatfield-corrected.
-2. The fields are stitched into a single ``(T, Y, X, C)`` canvas using stage
-   positions read from OMERO.
+2. The fields are stitched into a single ``(T, Y, X, C)`` canvas. Stage
+   positions read from OMERO determine each field's ``(column, row)`` in the
+   grid; the spacing between tiles comes from a per-objective calibration
+   (see :ref:`stitch-calibration`).
 3. **Cellpose runs once** on the stitched canvas — internal tiling handles the
    large input. This removes the per-field seam problem where a cell straddling
    two fields would be cut in half by the border filter on each side.
@@ -94,6 +96,61 @@ looking for ``_stitched_segmentation`` images in the dataset) and load the
 masks correctly without further configuration. Stitched plates are also the
 ones that can be cached as OME-Zarr for interactive whole-plate browsing — see
 :doc:`caching`.
+
+
+.. _stitch-calibration:
+
+Stitch calibration (per objective)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Tiles are placed by grid arithmetic: a field at grid position ``(col, row)`` is
+written to canvas offset ``col * (tile_w - overlap_x) + row * translate_x`` and
+likewise in y. The stage positions fix the grid *indices*, not the spacing — so
+``overlap_*`` and ``translate_*`` must match the acquisition.
+
+Those values are **objective-dependent**. The same physical overlap covers twice
+as many pixels at 20x as at 10x, so a single global set of constants is only ever
+right for one objective. Using the 10x values on a 20x plate leaves every seam
+sheared by ~19 px, and a nucleus straddling a seam is then segmented twice — once
+in each tile — which inflates object counts and, on timelapse plates, shatters
+tracks.
+
+The pipeline therefore selects the calibration from the plate's **pixel size**,
+read from OMERO by ``MetadataParser``, against ``STITCH_CALIBRATIONS`` in
+``omero_utils.stitching``:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Objective
+     - Pixel size (µm)
+     - ``overlap_x`` / ``overlap_y``
+     - ``translate_x`` / ``translate_y``
+   * - 10x
+     - 1.2
+     - 7 / 7
+     - -3 / 3
+   * - 20x
+     - 0.6
+     - 25 / 26
+     - -5 / 4
+
+The selected calibration is logged at INFO on every stitched run. A pixel size
+matching no entry falls back to the 10x defaults **with a warning** — calibrate
+the objective rather than ignoring it.
+
+To check a plate, or to calibrate a new objective, run the seam diagnostic. It is
+read-only and works on any stitched plate::
+
+    uv run python scripts/diagnose_stitch_seams.py <plate_id>
+
+It measures how often pairs of detections near a seam are separated by the same
+small displacement, against an interior control. A clean plate shows no peak; a
+peak at *d* px means ``overlap`` is short by *d*.
+
+Setting ``OMERO_SCREEN_STITCH_CONFIG`` (or ``--stitch-config``) overrides the
+table entirely and disables pixel-size selection — use it for a different
+microscope.
 
 
 .. _streaming-stitch:

@@ -45,6 +45,7 @@ def test_should_stream_env_override() -> None:
 def test_should_stream_auto_enables_over_budget() -> None:
     """A long multi-channel well over the RAM budget auto-streams."""
     metadata = MagicMock()
+    metadata.pixel_size = 1.2  # 10x: selects the historic stitch defaults
     metadata.channel_data = {"a": 0, "b": 1, "c": 2, "d": 3}
     well = _well_with_dims(n_fields=25, n_t=200, side=1080)  # ~93 GB canvas
     with (
@@ -60,6 +61,7 @@ def test_should_stream_auto_enables_over_budget() -> None:
 def test_should_stream_auto_off_when_small() -> None:
     """A single-timepoint well comfortably under budget does not stream."""
     metadata = MagicMock()
+    metadata.pixel_size = 1.2  # 10x: selects the historic stitch defaults
     metadata.channel_data = {"a": 0, "b": 1}
     well = _well_with_dims(n_fields=25, n_t=1, side=1080)
     with (
@@ -75,6 +77,7 @@ def test_should_stream_auto_off_when_small() -> None:
 def test_should_stream_off_when_budget_unknown() -> None:
     """Unreadable RAM budget → don't surprise the user; stay non-streaming."""
     metadata = MagicMock()
+    metadata.pixel_size = 1.2  # 10x: selects the historic stitch defaults
     metadata.channel_data = {"a": 0}
     well = _well_with_dims(n_fields=25, n_t=200, side=1080)
     with (
@@ -107,6 +110,7 @@ def test_load_well_fields_returns_float32(mock_get_image: MagicMock) -> None:
     mock_get_image.return_value = (None, array)
 
     metadata = MagicMock()
+    metadata.pixel_size = 1.2  # 10x: selects the historic stitch defaults
     metadata.channel_data = {"DAPI": 0, "Tub": 1}
     flatfield = {
         "DAPI": np.ones((4, 4), dtype=np.float32),
@@ -135,6 +139,7 @@ def test_load_well_fields_throws_with_no_positions(
     mock_get_image.return_value = (None, array)
 
     metadata = MagicMock()
+    metadata.pixel_size = 1.2  # 10x: selects the historic stitch defaults
     metadata.channel_data = {"DAPI": 0, "Tub": 1}
     flatfield = {
         "DAPI": np.ones((4, 4), dtype=np.float32),
@@ -200,6 +205,7 @@ def test_streaming_stitch_matches_nonstreaming() -> None:
         "Tub": np.ones((5, 5), dtype=np.float32),
     }
     metadata = MagicMock()
+    metadata.pixel_size = 1.2  # 10x: selects the historic stitch defaults
     metadata.channel_data = channels
 
     def whole_field(conn, image_id, **kw):  # type: ignore[no-untyped-def]
@@ -243,6 +249,7 @@ def test_streaming_stitch_throws_with_no_positions() -> None:
         "Tub": np.ones((5, 5), dtype=np.float32),
     }
     metadata = MagicMock()
+    metadata.pixel_size = 1.2  # 10x: selects the historic stitch defaults
     metadata.channel_data = channels
 
     # Non-streaming reference: load all fields, stitch the full stack.
