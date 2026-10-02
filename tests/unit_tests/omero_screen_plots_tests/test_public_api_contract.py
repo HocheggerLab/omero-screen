@@ -63,6 +63,15 @@ PUBLIC_FUNCTIONS = [
 ]
 
 
+def _normalise(signature: str) -> str:
+    """Remove repr differences between supported Python versions.
+
+    Python 3.13 turned ``pathlib`` into a package, so ``pathlib.Path`` reprs as
+    ``pathlib._local.Path`` there. The signature itself is unchanged.
+    """
+    return signature.replace("pathlib._local.", "pathlib.")
+
+
 @pytest.fixture(scope="module")
 def golden() -> dict[str, object]:
     """Load the committed golden signature snapshot."""
@@ -98,8 +107,9 @@ def test_public_functions_are_exported() -> None:
 @pytest.mark.parametrize("name", PUBLIC_FUNCTIONS)
 def test_signature_unchanged(name: str, golden: dict[str, object]) -> None:
     """Each public function's signature must match the committed golden."""
-    current = str(inspect.signature(getattr(osp, name)))
-    assert current == golden[name], (
+    current = _normalise(str(inspect.signature(getattr(osp, name))))
+    expected = _normalise(str(golden[name]))
+    assert current == expected, (
         f"Signature of {name} changed.\n"
         f"  golden : {golden[name]}\n"
         f"  current: {current}\n"
