@@ -30,7 +30,7 @@ from omero_screen_napari.zarr_cache.reader import (
 )
 
 # Opportunistic dask cache: caches *decoded* array results (not just raw
-# chunk bytes like the reader's LRUStoreCache), so replaying a timelapse,
+# chunk bytes like the reader's LRUCacheStore), so replaying a timelapse,
 # scrubbing back, or re-zooming a region already viewed hits RAM instead
 # of re-running the from_zarr → slice → stack graph. Registered once per
 # process; size override via ``OMERO_SCREEN_DASK_CACHE_MB``.
@@ -428,27 +428,33 @@ def _add_image_layers(
         # are built with nearest-neighbour downsampling, so the percentiles
         # match the full-resolution ones while reading far fewer chunks.
         sample = np.asarray(wells_data[0]["image"][-1][0, c])
+        limits = _channel_contrast(sample)
+        # contrast_limits must be passed here, not only set afterwards. For a
+        # multiscale layer created without them, napari marks the layer to
+        # recompute contrast from the first slice it renders and overwrites
+        # any limits set in between with that slice's min/max -- which left
+        # channels near-black or saturated on load.
         layer = viewer.add_image(
             pyramid,
             name=ch_name,
             scale=scale,
             colormap=colormaps[c],
             blending="additive",
+            contrast_limits=limits,
             visible=_channel_starts_visible(rounds, round_index, redundant),
         )
-        # Order matters, and both steps are needed. The range must be widened
-        # first: napari would otherwise infer it from the data (or from a
-        # contrast_limits passed to add_image) and clamp the slider to a narrow
-        # window the user cannot widen. reset_contrast_limits_range() derives
-        # it from the dtype -- the whole uint16 span here -- which is napari's
-        # own supported route; the explicit set covers a non-integer dtype,
-        # which a padded multi-well stack can produce. The limits then sit at
-        # the 0.1/99.9 percentiles for a sane starting view. Mirrors the
+        # Passing contrast_limits also makes napari use them as the slider
+        # range, clamping it to a window the user cannot widen. Widen it to
+        # the dtype span: reset_contrast_limits_range() derives it from the
+        # dtype -- the whole uint16 span here -- which is napari's own
+        # supported route; the explicit set covers a non-integer dtype, which
+        # a padded multi-well stack can produce. The limits are re-applied
+        # last because changing the range can clip them. Mirrors the
         # direct-from-OMERO path in _aligned_plate_widget.
         layer.reset_contrast_limits_range()
         if tuple(layer.contrast_limits_range) != (0, _UINT16_MAX):
             layer.contrast_limits_range = (0, _UINT16_MAX)
-        layer.contrast_limits = _channel_contrast(sample)
+        layer.contrast_limits = limits
 
 
 def _add_label_layers(

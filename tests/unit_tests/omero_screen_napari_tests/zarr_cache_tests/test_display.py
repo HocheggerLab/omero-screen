@@ -279,6 +279,25 @@ def test_contrast_limits_sit_inside_the_range(synth_well_data):
         assert (lo, hi) != (0, 65535)
 
 
+def test_contrast_limits_are_passed_at_layer_creation(synth_well_data):
+    """Limits must go into add_image, not only be set on the layer afterwards.
+
+    For a multiscale layer created without contrast_limits, napari recomputes
+    contrast from the first slice it renders and overwrites anything set in
+    between. That happens at render time, so a model-only viewer (the tests
+    above) never sees it; check the call instead.
+    """
+    _build_two_well_plate(325, synth_well_data)
+    v = _mock_viewer()
+    load_plate_to_viewer(v, 325, well_pos_input="A1")
+    assert v.add_image.call_count == 2
+    for call in v.add_image.call_args_list:
+        limits = call.kwargs.get("contrast_limits")
+        assert limits is not None, "add_image called without contrast_limits"
+        lo, hi = limits
+        assert 0 <= lo < hi <= 65535
+
+
 def test_channels_get_distinct_colormaps(synth_well_data):
     """Two layers sharing a colormap would sum under additive blending."""
     _build_two_well_plate(323, synth_well_data)

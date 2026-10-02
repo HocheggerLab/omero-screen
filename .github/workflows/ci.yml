@@ -14,8 +14,17 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.12"]
+        # Floor and ceiling of requires-python; 3.13 joins in the Phase 3
+        # full matrix.
+        python-version: ["3.12", "3.14"]
+    env:
+      # Without this, uv sync/run use .python-version (3.12) and silently
+      # ignore the matrix.
+      UV_PYTHON: ${{ matrix.python-version }}
+      # Headless Qt for the napari widget tests.
+      QT_QPA_PLATFORM: offscreen
 
     services:
       database:
@@ -66,6 +75,16 @@ jobs:
 
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
+
+      - name: Install Qt 6 system libraries
+        # PyQt6's Qt 6 links against the system EGL/xkbcommon/fontconfig
+        # libraries, which the minimal runner image lacks (PyQt5 did not need
+        # them): without these every napari test fails to import with
+        # "libEGL.so.1: cannot open shared object file".
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libdbus-1-3
 
       - name: Install dependencies
         # Plain sync: the default groups (dev, gui) cover the test suite,

@@ -26,6 +26,7 @@ import zarr
 from dask.callbacks import Callback
 from loguru import logger
 from numpy.typing import NDArray
+from ome_zarr.format import FormatV04
 from ome_zarr.scale import Scaler
 from ome_zarr.writer import (
     write_image,
@@ -52,6 +53,17 @@ type ArrayLike = NDArray[Any] | da.Array
 # number of chunks (inode pressure) against over-read on single-cell crops.
 _T_CHUNK = 1
 _SPATIAL_CHUNK = 256
+
+# On-disk format, pinned. The cache stays zarr v2 / OME-NGFF 0.4 (what it has
+# always been) although the library is zarr 3 / ome-zarr >=0.12, whose
+# default is zarr v3 / NGFF 0.5: BigDataViewer and Mastodon open the store
+# directly and read zarr v2 only, and every existing cache stays valid.
+# One difference from stores written with zarr 2: chunk keys use the "/"
+# dimension separator (nested 0/0/0/0) instead of "." (flat 0.0.0.0). NGFF 0.4
+# requires "/", each array records its separator in .zarray, and readers
+# handle both, so old and new stores coexist in one cache.
+_ZARR_FORMAT = 2
+_NGFF_FORMAT = FormatV04()
 
 
 class _StageProgress(Callback):  # type: ignore[misc]
@@ -252,7 +264,9 @@ class PlateZarrWriter:
                 does not need an OMERO connection at view time.
         """
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        root = zarr.open_group(str(self.path), mode="a")
+        root = zarr.open_group(
+            str(self.path), mode="a", zarr_format=_ZARR_FORMAT
+        )
         if "plate" in root.attrs:
             return
         wells = sorted(all_wells)
@@ -270,7 +284,12 @@ class PlateZarrWriter:
             for w in wells
         ]
         write_plate_metadata(
-            root, rows, col_strs, well_dicts, name=self.plate_name
+            root,
+            rows,
+            col_strs,
+            well_dicts,
+            name=self.plate_name,
+            fmt=_NGFF_FORMAT,
         )
         # Stash channel + pixel-size hints at plate level for downstream
         # consumers that don't want to walk into every well.
@@ -368,7 +387,9 @@ class PlateZarrWriter:
             )
 
         # Validate well is advertised in the plate metadata.
-        root = zarr.open_group(str(self.path), mode="a")
+        root = zarr.open_group(
+            str(self.path), mode="a", zarr_format=_ZARR_FORMAT
+        )
         advertised = {w["path"] for w in root.attrs["plate"]["wells"]}
         row, col = _split_well(well)
         well_key = f"{row}/{col}"
@@ -396,8 +417,10 @@ class PlateZarrWriter:
             shutil.rmtree(tmp_well_dir)
         tmp_well_dir.mkdir(parents=True, exist_ok=True)
 
-        well_grp = zarr.open_group(str(tmp_well_dir), mode="w")
-        write_well_metadata(well_grp, [{"path": "0"}])
+        well_grp = zarr.open_group(
+            str(tmp_well_dir), mode="w", zarr_format=_ZARR_FORMAT
+        )
+        write_well_metadata(well_grp, [{"path": "0"}], fmt=_NGFF_FORMAT)
         well_grp.attrs["omero_screen"] = {
             "missing_regions": [list(b) for b in (missing_regions or [])]
         }
@@ -440,6 +463,7 @@ class PlateZarrWriter:
                 chunks=_image_chunks(t),
                 scaler=img_scaler,
                 coordinate_transformations=img_transforms,
+                fmt=_NGFF_FORMAT,
             )
 
         # NGFF requires the ``omero`` block as a sibling of ``multiscales``
@@ -478,6 +502,7 @@ class PlateZarrWriter:
                 chunks=_label_chunks(t),
                 scaler=label_scaler,
                 coordinate_transformations=lbl_transforms,
+                fmt=_NGFF_FORMAT,
             )
         if cell is not None:
             with _StageProgress(
@@ -491,6 +516,7 @@ class PlateZarrWriter:
                     chunks=_label_chunks(t),
                     scaler=label_scaler,
                     coordinate_transformations=lbl_transforms,
+                    fmt=_NGFF_FORMAT,
                 )
         _emit(1.0)
 

@@ -6,20 +6,26 @@ readme = "README.md"
 authors = [
     { name = "hh65", email = "hh65@sussex.ac.uk" }
 ]
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12,<3.15"
 dependencies = [
     # napari itself belongs here, in the package that imports it — it used to be
     # declared only in the root project, so this package silently relied on the
     # root to supply it. The Qt backend is a separate `qt` extra: it is what has
     # no linux/arm64 wheels, and a headless consumer of this package (the
     # montage CLI, the trainingdata_db tools) does not need it.
-    "napari>=0.6.2",
+    "napari>=0.9.2",
     "cellclass",
     "click>=8.1.8",
     "rich>=13.9.4",
-    "ome-zarr>=0.9,<1.0",
-    "zarr>=2.17,<3.0",
-    "napari-ome-zarr>=0.6",
+    # <0.14: from 0.14 ome-zarr names pyramid levels s0/s1/s2 instead of
+    # 0/1/2 (hard-coded, no option), which our readers assume. 0.12-0.13
+    # support zarr 3 and keep the 0/1/2 naming of every existing store. Lift
+    # once the readers take level paths from the multiscales metadata.
+    "ome-zarr>=0.12,<0.14",
+    # zarr 3 API; the cache is still written in zarr v2 / OME-NGFF 0.4
+    # layout so BigDataViewer and Mastodon can open it (see writer.py).
+    "zarr>=3.1,<4",
+    "napari-ome-zarr>=0.10",
     # Lineage tree visualisation for the Tracks layer. Built by the Lowe lab
     # (the team that contributed the napari Tracks layer itself); double-click
     # a track in napari to render its lineage.
@@ -27,9 +33,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The desktop GUI stack. pyqt5-qt5 and triangle (both pulled by napari[all])
-# have no linux/arm64 wheels, so this must stay opt-in.
-qt = ["napari[all]>=0.6.2"]
+# The desktop GUI stack, opt-in. PyQt6: napari deprecated PyQt5 (removal due
+# in fall 2026). The PyQt6/Qt6 Linux wheels need glibc >= 2.34 (x86_64) or
+# >= 2.39 (aarch64), newer than some clusters and the container's base image,
+# so headless installs must not pull it. Named explicitly rather than via
+# napari[all] so the binding is a visible choice.
+qt = ["napari[pyqt6,optional]>=0.9.2"]
 
 [project.entry-points."napari.manifest"]
 omero-screen-napari = "omero_screen_napari:napari.yaml"
@@ -89,6 +98,7 @@ ignore_missing_imports = true
 # ===========================
 
 [tool.ruff]
+target-version = "py312"
 line-length = 79
 lint.select = [
     "E", "F", "W", #flake8

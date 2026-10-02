@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "hh65", email = "hh65@sussex.ac.uk" }
 ]
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12,<3.15"
 dependencies = []
 
 [build-system]
@@ -49,6 +49,7 @@ ignore_missing_imports = true
 # ===========================
 
 [tool.ruff]
+target-version = "py312"
 line-length = 79
 lint.select = [
     "D", "E", "F", "W", #flake8

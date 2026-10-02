@@ -14,6 +14,7 @@ from omero_screen.config import getenv_as_int
 
 from omero_screen_napari.zarr_cache.paths import plate_zarr_path
 from omero_screen_napari.zarr_cache.registry import touch
+from omero_screen_napari.zarr_cache.store_cache import open_cached_group
 
 # Chunk-level cache size in bytes for the napari display path. A single
 # live-cell well loads as ~4 layers (2 image channels + nuclei + cells)
@@ -28,27 +29,25 @@ _DISPLAY_CACHE_BYTES = (
 
 
 @lru_cache(maxsize=8)
-def _open_cached_root(plate_path: str) -> zarr.hierarchy.Group:
+def _open_cached_root(plate_path: str) -> zarr.Group:
     """Open a plate root with an LRU chunk cache layered on the store.
 
-    Wrapping the ``DirectoryStore`` in :class:`zarr.LRUStoreCache` keeps
-    decompressed chunks resident across reads. napari layers hold the
+    Wrapping the store in a :class:`~.store_cache.LRUCacheStore` keeps
+    chunks resident across reads. napari layers hold the
     returned zarr arrays for the session, so the same cache backs every
     timepoint scrub and re-zoom — mirroring :func:`crop._open_cached_root`.
     Caching on ``plate_path`` ensures one shared cache per plate rather
     than a fresh (cold) one per ``read_well`` call.
     """
-    store = zarr.DirectoryStore(plate_path)
-    cached = zarr.LRUStoreCache(store, max_size=_DISPLAY_CACHE_BYTES)
-    return zarr.open_group(store=cached, mode="r")
+    return open_cached_group(plate_path, max_size=_DISPLAY_CACHE_BYTES)
 
 
-def open_plate(plate_id: int) -> zarr.hierarchy.Group:
+def open_plate(plate_id: int) -> zarr.Group:
     """Open the plate's zarr root group (read-only).
 
     Updates ``last_accessed`` in the registry as a side effect so eviction
     respects usage. The returned group is backed by a process-wide
-    :class:`zarr.LRUStoreCache` so decoded chunks survive between reads.
+    :class:`~.store_cache.LRUCacheStore` so chunks survive between reads.
     """
     path = plate_zarr_path(plate_id)
     if not path.exists():
@@ -163,8 +162,8 @@ def read_well(plate_id: int, well: str) -> dict[str, Any]:
 
 
 def _read_label_pyramid(
-    labels_grp: zarr.hierarchy.Group, name: str
-) -> list[zarr.core.Array] | None:
+    labels_grp: zarr.Group, name: str
+) -> list[zarr.Array] | None:
     """Return list of label arrays (one per pyramid level), or None if absent."""
     if name not in labels_grp:
         return None

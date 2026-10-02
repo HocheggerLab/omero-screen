@@ -14,7 +14,7 @@ the Cellpose model download.
 ## What you need
 
 - **Docker**, running. The test server is a container pair (OMERO + Postgres).
-- **Python 3.12** and [uv](https://docs.astral.sh/uv/), as in
+- **Python 3.12–3.14** and [uv](https://docs.astral.sh/uv/), as in
   [Install & configure](installation.qmd).
 - **A GPU helps but is not required.** On CPU, segmentation is slow but works —
   the sample plate is deliberately small.
