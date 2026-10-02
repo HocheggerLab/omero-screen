@@ -290,7 +290,10 @@ version_files = [
 ]
 version_provider = "commitizen"
 major_version_zero = true
-bump_message = "bump: version $current_version → $new_version"
+# [skip ci]: the bump is pushed with a deploy key, and unlike GITHUB_TOKEN
+# pushes those trigger workflows. The bump commit only changes version
+# strings, so re-running CI, docs and a no-op Release on it is wasted.
+bump_message = "bump: version $current_version → $new_version [skip ci]"
 update_changelog_on_bump = true
 # uv.lock pins the workspace members by version, so it has to be regenerated
 # with the new version before the bump is committed. cz runs pre_bump_hooks
