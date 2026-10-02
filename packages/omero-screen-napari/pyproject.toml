@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "hh65", email = "hh65@sussex.ac.uk" }
 ]
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12,<3.15"
 dependencies = [
     # napari itself belongs here, in the package that imports it — it used to be
     # declared only in the root project, so this package silently relied on the
@@ -27,9 +27,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The desktop GUI stack. pyqt5-qt5 and triangle (both pulled by napari[all])
-# have no linux/arm64 wheels, so this must stay opt-in.
-qt = ["napari[all]>=0.6.2"]
+# The desktop GUI stack. pyqt5-qt5 and triangle have no linux/arm64 wheels,
+# so this must stay opt-in. Spelled out as napari[all] minus triangle:
+# triangle has no cp314 wheel (and no sdist), and napari already ships
+# bermuda as its triangulation backend, so triangle is only kept where it
+# installs, exactly as before.
+qt = [
+    "napari[pyqt,optional-base,optional-numba,bermuda]>=0.6.2",
+    "triangle; python_version < '3.14'",
+]
 
 [project.entry-points."napari.manifest"]
 omero-screen-napari = "omero_screen_napari:napari.yaml"
@@ -89,6 +95,7 @@ ignore_missing_imports = true
 # ===========================
 
 [tool.ruff]
+target-version = "py312"
 line-length = 79
 lint.select = [
     "E", "F", "W", #flake8

@@ -4,20 +4,13 @@ version = "0.7.2"
 description = "High-content image analysis pipeline for data stored in OMERO"
 readme = "README.md"
 authors = [{ name = "hh65", email = "hh65@sussex.ac.uk" }]
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12,<3.15"
 dependencies = [
     "omero-utils",
     "python-dotenv>=1.0.1",
-    # macOS-specific zeroc-ice wheel
-    'zeroc-ice @ https://github.com/glencoesoftware/zeroc-ice-py-macos-universal2/releases/download/20240131/zeroc_ice-3.6.5-cp312-cp312-macosx_11_0_universal2.whl ; sys_platform == "darwin"',
-    # Linux aarch64-specific zeroc-ice wheel
-    'zeroc-ice @ https://github.com/glencoesoftware/zeroc-ice-py-linux-aarch64/releases/download/20240620/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_aarch64.whl ; sys_platform == "linux" and platform_machine == "aarch64"',
-    # Linux x86_64-specific zeroc-ice wheel
-    'zeroc-ice @ https://github.com/glencoesoftware/zeroc-ice-py-linux-x86_64/releases/download/20240202/zeroc_ice-3.6.5-cp312-cp312-manylinux_2_28_x86_64.whl ; sys_platform == "linux" and platform_machine == "x86_64"',
-    # Windows-specific zeroc-ice wheel
-    'zeroc-ice @ https://github.com/glencoesoftware/zeroc-ice-py-win-x86_64/releases/download/20240325/zeroc_ice-3.6.5-cp312-cp312-win_amd64.whl ; platform_system == "Windows"',
-    # Default zeroc-ice for other platforms or architectures
-    'zeroc-ice>=3.6.5; sys_platform != "darwin" and platform_machine != "aarch64" and platform_machine != "x86_64"',
+    # Ice 3.6.5 wheels for CPython 3.12-3.14 come from the hocheggerlab-ice
+    # index (see [tool.uv.sources]); PyPI only has an unbuildable sdist.
+    "zeroc-ice==3.6.5",
     "omero-py>=5.19.5",
     "pandas>=2.2.3",
     "openpyxl>=3.1.5",
@@ -95,6 +88,17 @@ omero-utils = { workspace = true }
 omero-screen-napari = { workspace = true }
 omero-screen-plots = { workspace = true }
 cellview = { workspace = true }
+zeroc-ice = { index = "hocheggerlab-ice" }
+
+# Pre-built zeroc-ice 3.6.5 wheels (cp312-cp314; linux x86_64/aarch64, macOS
+# universal2, Windows x86_64), built from Glencoe's patch series because
+# Glencoe's own releases stop at cp312. explicit: only zeroc-ice is resolved
+# here. https://github.com/HocheggerLab/ice-wheels
+[[tool.uv.index]]
+name = "hocheggerlab-ice"
+url = "https://hocheggerlab.github.io/ice-wheels/"
+format = "flat"
+explicit = true
 
 
 [dependency-groups]
@@ -171,6 +175,7 @@ ignore_errors = true
 
 [tool.ruff]
 line-length = 79
+target-version = "py312"
 lint.select = [
     "D", "E", "F", "W", #flake8
     "UP", # pyupgrade
