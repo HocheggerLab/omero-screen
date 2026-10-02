@@ -1,3 +1,9 @@
+## omero-screen-v0.8.2 (2026-10-02)
+
+### Fix
+
+- **stitch**: select stitch calibration by objective (pixel size) (#25)
+
 ## omero-screen-v0.8.1 (2026-10-02)
 
 ### Fix
