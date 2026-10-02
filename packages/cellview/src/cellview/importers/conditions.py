@@ -298,13 +298,13 @@ class ConditionManager:
                         (condition_id, variable_name, str(variable_value)),
                     )
 
+            n_variables = sum(
+                len(variable_conditions)
+                for variable_conditions in well_variables.values()
+            )
             self.logger.info(
-                f"Successfully populated condition_variables table with {
-                    sum(
-                        len(variable_conditions)
-                        for variable_conditions in well_variables.values()
-                    ):d
-                } variables"
+                f"Successfully populated condition_variables table with "
+                f"{n_variables:d} variables"
             )
 
         except duckdb.Error as e:
