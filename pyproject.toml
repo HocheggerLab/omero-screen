@@ -81,6 +81,12 @@ members = [
 # `gui` is a default group so a bare `uv sync` still gives a developer napari,
 # exactly as before. The container opts out with `uv sync --no-default-groups`.
 default-groups = ["dev", "gui"]
+# geff (via trackastra) declares `numcodecs<0.16; python_version >
+# "3.10,<=3.11"`. The marker is malformed, so it falls back to a string
+# comparison that is true on every Python >= 3.12, capping numcodecs at
+# 0.15.1, which has no cp314 wheel. The cap is meant for 3.11 only; replace
+# numcodecs' requirements with zarr 3's floor. Drop once geff fixes the marker.
+override-dependencies = ["numcodecs>=0.15"]
 
 [tool.uv.sources]
 omero-screen = { workspace = true }

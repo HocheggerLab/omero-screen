@@ -30,7 +30,7 @@ from omero_screen_napari.zarr_cache.reader import (
 )
 
 # Opportunistic dask cache: caches *decoded* array results (not just raw
-# chunk bytes like the reader's LRUStoreCache), so replaying a timelapse,
+# chunk bytes like the reader's LRUCacheStore), so replaying a timelapse,
 # scrubbing back, or re-zooming a region already viewed hits RAM instead
 # of re-running the from_zarr → slice → stack graph. Registered once per
 # process; size override via ``OMERO_SCREEN_DASK_CACHE_MB``.

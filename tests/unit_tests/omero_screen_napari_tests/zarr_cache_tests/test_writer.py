@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import numpy as np
 import pytest
 import zarr
-
 from omero_screen_napari.zarr_cache import PlateZarrWriter, plate_zarr_path
 
 
 # Convenience for asserting array properties.
-def _open_grp(path: Path) -> zarr.hierarchy.Group:
+def _open_grp(path: Path) -> zarr.Group:
     return zarr.open_group(str(path), mode="r")
 
 
@@ -56,7 +54,9 @@ def test_ensure_plate_rejects_empty_well_list():
 
 def test_omero_screen_attrs_stash_plate_info(synth_well_data):
     w = _writer(plate_id=101, channel_names=["A", "B", "C"], pixel_size_um=0.5)
-    w.ensure_plate(all_wells=["A1"], well_metadata={"A1": {"cell_line": "U2OS"}})
+    w.ensure_plate(
+        all_wells=["A1"], well_metadata={"A1": {"cell_line": "U2OS"}}
+    )
     root = _open_grp(plate_zarr_path(101))
     meta = root.attrs["omero_screen"]
     assert meta["plate_id"] == 101
@@ -148,10 +148,14 @@ def test_write_well_does_not_mutate_sibling_well(synth_well_data):
     w.write_well("A1", image_a1, nuc_a1, cell_a1)
 
     a1_dir = plate_zarr_path(103) / "A" / "1"
-    before = {p.name: p.stat().st_size for p in a1_dir.rglob("*") if p.is_file()}
+    before = {
+        p.name: p.stat().st_size for p in a1_dir.rglob("*") if p.is_file()
+    }
 
     w.write_well("A2", image_a2, nuc_a2, cell_a2)
-    after = {p.name: p.stat().st_size for p in a1_dir.rglob("*") if p.is_file()}
+    after = {
+        p.name: p.stat().st_size for p in a1_dir.rglob("*") if p.is_file()
+    }
     assert before == after
 
 

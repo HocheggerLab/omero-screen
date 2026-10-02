@@ -44,6 +44,7 @@ from omero.gateway import BlitzGateway
 from omero_screen_napari.zarr_cache.builder import build_plate_zarr
 from omero_screen_napari.zarr_cache.paths import plate_zarr_path
 from omero_screen_napari.zarr_cache.registry import find_group
+from omero_screen_napari.zarr_cache.store_cache import open_cached_group
 
 # Default crop size in pixels (square). Matches the per-field gallery
 # default so existing classifier inputs slot in unchanged.
@@ -64,13 +65,13 @@ class ZarrPlateHandle:
 
     Kept as a frozen dataclass so callers can stash it without worrying
     about opened-file state — the zarr group is re-opened lazily on
-    each access. (zarr-2's ``DirectoryStore`` is cheap to re-open.)
+    each access. (A ``LocalStore`` is cheap to re-open.)
     """
 
     plate_id: int
     path: Path
 
-    def open(self) -> zarr.hierarchy.Group:
+    def open(self) -> zarr.Group:
         """Open the plate group (read-only). Does NOT refresh ``last_accessed``.
 
         ``touch()`` is intentionally not called here because crop-fetch
@@ -172,28 +173,25 @@ _CHUNK_CACHE_BYTES = 256 * 2**20
 
 
 @lru_cache(maxsize=16)
-def _open_cached_root(plate_path: str) -> zarr.hierarchy.Group:
+def _open_cached_root(plate_path: str) -> zarr.Group:
     """Open the plate root with an LRU chunk cache layered on top.
 
-    Wrapping the ``DirectoryStore`` in :class:`zarr.LRUStoreCache` keeps
-    decompressed chunks resident across :func:`fetch_crop` calls. Without
+    Wrapping the store in a :class:`~.store_cache.LRUCacheStore` keeps
+    chunks resident across :func:`fetch_crop` calls. Without
     this each ``arr[t, :, sy0:sy1, sx0:sx1]`` re-reads + re-decompresses
     every chunk it intersects, even when the previous call's crop
     overlapped the same chunks. Gallery loads on a 12 k-cell well went
     from ~30 s to a fraction of that after enabling the cache.
     """
-    store = zarr.DirectoryStore(plate_path)
-    cached = zarr.LRUStoreCache(store, max_size=_CHUNK_CACHE_BYTES)
-    return zarr.open_group(store=cached, mode="r")
+    return open_cached_group(plate_path, max_size=_CHUNK_CACHE_BYTES)
 
 
 @lru_cache(maxsize=64)
-def _open_well_image_array(plate_path: str, well: str) -> zarr.core.Array:
+def _open_well_image_array(plate_path: str, well: str) -> zarr.Array:
     """Cached open of the level-0 image array for one well.
 
     Both the array handle and (via the underlying group's
-    ``LRUStoreCache``) its decoded chunks are kept resident between
-    calls.
+    ``LRUCacheStore``) its chunks are kept resident between calls.
     """
     root = _open_cached_root(plate_path)
     return root[_well_group_path(well)]["0"]
@@ -202,7 +200,7 @@ def _open_well_image_array(plate_path: str, well: str) -> zarr.core.Array:
 @lru_cache(maxsize=64)
 def _open_well_label_array(
     plate_path: str, well: str, mask_name: str
-) -> zarr.core.Array:
+) -> zarr.Array:
     """Cached open of a level-0 label array for one well."""
     root = _open_cached_root(plate_path)
     img_grp = root[_well_group_path(well)]

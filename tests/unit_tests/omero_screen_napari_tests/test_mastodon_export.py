@@ -158,13 +158,14 @@ def _fake_cached_well_with_labels(
 
     row, col = well[0], str(int(well[1:]))
     path = os.path.join(cache_root, "zarr", f"plate_{plate_id}.zarr")
-    root = zarr.open_group(path, mode="w")
+    # zarr v2 on disk, like the real cache writer.
+    root = zarr.open_group(path, mode="w", zarr_format=2)
     nuc = (
         root.require_group(f"{row}/{col}/0")
         .require_group("labels")
         .require_group("nuclei")
     )
-    nuc.create_dataset("0", data=nuclei_tyx.astype(np.uint32))
+    nuc.create_array("0", data=nuclei_tyx.astype(np.uint32))
 
 
 def _tracks_3frames() -> pl.LazyFrame:
@@ -330,6 +331,6 @@ def test_export_well_ctc_raises_without_cached_labels(
     monkeypatch.setenv("OMERO_SCREEN_CACHE_PATH", str(tmp_path))
     # Cache a well with an image group but no nuclei labels.
     path = tmp_path / "zarr" / "plate_4155.zarr"
-    zarr.open_group(str(path), mode="w").require_group("B/2/0")
+    zarr.open_group(str(path), mode="w", zarr_format=2).require_group("B/2/0")
     with pytest.raises(FileNotFoundError):
         export_well_ctc(4155, "B2", _tracks_3frames(), out_base=tmp_path)
