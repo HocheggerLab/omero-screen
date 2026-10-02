@@ -30,6 +30,7 @@ and review the diff — a change here means downstream user code may need updati
 
 import inspect
 import json
+import re
 from pathlib import Path
 
 import matplotlib
@@ -63,13 +64,65 @@ PUBLIC_FUNCTIONS = [
 ]
 
 
+def _split_top_level(args: str) -> list[str]:
+    """Split ``"A, B[C, D], E"`` on the commas that are not inside brackets."""
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(args):
+        if ch in "[(":
+            depth += 1
+        elif ch in "])":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append(args[start:i].strip())
+            start = i + 1
+    parts.append(args[start:].strip())
+    return parts
+
+
+def _pep604(signature: str) -> str:
+    """Rewrite ``Optional[X]`` / ``Union[A, B]`` as ``X | None`` / ``A | B``.
+
+    Python 3.14 unified ``typing.Union`` with ``|``, so annotations written
+    as ``Optional[X]`` repr as ``X | None`` there. Applied repeatedly so
+    nested forms are rewritten inside out.
+    """
+    for name in ("Optional", "Union"):
+        while (start := signature.find(f"{name}[")) != -1:
+            open_at = start + len(name)
+            depth = 0
+            for end in range(open_at, len(signature)):
+                if signature[end] == "[":
+                    depth += 1
+                elif signature[end] == "]":
+                    depth -= 1
+                    if depth == 0:
+                        break
+            members = _split_top_level(signature[open_at + 1 : end])
+            if name == "Optional":
+                members.append("None")
+            signature = (
+                signature[:start] + " | ".join(members) + signature[end + 1 :]
+            )
+    return signature
+
+
 def _normalise(signature: str) -> str:
     """Remove repr differences between supported Python versions.
 
-    Python 3.13 turned ``pathlib`` into a package, so ``pathlib.Path`` reprs as
-    ``pathlib._local.Path`` there. The signature itself is unchanged.
+    The signatures themselves are unchanged; only how they print differs:
+
+    * Python 3.13 turned ``pathlib`` into a package, so ``pathlib.Path``
+      reprs as ``pathlib._local.Path``.
+    * Python 3.14 prints ``Optional[X]`` as ``X | None`` (see ``_pep604``),
+      ``typing.Any`` as ``Any`` and a union's ``NoneType`` as ``None``.
     """
-    return signature.replace("pathlib._local.", "pathlib.")
+    signature = signature.replace("pathlib._local.", "pathlib.")
+    for name in ("Any", "Optional[", "Union["):
+        signature = signature.replace(f"typing.{name}", name)
+    signature = re.sub(r"\bNoneType\b", "None", signature)
+    return _pep604(signature)
 
 
 @pytest.fixture(scope="module")
