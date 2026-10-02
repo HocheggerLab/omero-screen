@@ -19,7 +19,10 @@ jobs:
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # main is protected (PRs + green CI only); the release-bot deploy key
+          # is the ruleset's only bypass, so the bump commit and tag are pushed
+          # as that key. A GITHUB_TOKEN push would be rejected. See #15.
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
 
       - name: Configure Git
         run: |
