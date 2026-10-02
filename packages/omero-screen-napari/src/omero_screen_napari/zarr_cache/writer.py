@@ -58,6 +58,10 @@ _SPATIAL_CHUNK = 256
 # always been) although the library is zarr 3 / ome-zarr >=0.12, whose
 # default is zarr v3 / NGFF 0.5: BigDataViewer and Mastodon open the store
 # directly and read zarr v2 only, and every existing cache stays valid.
+# One difference from stores written with zarr 2: chunk keys use the "/"
+# dimension separator (nested 0/0/0/0) instead of "." (flat 0.0.0.0). NGFF 0.4
+# requires "/", each array records its separator in .zarray, and readers
+# handle both, so old and new stores coexist in one cache.
 _ZARR_FORMAT = 2
 _NGFF_FORMAT = FormatV04()
 

@@ -18,10 +18,9 @@ dependencies = [
     "click>=8.1.8",
     "rich>=13.9.4",
     # <0.14: from 0.14 ome-zarr names pyramid levels s0/s1/s2 instead of
-    # 0/1/2 (hard-coded, no option). 0.12-0.13 support zarr 3 and keep the
-    # cache layout byte-identical to every existing store, which our readers
-    # and BigDataViewer/Mastodon rely on. Lift once the readers take level
-    # paths from the multiscales metadata.
+    # 0/1/2 (hard-coded, no option), which our readers assume. 0.12-0.13
+    # support zarr 3 and keep the 0/1/2 naming of every existing store. Lift
+    # once the readers take level paths from the multiscales metadata.
     "ome-zarr>=0.12,<0.14",
     # zarr 3 API; the cache is still written in zarr v2 / OME-NGFF 0.4
     # layout so BigDataViewer and Mastodon can open it (see writer.py).
@@ -34,10 +33,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# The desktop GUI stack (pyqt5-qt5 has no linux/arm64 wheels, so this must
-# stay opt-in). napari[all] would select PyQt6 since napari 0.9 (its "pyqt"
-# extra now means pyqt6); we stay on PyQt5 deliberately, so name it.
-qt = ["napari[pyqt5,optional]>=0.9.2"]
+# The desktop GUI stack, opt-in. PyQt6: napari deprecated PyQt5 (removal due
+# in fall 2026). The PyQt6/Qt6 Linux wheels need glibc >= 2.34 (x86_64) or
+# >= 2.39 (aarch64), newer than some clusters and the container's base image,
+# so headless installs must not pull it. Named explicitly rather than via
+# napari[all] so the binding is a visible choice.
+qt = ["napari[pyqt6,optional]>=0.9.2"]
 
 [project.entry-points."napari.manifest"]
 omero-screen-napari = "omero_screen_napari:napari.yaml"

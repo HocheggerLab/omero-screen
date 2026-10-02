@@ -46,8 +46,8 @@ dependencies = [
 
 [project.optional-dependencies]
 # The napari GUI. Kept out of the base dependencies so omero-screen installs
-# headless: napari[all] pulls pyqt5, pyqt5-qt5 and triangle, none of which ship
-# linux/arm64 wheels. src/omero_screen never imports napari — only the
+# headless: the PyQt6/Qt6 Linux wheels need glibc >= 2.34 (x86_64) or >= 2.39
+# (aarch64), newer than some clusters. src/omero_screen never imports napari — only the
 # bin/phase_montage.py utility does — so the core pipeline is unaffected.
 gui = ["omero-screen-napari[qt]"]
 

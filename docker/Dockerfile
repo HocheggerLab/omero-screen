@@ -7,8 +7,9 @@
 # highest version and which then fails to install anywhere else.
 #
 # The image does not install napari: `--no-default-groups` drops the `gui` group, which is
-# the whole point — napari[all] pulls pyqt5, pyqt5-qt5 and triangle, none of
-# which ship linux/arm64 wheels. The core pipeline never imports napari.
+# the whole point — the PyQt6/Qt6 wheels need glibc >= 2.34 (x86_64) or >= 2.39
+# (aarch64), newer than this Debian bookworm base (2.36) on arm64. The core
+# pipeline never imports napari.
 #
 #   docker build -f docker/Dockerfile -t omero-screen .
 #   docker run --rm --gpus all -v "$PWD/.env:/app/.env:ro" omero-screen omero-screen --help
