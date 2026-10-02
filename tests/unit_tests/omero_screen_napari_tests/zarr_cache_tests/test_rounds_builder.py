@@ -72,28 +72,16 @@ def _sources(shift_x: int, shift_y: int):  # type: ignore[no-untyped-def]
 
 def _patches(field_data, mask_data):  # type: ignore[no-untyped-def]
     def fake_get_image(conn, image_id, start=None, end=None, tag=None):  # type: ignore[no-untyped-def]
-        arr = field_data[image_id]
+        # Masks are read through the same cached seam as the field images.
+        arr = {**field_data, **mask_data}[image_id]
         return arr if start is None else arr[start:end]
 
     def fake_resolve(_well, _fields):  # type: ignore[no-untyped-def]
         return list(_MASK_IDS), list(_MASTER_IDS)
 
-    def fake_trange(  # type: ignore[no-untyped-def]
-        conn, mask_ids, *, t0=None, t1=None, source_ids=None,
-        conn_factory=None, max_workers=3,
-    ):
-        sl = slice(None) if t0 is None else slice(t0, t1)
-        nuclei, cells = [], []
-        for mid in mask_ids:
-            sq = np.squeeze(mask_data[mid][sl], axis=1)
-            nuclei.append(np.ascontiguousarray(sq[..., 0]))
-            cells.append(np.ascontiguousarray(sq[..., 1]))
-        return nuclei, cells
-
     return (
         patch.object(builder, "get_image", fake_get_image),
         patch.object(builder, "resolve_stitched_mask_ids", fake_resolve),
-        patch.object(builder, "fetch_stitched_field_masks_trange", fake_trange),
         patch.object(
             builder, "_load_canvas_offsets", lambda _well: np.array([[0, 0]])
         ),
@@ -112,8 +100,8 @@ def _build(shift_x: int, shift_y: int):  # type: ignore[no-untyped-def]
         channel_data=_ROUND_CH,
         flatfield_dict=ff,
     )
-    p_img, p_res, p_tr, p_co = _patches(field_data, mask_data)
-    with p_img, p_res, p_tr, p_co:
+    p_img, p_res, p_co = _patches(field_data, mask_data)
+    with p_img, p_res, p_co:
         img, nuc, cell = builder._build_lazy_well_arrays(
             MagicMock(),
             None,
@@ -201,8 +189,8 @@ def _build_transposed(shift_x: int, shift_y: int):  # type: ignore[no-untyped-de
         channel_data=_ROUND_CH,
         flatfield_dict=ff,
     )
-    p_img, p_res, p_tr, p_co = _patches(field_data, mask_data)
-    with p_img, p_res, p_tr, p_co:
+    p_img, p_res, p_co = _patches(field_data, mask_data)
+    with p_img, p_res, p_co:
         img, _, _ = builder._build_lazy_well_arrays(
             MagicMock(), None, _make_well(_MASTER_IDS), _MASTER_CH, ff,
             plate_id=4127, block_t=1, round_specs=[spec],
