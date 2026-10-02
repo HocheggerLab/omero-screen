@@ -53,6 +53,15 @@ _ATTENTION_BYTES_PER_N2 = 200
 _VRAM_SAFETY = 0.85
 
 
+def _config_window(config: dict[str, Any], n_frames: int) -> int:
+    """Temporal window from a Trackastra model config, capped at ``n_frames``.
+
+    A missing key or an explicit ``None`` both mean "use every frame".
+    """
+    window = config.get("window")
+    return n_frames if window is None else min(int(window), n_frames)
+
+
 def _max_detections_for_window(per_frame: list[int], window: int) -> int:
     """Largest detections-per-window (N) over all sliding windows of size."""
     n_frames = len(per_frame)
@@ -218,7 +227,7 @@ def track_nucleus_mask(
     #   explicit override  >  auto-fit on GPU  >  full window on CPU
     config = getattr(model.transformer, "config", {})
     device = str(getattr(model, "device", "cpu"))
-    model_window = min(int(config.get("window", n_frames)), n_frames)
+    model_window = _config_window(config, n_frames)
     if window is not None:
         config["window"] = window
         logger.info(
@@ -237,7 +246,7 @@ def track_nucleus_mask(
     # Diagnostic: the attention spatial-bias matrix is (heads, N, N) where
     # N = detections summed over the frames in one window — this is what drives
     # GPU memory (~N²). Surface it so the scale is visible, not guessed.
-    eff_window = min(int(config.get("window", n_frames)), n_frames)
+    eff_window = _config_window(config, n_frames)
     n_per_window = _max_detections_for_window(per_frame, eff_window)
     logger.info(
         f"Tracking {n_frames:d} frames, {min(per_frame):d}–{max(per_frame):d} objects/frame; effective window {eff_window:d} → ~{n_per_window:d} detections/window (attention memory scales as this squared)."
