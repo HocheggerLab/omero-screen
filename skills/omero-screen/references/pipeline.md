@@ -115,9 +115,24 @@ Built-in Cellpose 4 model: `cp4:cpsam` (recommended for most cell lines)
 
 ## Stitching Configuration
 
-Plate wells can be stitched into a single canvas using the well sample position metadata stored in OMERO. The sample positions are used to determine the well grid layout. The tiles may not align exactly and some overlap in X and Y, and translation of tiles along the rows and columns may be required. These parameters are expected to be specific to a microscope. Calibration for a specific microscope may differ for magnification and well grid layout.
+Plate wells can be stitched into a single canvas using the well sample position metadata stored in OMERO. The sample positions determine the well grid *layout* only — the spacing between tiles comes from `overlap_x`/`overlap_y` and `translate_x`/`translate_y`, which must match the acquisition.
 
-Override the default stitching parameters with a JSON file:
+These parameters are **objective-dependent**: the same physical overlap covers twice as many pixels at 20x as at 10x. The pipeline selects them automatically from the plate's pixel size (read by `MetadataParser`) against `STITCH_CALIBRATIONS` in `omero_utils.stitching`:
+
+| Objective | Pixel size (µm) | overlap_x / overlap_y | translate_x / translate_y |
+|---|---|---|---|
+| 10x | 1.2 | 7 / 7 | -3 / 3 |
+| 20x | 0.6 | 25 / 26 | -5 / 4 |
+
+The choice is logged at INFO on every stitched run; an unknown pixel size falls back to the 10x values with a warning.
+
+Check a plate, or calibrate a new objective, with the read-only seam diagnostic — a peak at *d* px means `overlap` is short by *d*:
+
+```bash
+uv run python scripts/diagnose_stitch_seams.py <plate_id>
+```
+
+Override the calibration table with a JSON file (this also disables pixel-size selection):
 
 ```bash
 export OMERO_SCREEN_STITCH_CONFIG=/path/to/my_stitch_config.json

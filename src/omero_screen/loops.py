@@ -66,10 +66,10 @@ from omero_utils.images import (
 from omero_utils.map_anns import parse_annotations
 from omero_utils.message import PlateDataError, WellAnnotationError
 from omero_utils.stitching import (
-    STITCH_DEFAULTS,
     get_overlap,
     positions_to_offsets,
     recompose_tiles,
+    resolve_stitch_params,
     split_stitched_from_offsets,
     stitch_from_offsets,
 )
@@ -519,10 +519,7 @@ def _load_well_fields(
         positions,
         size_x,
         size_y,
-        overlap_x=STITCH_DEFAULTS["overlap_x"],
-        overlap_y=STITCH_DEFAULTS["overlap_y"],
-        translate_x=STITCH_DEFAULTS["translate_x"],
-        translate_y=STITCH_DEFAULTS["translate_y"],
+        **resolve_stitch_params(metadata.pixel_size),
     )
 
     # Position validation result is logged in positions_to_offsets.
@@ -937,10 +934,7 @@ def _load_and_stitch_streaming(
         positions,
         size_x,
         size_y,
-        overlap_x=STITCH_DEFAULTS["overlap_x"],
-        overlap_y=STITCH_DEFAULTS["overlap_y"],
-        translate_x=STITCH_DEFAULTS["translate_x"],
-        translate_y=STITCH_DEFAULTS["translate_y"],
+        **resolve_stitch_params(metadata.pixel_size),
     )
 
     # Position validation result is logged in positions_to_offsets.
