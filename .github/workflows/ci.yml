@@ -14,8 +14,15 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.12"]
+        # Floor and ceiling of requires-python; 3.13 joins in the Phase 3
+        # full matrix.
+        python-version: ["3.12", "3.14"]
+    env:
+      # Without this, uv sync/run use .python-version (3.12) and silently
+      # ignore the matrix.
+      UV_PYTHON: ${{ matrix.python-version }}
 
     services:
       database:
