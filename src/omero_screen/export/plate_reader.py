@@ -174,6 +174,14 @@ def read_plate(
 
     specs: list[ImageSpec] = []
     max_row = max_col = 1
+    # Operetta writes a plane even when autofocus fails, but leaves its
+    # acquisition date unset. An empty <AbsTime> makes the bundle
+    # unre-importable, so carry the previous image's timestamp forward.
+    # Seeded from the plate acquisition start so a failure on the very
+    # first field still yields a usable value.
+    measurement_start = _acquisition_start(plate)
+    last_acquired = measurement_start
+    missing_timestamps = 0
 
     for well in selected:
         # OMERO rows/columns are 0-based; Harmony is 1-based.
@@ -201,6 +209,16 @@ def read_plate(
             res_x = _length_in_m(image, pixels.getPhysicalSizeX())
             res_y = _length_in_m(image, pixels.getPhysicalSizeY())
             acquired = image.getAcquisitionDate()
+            if acquired is None:
+                acquired = last_acquired
+                missing_timestamps += 1
+                logger.warning(
+                    f"Well {well.getWellPos()} field {field_index} "
+                    f"(image {image.getId()}) has no acquisition date "
+                    f"— reusing {acquired.isoformat() if acquired else 'none'}"
+                )
+            else:
+                last_acquired = acquired
 
             for t in range(image.getSizeT()):
                 for z in range(image.getSizeZ()):
@@ -231,6 +249,11 @@ def read_plate(
                         )
 
     rows, columns, plate_type = _plate_format(max_row, max_col)
+    if missing_timestamps:
+        logger.warning(
+            f"Plate {plate_id}: {missing_timestamps} field(s) had no "
+            f"acquisition date; the preceding field's timestamp was reused"
+        )
     logger.info(
         f"Plate {plate_id}: {len(selected)} well(s), {len(specs)} plane(s) "
         f"to export as a {plate_type}"
@@ -241,7 +264,7 @@ def read_plate(
         rows=rows,
         columns=columns,
         measurement_id=str(uuid.uuid4()),
-        measurement_start=_acquisition_start(plate),
+        measurement_start=measurement_start,
         plate_type_name=plate_type,
         images=specs,
         well_positions=[w.getWellPos() for w in selected],
