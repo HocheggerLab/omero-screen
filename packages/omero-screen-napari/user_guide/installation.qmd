@@ -4,7 +4,7 @@ title: "Installation"
 
 ## Prerequisites
 
-- **Python 3.12**
+- **Python 3.12, 3.13 or 3.14**
 - **Napari 0.6.2+** with Qt backend
 - Access to an **OMERO server** (5.x) with valid credentials
 - Segmented plate data on OMERO (nucleus/cell masks uploaded by the omero-screen pipeline)

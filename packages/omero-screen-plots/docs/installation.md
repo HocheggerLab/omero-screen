@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Python 3.12 or higher
+- Python 3.12, 3.13 or 3.14
 - OMERO Screen installation (for full pipeline integration)
 - Access to screening data in CSV format or cellview database
 

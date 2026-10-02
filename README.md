@@ -11,7 +11,7 @@ biologists running high-content screens.
 ### 📖 [Read the documentation →](https://hocheggerlab.github.io/omero-screen/)
 
 [![version](https://img.shields.io/badge/version-0.7.2-blue)](https://github.com/HocheggerLab/omero-screen/releases)
-[![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 > [!WARNING]
@@ -43,7 +43,7 @@ cellview import plate 1234          # pull the measurements into a local databas
 
 ## Install
 
-Requires **Python 3.12** and [uv](https://docs.astral.sh/uv/). Not tested on
+Requires **Python 3.12, 3.13 or 3.14** and [uv](https://docs.astral.sh/uv/). Not tested on
 Windows.
 
 ```bash
