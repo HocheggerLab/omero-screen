@@ -1,3 +1,9 @@
+## omero-screen-v0.8.1 (2026-10-02)
+
+### Fix
+
+- **export**: reuse the previous timestamp when Operetta left none (#23)
+
 ## omero-screen-v0.8.0 (2026-10-02)
 
 ### Feat
