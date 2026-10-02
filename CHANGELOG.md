@@ -1,3 +1,9 @@
+## omero-screen-v0.8.0 (2026-10-02)
+
+### Feat
+
+- **deps**: support Python 3.12-3.14, napari 0.9 and PyQt6 (#14)
+
 ## omero-screen-v0.7.2 (2026-09-28)
 
 ### Fix
