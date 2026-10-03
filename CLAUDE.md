@@ -1,6 +1,6 @@
 # OMERO-Screen
 
-High-content IF microscopy monorepo: OMERO → Cellpose segmentation → feature extraction → cell-cycle analysis → DuckDB (CellView) → publication figures. `uv` workspace, Python 3.12, six packages.
+High-content IF microscopy monorepo: OMERO → Cellpose segmentation → feature extraction → cell-cycle analysis → DuckDB (CellView) → publication figures. `uv` workspace, Python 3.12–3.14 (3.14 default), six packages.
 
 GitHub: https://github.com/Helfrid/omero-screen · Docs: https://hocheggerlab.github.io/omero-screen/
 

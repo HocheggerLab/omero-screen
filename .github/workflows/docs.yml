@@ -46,6 +46,10 @@ permissions:
   pages: write
   id-token: write
 
+# uv sync follows .python-version (3.14); keep the docs builds on 3.12.
+env:
+  UV_PYTHON: "3.12"
+
 jobs:
   build:
     runs-on: ubuntu-latest
