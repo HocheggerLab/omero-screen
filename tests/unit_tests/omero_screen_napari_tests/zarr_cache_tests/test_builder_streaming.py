@@ -16,6 +16,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+from omero_utils.images import split_stitched_masks
 from omero_utils.stitching import get_overlap, recompose_tiles
 import zarr
 from omero_screen_napari.zarr_cache import (
@@ -75,32 +76,15 @@ def _synthetic_sources() -> tuple[
 
 
 def _patches(field_data, mask_data):  # type: ignore[no-untyped-def]
-    """Patch the builder's three OMERO download seams with synthetic data."""
+    """Patch the builder's OMERO download seams with synthetic data."""
 
     def fake_get_image(conn, image_id, start=None, end=None, tag=None):  # type: ignore[no-untyped-def]
-        arr = field_data[image_id]
+        # Masks are read through the same cached seam as the field images.
+        arr = {**field_data, **mask_data}[image_id]
         return arr if start is None else arr[start:end]
 
     def fake_resolve(_well, _fields):  # type: ignore[no-untyped-def]
         return list(_MASK_IDS), list(_IMAGE_IDS)
-
-    def fake_trange(  # type: ignore[no-untyped-def]
-        conn,
-        mask_ids,
-        *,
-        t0=None,
-        t1=None,
-        source_ids=None,
-        conn_factory=None,
-        max_workers=3,
-    ):
-        sl = slice(None) if t0 is None else slice(t0, t1)
-        nuclei, cells = [], []
-        for mid in mask_ids:
-            sq = np.squeeze(mask_data[mid][sl], axis=1)  # (t, Y, X, C)
-            nuclei.append(np.ascontiguousarray(sq[..., 0]))
-            cells.append(np.ascontiguousarray(sq[..., 1]))
-        return nuclei, cells
 
     assert len(_IMAGE_IDS) == 1, "Only 1 offset configured for synthetic well images"
     def _fake_load_canvas_offsets(_well):
@@ -109,9 +93,6 @@ def _patches(field_data, mask_data):  # type: ignore[no-untyped-def]
     return (
         patch.object(builder, "get_image", fake_get_image),
         patch.object(builder, "resolve_stitched_mask_ids", fake_resolve),
-        patch.object(
-            builder, "fetch_stitched_field_masks_trange", fake_trange
-        ),
         patch.object(builder, "_load_canvas_offsets", _fake_load_canvas_offsets),
     )
 
@@ -120,8 +101,8 @@ def _build_both():  # type: ignore[no-untyped-def]
     """Return ((dask_img, dask_nuc, dask_cell), (eager_img, eager_nuc, eager_cell))."""
     field_data, mask_data, flatfield = _synthetic_sources()
     well = _make_well()
-    p_img, p_res, p_tr, p_co = _patches(field_data, mask_data)
-    with p_img, p_res, p_tr, p_co:
+    p_img, p_res, p_co = _patches(field_data, mask_data)
+    with p_img, p_res, p_co:
         # New lazy/dask path.
         img_d, nuc_d, cell_d = builder._build_lazy_well_arrays(
             MagicMock(),
@@ -146,8 +127,9 @@ def _build_both():  # type: ignore[no-untyped-def]
         edge = get_overlap(offsets, tile_h, tile_w)
         eager_img = builder._stitch_image(imgs_ntyxc, offsets, edge)
         mids, src = builder.resolve_stitched_mask_ids(well, list(range(well.countWellSample())))
-        nuc_f, cell_f = builder.fetch_stitched_field_masks_trange(
-            MagicMock(), mids, source_ids=src
+        # Eager reference: whole-range masks split straight from the source.
+        nuc_f, cell_f = split_stitched_masks(
+            [mask_data[m] for m in mids], mids, src
         )
         eager_nuc = recompose_tiles(nuc_f, offsets).astype(
             np.uint32, copy=False
@@ -180,7 +162,7 @@ def test_streamed_zarr_matches_eager_zarr() -> None:
     # Re-fetch the lazy arrays (consumed arrays above were materialised).
     field_data, mask_data, flatfield = _synthetic_sources()
     well = _make_well()
-    p_img, p_res, p_tr, p_co = _patches(field_data, mask_data)
+    p_img, p_res, p_co = _patches(field_data, mask_data)
 
     def _write(plate_id, img, nuc, cell):  # type: ignore[no-untyped-def]
         w = PlateZarrWriter(
@@ -194,7 +176,7 @@ def test_streamed_zarr_matches_eager_zarr() -> None:
             w.ensure_plate(all_wells=["A1"])
             w.write_well("A1", img, nuc, cell)
 
-    with p_img, p_res, p_tr, p_co:
+    with p_img, p_res, p_co:
         lazy_img, lazy_nuc, lazy_cell = builder._build_lazy_well_arrays(
             MagicMock(),
             None,

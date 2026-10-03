@@ -457,6 +457,33 @@ def fetch_stitched_field_masks_trange(
         for i in range(n_fields):
             _, raw_masks[i] = _download_one(i, mask_ids[i])
 
+    return split_stitched_masks(raw_masks, mask_ids, ids)
+
+
+def split_stitched_masks(
+    raw_masks: list[npt.NDArray[Any] | None],
+    mask_ids: list[int],
+    source_ids: list[int],
+) -> tuple[list[npt.NDArray[Any]], list[npt.NDArray[Any] | None]]:
+    """Split downloaded ``(T, Z=1, Y, X, C)`` mask stacks into nuclei and cells.
+
+    Shared by :func:`fetch_stitched_field_masks_trange` and callers that read
+    the mask pixels through their own (e.g. disk-cached) download path.
+
+    Args:
+        raw_masks: Per-field mask arrays (TZYXC); ``None`` marks a failed download.
+        mask_ids: Per-field mask image ids, for error messages.
+        source_ids: Per-field source image ids, for error messages.
+
+    Returns:
+        ``(nuclei_per_field, cells_per_field)`` — lists of ``(T, Y, X)``
+        masks, ``cells`` entries ``None`` for nucleus-only fields.
+
+    Raises:
+        RuntimeError: If a field's mask is missing.
+        ValueError: If a mask has Z != 1 or C not in (1, 2).
+    """
+    ids = source_ids
     # Squeeze Z and split channels. CPU-bound, sequential.
     nuclei: list[npt.NDArray[Any]] = []
     cells: list[npt.NDArray[Any] | None] = []

@@ -1646,7 +1646,8 @@ class TestImageWrapperReuse:
             assert mock_get_wrapper.call_count == 1
             conn = mock_conn.create_conn.return_value
             assert conn.c.sf.createRawPixelsStore.call_count == 1
-            store = conn.c.sf.createRawPixelsStore.return_value
+            # The store is used through its invocation-timeout proxy.
+            store = conn.c.sf.createRawPixelsStore.return_value.ice_invocationTimeout.return_value
             assert store.setPixelsId.call_count == 1
             # getTimepoint called 3 times (one per batch item)
             assert mock_get_timepoint.call_count == 3

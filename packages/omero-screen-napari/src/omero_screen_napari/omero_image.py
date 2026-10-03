@@ -180,6 +180,16 @@ def _warn_if_legacy_cache() -> None:
 _warn_if_legacy_cache()
 
 
+# Ice invocations have no timeout by default, so a stalled pixel read blocks
+# its worker until the connection itself dies -- hours, in practice. Bounding
+# each read turns the stall into an ``Ice.InvocationTimeoutException`` that
+# the zarr builder's retry can recover from. One read is one timepoint of one
+# field (a few MB), so the default is generous.
+_PIXELS_CALL_TIMEOUT_MS = 1000 * getenv_as_int(
+    "OMERO_SCREEN_PIXELS_CALL_TIMEOUT", 300
+)
+
+
 # Configure cache path and size using environment.
 # Note: Cache size of zero will create a cache but never write any images to disk.
 # This takes less then 100Kb space for the sqlite db files. The alternative is to
@@ -317,7 +327,9 @@ def initialise_download(
     Returns:
         store, image shape, pixels type
     """
-    store = conn.c.sf.createRawPixelsStore()
+    store = conn.c.sf.createRawPixelsStore().ice_invocationTimeout(
+        _PIXELS_CALL_TIMEOUT_MS
+    )
     pixels = image.getPrimaryPixels()
     pixel_type = pixels.getPixelsType().getValue()
     dt_be = _OMERO_PIXEL_DTYPES.get(pixel_type)

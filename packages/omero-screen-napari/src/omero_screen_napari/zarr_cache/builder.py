@@ -30,15 +30,17 @@ from __future__ import annotations
 # mypy: disable-error-code="no-untyped-call"
 import contextlib
 import os
+import time
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from functools import partial
+from functools import partial, wraps
 from pathlib import Path
 from typing import Any
 
 import dask
 import dask.array as da
+import Ice
 import numpy as np
 import numpy.typing as npt
 from dask.delayed import delayed
@@ -46,8 +48,8 @@ from loguru import logger
 from omero.gateway import BlitzGateway, WellWrapper
 from omero_utils.attachments import get_file_attachments, parse_csv_data
 from omero_utils.images import (
-    fetch_stitched_field_masks_trange,
     resolve_stitched_mask_ids,
+    split_stitched_masks,
 )
 from omero_utils.message import PlateDataError
 from omero_utils.stitching import (
@@ -90,6 +92,52 @@ _CACHE_BLOCK_T = int(os.getenv("OMERO_SCREEN_CACHE_BLOCK", "4"))
 # together bound RAM. Threads (not processes): the work is blocking Ice I/O,
 # which releases the GIL. Override with OMERO_SCREEN_CACHE_WORKERS.
 _CACHE_DASK_WORKERS = int(os.getenv("OMERO_SCREEN_CACHE_WORKERS", "2"))
+# Attempts per dask block before a transient OMERO error aborts the well. One
+# dropped connection or stalled read otherwise discards hours of finished
+# blocks, because the well is only renamed into the store once complete.
+_OMERO_BLOCK_ATTEMPTS = int(os.getenv("OMERO_SCREEN_OMERO_RETRIES", "3"))
+_OMERO_RETRY_BACKOFF_S = (10.0, 30.0, 60.0)
+# Connection-level failures worth a fresh connection and another try:
+# timeouts (incl. the pixel-read invocation timeout), dropped sockets, and an
+# expired session (its service proxies raise ObjectNotExistException).
+# ``RuntimeError`` covers ``OmeroConnection.create_conn`` failing to connect.
+_TRANSIENT_OMERO_ERRORS: tuple[type[BaseException], ...] = (
+    Ice.TimeoutException,
+    Ice.SocketException,
+    Ice.CloseConnectionException,
+    Ice.ObjectNotExistException,
+    RuntimeError,
+)
+
+
+def _retry_transient_omero[**P, R](fn: Callable[P, R]) -> Callable[P, R]:
+    """Retry a block loader on transient OMERO errors.
+
+    The loaders open their own thread-local connection per call, so each
+    retry starts on a fresh connection. Errors that are not connection-level
+    (bad shapes, missing annotations) propagate immediately.
+    """
+
+    @wraps(fn)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        for attempt in range(1, _OMERO_BLOCK_ATTEMPTS + 1):
+            try:
+                return fn(*args, **kwargs)
+            except _TRANSIENT_OMERO_ERRORS as e:
+                if attempt == _OMERO_BLOCK_ATTEMPTS:
+                    raise
+                delay = _OMERO_RETRY_BACKOFF_S[
+                    min(attempt - 1, len(_OMERO_RETRY_BACKOFF_S) - 1)
+                ]
+                logger.warning(
+                    f"{fn.__name__} failed ({type(e).__name__}: {e}); "
+                    f"retry {attempt:d}/{_OMERO_BLOCK_ATTEMPTS - 1:d} "
+                    f"on a new connection in {delay:.0f}s"
+                )
+                time.sleep(delay)
+        raise AssertionError("unreachable")
+
+    return wrapper
 
 
 # ----------------------------------------------------------------------
@@ -346,6 +394,7 @@ def _stitch_image(
     return np.transpose(stitched_tyxc, (0, 3, 1, 2))
 
 
+@_retry_transient_omero
 def _load_stitch_image_block(
     conn: BlitzGateway,
     omero_conn: Any | None,
@@ -407,6 +456,7 @@ def _load_stitch_image_block(
     return stitched
 
 
+@_retry_transient_omero
 def _load_recompose_label_block(
     conn: BlitzGateway,
     omero_conn: Any | None,
@@ -415,23 +465,26 @@ def _load_recompose_label_block(
     offsets: npt.NDArray[np.int_],
     t0: int,
     t1: int,
+    plate_id: int,
 ) -> tuple[npt.NDArray[Any], npt.NDArray[Any] | None]:
     """Download + recompose one timepoint block of label masks.
 
     Returns ``(nuclei (bt, Y, X), cells (bt, Y, X) | None)``. Uses one
     thread-local connection and reads sequentially within the block — dask
     provides the cross-block parallelism.
+
+    Mask pixels go through the same per-timepoint disk cache as the images,
+    tagged with ``plate_id``, so a rebuild after a failure (or an eviction of
+    the zarr store alone) reads them locally instead of from OMERO.
     """
     worker_conn = omero_conn.create_conn() if omero_conn is not None else conn
     try:
-        nuc_fields, cell_fields = fetch_stitched_field_masks_trange(
-            worker_conn,
-            mask_ids,
-            t0=t0,
-            t1=t1,
-            source_ids=source_ids,
-            conn_factory=None,
-            max_workers=1,
+        raw_masks: list[npt.NDArray[Any] | None] = [
+            get_image(worker_conn, mask_id, start=t0, end=t1, tag=plate_id)
+            for mask_id in mask_ids
+        ]  # each (bt, Z, Y, X, C)
+        nuc_fields, cell_fields = split_stitched_masks(
+            raw_masks, mask_ids, source_ids
         )
     finally:
         if omero_conn is not None and worker_conn is not conn:
@@ -546,7 +599,7 @@ def _build_lazy_well_arrays(
     )  # (1, C, Y, X)
     cy, cx = int(probe_img.shape[2]), int(probe_img.shape[3])
     nuc0, cell0 = _load_recompose_label_block(
-        conn, omero_conn, mask_ids, source_ids, valid_offsets, 0, 1
+        conn, omero_conn, mask_ids, source_ids, valid_offsets, 0, 1, plate_id
     )
     ly, lx = int(nuc0.shape[1]), int(nuc0.shape[2])
     has_cells = cell0 is not None
@@ -623,6 +676,7 @@ def _build_lazy_well_arrays(
             valid_offsets,
             t0,
             t1,
+            plate_id,
         )
         nuc_parts.append(
             da.from_delayed(lbl[0], shape=(t1 - t0, ly, lx), dtype=np.uint32)
