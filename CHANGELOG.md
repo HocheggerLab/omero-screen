@@ -1,3 +1,9 @@
+## omero-screen-v0.8.3 (2026-10-03)
+
+### Fix
+
+- **napari**: survive transient OMERO errors during zarr cache builds (#24)
+
 ## omero-screen-v0.8.2 (2026-10-02)
 
 ### Fix
