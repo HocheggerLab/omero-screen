@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12, <3.15"
 resolution-markers = [
     "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
@@ -3587,7 +3587,6 @@ wheels = [
 name = "omero-screen"
 version = "0.8.2"
 source = { editable = "." }
-default-groups = ["dev", "gui"]
 dependencies = [
     { name = "cellpose" },
     { name = "cellview" },
@@ -3694,7 +3693,7 @@ requires-dist = [
     { name = "tifffile", specifier = ">=2025.3.30" },
     { name = "torch", specifier = ">=2.7.0" },
     { name = "tqdm", specifier = ">=4.67.1" },
-    { name = "trackastra", specifier = ">=0.5.3" },
+    { name = "trackastra", specifier = "==0.5.3" },
     { name = "zeroc-ice", specifier = "==3.6.5", index = "https://hocheggerlab.github.io/ice-wheels/" },
 ]
 provides-extras = ["gui"]

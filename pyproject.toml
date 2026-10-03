@@ -39,7 +39,9 @@ dependencies = [
     "myst-parser>=4.0.1",
     "sphinxcontrib-video>=0.4.2",
     "sphinx-rtd-theme>=3.0.2",
-    "trackastra>=0.5.3",
+    # Frozen until the omero-screen paper is published, so its tracking
+    # results stay reproducible (#27). 0.5.4-0.5.6 have no model changes.
+    "trackastra==0.5.3",
     "loguru>=0.7.3",
     "marimo>=0.23.15",
 ]
