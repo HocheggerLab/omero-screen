@@ -246,19 +246,38 @@ def _select_cellcycledata(df: pl.DataFrame, cellcycle: str) -> pl.DataFrame:
 
 
 def _select_classifierdata(
-    df: pl.DataFrame, classifier_filter: str
+    df: pl.DataFrame, classifier_filter: str, classifier_column: str = ""
 ) -> pl.DataFrame:
-    """Filter ``df`` to rows where any ``classifier_*`` column equals the value.
+    """Filter ``df`` to rows where a ``classifier_*`` column equals the value.
 
-    Empty / whitespace value is a no-op. Searches each classifier column in
-    turn and filters on the first that contains the value; logs a warning and
-    returns ``df`` unchanged when no column matches. Behaviour matches the old
-    ``CroppedImageParser._select_classifierdata``.
+    Empty / whitespace value is a no-op.
+
+    With ``classifier_column`` set, filter on exactly that column; a column
+    the plate does not have is an error, and a value that never occurs in it
+    leaves no rows. Without it, search each classifier column in turn and
+    filter on the first that contains the value; log a warning and return
+    ``df`` unchanged when no column matches (the old
+    ``CroppedImageParser._select_classifierdata`` behaviour, kept for the
+    widget, where the value is typed without naming a column).
     """
     value = classifier_filter.strip()
     if not value:
         return df
     classifier_cols = [c for c in df.columns if c.startswith("classifier_")]
+    column = classifier_column.strip()
+    if column:
+        if column not in df.columns:
+            raise ValueError(
+                f"Classifier column '{column}' not found. Classifier "
+                f"columns: {', '.join(classifier_cols) or 'none'}."
+            )
+        selected = df.filter(pl.col(column) == value)
+        if selected.height == 0:
+            logger.warning(
+                f"Classifier value '{value}' does not occur in '{column}' "
+                f"(values: {sorted(map(str, df[column].unique().to_list()))})"
+            )
+        return selected
     for col in classifier_cols:
         if value in df[col].unique().to_list():
             return df.filter(pl.col(col) == value)
@@ -311,7 +330,9 @@ def _filter_well_centroids(
             f"{', '.join(available) or 'none'}."
         )
     df = _select_cellcycledata(df, user_data.cellcycle)
-    df = _select_classifierdata(df, user_data.classifier_filter)
+    df = _select_classifierdata(
+        df, user_data.classifier_filter, user_data.classifier_column
+    )
 
     # Keep only images actually loaded — the in-memory source can only crop
     # fields it holds. Skipped for the zarr source, which crops the well's
@@ -451,7 +472,17 @@ class RandomImageParser:
                 self._user_data.columns * self._user_data.rows,
                 len(self._omero_data.cropped_images),
             )
-            self._chosen_indices = random.sample(
+            # A seeded draw is keyed on the well too, so wells stay
+            # independent; Random(f"{seed}:{well}") gives the same draw
+            # as the global random.seed(...) gallery_export used before.
+            rng = (
+                random
+                if self._user_data.seed is None
+                else random.Random(
+                    f"{self._user_data.seed}:{self._user_data.well}"
+                )
+            )
+            self._chosen_indices = rng.sample(
                 range(len(self._omero_data.cropped_images)), sample_size
             )
 
@@ -585,11 +616,13 @@ class ParseGallery:
         return self._build_gallery()
 
     def _build_gallery(self) -> Any:
-        # Close any previously-open gallery figures before creating a new
+        # Close any previously-open gallery figures before showing a new
         # one. Each Enter would otherwise leak a figure into pyplot's
         # global registry; on macOS the Cocoa/Qt backend segfaults after
-        # ~10 accumulated windows.
-        plt.close("all")
+        # ~10 accumulated windows. Headless callers own their figures
+        # (they save and close them), so leave other figures alone there.
+        if self._show_gallery:
+            plt.close("all")
         fig, ax = plt.subplots(figsize=(10, 10))
         if len(self._user_data.channels) == 1:
             ax.imshow(self._gallery_image[..., 0], cmap="gray_r")

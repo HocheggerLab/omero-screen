@@ -47,6 +47,7 @@ omero-screen-napari = "omero_screen_napari:napari.yaml"
 
 [project.scripts]
 omero-train = "omero_screen_napari.trainingdata_db.cli:main"
+omero-screen-images = "omero_screen_napari.images_cli:main"
 
 [build-system]
 requires = ["hatchling"]

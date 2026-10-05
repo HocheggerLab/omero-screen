@@ -173,3 +173,27 @@ class TestExtractClassifierData:
         assert result is not None
         counts = result["mitosis"]
         assert counts[0] == ("normal", 3)
+
+
+class TestSelectClassifierdataExplicitColumn:
+    """An explicit classifier column filters exactly that column."""
+
+    def test_filters_named_column_only(self, base_df):
+        # "normal" also occurs in classifier_mitosis; the named column wins.
+        df = base_df.with_columns(
+            pl.Series("classifier_other", ["x", "normal", "x", "x", "x", "x"])
+        )
+        result = _select_classifierdata(df, "normal", "classifier_other")
+        assert result["image_id"].to_list() == [1]
+
+    def test_missing_column_raises(self, base_df):
+        with pytest.raises(ValueError, match="classifier_nope"):
+            _select_classifierdata(base_df, "normal", "classifier_nope")
+
+    def test_absent_value_leaves_no_rows(self, base_df):
+        result = _select_classifierdata(base_df, "absent", "classifier_mitosis")
+        assert result.height == 0
+
+    def test_blank_value_ignores_column(self, base_df):
+        result = _select_classifierdata(base_df, " ", "classifier_nope")
+        assert result.height == base_df.height

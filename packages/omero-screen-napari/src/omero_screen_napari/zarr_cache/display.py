@@ -680,7 +680,30 @@ def _populate_singleton(
     info: dict[str, Any],
     wells_data: list[dict[str, Any]] | None = None,
 ) -> None:
-    """Set the minimum fields downstream widgets read from the singleton.
+    """Populate the napari ``omero_data`` singleton after a zarr load."""
+    # Import here to avoid a hard dependency / circular import: the
+    # singleton lives in omero_data_singleton, which itself imports
+    # omero_data which depends on a few of our own modules.
+    from omero_screen_napari.omero_data_singleton import omero_data
+
+    populate_omero_data(
+        omero_data, plate_id, well_pos_input, target_wells, info, wells_data
+    )
+
+
+def populate_omero_data(
+    omero_data: Any,
+    plate_id: int,
+    well_pos_input: str,
+    target_wells: list[str],
+    info: dict[str, Any],
+    wells_data: list[dict[str, Any]] | None = None,
+) -> None:
+    """Set the minimum fields downstream widgets read from ``omero_data``.
+
+    Used for the napari singleton (via :func:`_populate_singleton`) and for
+    headless callers such as :mod:`omero_screen_napari.well_context`, which
+    pass their own :class:`~omero_screen_napari.omero_data.OmeroData`.
 
     Mirrors :func:`omero_screen_napari.plate_cache.load_from_cache`'s side
     effects on the ``omero_data`` instance — minus the heavy pixel arrays
@@ -704,10 +727,6 @@ def _populate_singleton(
     * ``channel_data`` / ``pixel_size`` / ``plate_name`` — referenced by
       classifier metadata and a few UI labels.
     """
-    # Import here to avoid a hard dependency / circular import: the
-    # singleton lives in omero_data_singleton, which itself imports
-    # omero_data which depends on a few of our own modules.
-    from omero_screen_napari.omero_data_singleton import omero_data
     from omero_screen_napari.plate_cache import (
         _load_plate_data_from_cellview,
         _parse_intensities_from_cellview,
@@ -763,7 +782,7 @@ def _populate_singleton(
     )
 
     logger.info(
-        f"Populated omero_data singleton from zarr load: plate={plate_id:d} wells={target_wells} image_ids={omero_data.image_ids} channels={list(channel_data)}"
+        f"Populated omero_data from zarr load: plate={plate_id:d} wells={target_wells} image_ids={omero_data.image_ids} channels={list(channel_data)}"
     )
 
 

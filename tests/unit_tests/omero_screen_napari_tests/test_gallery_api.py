@@ -304,6 +304,46 @@ class TestRandomImageParser:
         # Check uniqueness
         assert len(set(parser._chosen_indices)) == 4
 
+    def test_seeded_draw_is_reproducible_and_keyed_on_well(
+        self, mock_omero_data, mock_user_data
+    ):
+        import random
+
+        mock_user_data.rows = 2
+        mock_user_data.columns = 2
+        mock_user_data.seed = 3
+        mock_omero_data.cropped_images = list(range(50))
+
+        def draw(well):
+            mock_user_data.well = well
+            parser = RandomImageParser(mock_omero_data, mock_user_data, False)
+            parser._parse_random_index()
+            return parser._chosen_indices
+
+        # Same draw as the global random.seed(f"{seed}:{well}") that batch
+        # export used before, so existing seeded exports reproduce.
+        random.seed("3:A1")
+        expected = random.sample(range(50), 4)
+        assert draw("A1") == expected
+        assert draw("A1") == expected
+        assert draw("B2") != expected
+
+    def test_unseeded_draw_uses_global_random(
+        self, mock_omero_data, mock_user_data
+    ):
+        import random
+
+        mock_user_data.rows = 2
+        mock_user_data.columns = 2
+        mock_omero_data.cropped_images = list(range(50))
+        parser = RandomImageParser(mock_omero_data, mock_user_data, False)
+
+        random.seed(11)
+        expected = random.sample(range(50), 4)
+        random.seed(11)
+        parser._parse_random_index()
+        assert parser._chosen_indices == expected
+
     def test_remove_chosen_crops(self, mock_omero_data, mock_user_data):
         parser = RandomImageParser(mock_omero_data, mock_user_data, False)
 
@@ -363,3 +403,41 @@ class TestChannelResolution:
         channels = _resolve_channels("", "", "", self.available)
         assert channels  # non-empty
         assert all(c in self.available for c in channels)
+
+
+class TestGalleryFigureLifetime:
+    """Interactive galleries close old windows; headless ones leave figures alone."""
+
+    def _parser(self, show: bool):
+        import matplotlib
+
+        matplotlib.use("Agg")
+        from omero_screen_napari.gallery_api import ParseGallery
+
+        od = MagicMock(spec=OmeroData)
+        od.selected_images = [np.zeros((10, 10, 1))] * 4
+        od.pixel_size = (1.0, 1.0)
+        od.well_pos_list = ["A1"]
+        od.well_metadata_list = [{}]
+        od.plate_id = 1
+        ud = UserData(well="A1", rows=2, columns=2, crop_size=10, channels=["DAPI"])
+        return ParseGallery(od, ud, show_gallery=show)
+
+    def test_headless_build_keeps_other_figures(self):
+        import matplotlib.pyplot as plt
+
+        other = plt.figure()
+        fig = self._parser(show=False).plot_gallery()
+        assert plt.fignum_exists(other.number)
+        plt.close(fig)
+        plt.close(other)
+
+    def test_interactive_build_closes_previous_figures(self, monkeypatch):
+        import matplotlib.pyplot as plt
+
+        monkeypatch.setattr(plt, "show", lambda **_kw: None)
+        # Labelled: the new gallery may reuse the closed figure's number.
+        plt.figure("previous gallery")
+        fig = self._parser(show=True).plot_gallery()
+        assert "previous gallery" not in plt.get_figlabels()
+        plt.close(fig)
