@@ -23,7 +23,6 @@ every well. ``well`` is the one field overridden per export.
 from __future__ import annotations
 
 import json
-import random
 from collections.abc import Callable
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
@@ -51,6 +50,8 @@ def export_galleries(
     seed: int | None = None,
     show_title: bool | None = None,
     on_progress: Callable[[str, int, int], None] | None = None,
+    prepare_well: Callable[[str], None] | None = None,
+    manifest_extra: dict[str, Any] | None = None,
     omero_data: OmeroData | None = None,
     user_data: UserData | None = None,
 ) -> list[Path]:
@@ -73,6 +74,12 @@ def export_galleries(
         on_progress: Called as ``(well, index, total)`` before each well.
             The export is synchronous — a 21-well plate takes ~30 s — so
             the GUI uses this to drive a progress bar.
+        prepare_well: Called with each well before its gallery is built.
+            Headless callers use it to load a per-field plate one well at
+            a time; a failure is recorded for that well like a gallery
+            failure.
+        manifest_extra: Extra top-level manifest entries (e.g. the CLI's
+            data source and cell-selection file).
         omero_data: Override the ``omero_data`` singleton (tests).
         user_data: Override the ``userdata`` singleton (tests).
 
@@ -126,6 +133,7 @@ def export_galleries(
                 dpi,
                 seed,
                 show_title,
+                prepare_well,
             )
             entries[well] = entry
             if path is not None:
@@ -136,11 +144,12 @@ def export_galleries(
     manifest = _write_manifest(
         out,
         omero_data,
-        _effective_settings(user_data, show_title),
+        replace(_effective_settings(user_data, show_title), seed=seed),
         fmt,
         dpi,
         seed,
         entries,
+        manifest_extra,
     )
     logger.info(
         f"Exported {len(written):d}/{len(target_wells):d} gallery/ies to "
@@ -225,6 +234,7 @@ def _export_one(
     dpi: int,
     seed: int | None,
     show_title: bool | None = None,
+    prepare_well: Callable[[str], None] | None = None,
 ) -> tuple[Path | None, dict[str, Any]]:
     """Build and save one well's gallery; never raises for one bad well.
 
@@ -233,14 +243,14 @@ def _export_one(
     a 21-well export, so its failure is recorded in the manifest and the
     loop moves on.
     """
+    # The gallery keys a seeded draw on seed and well, so wells stay
+    # independent while a re-run reproduces each one.
     well_settings = replace(
-        _effective_settings(user_data, show_title), well=well
+        _effective_settings(user_data, show_title), well=well, seed=seed
     )
-    if seed is not None:
-        # Per-well offset keeps wells independent while staying
-        # reproducible across runs.
-        random.seed(f"{seed}:{well}")
     try:
+        if prepare_well is not None:
+            prepare_well(well)
         fig = build_gallery_figure(
             omero_data, well_settings, show=False, force_reload=True
         )
@@ -265,6 +275,8 @@ def _export_one(
     return path, {
         "exported": True,
         "file": path.name,
+        "n_available": len(omero_data.selected_images)
+        + len(omero_data.cropped_images),
         "n_in_gallery": len(omero_data.selected_images),
         "n_crops_remaining": len(omero_data.cropped_images),
         "well_metadata": _well_metadata(omero_data, well),
@@ -299,6 +311,7 @@ def _write_manifest(
     dpi: int,
     seed: int | None,
     entries: dict[str, Any],
+    extra: dict[str, Any] | None = None,
 ) -> Path:
     """Write the run's settings + per-well outcome as JSON.
 
@@ -323,6 +336,7 @@ def _write_manifest(
         "pixel_size_um": (
             omero_data.pixel_size[0] if omero_data.pixel_size else None
         ),
+        **(extra or {}),
         "wells": entries,
     }
     path = out / MANIFEST_NAME

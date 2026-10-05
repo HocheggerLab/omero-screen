@@ -12,6 +12,9 @@ class UserData:
     crop_size: int = field(default_factory=int)
     cellcycle: str = field(default_factory=str)
     classifier_filter: str = field(default_factory=str)
+    # Exact ``classifier_*`` column for ``classifier_filter``. Empty keeps the
+    # old behaviour: the first classifier column containing the value.
+    classifier_column: str = field(default_factory=str)
     timepoint: int = field(default_factory=int)
     columns: int = field(default_factory=int)
     rows: int = field(default_factory=int)
@@ -21,6 +24,9 @@ class UserData:
     # verbose well/metadata/settings title is optional.
     show_title: bool = True
     channels: list[str] = field(default_factory=list)
+    # Seed for the crop sampling, so a gallery can be reproduced. ``None``
+    # samples from the global ``random`` state (the interactive default).
+    seed: int | None = None
 
     def populate_from_dict(self, data: dict[str, Any]) -> None:
         """Replace all fields from ``data``, resetting anything not present.

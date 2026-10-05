@@ -401,3 +401,85 @@ def test_no_resolvable_wells_raises(omero_data, user_data, tmp_path):
             export_galleries(
                 tmp_path, omero_data=omero_data, user_data=user_data
             )
+
+
+# ---------------------------------------------------------------------- #
+# Headless hooks (omero-screen-images)                                   #
+# ---------------------------------------------------------------------- #
+
+
+def test_prepare_well_runs_before_each_gallery(tmp_path, omero_data, user_data):
+    calls: list[str] = []
+
+    def build(*_args, **_kwargs):
+        calls.append("build")
+        return _fake_figure()
+
+    with patch(
+        "omero_screen_napari.gallery_export.build_gallery_figure",
+        side_effect=build,
+    ):
+        export_galleries(
+            tmp_path,
+            wells=["A1", "B2"],
+            prepare_well=lambda well: calls.append(well),
+            omero_data=omero_data,
+            user_data=user_data,
+        )
+
+    assert calls == ["A1", "build", "B2", "build"]
+
+
+def test_prepare_well_failure_is_recorded_not_raised(
+    tmp_path, omero_data, user_data
+):
+    def prepare(well):
+        if well == "A1":
+            raise RuntimeError("OMERO down")
+
+    with patch(
+        "omero_screen_napari.gallery_export.build_gallery_figure",
+        side_effect=_fake_figure,
+    ):
+        written = export_galleries(
+            tmp_path,
+            wells=["A1", "B2"],
+            prepare_well=prepare,
+            omero_data=omero_data,
+            user_data=user_data,
+        )
+
+    manifest = json.loads((tmp_path / MANIFEST_NAME).read_text())
+    assert [p.name for p in written] == ["B2.pdf"]
+    assert manifest["wells"]["A1"] == {
+        "exported": False,
+        "reason": "OMERO down",
+    }
+
+
+def test_manifest_extra_seed_and_counts(tmp_path, omero_data, user_data):
+    def build(od, well_settings, **_kwargs):
+        # The seed reaches the gallery's settings, not a global RNG.
+        assert well_settings.seed == 5
+        od.selected_images = [1, 2, 3]
+        od.cropped_images = [4, 5]
+        return _fake_figure()
+
+    with patch(
+        "omero_screen_napari.gallery_export.build_gallery_figure",
+        side_effect=build,
+    ):
+        export_galleries(
+            tmp_path,
+            wells=["A1"],
+            seed=5,
+            manifest_extra={"source": "zarr"},
+            omero_data=omero_data,
+            user_data=user_data,
+        )
+
+    manifest = json.loads((tmp_path / MANIFEST_NAME).read_text())
+    assert manifest["source"] == "zarr"
+    assert manifest["settings"]["seed"] == 5
+    entry = manifest["wells"]["A1"]
+    assert (entry["n_available"], entry["n_in_gallery"]) == (5, 3)
