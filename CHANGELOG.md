@@ -1,3 +1,9 @@
+## omero-screen-v0.8.6 (2026-10-05)
+
+### Fix
+
+- **napari**: add omero-screen-images batch command, docs and e2e test (#35)
+
 ## omero-screen-v0.8.5 (2026-10-05)
 
 ### Fix
