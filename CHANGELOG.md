@@ -1,3 +1,9 @@
+## omero-screen-v0.8.4 (2026-10-05)
+
+### Fix
+
+- **napari**: add omero-screen-images gallery command for headless galleries (#33)
+
 ## omero-screen-v0.8.3 (2026-10-03)
 
 ### Fix
