@@ -1,3 +1,9 @@
+## omero-screen-v0.8.5 (2026-10-05)
+
+### Fix
+
+- **napari**: add omero-screen-images well command for whole-well overviews (#34)
+
 ## omero-screen-v0.8.4 (2026-10-05)
 
 ### Fix
