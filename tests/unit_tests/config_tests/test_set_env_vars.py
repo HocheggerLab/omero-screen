@@ -169,3 +169,44 @@ def test_find_project_root_project_markers(monkeypatch, tmp_path):
 
     result = find_project_root()
     assert result == project_root
+
+
+def test_switch_env_drops_variables_only_the_first_file_set(
+    tmp_path, monkeypatch, clean_env
+):
+    """A variable only the default file sets must not leak into the new env."""
+    (tmp_path / ".env.development").write_text(
+        "HOST=dev-host\nDATABASE_PATH=/dev/db\n"
+    )
+    (tmp_path / ".env.e2etest").write_text("HOST=test-host\n")
+    monkeypatch.setattr("omero_screen.config.find_project_root", lambda: tmp_path)
+    monkeypatch.setattr("omero_screen.config._ENV_PREVIOUS", {})
+    monkeypatch.setenv("DATABASE_PATH", "/my/db")
+
+    set_env_vars()  # what the package import does
+    assert os.environ["DATABASE_PATH"] == "/dev/db"
+
+    from omero_screen.config import switch_env
+
+    switch_env("e2etest")
+    assert os.environ["HOST"] == "test-host"
+    # Back to the caller's own value, not the development file's.
+    assert os.environ["DATABASE_PATH"] == "/my/db"
+    assert os.environ["ENV"] == "e2etest"
+
+
+def test_switch_env_unsets_variables_that_were_absent(
+    tmp_path, monkeypatch, clean_env
+):
+    (tmp_path / ".env.development").write_text("ONLY_DEV=1\nHOST=a\n")
+    (tmp_path / ".env.production").write_text("HOST=b\n")
+    monkeypatch.setattr("omero_screen.config.find_project_root", lambda: tmp_path)
+    monkeypatch.setattr("omero_screen.config._ENV_PREVIOUS", {})
+    monkeypatch.delenv("ONLY_DEV", raising=False)
+
+    set_env_vars()
+    from omero_screen.config import switch_env
+
+    switch_env("production")
+    assert "ONLY_DEV" not in os.environ
+    assert os.environ["HOST"] == "b"

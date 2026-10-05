@@ -6,6 +6,7 @@ reproducibly:
 
 - ``gallery`` — per-well cell galleries, optionally restricted to one
   classifier class or to an explicit cell selection.
+- ``batch`` — the images listed in a plan file, grouped by plate and render.
 - ``well`` — whole-well overviews: a stitched multichannel composite with a
   caption and scale bar, the whole well or zoomed in 2x steps, with the same
   display limits for every well of one call.
@@ -23,10 +24,11 @@ from __future__ import annotations
 
 import contextlib
 import json
-import os
+import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import click
 
@@ -50,10 +52,10 @@ CELLS_KEY_COLUMNS = ("image_id", "label")
 def cli(env: str | None) -> None:
     """Render cell galleries from OMERO-Screen plates without napari."""
     if env:
-        os.environ["ENV"] = env
-        from omero_screen.config import set_env_vars
+        from omero_screen.config import switch_env
 
-        set_env_vars()
+        # The package import already loaded the default environment.
+        switch_env(env)
     import matplotlib
 
     matplotlib.use("Agg")
@@ -320,6 +322,7 @@ def _render_gallery(
 
     omero_data = OmeroData()
     connection = OmeroConnection()
+    field_limits: dict[int, tuple[int, int]] = {}
 
     def load(well_list: list[str]) -> None:
         load_well_context(
@@ -332,15 +335,29 @@ def _render_gallery(
         omero_data.plate_data = _restrict_to_cells(
             omero_data.plate_data, cells
         )
+        if field_limits:
+            omero_data.intensities = dict(field_limits)
         _apply_limits(limits, omero_data)
 
-    # A zarr plate loads its metadata once for all wells; a per-field
-    # plate loads one well's fields at a time to bound memory.
+    # A zarr plate loads its metadata once for all wells (its limits are
+    # pooled from the canvases). A per-field plate loads one well's fields
+    # at a time to bound memory, so its limits need a sampling pass first.
     try:
-        load(target_wells if source == "zarr" else target_wells[:1])
+        if source == "zarr":
+            load(target_wells)
+        else:
+            field_limits.update(
+                _pool_field_limits(load, omero_data, target_wells)
+            )
+            # The first well stays loaded from the sampling pass (no
+            # reload), so give it the pooled limits here.
+            if field_limits:
+                omero_data.intensities = dict(field_limits)
+            _apply_limits(limits, omero_data)
     except WellContextError as exc:
         raise click.ClickException(str(exc)) from exc
     _check_channels([*channel_list, *limits], omero_data)
+    _check_classifier(classifier_column, class_value, omero_data, target_wells)
 
     def prepare_well(well: str) -> None:
         if source == "fields" and omero_data.well_pos_list != [well]:
@@ -573,11 +590,14 @@ def _render_wells(
     else:
         from omero_screen_napari.plate_cache import (
             filter_empty_wells,
-            get_plate_metadata,
             get_well_data,
         )
+        from omero_screen_napari.well_context import plate_metadata
 
-        meta = get_plate_metadata(connection, plate_id)
+        try:
+            meta = plate_metadata(connection, plate_id)
+        except WellContextError as exc:
+            raise click.ClickException(str(exc)) from exc
         channel_data = meta["channel_data"]
         channel_names = sorted(
             channel_data, key=lambda c: int(float(channel_data[c]))
@@ -587,6 +607,9 @@ def _render_wells(
             filter_empty_wells(get_well_data(connection, plate_id))
         )
 
+    from omero_screen_napari.plate_cache import _well_sort_key
+
+    available = sorted(available, key=_well_sort_key)  # A1, A2, ..., A10
     target_wells = (
         available
         if wells.strip().lower() == "all"
@@ -650,6 +673,361 @@ def _render_wells(
     path.write_text(json.dumps(manifest, indent=2, default=str))
     written = sum(1 for e in result["wells"].values() if e.get("exported"))
     return path, written, len(target_wells)
+
+
+PLAN_COLUMNS = ("plate_id", "well", "render")
+BATCH_MANIFEST = "batch.json"
+
+
+@cli.command()
+@click.argument(
+    "plan", type=click.Path(exists=True, dir_okay=False, path_type=Path)
+)
+@click.option(
+    "--channels",
+    default=None,
+    help="Gallery channels (comma-separated); required for gallery rows.",
+)
+@click.option(
+    "--classifier-column",
+    default="",
+    help="Classifier column for gallery:<class> rows.",
+)
+@click.option(
+    "--cellcycle",
+    type=click.Choice(CELLCYCLE_PHASES),
+    default="All",
+    show_default=True,
+    help="Gallery cell-cycle phase.",
+)
+@click.option(
+    "--grid", default="4x4", show_default=True, help="Gallery ROWSxCOLUMNS."
+)
+@click.option(
+    "--crop-size",
+    type=click.IntRange(min=4),
+    default=50,
+    show_default=True,
+    help="Gallery crop size in pixels.",
+)
+@click.option(
+    "--segmentation",
+    type=click.Choice(["nucleus", "cell"]),
+    default="nucleus",
+    show_default=True,
+    help="Gallery mask that centres and outlines each crop.",
+)
+@click.option(
+    "--keep-background/--blank-background",
+    default=True,
+    show_default=True,
+    help="Gallery: keep or blank the pixels outside each cell's mask.",
+)
+@click.option(
+    "--seed", type=int, default=0, show_default=True, help="Gallery seed."
+)
+@click.option(
+    "--layers",
+    default=None,
+    help="Overview layers (channels, nuclei_masks, cell_masks). Default: all channels.",
+)
+@click.option(
+    "--zoom",
+    type=click.Choice(["1", "2", "4", "8", "16"]),
+    default="1",
+    show_default=True,
+    help="Overview zoom.",
+)
+@click.option(
+    "--center",
+    default="0.5,0.5",
+    show_default=True,
+    metavar="Y,X",
+    help="Overview zoom centre (fractions).",
+)
+@click.option(
+    "--size",
+    type=click.IntRange(min=64),
+    default=2000,
+    show_default=True,
+    help="Overview maximum size in pixels.",
+)
+@click.option(
+    "--timepoint",
+    type=click.IntRange(min=0),
+    default=0,
+    show_default=True,
+    help="0-based timepoint for timelapse plates.",
+)
+@click.option(
+    "--limits",
+    "limit_specs",
+    multiple=True,
+    metavar="CHANNEL=LO:HI",
+    help="Fixed display limits for both outputs; repeatable.",
+)
+@click.option(
+    "--labels/--no-labels",
+    default=True,
+    show_default=True,
+    help="Gallery titles and overview captions.",
+)
+@click.option(
+    "--out",
+    "out_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=Path("images"),
+    show_default=True,
+    help="Output directory; each (plate, render) gets a subdirectory.",
+)
+@click.option(
+    "--fmt",
+    type=click.Choice(["png", "pdf", "svg", "tif"]),
+    default="png",
+    show_default=True,
+    help="Image format.",
+)
+@click.option(
+    "--dpi",
+    type=click.IntRange(min=1),
+    default=300,
+    show_default=True,
+    help="Resolution.",
+)
+@click.option(
+    "--json",
+    "print_json",
+    is_flag=True,
+    help="Print the batch manifest to stdout (logs go to stderr).",
+)
+def batch(
+    plan: Path,
+    channels: str | None,
+    classifier_column: str,
+    cellcycle: str,
+    grid: str,
+    crop_size: int,
+    segmentation: str,
+    keep_background: bool,
+    seed: int,
+    layers: str | None,
+    zoom: str,
+    center: str,
+    size: int,
+    timepoint: int,
+    limit_specs: tuple[str, ...],
+    labels: bool,
+    out_dir: Path,
+    fmt: str,
+    dpi: int,
+    print_json: bool,
+) -> None:
+    """Render the images listed in a PLAN file (CSV).
+
+    \b
+    The plan has one row per image, with columns:
+      plate_id  OMERO plate ID
+      well      well label, e.g. G5
+      render    well | gallery | gallery:<class>
+
+    Rows with the same plate and render are rendered together, so they share
+    display limits, into OUT/<plate>_<render>/ with their own manifest; a
+    batch.json manifest lists every run. The options apply to every row.
+    gallery:<class> rows keep that class of --classifier-column.
+
+    \b
+    Example plan.csv:
+      plate_id,well,render
+      5108,B2,well
+      5108,G5,well
+      5108,G5,gallery:micronuclei
+      5108,E2,gallery:normal
+    """
+    if print_json:
+        with contextlib.redirect_stdout(sys.stderr):
+            manifest_path, written = _run_batch(**locals())
+        click.echo(manifest_path.read_text())
+    else:
+        manifest_path, written = _run_batch(**locals())
+        click.echo(
+            f"Wrote {written} image(s) to {manifest_path.parent} "
+            f"(manifest: {manifest_path.name})",
+            err=True,
+        )
+    if not written:
+        sys.exit(1)
+
+
+def _run_batch(
+    plan: Path,
+    channels: str | None,
+    classifier_column: str,
+    cellcycle: str,
+    grid: str,
+    crop_size: int,
+    segmentation: str,
+    keep_background: bool,
+    seed: int,
+    layers: str | None,
+    zoom: str,
+    center: str,
+    size: int,
+    timepoint: int,
+    limit_specs: tuple[str, ...],
+    labels: bool,
+    out_dir: Path,
+    fmt: str,
+    dpi: int,
+    print_json: bool,
+) -> tuple[Path, int]:
+    """Do the work of :func:`batch`; return (manifest, images written)."""
+    from datetime import UTC, datetime
+
+    from omero_screen_napari import __version__
+
+    groups = _read_plan(plan)
+    if any(render != "well" for _plate, render in groups) and not channels:
+        raise click.BadParameter(
+            "gallery rows need --channels", param_hint="--channels"
+        )
+    if (
+        any(render.startswith("gallery:") for _plate, render in groups)
+        and not classifier_column
+    ):
+        raise click.BadParameter(
+            "gallery:<class> rows need --classifier-column",
+            param_hint="--classifier-column",
+        )
+
+    out = out_dir.expanduser()
+    runs = []
+    total = 0
+    for (plate_id, render), wells in groups.items():
+        sub_dir = out / f"{plate_id}_{_slug(render)}"
+        run: dict[str, object] = {
+            "plate_id": plate_id,
+            "render": render,
+            "wells": wells,
+            "out": sub_dir.name,
+        }
+        try:
+            if render == "well":
+                manifest, written, _n = _render_wells(
+                    plate_id=plate_id,
+                    wells=",".join(wells),
+                    layers=layers,
+                    zoom=zoom,
+                    center=center,
+                    size=size,
+                    timepoint=timepoint,
+                    limit_specs=limit_specs,
+                    caption=labels,
+                    scale_bar=True,
+                    out_dir=sub_dir,
+                    fmt=fmt,
+                    dpi=dpi,
+                    print_json=False,
+                )
+            else:
+                _kind, _sep, class_value = render.partition(":")
+                manifest, written, _n = _render_gallery(
+                    plate_id=plate_id,
+                    wells=",".join(wells),
+                    channels=channels or "",
+                    classifier_column=classifier_column if class_value else "",
+                    class_value=class_value,
+                    cellcycle=cellcycle,
+                    cells_path=None,
+                    grid=grid,
+                    crop_size=crop_size,
+                    segmentation=segmentation,
+                    timepoint=timepoint,
+                    contour=True,
+                    keep_background=keep_background,
+                    limit_specs=limit_specs,
+                    title=labels,
+                    seed=seed,
+                    out_dir=sub_dir,
+                    fmt=fmt,
+                    dpi=dpi,
+                    print_json=False,
+                )
+            run.update(
+                manifest=f"{sub_dir.name}/{manifest.name}", written=written
+            )
+            total += written
+        except click.ClickException as exc:
+            # One plate or render failing must not cost the rest of the plan.
+            run.update(written=0, error=exc.format_message())
+        runs.append(run)
+
+    out.mkdir(parents=True, exist_ok=True)
+    manifest_path = out / BATCH_MANIFEST
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "command": "batch",
+                "omero_screen_version": __version__,
+                "exported_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                "plan": str(plan),
+                "runs": runs,
+            },
+            indent=2,
+            default=str,
+        )
+    )
+    return manifest_path, total
+
+
+def _read_plan(plan: Path) -> dict[tuple[int, str], list[str]]:
+    """Group a plan's rows by (plate, render), keeping first-seen order."""
+    import polars as pl
+
+    try:
+        rows = pl.read_csv(plan, infer_schema=False)
+    except Exception as exc:  # noqa: BLE001 — any unreadable file
+        raise click.BadParameter(f"cannot read {plan.name}: {exc}") from exc
+    missing = [c for c in PLAN_COLUMNS if c not in rows.columns]
+    if missing:
+        raise click.BadParameter(
+            f"{plan.name} is missing column(s) {', '.join(missing)}"
+        )
+    groups: dict[tuple[int, str], list[str]] = {}
+    for line, row in enumerate(rows.select(PLAN_COLUMNS).iter_rows(), start=2):
+        plate_text, well, render = (str(v or "").strip() for v in row)
+        try:
+            plate_id = int(plate_text)
+        except ValueError:
+            raise click.BadParameter(
+                f"{plan.name} line {line}: plate_id {plate_text!r} is not a number"
+            ) from None
+        render = (
+            render.lower() if render.lower() in ("well", "gallery") else render
+        )
+        if not (
+            render in ("well", "gallery") or render.startswith("gallery:")
+        ):
+            raise click.BadParameter(
+                f"{plan.name} line {line}: render {render!r} is not "
+                f"well, gallery or gallery:<class>"
+            )
+        if render.startswith("gallery:") and not render.partition(":")[2]:
+            raise click.BadParameter(
+                f"{plan.name} line {line}: gallery: needs a class name"
+            )
+        if not well:
+            raise click.BadParameter(f"{plan.name} line {line}: no well")
+        wells = groups.setdefault((plate_id, render), [])
+        if well.upper() not in wells:
+            wells.append(well.upper())
+    if not groups:
+        raise click.BadParameter(f"{plan.name} has no rows")
+    return groups
+
+
+def _slug(render: str) -> str:
+    """A directory-safe name for a render, e.g. ``gallery_micronuclei``."""
+    return re.sub(r"[^A-Za-z0-9_-]+", "_", render.replace(":", "_")).strip("_")
 
 
 # ---------------------------------------------------------------------------
@@ -811,6 +1189,70 @@ def _apply_limits(
         if index is not None:
             intensities[int(float(index))] = window
     omero_data.intensities = intensities
+
+
+def _pool_field_limits(
+    load: Callable[[list[str]], None],
+    omero_data: OmeroData,
+    wells: list[str],
+) -> dict[int, tuple[int, int]]:
+    """Display limits pooled over per-field wells, one well in memory at a time.
+
+    The same 0.1/99.9 percentiles as zarr plates, over each well's fields
+    (CellView's intensity range, the fallback otherwise, can be stale or far
+    off). Wells are visited last to first, so the first well is the one left
+    loaded for rendering.
+    """
+    from omero_screen_napari.well_overview import (
+        percentile_limits,
+        sample_pixels,
+    )
+
+    samples: dict[int, list[Any]] = {}
+    for well in reversed(wells):
+        load([well])
+        images = omero_data.images  # (N, [T,] Y, X, C)
+        for c in range(images.shape[-1]):
+            samples.setdefault(c, []).append(sample_pixels(images[..., c]))
+    return {c: percentile_limits(v) for c, v in samples.items()}
+
+
+def _check_classifier(
+    column: str, value: str, omero_data: OmeroData, wells: list[str]
+) -> None:
+    """Fail early, listing the valid choices, on an unknown column or class.
+
+    The error names what the plate has, so a caller can discover classifier
+    columns and classes from the CLI itself.
+    """
+    if not column:
+        return
+    import polars as pl
+
+    names = omero_data.plate_data.collect_schema().names()
+    classifiers = [c for c in names if c.startswith("classifier_")]
+    if column not in names:
+        raise click.BadParameter(
+            f"no column {column!r}; classifier columns: "
+            f"{', '.join(classifiers) or 'none'}",
+            param_hint="--classifier-column",
+        )
+    if not value:
+        return
+    values = (
+        omero_data.plate_data.filter(pl.col("well").is_in(wells))
+        .select(pl.col(column).cast(pl.Utf8))
+        .unique()
+        .collect()[column]
+        .to_list()
+    )
+    if value not in values:
+        raise click.BadParameter(
+            f"class {value!r} does not occur in {column} for "
+            f"{', '.join(wells)}; classes there: "
+            f"{', '.join(sorted(str(v) for v in values if v is not None))}",
+            param_hint="--class",
+        )
 
 
 def _check_channels(channels: list[str], omero_data: OmeroData) -> None:

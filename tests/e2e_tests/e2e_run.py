@@ -30,6 +30,7 @@ from tests.e2e_tests.e2e_excel import (
     run_plate_wrongwell,
 )
 from tests.e2e_tests.e2e_flatfield_corr import run_flatfield_corr_test
+from tests.e2e_tests.e2e_images import run_images_test
 from tests.e2e_tests.e2e_mip import run_mip_test
 from tests.e2e_tests.e2e_omero_screen import run_omero_screen_test
 from tests.e2e_tests.e2e_pixelsize import run_pixel_size_test
@@ -84,6 +85,7 @@ TEST_FUNCTIONS = {
     "flatfield": run_flatfield_corr_test,
     "mip": run_mip_test,
     "omero_screen": run_omero_screen_test,
+    "images": run_images_test,
 }
 
 

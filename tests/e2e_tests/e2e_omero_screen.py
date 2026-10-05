@@ -29,13 +29,17 @@ def run_omero_screen_test(
     finally:
         # Cleanup if requested
         if teardown:
-            # Remove metadata
-            dataset_id = PlateDataset(conn, plate_id).dataset_id
-            clean_screen_results(conn, plate_id)
-            delete_masks(conn, dataset_id)
-            clean_mip_results(conn, plate_id)
-            clean_flatfield_results(conn, plate_id, dataset_id)
-            clean_plate_annotations(conn, plate_id)
+            clean_omero_screen_run(conn, plate_id)
+
+
+def clean_omero_screen_run(conn: BlitzGateway, plate_id: int) -> None:
+    """Remove everything an OMERO Screen run wrote to the plate."""
+    dataset_id = PlateDataset(conn, plate_id).dataset_id
+    clean_screen_results(conn, plate_id)
+    delete_masks(conn, dataset_id)
+    clean_mip_results(conn, plate_id)
+    clean_flatfield_results(conn, plate_id, dataset_id)
+    clean_plate_annotations(conn, plate_id)
 
 
 def clean_screen_results(conn: BlitzGateway, plate_id: int):

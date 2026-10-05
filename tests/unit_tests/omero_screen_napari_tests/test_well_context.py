@@ -157,3 +157,18 @@ def test_field_plate_loads_the_requested_timepoint(timepoint, time):
         )
 
     assert calls == [(connection, 3, "A1, B2", "All", time)]
+
+
+def test_unprocessed_plate_is_a_clean_error():
+    with (
+        patch(
+            "omero_screen_napari.well_context.well_source",
+            return_value="fields",
+        ),
+        patch(
+            "omero_screen_napari.plate_cache.get_plate_metadata",
+            side_effect=ValueError("No MapAnnotations found for plate 1"),
+        ),
+        pytest.raises(WellContextError, match="processed by omero-screen"),
+    ):
+        load_well_context(1, ["A1"], connection=MagicMock())

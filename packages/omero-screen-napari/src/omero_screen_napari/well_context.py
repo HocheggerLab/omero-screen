@@ -128,6 +128,25 @@ def _load_from_zarr(
         omero_data.intensities = pooled
 
 
+def plate_metadata(
+    connection: OmeroConnection, plate_id: int
+) -> dict[str, Any]:
+    """Plate metadata (channels, pixel size, ...) for a per-field load.
+
+    Raises:
+        WellContextError: The plate is missing, or omero-screen has not yet
+            written its channel annotation (an unprocessed plate).
+    """
+    from omero_screen_napari.plate_cache import get_plate_metadata
+
+    try:
+        return get_plate_metadata(connection, plate_id)
+    except ValueError as exc:
+        raise WellContextError(
+            f"{exc}. Is plate {plate_id} processed by omero-screen?"
+        ) from exc
+
+
 # Pyramid level sampled for display limits: level 1 is 2x downsampled, so
 # percentiles match level 0 closely at a quarter of the read.
 _LIMITS_LEVEL = 1
@@ -177,12 +196,9 @@ def _load_from_fields(
     connection: OmeroConnection,
 ) -> None:
     """Load the wells' fields and masks into memory, as the welldata widget does."""
-    from omero_screen_napari.plate_cache import (
-        get_plate_metadata,
-        load_from_cache,
-    )
+    from omero_screen_napari.plate_cache import load_from_cache
 
-    meta = get_plate_metadata(connection, plate_id)
+    meta = plate_metadata(connection, plate_id)
     if meta.get("label_stitched_mode"):
         # Same guard as the welldata widget: re-stitching a stitched plate
         # in memory can exhaust RAM, and the gallery needs the zarr canvas.
