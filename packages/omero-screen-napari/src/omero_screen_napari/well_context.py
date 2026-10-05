@@ -131,7 +131,6 @@ def _load_from_zarr(
 # Pyramid level sampled for display limits: level 1 is 2x downsampled, so
 # percentiles match level 0 closely at a quarter of the read.
 _LIMITS_LEVEL = 1
-_SAMPLES_PER_WELL = 1_000_000
 
 
 def pooled_intensities(
@@ -141,9 +140,9 @@ def pooled_intensities(
 
     Same percentiles as the napari layers' initial contrast
     (``display._channel_contrast``), over a pixel sample from each well's
-    canvas at ``timepoint`` (clamped to the last one). Each well is sampled
-    with its own fixed seed and the percentiles are taken over the pooled
-    samples, so the result does not depend on the order of the wells.
+    canvas at ``timepoint`` (clamped to the last one); see
+    :func:`omero_screen_napari.well_overview.percentile_limits`. The result
+    does not depend on the order of the wells.
 
     Args:
         wells_data: ``zarr_cache.read_well`` results.
@@ -152,29 +151,22 @@ def pooled_intensities(
     Returns:
         ``{channel_index: (lo, hi)}``; empty when there is nothing to sample.
     """
-    from omero_screen_napari.zarr_cache.display import _UINT16_MAX
+    from omero_screen_napari.well_overview import percentile_limits
 
     levels = [
         w["image"][min(_LIMITS_LEVEL, len(w["image"]) - 1)] for w in wells_data
     ]
     if not levels:
         return {}
-    out: dict[int, tuple[int, int]] = {}
-    for c in range(levels[0].shape[1]):
-        samples = []
-        for level in levels:
-            t = min(timepoint, level.shape[0] - 1)
-            flat = np.asarray(level[t, c]).ravel()
-            if flat.size > _SAMPLES_PER_WELL:
-                rng = np.random.default_rng(0)
-                flat = flat[
-                    rng.choice(flat.size, _SAMPLES_PER_WELL, replace=False)
-                ]
-            samples.append(flat)
-        lo, hi = np.percentile(np.concatenate(samples), [0.1, 99.9])
-        # A flat channel: show it against the full span, as the viewer does.
-        out[c] = (int(lo), int(hi)) if hi > lo else (0, _UINT16_MAX)
-    return out
+    return {
+        c: percentile_limits(
+            [
+                np.asarray(level[min(timepoint, level.shape[0] - 1), c])
+                for level in levels
+            ]
+        )
+        for c in range(levels[0].shape[1])
+    }
 
 
 def _load_from_fields(

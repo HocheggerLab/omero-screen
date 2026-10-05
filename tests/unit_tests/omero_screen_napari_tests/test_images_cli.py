@@ -237,6 +237,111 @@ def test_no_gallery_written_exits_nonzero(harness, tmp_path):
     assert result.exit_code == 1
 
 
+def test_background_is_kept_by_default(harness, tmp_path):
+    _run("1", "--wells", "A1", "--channels", "DAPI", "--out", str(tmp_path))
+    assert harness["builds"][0][0].no_background is False
+    _run(
+        "1", "--wells", "A1", "--channels", "DAPI", "--blank-background",
+        "--out", str(tmp_path),
+    )
+    assert harness["builds"][1][0].no_background is True
+
+
+# ---------------------------------------------------------------------- #
+# well                                                                   #
+# ---------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def well_harness():
+    """A zarr plate with two cached wells; render_wells mocked."""
+    calls: dict = {}
+
+    def fake_render(wells, load_well, settings, out_dir):
+        calls["wells"] = list(wells)
+        calls["settings"] = settings
+        calls["inputs"] = [load_well(w) for w in wells]
+        return {
+            "limits": {"DAPI": [1, 2]},
+            "wells": {w: {"exported": True, "file": f"{w}.png"} for w in wells},
+        }
+
+    with (
+        patch(
+            "omero_screen_napari.well_context.well_source", return_value="zarr"
+        ),
+        patch(
+            "omero_screen_napari.zarr_cache.plate_info",
+            return_value={
+                "channel_names": ["DAPI", "Tub"],
+                "plate_name": "p",
+                "pixel_size_um": 1.2,
+                "well_metadata": {"A1": {"cell_line": "RPE-1"}},
+            },
+        ),
+        patch(
+            "omero_screen_napari.zarr_cache.cached_wells",
+            return_value=["A1", "B2"],
+        ),
+        patch(
+            "omero_screen_napari.well_overview.zarr_well_input",
+            side_effect=lambda p, w, info, t: __import__(
+                "omero_screen_napari.well_overview", fromlist=["WellInput"]
+            ).WellInput(w, None, f"cap {w}", 1.2),
+        ),
+        patch(
+            "omero_screen_napari.well_overview.render_wells",
+            side_effect=fake_render,
+        ),
+    ):
+        yield calls
+
+
+def _run_well(*args):
+    return CliRunner().invoke(cli, ["well", *args], catch_exceptions=False)
+
+
+def test_well_defaults_to_all_channels_whole_well(well_harness, tmp_path):
+    result = _run_well("1", "--wells", "All", "--out", str(tmp_path), "--json")
+    assert result.exit_code == 0, result.output
+    settings = well_harness["settings"]
+    assert well_harness["wells"] == ["A1", "B2"]
+    assert settings.layers == ["DAPI", "Tub"]
+    assert (settings.zoom, settings.center) == (1, (0.5, 0.5))
+    manifest = json.loads(result.stdout)
+    assert manifest["command"] == "well"
+    assert manifest["source"] == "zarr"
+    assert (tmp_path / "well_overview.json").exists()
+
+
+def test_well_options_reach_the_renderer(well_harness, tmp_path):
+    result = _run_well(
+        "1", "--wells", "a1", "--layers", "DAPI,nuclei_masks", "--zoom", "4",
+        "--center", "0.25,0.75", "--limits", "DAPI=10:20", "--no-caption",
+        "--out", str(tmp_path),
+    )
+    assert result.exit_code == 0, result.output
+    settings = well_harness["settings"]
+    assert settings.layers == ["DAPI", "nuclei_masks"]
+    assert (settings.zoom, settings.center) == (4, (0.25, 0.75))
+    assert settings.limits == {"DAPI": (10, 20)}
+    assert well_harness["inputs"][0].caption is None
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("--wells", "C3"),
+        ("--wells", "A1", "--zoom", "3"),
+        ("--wells", "A1", "--center", "2,0"),
+        ("--wells", "A1", "--limits", "GFP=1:2"),
+    ],
+)
+def test_well_rejects_bad_options(well_harness, tmp_path, args):
+    result = _run_well("1", *args, "--out", str(tmp_path))
+    assert result.exit_code == 2
+
+
 # ---------------------------------------------------------------------- #
 # Import weight                                                          #
 # ---------------------------------------------------------------------- #
@@ -249,6 +354,7 @@ def test_render_path_imports_no_napari_or_qt():
         "import omero_screen_napari.images_cli\n"
         "import omero_screen_napari.gallery_export\n"
         "import omero_screen_napari.well_context\n"
+        "import omero_screen_napari.well_overview\n"
         "import omero_screen_napari.plate_cache\n"
         "import omero_screen_napari.zarr_cache.display\n"
         "bad = sorted(m for m in sys.modules\n"
