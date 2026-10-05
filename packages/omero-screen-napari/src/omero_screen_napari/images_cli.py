@@ -357,6 +357,7 @@ def _render_gallery(
     except WellContextError as exc:
         raise click.ClickException(str(exc)) from exc
     _check_channels([*channel_list, *limits], omero_data)
+    _check_classifier(classifier_column, class_value, omero_data, target_wells)
 
     def prepare_well(well: str) -> None:
         if source == "fields" and omero_data.well_pos_list != [well]:
@@ -606,6 +607,9 @@ def _render_wells(
             filter_empty_wells(get_well_data(connection, plate_id))
         )
 
+    from omero_screen_napari.plate_cache import _well_sort_key
+
+    available = sorted(available, key=_well_sort_key)  # A1, A2, ..., A10
     target_wells = (
         available
         if wells.strip().lower() == "all"
@@ -1211,6 +1215,44 @@ def _pool_field_limits(
         for c in range(images.shape[-1]):
             samples.setdefault(c, []).append(sample_pixels(images[..., c]))
     return {c: percentile_limits(v) for c, v in samples.items()}
+
+
+def _check_classifier(
+    column: str, value: str, omero_data: OmeroData, wells: list[str]
+) -> None:
+    """Fail early, listing the valid choices, on an unknown column or class.
+
+    The error names what the plate has, so a caller can discover classifier
+    columns and classes from the CLI itself.
+    """
+    if not column:
+        return
+    import polars as pl
+
+    names = omero_data.plate_data.collect_schema().names()
+    classifiers = [c for c in names if c.startswith("classifier_")]
+    if column not in names:
+        raise click.BadParameter(
+            f"no column {column!r}; classifier columns: "
+            f"{', '.join(classifiers) or 'none'}",
+            param_hint="--classifier-column",
+        )
+    if not value:
+        return
+    values = (
+        omero_data.plate_data.filter(pl.col("well").is_in(wells))
+        .select(pl.col(column).cast(pl.Utf8))
+        .unique()
+        .collect()[column]
+        .to_list()
+    )
+    if value not in values:
+        raise click.BadParameter(
+            f"class {value!r} does not occur in {column} for "
+            f"{', '.join(wells)}; classes there: "
+            f"{', '.join(sorted(str(v) for v in values if v is not None))}",
+            param_hint="--class",
+        )
 
 
 def _check_channels(channels: list[str], omero_data: OmeroData) -> None:
