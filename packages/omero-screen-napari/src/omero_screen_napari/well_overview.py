@@ -302,29 +302,34 @@ def stitch_field_well(
 # ---------------------------------------------------------------------------
 
 
+def sample_pixels(values: np.ndarray[Any, Any]) -> np.ndarray[Any, Any]:
+    """One well's pixels of one channel, as a fixed-seed sample for limits.
+
+    Exact zeros (canvas no field covers, or masked-out pixels) are dropped:
+    they are not dark signal, and left in they pin the low limit at 0 and
+    lift the background. At most 1M pixels are kept, with a fresh seed per
+    call, so a well's sample does not depend on which wells came before.
+    """
+    flat = np.asarray(values).ravel()
+    flat = flat[flat != 0]
+    if flat.size > _SAMPLES_PER_WELL:
+        rng = np.random.default_rng(0)
+        flat = flat[rng.choice(flat.size, _SAMPLES_PER_WELL, replace=False)]
+    return flat
+
+
 def percentile_limits(
     samples: Sequence[np.ndarray[Any, Any]],
 ) -> tuple[int, int]:
     """0.1/99.9-percentile limits over several wells' pixels of one channel.
 
-    Exact zeros (canvas no field covers) are ignored. Each well contributes
-    a fixed-seed sample of at most 1M pixels, so the result does not depend
-    on the order of the wells. A flat or empty channel gets
-    the full uint16 range, as in the viewer.
+    Each well's pixels go through :func:`sample_pixels` (idempotent, so
+    pre-sampled arrays may be passed), and the percentiles are taken over
+    the pooled samples: the result does not depend on the order of the
+    wells. A flat or empty channel gets the full uint16 range, as in the
+    viewer.
     """
-    pooled = []
-    for values in samples:
-        flat = np.asarray(values).ravel()
-        # Exact zeros are canvas no field covers (or masked-out pixels),
-        # not dark signal; left in, they pin the low limit at 0 and lift
-        # the background.
-        flat = flat[flat != 0]
-        if flat.size > _SAMPLES_PER_WELL:
-            rng = np.random.default_rng(0)
-            flat = flat[
-                rng.choice(flat.size, _SAMPLES_PER_WELL, replace=False)
-            ]
-        pooled.append(flat)
+    pooled = [sample_pixels(values) for values in samples]
     if not pooled or not sum(p.size for p in pooled):
         return 0, _UINT16_MAX
     lo, hi = np.percentile(np.concatenate(pooled), [0.1, 99.9])

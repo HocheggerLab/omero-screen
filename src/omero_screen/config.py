@@ -45,13 +45,17 @@ import os
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 from loguru import logger as _loguru_logger
 from rich.console import Console
 from rich.logging import RichHandler
 
 # Define project_root at module level
 project_root = Path(__file__).parent.parent.parent.resolve()
+
+# What each .env load replaced, so switch_env() can undo it:
+# {name: value before the first load that set it, or None if it was unset}.
+_ENV_PREVIOUS: dict[str, str | None] = {}
 
 # Whether configure_logging() has run in this process.
 _CONFIGURED = False
@@ -115,6 +119,35 @@ def find_project_root() -> Path:
     return Path.cwd()
 
 
+def _load_env_file(path: Path) -> None:
+    """Load ``path`` over the environment, remembering what it replaced."""
+    for key in dotenv_values(path):
+        _ENV_PREVIOUS.setdefault(key, os.environ.get(key))
+    load_dotenv(path, override=True)
+
+
+def switch_env(env: str) -> None:
+    """Load the ``.env.{env}`` configuration in place of the current one.
+
+    Package imports call :func:`set_env_vars` with the default environment
+    before a CLI has parsed ``--env``. Loading the requested file on top
+    would leave behind every variable that only the first file sets (e.g.
+    a development ``DATABASE_PATH`` while running against another server),
+    so first restore the variables earlier loads replaced, then load anew.
+
+    Args:
+        env: Environment name, e.g. ``"production"``.
+    """
+    for key, value in _ENV_PREVIOUS.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+    _ENV_PREVIOUS.clear()
+    os.environ["ENV"] = env
+    set_env_vars()
+
+
 def set_env_vars() -> None:
     """Loads environment variables from configuration files or the environment.
 
@@ -153,7 +186,7 @@ def set_env_vars() -> None:
         seen.add(root)
         for env_path in (root / f".env.{env}", root / ".env"):
             if env_path.exists():
-                load_dotenv(env_path, override=True)
+                _load_env_file(env_path)
                 return
 
     # Retain the previous diagnostics' notion of a single project root.

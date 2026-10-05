@@ -53,6 +53,7 @@ user_guide:
       - tracks_widget.qmd
       - session_manager.qmd
       - aligned_plate_widget.qmd
+      - images_cli.qmd
       - cli_reference.qmd
 
 reference:

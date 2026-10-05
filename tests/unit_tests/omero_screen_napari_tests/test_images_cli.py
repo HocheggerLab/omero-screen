@@ -13,12 +13,15 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+import numpy as np
 import polars as pl
 import pytest
 from click.testing import CliRunner
 
 from omero_screen_napari.images_cli import (
     _parse_grid,
+    _read_plan,
+    _slug,
     _parse_limits,
     _resolve_wells,
     _restrict_to_cells,
@@ -117,6 +120,14 @@ def harness():
         omero_data.pixel_size = (1.2, 1.2)
         omero_data.well_pos_list = list(wells)
         omero_data.plate_data = PLATE_ROWS.lazy()
+        # Fields (N, Y, X, C): DAPI 100..400, Tub 1000..4000.
+        omero_data.images = np.stack(
+            [
+                np.linspace(100, 400, 64).reshape(1, 8, 8),
+                np.linspace(1000, 4000, 64).reshape(1, 8, 8),
+            ],
+            axis=-1,
+        )
         return omero_data
 
     def fake_build(od, well_settings, **_kwargs):
@@ -178,7 +189,9 @@ def test_gallery_json_manifest_is_clean_stdout(harness, tmp_path):
 def test_field_plate_loads_one_well_at_a_time(harness, tmp_path):
     result = _run("1", "--wells", "A1,B2", "--channels", "DAPI", "--out", str(tmp_path))
     assert result.exit_code == 0, result.output
-    assert harness["loads"] == [["A1"], ["B2"]]
+    # Sampling pass for the shared limits (last to first, leaving A1
+    # loaded), then B2 again to render it.
+    assert harness["loads"] == [["B2"], ["A1"], ["B2"]]
 
 
 def test_zarr_plate_loads_all_wells_once(harness, tmp_path):
@@ -194,7 +207,10 @@ def test_limits_override_loaded_intensities(harness, tmp_path):
         "--limits", "Tub=5:50", "--out", str(tmp_path), "--json",
     )
     assert result.exit_code == 0, result.output
-    assert harness["builds"][0][2] == {0: (0, 1000), 1: (5, 50)}
+    # DAPI pooled from the fields (not the loaded 0-1000), Tub as given.
+    dapi_lo, dapi_hi = harness["builds"][0][2][0]
+    assert 100 <= dapi_lo < 110 and 390 < dapi_hi <= 400
+    assert harness["builds"][0][2][1] == (5, 50)
     assert json.loads(result.stdout)["intensities"]["1"] == [5, 50]
 
 
@@ -340,6 +356,134 @@ def test_well_options_reach_the_renderer(well_harness, tmp_path):
 def test_well_rejects_bad_options(well_harness, tmp_path, args):
     result = _run_well("1", *args, "--out", str(tmp_path))
     assert result.exit_code == 2
+
+
+# ---------------------------------------------------------------------- #
+# batch                                                                  #
+# ---------------------------------------------------------------------- #
+
+
+def _plan(tmp_path, text):
+    path = tmp_path / "plan.csv"
+    path.write_text(text)
+    return path
+
+
+def test_read_plan_groups_by_plate_and_render(tmp_path):
+    plan = _plan(
+        tmp_path,
+        "plate_id,well,render,note\n"
+        "5108,b2,well,x\n5108,G5,Well,\n5108,G5,gallery:micronuclei,\n"
+        "5108,G5,well,dup\n42,A1,gallery,\n",
+    )
+    assert _read_plan(plan) == {
+        (5108, "well"): ["B2", "G5"],
+        (5108, "gallery:micronuclei"): ["G5"],
+        (42, "gallery"): ["A1"],
+    }
+
+
+@pytest.mark.parametrize(
+    ("text", "match"),
+    [
+        ("plate,well,render\n1,A1,well\n", "missing column"),
+        ("plate_id,well,render\nx,A1,well\n", "not a number"),
+        ("plate_id,well,render\n1,A1,montage\n", "montage"),
+        ("plate_id,well,render\n1,A1,gallery:\n", "class name"),
+        ("plate_id,well,render\n1,,well\n", "no well"),
+        ("plate_id,well,render\n", "no rows"),
+    ],
+)
+def test_read_plan_rejects(tmp_path, text, match):
+    with pytest.raises(click.BadParameter, match=match):
+        _read_plan(_plan(tmp_path, text))
+
+
+def test_slug():
+    assert _slug("gallery:micro nuclei/x") == "gallery_micro_nuclei_x"
+    assert _slug("well") == "well"
+
+
+@pytest.fixture
+def batch_harness():
+    calls: list = []
+
+    def fake_gallery(**kwargs):
+        calls.append(("gallery", kwargs))
+        out = kwargs["out_dir"]
+        out.mkdir(parents=True, exist_ok=True)
+        if kwargs["plate_id"] == 13:
+            raise click.ClickException("Plate 13 has no CellView rows.")
+        return out / "gallery_export.json", len(kwargs["wells"].split(",")), 1
+
+    def fake_wells(**kwargs):
+        calls.append(("well", kwargs))
+        out = kwargs["out_dir"]
+        out.mkdir(parents=True, exist_ok=True)
+        return out / "well_overview.json", len(kwargs["wells"].split(",")), 1
+
+    with (
+        patch(
+            "omero_screen_napari.images_cli._render_gallery",
+            side_effect=fake_gallery,
+        ),
+        patch(
+            "omero_screen_napari.images_cli._render_wells",
+            side_effect=fake_wells,
+        ),
+    ):
+        yield calls
+
+
+def test_batch_runs_each_group_with_shared_options(batch_harness, tmp_path):
+    plan = _plan(
+        tmp_path,
+        "plate_id,well,render\n5108,B2,well\n5108,G5,well\n"
+        "5108,G5,gallery:micronuclei\n13,A1,gallery\n",
+    )
+    result = CliRunner().invoke(
+        cli,
+        [
+            "batch", str(plan), "--channels", "DAPI", "--classifier-column",
+            "classifier_nuclei4", "--zoom", "2", "--limits", "DAPI=1:2",
+            "--no-labels", "--out", str(tmp_path / "out"), "--json",
+        ],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    manifest = json.loads(result.stdout)
+    runs = {(r["plate_id"], r["render"]): r for r in manifest["runs"]}
+    assert runs[(5108, "well")]["written"] == 2
+    assert runs[(5108, "well")]["out"] == "5108_well"
+    assert runs[(5108, "gallery:micronuclei")]["manifest"] == (
+        "5108_gallery_micronuclei/gallery_export.json"
+    )
+    assert runs[(13, "gallery")]["error"] == "Plate 13 has no CellView rows."
+
+    kinds = {kind: kw for kind, kw in batch_harness if kw["plate_id"] == 5108}
+    assert kinds["well"]["wells"] == "B2,G5"
+    assert kinds["well"]["zoom"] == "2"
+    assert kinds["well"]["caption"] is False
+    assert kinds["gallery"]["class_value"] == "micronuclei"
+    assert kinds["gallery"]["classifier_column"] == "classifier_nuclei4"
+    assert kinds["gallery"]["title"] is False
+    assert kinds["gallery"]["limit_specs"] == ("DAPI=1:2",)
+    plain = [kw for kind, kw in batch_harness if kw["plate_id"] == 13][0]
+    assert plain["classifier_column"] == ""  # plain gallery: no class filter
+
+
+@pytest.mark.parametrize(
+    ("rows", "args", "hint"),
+    [
+        ("1,A1,gallery", [], "--channels"),
+        ("1,A1,gallery:mn", ["--channels", "DAPI"], "--classifier-column"),
+    ],
+)
+def test_batch_requires_gallery_options(batch_harness, tmp_path, rows, args, hint):
+    plan = _plan(tmp_path, f"plate_id,well,render\n{rows}\n")
+    result = CliRunner().invoke(cli, ["batch", str(plan), *args])
+    assert result.exit_code == 2
+    assert hint in result.output
 
 
 # ---------------------------------------------------------------------- #

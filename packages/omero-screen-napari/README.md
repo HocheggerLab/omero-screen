@@ -19,7 +19,7 @@ Version: ![version](https://img.shields.io/badge/version-0.8.4-blue)
 | **Training Widget** | Annotate crops with class labels and save sessions to disk |
 | **Aligned Plate Widget** | Overlay images from multiple spatially registered plates |
 
-A companion command-line tool, `omero-train`, provides database management, statistics, and data export without opening Napari.
+Two companion command-line tools work without opening Napari: `omero-train` manages the training database, and `omero-screen-images` renders cell galleries and whole-well overviews (for QC and figure panels) with a JSON manifest of every run.
 
 ## Documentation
 
@@ -32,6 +32,7 @@ Quick links:
 - [Training Widget — annotating cells](user-guide/training_widget.html)
 - [Session Manager & Direct Load](user-guide/session_manager.html)
 - [omero-train CLI reference](user-guide/cli_reference.html)
+- [omero-screen-images — galleries and well overviews without Napari](user-guide/images_cli.html)
 
 ## Installation
 
@@ -73,6 +74,19 @@ omero-train delete mitosis-rpe      # delete a classifier and its data
 ```
 
 See [CLI reference](user-guide/cli_reference.html) for full details.
+
+## omero-screen-images CLI
+
+Galleries and whole-well overviews without Napari, reproducible from a script or notebook:
+
+```bash
+omero-screen-images gallery 5108 --wells E2,G5 --classifier-column classifier_nuclei4 \
+    --class micronuclei --channels DAPI --grid 5x5 --json
+omero-screen-images well 5108 --wells B2,E2 --layers DAPI,Tub,nuclei_masks --zoom 4
+omero-screen-images batch plan.csv --channels DAPI
+```
+
+See [omero-screen-images](user-guide/images_cli.html) for the workflows.
 
 ## Authors
 

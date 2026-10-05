@@ -1,0 +1,141 @@
+---
+title: "omero-screen-images CLI"
+---
+
+::: {.callout-note}
+This page covers what the tool is for and how it is used. For every option,
+its default and its type, run `omero-screen-images <command> --help`: the help
+text is generated from the code, so it is always current.
+:::
+
+## What this tool does
+
+`omero-screen-images` renders the images the napari widgets produce, without
+opening napari, so a script, a notebook or an agent can regenerate them
+reproducibly:
+
+| Command | Output |
+|---|---|
+| `gallery` | A grid of cell crops per well, optionally one classifier class or an explicit cell selection |
+| `well` | A whole-well overview: stitched multichannel composite with a caption and scale bar, the whole well or zoomed in 2x steps |
+| `batch` | Everything listed in a plan file, one run per plate and render |
+
+Each run writes a JSON manifest next to the images (`gallery_export.json`,
+`well_overview.json`, `batch.json`). It records the version, the settings, the
+seed, the display limits and the outcome for every well, so a panel can be
+traced and replayed months later. Add `--json` to also print the manifest:
+stdout then carries only the manifest and the logs go to stderr, so the output
+can be piped straight into a parser.
+
+`omero-screen-images` is installed with `omero-screen-napari`. Like the other
+CLIs it reads the `.env.{name}` configuration; choose it with `--env` before the
+command:
+
+```bash
+omero-screen-images --env production gallery 5108 --wells G5 --channels DAPI
+```
+
+## Where the pixels come from
+
+- **Plates with a zarr cache** (stitched plates cached from the plate-info
+  dialog) are read lazily from the cache. Nothing is downloaded.
+- **Per-field plates** are loaded through the plate disk cache, downloading from
+  OMERO on a miss, one well at a time to bound memory. Overviews are stitched in
+  memory from the stage positions with the plate's per-objective stitch
+  calibration, as in the welldata widget.
+- A stitched plate without a zarr cache is refused: build the cache first.
+
+Galleries also need the plate's measurements in CellView; overviews do not.
+
+## Display limits
+
+Every well of one call shares one set of display limits, so wells rendered
+together can be compared side by side. By default these are the
+0.1/99.9 percentiles pooled over the requested wells (exact zeros, i.e. canvas
+no field covers, are ignored). The same call always gives the same limits,
+whatever the order of the wells.
+
+To compare across calls, or to match an earlier figure, fix them with
+`--limits CHANNEL=LO:HI` (repeatable). The limits used, and whether each was
+given or pooled, are in the manifest.
+
+## Galleries
+
+```bash
+# 5x5 DAPI crops of micronucleated cells in two wells
+omero-screen-images --env production gallery 5108 --wells E2,G5 \
+    --classifier-column classifier_nuclei4 --class micronuclei \
+    --channels DAPI --grid 5x5 --seed 1 --out qc/micronuclei
+```
+
+- `--channels` packs up to three channels into R, G, B. One channel gives the
+  inverted greyscale gallery.
+- `--classifier-column` / `--class` keep one class of one classifier column.
+  Naming the column avoids the widget's fallback (the first classifier column
+  that contains the value).
+- `--seed` fixes the draw: the same command reproduces the same gallery, and
+  each well draws independently.
+- The background around each cell is **kept** by default. `--blank-background`
+  blanks everything outside the cell's mask; that hides objects outside the
+  mask, such as micronuclei, and makes crops look processed.
+
+### Galleries from an analysis gate
+
+`--cells cells.csv` (or `.parquet`) restricts the draw to cells chosen
+downstream, for example EdU-negative 2N cells gated in a CellView analysis. The
+table needs `image_id` and `label` (the CellView nucleus label), and optionally
+`timepoint`; the wells are taken from the selection when `--wells` is omitted.
+
+```python
+gate = df.filter(...)  # a CellView export, filtered in a notebook
+gate.select("image_id", "label").write_csv("gate.csv")
+```
+
+```bash
+omero-screen-images gallery 5108 --cells gate.csv --channels DAPI,EdU --json
+```
+
+## Whole-well overviews
+
+```bash
+# Every channel of four wells, same contrast for all four
+omero-screen-images --env production well 5108 --wells B2,E2,B5,E5 --out qc/wells
+
+# DAPI with nuclei outlines, zoomed 8x into the upper left of the well
+omero-screen-images well 5108 --wells G5 --layers DAPI,nuclei_masks \
+    --zoom 8 --center 0.3,0.3
+```
+
+- `--layers` lists what to draw: channel names plus `nuclei_masks` and
+  `cell_masks`, drawn as outlines. The default is every channel and no masks.
+- `--zoom 1` is the whole well; each step halves the field of view around
+  `--center Y,X` (fractions of the well height and width).
+- The image is read at the resolution closest to `--size` (default 2000 px on
+  the longer side) and downsampled by averaging, so it is not aliased.
+- Channels keep their napari colours whichever subset is drawn. The caption
+  carries the plate, well and all the well's metadata.
+
+## Batches
+
+A plan is a CSV with one row per image:
+
+```text
+plate_id,well,render
+5108,B2,well
+5108,G5,well
+5108,G5,gallery:micronuclei
+5108,E2,gallery:normal
+```
+
+`render` is `well`, `gallery`, or `gallery:<class>` (a class of
+`--classifier-column`).
+
+```bash
+omero-screen-images --env production batch plan.csv \
+    --channels DAPI --classifier-column classifier_nuclei4 --out qc/
+```
+
+Rows with the same plate and render are rendered together, so they share
+display limits, into `qc/<plate>_<render>/` with their own manifest;
+`qc/batch.json` lists every run. The options apply to every row. A plate that
+fails is recorded in the batch manifest and the rest of the plan still runs.

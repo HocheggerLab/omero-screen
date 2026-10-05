@@ -25,6 +25,7 @@ Read the relevant reference file before answering questions in these areas:
 | Classifier training, generating training data, labelling crops, inference | `references/classifier-training.md` |
 | Plots, cell cycle figures, feature plots, normalisation | `references/plotting.md` |
 | Napari widgets, browsing images, gallery, training sessions | `references/napari.md` |
+| Galleries or well overviews without napari, `omero-screen-images`, figure panels from a notebook | `references/images.md` |
 | Environment setup, uv install, .env files, config, dependencies | `references/environment.md` |
 
 For questions spanning multiple areas, read both reference files before answering.
