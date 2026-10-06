@@ -340,6 +340,65 @@ def export(obj: Context, plate_id: int) -> None:
     )
 
 
+@cli.command("repair-tracks")
+@click.argument("plate_id", metavar="ID", type=int)
+@click.option(
+    "--well",
+    "wells",
+    multiple=True,
+    help="Restrict to this well (repeatable). Default: every well.",
+)
+@click.option(
+    "--marker",
+    default="Geminin",
+    show_default=True,
+    help="Channel whose nuclear signal is degraded at anaphase (PIP-FUCCI: geminin).",
+)
+@click.option(
+    "--dry-run", is_flag=True, help="Report what would change; write nothing."
+)
+@click.option(
+    "--events",
+    "events_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Write every repair decision (rule, frame, position) to this CSV.",
+)
+@click.pass_obj
+def repair_tracks(
+    obj: Context,
+    plate_id: int,
+    wells: tuple[str, ...],
+    marker: str,
+    dry_run: bool,
+    events_path: Path | None,
+) -> None:
+    """Repair the tracked lineages of plate ID from segmentation flicker.
+
+    Reads the tracker's immutable track_id_raw / parent_track_id_raw and
+    writes the curated track_id / parent_track_id, so re-running gives the
+    same result. Only plates with a mitotic marker (geminin) are repaired.
+    """
+    from cellview.tracks.plate import MarkerNotFoundError, repair_plate
+
+    try:
+        summaries = repair_plate(
+            obj.conn,
+            plate_id,
+            marker,
+            list(wells) or None,
+            dry_run,
+            events_path,
+        )
+    except (MarkerNotFoundError, ValueError) as err:
+        raise click.ClickException(str(err)) from err
+    verb = "Would repair" if dry_run else "Repaired"
+    for s in summaries:
+        click.echo(
+            f"{verb} {s.well}: tracks {s.tracks_before} -> {s.tracks_after}, "
+            f"divisions {s.divisions_before} -> {s.divisions_after}"
+        )
+
+
 @cli.group("delete", invoke_without_command=True, no_args_is_help=False)
 @click.pass_context
 def delete_group(ctx: click.Context) -> None:

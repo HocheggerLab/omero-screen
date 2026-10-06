@@ -285,8 +285,10 @@ def _reporter_status(
     roll = {"window": params.smooth, "center": True, "min_periods": 1}
     pip = cell["pip"].rolling(**roll).median()
     gem = cell["geminin"].rolling(**roll).median()
-    expressed = (pip >= params.pip_low * thr.pip_high) | (
-        gem >= params.gem_high * thr.gem_low
+    # Strict comparisons: a well whose lower geminin quartile is 0 must not
+    # count a zero signal as expressed.
+    expressed = (pip > params.pip_low * thr.pip_high) | (
+        gem > params.gem_high * thr.gem_low
     )
     if expressed.any():
         return "positive"
