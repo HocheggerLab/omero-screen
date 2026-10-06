@@ -294,7 +294,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         except QueueError as err:
             notifications.show_warning(str(err))
             return
-        set_active_session(self.session)
+        set_active_session(self.session, self)
         self.settings.setValue("queue_path", str(Path(path).resolve()))
         if db:
             self.settings.setValue("db_path", str(db))

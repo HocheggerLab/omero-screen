@@ -43,6 +43,12 @@ qt = ["napari[pyqt6,optional]>=0.9.2"]
 [project.entry-points."napari.manifest"]
 omero-screen-napari = "omero_screen_napari:napari.yaml"
 
+# Track-review tools for agents, picked up by napari-mcp's plugin hook
+# (HocheggerLab/napari-mcp@plugin-tools until upstream releases it). Declaring
+# the entry point does not require napari-mcp to be installed.
+[project.entry-points."napari_mcp.tools"]
+omero_screen = "omero_screen_napari.review.mcp_tools:register"
+
 
 
 [project.scripts]
