@@ -43,6 +43,7 @@ class CellSource:
     _wells: dict[str, tuple[pd.DataFrame, Any]] = field(
         default_factory=dict, repr=False
     )
+    _bases: dict[str, Any] = field(default_factory=dict, repr=False)
 
     def well(self, well: str) -> tuple[pd.DataFrame, Any]:
         """``(detections, curated lineage)`` for a well, loaded once."""
@@ -62,6 +63,19 @@ class CellSource:
             finally:
                 conn.close()
         return self._wells[well]
+
+    def base(self, well: str) -> Any:
+        """The well's automatically repaired lineage, before any edit."""
+        from cellview.tracks.edit import base_lineage
+        from cellview.tracks.repair import repair_lineage
+
+        if well not in self._bases:
+            det, _ = self.well(well)
+            key = self.marker.lower()
+            self._bases[well] = base_lineage(
+                det, repair_lineage(det.rename(columns={key: "marker"}))
+            )
+        return self._bases[well]
 
     def path(
         self,

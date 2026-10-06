@@ -115,36 +115,6 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def test_widget_records_decision_and_follows_focus(
-    qapp, tmp_path: Path
-) -> None:
-    from omero_screen_napari._review_widget import TrackReviewWidget
-
-    q = tmp_path / "queue.json"
-    write_queue(q, 5054, [_item(), _item("C2-2", 20)], focus="C2-2")
-    viewer = MagicMock()
-    viewer.dims.current_step = (11, 0, 0)
-    viewer.layers.__contains__.return_value = False
-    with (
-        patch.object(TrackReviewWidget, "_ensure_well"),
-        patch.object(TrackReviewWidget, "_draw"),
-    ):
-        # napari injects the viewer by this keyword when opened from the menu.
-        widget = TrackReviewWidget(napari_viewer=viewer)
-        widget.load_queue(q)
-        assert widget.current is not None and widget.current.id == "C2-2"
-        viewer.dims.set_current_step.assert_called_with(0, 20)
-
-        widget.items.setCurrentRow(0)
-        widget._mark_frame()
-        widget.decide("reject")
-
-    latest = latest_decisions(decisions_path(q))
-    assert latest["C2-1"].verdict == "reject"
-    assert latest["C2-1"].frames == [11]
-    assert latest["C2-1"].outcome == "lost"
-
-
 def test_manifest_points_at_widget_class() -> None:
     """napari injects ``napari_viewer`` into classes, not into bare functions."""
     from importlib.resources import files
@@ -162,67 +132,138 @@ def test_manifest_points_at_widget_class() -> None:
     assert cmd["python_name"].endswith(":TrackReviewWidget")
 
 
-def test_pick_continuation_records_link(qapp, tmp_path: Path) -> None:
-    """A click on a nucleus stores its raw label as the cell's continuation."""
-    import numpy as np
-
-    from omero_screen_napari._review_widget import TrackReviewWidget
-
+def _queue(tmp_path: Path) -> Path:
     q = tmp_path / "queue.json"
-    write_queue(q, 5054, [_item()])
-    nuclei = np.zeros((20, 50, 50), dtype=np.uint32)
-    nuclei[12, 30:36, 40:46] = 3132
+    write_queue(q, 5054, [_item("C2-t72-L1", 80), _item("C2-t72-L2", 90)])
+    return q
+
+
+def _viewer() -> MagicMock:
     viewer = MagicMock()
-    viewer.dims.current_step = (12, 0, 0)
+    viewer.dims.current_step = (85, 0, 0)
     viewer.layers.__contains__.return_value = False
-    with (
+    viewer.layers.__iter__.return_value = iter([])
+    return viewer
+
+
+def _widget(tmp_path: Path):
+    from omero_screen_napari._review_widget import TrackReviewWidget
+    from omero_screen_napari.review.session import ReviewSession
+
+    q = _queue(tmp_path)
+    viewer = _viewer()
+    patches = [
         patch.object(TrackReviewWidget, "_ensure_well"),
-        patch.object(TrackReviewWidget, "_draw"),
-    ):
-        widget = TrackReviewWidget(napari_viewer=viewer)
-        widget.load_queue(q)
-        widget.items.setCurrentRow(0)
-        widget._nuclei, widget._pixel_size = nuclei, 0.5
-        assert (
-            widget.pick_at((12, 10.0, 5.0)) == 0
-        )  # background: nothing recorded
-        assert widget.pick_at((12, 33 * 0.5, 43 * 0.5)) == 3132
-        widget.decide("correct")
-    assert latest_decisions(decisions_path(q))["C2-1"].links == [
-        {"frame": 12, "label": 3132}
+        patch.object(ReviewSession, "path", side_effect=RuntimeError("no db")),
+        patch.object(ReviewSession, "breaks", return_value=[86]),
+        patch("omero_screen_napari._review_widget.notifications"),
     ]
+    for p in patches:
+        p.start()
+    widget = TrackReviewWidget(napari_viewer=viewer)
+    widget.load_queue(q)
+    return widget, viewer, q, patches
 
 
-def test_draft_survives_restart_and_resume_skips_reviewed(
+def test_widget_opens_first_item_and_records_verdicts(
     qapp, tmp_path: Path
 ) -> None:
-    """Unfinished marks and notes come back after a restart; reviewed items are skipped."""
-    from omero_screen_napari._review_widget import TrackReviewWidget
-    from omero_screen_napari.review_queue import drafts_path, read_drafts
+    """Loading selects the first open item; a verdict is saved and advances."""
+    widget, viewer, q, patches = _widget(tmp_path)
+    try:
+        assert widget.current.id == "C2-t72-L1"
+        viewer.dims.set_current_step.assert_called_with(0, 80)
+        widget.note.setText("looks fine")
+        widget.decide("accept")
+        assert (
+            latest_decisions(decisions_path(q))["C2-t72-L1"].note
+            == "looks fine"
+        )
+        assert widget.current.id == "C2-t72-L2"
+    finally:
+        for p in patches:
+            p.stop()
 
-    q = tmp_path / "queue.json"
-    write_queue(q, 5054, [_item("C2-1"), _item("C2-2", 20), _item("C2-3", 30)])
-    record_decision(decisions_path(q), Decision(id="C2-1", verdict="accept"))
-    viewer = MagicMock()
-    viewer.dims.current_step = (21, 0, 0)
-    viewer.layers.__contains__.return_value = False
-    with (
-        patch.object(TrackReviewWidget, "_ensure_well"),
-        patch.object(TrackReviewWidget, "_draw"),
-    ):
-        first = TrackReviewWidget(napari_viewer=viewer)
-        first.load_queue(q)
-        assert first.current.id == "C2-2"  # resumed past the reviewed item
-        first._mark_frame()
-        first.note.setText("half done")
-        first.note.textEdited.emit("half done")
-        assert read_drafts(drafts_path(q))["C2-2"]["frames"] == [21]
 
-        second = TrackReviewWidget(napari_viewer=viewer)
-        second.load_queue(q)
-        assert second.current.id == "C2-2"
-        assert second.marked == [21]
-        assert second.note.text() == "half done"
-        second.decide("correct")
-    assert "C2-2" not in read_drafts(drafts_path(q))
-    assert latest_decisions(decisions_path(q))["C2-2"].note == "half done"
+def test_pick_and_candidate_link_go_through_the_session(
+    qapp, tmp_path: Path
+) -> None:
+    """Clicking a nucleus or pressing a candidate number writes a link edit."""
+    import numpy as np
+    import pandas as pd
+
+    from omero_screen_napari.review.session import ReviewSession
+
+    widget, viewer, q, patches = _widget(tmp_path)
+    try:
+        nuclei = np.zeros((100, 50, 50), dtype=np.uint32)
+        nuclei[85, 30:36, 40:46] = 3132
+        widget._nuclei, widget._pixel_size = nuclei, 0.5
+        with patch.object(ReviewSession, "edit") as edit:
+            assert widget.pick_at((85, 10.0, 5.0)) == 0  # background
+            assert widget.pick_at((85, 33 * 0.5, 43 * 0.5)) == 3132
+            edit.assert_called_with(
+                "C2-t72-L1", "link", {"frame": 85, "label": 3132}, reason=""
+            )
+            widget.cands = pd.DataFrame(
+                {
+                    "rank": [1, 2],
+                    "timepoint": [86, 87],
+                    "label": [7, 9],
+                    "y": [1.0, 2.0],
+                    "x": [1.0, 2.0],
+                }
+            )
+            widget.link_candidate(2)
+            edit.assert_called_with(
+                "C2-t72-L1",
+                "link",
+                {"frame": 87, "label": 9},
+                reason="candidate 2",
+            )
+    finally:
+        for p in patches:
+            p.stop()
+
+
+def test_session_proposals_change_nothing_until_confirmed(
+    tmp_path: Path,
+) -> None:
+    """An agent proposal is stored pending; confirming applies it as an agent edit."""
+    from omero_screen_napari.review.session import ReviewSession
+
+    session = ReviewSession(_queue(tmp_path))
+    with patch.object(ReviewSession, "edit") as edit:
+        prop = session.propose(
+            "C2-t72-L1",
+            "link",
+            {"frame": 86, "label": 7},
+            "2.1 diameters, markers continuous",
+        )
+        edit.assert_not_called()
+        assert session.status()["pending_proposals"] == 1
+        session.resolve_proposal(prop.id, confirm=True)
+        edit.assert_called_once_with(
+            "C2-t72-L1",
+            "link",
+            {"frame": 86, "label": 7},
+            author="agent",
+            confirmed_by="human",
+            reason="2.1 diameters, markers continuous",
+        )
+    assert session.proposals()[0].status == "confirmed"
+    with pytest.raises(ValueError):
+        session.resolve_proposal(prop.id, confirm=False)
+
+
+def test_session_status_counts_per_well(tmp_path: Path) -> None:
+    """Status reports reviewed items per well."""
+    from omero_screen_napari.review.session import ReviewSession
+
+    session = ReviewSession(_queue(tmp_path))
+    session.verdict("C2-t72-L1", "reject", outcome="debris")
+    st = session.status()
+    assert st["reviewed"] == 1 and st["per_well"]["C2"] == {
+        "queued": 2,
+        "reviewed": 1,
+    }
