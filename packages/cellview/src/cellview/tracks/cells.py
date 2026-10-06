@@ -225,3 +225,162 @@ def add_phases(
     out = path.copy()
     out["phase"] = out["timepoint"].map(calls).fillna("")
     return out
+
+
+def curated_tracks(
+    curated: Curated, det: pd.DataFrame, dna: str | None = None
+) -> pd.DataFrame:
+    """All detections collapsed onto curated tracks, one row per track and frame.
+
+    The same shape as :func:`cellview.tracks.repair.apply_repair` output, so
+    the fate walker runs on curated data unchanged. Channel columns are
+    area-weighted; ``dna`` (default: the first channel whose name contains
+    ``dna``, ``dapi`` or ``hoechst``) is also exposed as ``dna``.
+    """
+    key = pd.Series(
+        [
+            curated.tracks.get((int(t), int(lab)), 0)
+            for t, lab in zip(det["timepoint"], det["label"], strict=True)
+        ],
+        index=det.index,
+    )
+    d = det.assign(track_id=key)
+    d = d[d["track_id"] > 0]
+    skip = {
+        "measurement_id",
+        "timepoint",
+        "label",
+        "track_id_raw",
+        "parent_track_id_raw",
+        "area",
+        "track_id",
+    }
+    value_cols = [c for c in d.columns if c not in skip]
+    weighted = d[value_cols].multiply(d["area"], axis=0)
+    weighted[["track_id", "timepoint", "area"]] = d[
+        ["track_id", "timepoint", "area"]
+    ]
+    out = weighted.groupby(["track_id", "timepoint"], as_index=False).sum(
+        min_count=1
+    )
+    for col in value_cols:
+        out[col] = out[col] / out["area"]
+    out["n_pieces"] = d.groupby(["track_id", "timepoint"]).size().to_numpy()
+    out["parent_track_id"] = (
+        out["track_id"].map(curated.parents).fillna(0).astype(int)
+    )
+    if dna is None:
+        dna = next(
+            (
+                c
+                for c in value_cols
+                if any(k in c for k in ("dna", "dapi", "hoechst"))
+            ),
+            None,
+        )
+    if dna and dna != "dna":
+        out["dna"] = out[dna]
+    return out
+
+
+def continuation_candidates(
+    curated: Curated,
+    det: pd.DataFrame,
+    anchor: Anchor,
+    frame: int,
+    reach: float = 3.5,
+    max_gap: int = 6,
+    channels: tuple[str, ...] = ("pip", "geminin"),
+    limit: int = 9,
+) -> pd.DataFrame:
+    """Nuclei that could be the anchored cell's continuation at or after ``frame``.
+
+    Candidates are detections in frames ``frame … frame + max_gap`` within
+    ``reach`` nuclear diameters of the cell's last position before ``frame``,
+    that do not already belong to the cell. They are ranked by a cost of
+    distance (in diameters) plus the absolute log-ratios of area and of each
+    reporter against the cell's last measurement, so nuclei of the same size
+    and cell-cycle state come first.
+
+    Returns:
+        Up to ``limit`` rows: ``rank, timepoint, label, track_id, distance,
+        gap, area_ratio, <channel>_ratio…, cost``, best first.
+    """
+    tid = curated.resolve(anchor)
+    own = [k for k in curated.detections(tid) if k[0] < frame]
+    if not own:
+        raise ValueError(f"The cell has no detection before frame {frame}.")
+    last_t = own[-1][0]
+    last_rows = det[
+        (det["timepoint"] == last_t)
+        & det["label"].isin([lab for t, lab in own if t == last_t])
+    ]
+    ref = last_rows[
+        ["area", "y", "x", *[c for c in channels if c in det]]
+    ].mean()
+    ref["area"] = last_rows["area"].sum()
+    diam = well_diameter(det)
+    window = det[
+        (det["timepoint"] >= frame) & (det["timepoint"] <= frame + max_gap)
+    ].copy()
+    window["track_id"] = [
+        curated.tracks.get((int(t), int(lab)), 0)
+        for t, lab in zip(window["timepoint"], window["label"], strict=True)
+    ]
+    window = window[window["track_id"] != tid]
+    window["distance"] = (
+        np.hypot(window["y"] - ref["y"], window["x"] - ref["x"]) / diam
+    )
+    window = window[window["distance"] <= reach]
+    if window.empty:
+        return window.assign(rank=[], gap=[], cost=[])
+    window["gap"] = window["timepoint"] - last_t - 1
+    window["area_ratio"] = window["area"] / ref["area"]
+    cost = window["distance"] + np.abs(
+        np.log(window["area_ratio"].clip(lower=1e-3))
+    )
+    for ch in channels:
+        if ch in window:
+            ratio = (window[ch] + 1) / (ref[ch] + 1)
+            window[f"{ch}_ratio"] = ratio
+            cost = cost + np.abs(np.log(ratio.clip(lower=1e-3)))
+    window["cost"] = cost + 0.25 * window["gap"]
+    # One entry per candidate track: its earliest qualifying detection.
+    best = (
+        window.sort_values(["timepoint", "cost"])
+        .groupby("track_id", as_index=False)
+        .first()
+    )
+    best = best.sort_values("cost").head(limit).reset_index(drop=True)
+    best.insert(0, "rank", range(1, len(best) + 1))
+    keep = [
+        "rank",
+        "timepoint",
+        "label",
+        "track_id",
+        "distance",
+        "gap",
+        "area_ratio",
+        *[f"{c}_ratio" for c in channels if f"{c}_ratio" in best],
+        "cost",
+        "y",
+        "x",
+    ]
+    return best[keep]
+
+
+def track_breaks(curated: Curated, anchor: Anchor, stop: int) -> list[int]:
+    """Frames where the anchored cell's track is interrupted before ``stop``.
+
+    A break is a missing frame inside the track, or the frame after the track
+    ends without dividing.
+    """
+    tid = curated.resolve(anchor)
+    frames = sorted({t for t, _ in curated.detections(tid)})
+    breaks = [
+        a + 1 for a, b in zip(frames, frames[1:], strict=False) if b - a > 1
+    ]
+    divides = any(p == tid for p in curated.parents.values())
+    if frames and frames[-1] < stop and not divides:
+        breaks.append(frames[-1] + 1)
+    return [b for b in breaks if b >= anchor[0]]

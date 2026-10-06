@@ -412,6 +412,97 @@ def _parse_anchor(
         raise click.BadParameter("use FRAME:LABEL, e.g. 72:524") from err
 
 
+@cli.command("review-queue")
+@click.argument("plate_id", metavar="ID", type=int)
+@click.option(
+    "--well",
+    "wells",
+    multiple=True,
+    required=True,
+    help="Well to sample (repeatable).",
+)
+@click.option(
+    "--start",
+    type=int,
+    default=72,
+    show_default=True,
+    help="Frame at which cells are sampled.",
+)
+@click.option(
+    "--stop",
+    type=int,
+    default=168,
+    show_default=True,
+    help="Last frame cells are followed to.",
+)
+@click.option(
+    "--sample",
+    type=click.IntRange(min=1),
+    default=50,
+    show_default=True,
+    help="Cells per well.",
+)
+@click.option(
+    "--audit",
+    type=click.FloatRange(0, 1),
+    default=0.2,
+    show_default=True,
+    help="Fraction of unflagged sampled cells queued as a random check.",
+)
+@click.option("--seed", type=int, default=0, show_default=True)
+@click.option(
+    "--log",
+    "log_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Edit log to replay before following cells.",
+)
+@click.option("--marker", default="Geminin", show_default=True)
+@click.option(
+    "--out",
+    "out_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    required=True,
+    help="Directory for queue.json and sample.csv.",
+)
+@click.pass_obj
+def review_queue(
+    obj: Context,
+    plate_id: int,
+    wells: tuple[str, ...],
+    start: int,
+    stop: int,
+    sample: int,
+    audit: float,
+    seed: int,
+    log_path: Path | None,
+    marker: str,
+    out_dir: Path,
+) -> None:
+    """Sample cells per well and write a review queue for the Track Review widget.
+
+    Cells present at --start are followed to --stop on the curated lineage
+    (automatic repair plus --log). A fixed-seed random sample per well is
+    drawn; flagged cells and an --audit fraction of unflagged ones are queued.
+    """
+    from cellview.tracks.review_queue import QueueSpec, build_queue
+
+    spec = QueueSpec(
+        start=start, stop=stop, sample=sample, audit=audit, seed=seed
+    )
+    try:
+        q, s, table = build_queue(
+            obj.conn, plate_id, list(wells), spec, out_dir, log_path, marker
+        )
+    except ValueError as err:
+        raise click.ClickException(str(err)) from err
+    for well, sub in table.groupby("well"):
+        click.echo(
+            f"{well}: sampled {len(sub)}, queued {int(sub.queued.sum())} "
+            f"({int((sub.reason == 'audit').sum())} audit)"
+        )
+    click.echo(f"{q}\n{s}")
+
+
 @cli.group("curate", invoke_without_command=True, no_args_is_help=False)
 @click.pass_context
 def curate_group(ctx: click.Context) -> None:

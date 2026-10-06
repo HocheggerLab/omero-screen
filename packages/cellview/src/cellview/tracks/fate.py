@@ -62,6 +62,7 @@ look at it.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -500,4 +501,50 @@ def _events_by_track(
         if rule:
             key = assignment.get(int(ev.parent), int(ev.parent))
             out.setdefault(key, []).append((rule, int(ev.frame)))
+    return out
+
+
+def apply_annotations(cells: pd.DataFrame, curated: Any) -> pd.DataFrame:
+    """Let curated annotations override the walker's automatic calls.
+
+    For every cell, the annotations of the curated tracks it was followed
+    through (``segments``) are applied: an ``exclude`` marks the cell excluded;
+    ``set_outcome`` replaces the outcome; the first curated ``mitosis``,
+    ``death`` or ``slippage`` event inside the cell's span sets the outcome and
+    its frame. Overridden cells get ``curated = True``.
+
+    Args:
+        cells: Output of :func:`follow_cells`.
+        curated: :class:`cellview.tracks.edit.Curated` the tracks came from.
+    """
+    kinds = {
+        "mitosis": "divided",
+        "death": "death",
+        "slippage": "mitotic_exit_no_division",
+    }
+    out = cells.copy()
+    out["curated"] = False
+    for i, row in out.iterrows():
+        notes: dict[str, Any] = {}
+        for seg in str(row["segments"]).split():
+            for key, val in curated.annotations.get(int(seg), {}).items():
+                if isinstance(val, list):
+                    notes.setdefault(key, []).extend(val)
+                else:
+                    notes[key] = val
+        if not notes:
+            continue
+        events = sorted(notes.get("events", []), key=lambda e: e["frame"])
+        if events:
+            first = events[0]
+            out.at[i, "outcome"] = kinds[first["kind"]]
+            out.at[i, "outcome_frame"] = int(first["frame"])
+            out.at[i, "censored"] = False
+        if "outcome" in notes:
+            out.at[i, "outcome"] = notes["outcome"]
+            out.at[i, "censored"] = notes["outcome"] in ("lost", "no_mitosis")
+        if "excluded" in notes:
+            out.at[i, "excluded"] = True
+            out.at[i, "outcome"] = notes["excluded"] or "excluded"
+        out.at[i, "curated"] = True
     return out
