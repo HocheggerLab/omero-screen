@@ -1,3 +1,9 @@
+## omero-screen-v0.8.7 (2026-10-06)
+
+### Fix
+
+- **cellview**: FUCCI-gated track repair, per-cell fate walker and Track Review widget (#39)
+
 ## omero-screen-v0.8.6 (2026-10-05)
 
 ### Fix
