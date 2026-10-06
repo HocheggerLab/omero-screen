@@ -9,7 +9,7 @@ This skill covers all user-facing workflows in the **omero-screen** monorepo: a 
 
 **Docs:** https://hocheggerlab.github.io/omero-screen/
 **GitHub:** https://github.com/Helfrid/omero-screen
-**Project root:** `/Users/hh65/code/omero-screen`
+**Project root:** `~/code/omero-screen` (resolve `~` to the current user's home directory)
 
 ---
 

@@ -130,10 +130,44 @@ omero-screen-images --env production batch plan.csv --channels DAPI \
     --classifier-column classifier_nuclei4 --out qc/ --json
 ```
 
-## Data sources (what can fail)
+## Getting the data (before rendering)
 
-- Zarr-cached plates read from the cache (fast, no download). Per-field plates
-  download through the plate disk cache, one well at a time — slower the first
-  time. A stitched plate without a zarr cache is refused.
-- Galleries need the plate in CellView; overviews do not.
-- An unprocessed or unknown plate is a clean error naming the plate.
+What a plate needs depends on how it was processed:
+
+| Plate | Pixels | Before the first render |
+|---|---|---|
+| **Stitched** (all recent plates, e.g. 5108, 5054) | zarr cache only — the CLI refuses a stitched plate without one | Build the zarr cache once (below) |
+| **Per-field** (older, non-stitched) | pulled straight from OMERO on demand, one well at a time | Nothing; the first run downloads |
+
+Galleries also need the plate's **measurements in CellView** (the local
+database, never OMERO): `cellview import plate <id> --experiment <id>`.
+Overviews need only pixels.
+
+**Check what is cached:** a plate has a zarr cache if
+`<cache>/zarr/plate_<id>.zarr` exists. `<cache>` is `OMERO_SCREEN_CACHE_PATH`
+(default `~/.cache/omero_screen`). The quickest check is to run the inventory
+(`well --wells All --size 400`): the manifest's `source` is `zarr` or
+`fields`, and a stitched plate without a cache fails with a message saying so.
+
+**Build the zarr cache** (stitched plates; downloads from OMERO, can take a
+while for a full plate):
+
+```bash
+uv run python scripts/zarr_cache_build.py <plate_id>              # all wells
+uv run python scripts/zarr_cache_build.py <plate_id> G5 E2        # only these
+```
+
+or in napari: welldata widget → Plate Info → **Cache Plate**. Build only the
+wells you need when the plate is large; the zarr cache is size-capped and
+evicts least-recently-used plates.
+
+**Per-field downloads** are kept in the image disk cache (~20 GB, least
+recently used evicted first), so a second run is fast. A large per-field run
+can push other plates' cached images out; prefer a few chosen wells.
+
+## What can fail
+
+- A stitched plate without a zarr cache, or wells missing from it: build them
+  first (above). The error lists the cached wells.
+- Galleries for a plate not in CellView: "has no CellView rows" — import it.
+- An unprocessed or unknown plate: a clean error naming the plate.
