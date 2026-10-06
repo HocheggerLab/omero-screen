@@ -1,3 +1,9 @@
+## omero-screen-v0.8.9 (2026-10-06)
+
+### Fix
+
+- **napari**: agent review tools through the napari-mcp plugin hook (#44)
+
 ## omero-screen-v0.8.8 (2026-10-06)
 
 ### Fix

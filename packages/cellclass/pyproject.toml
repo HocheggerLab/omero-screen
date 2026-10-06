@@ -1,6 +1,6 @@
 [project]
 name = "cellclass"
-version = "0.8.8"
+version = "0.8.9"
 description = "Cell classification using machine learning models"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
