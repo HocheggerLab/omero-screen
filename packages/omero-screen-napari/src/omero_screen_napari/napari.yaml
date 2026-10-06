@@ -21,7 +21,7 @@ contributions:
       python_name: omero_screen_napari._phase_montage_widget:phase_montage_widget_gui
       title: Make Phase Montage widget
     - id: omero-screen-napari.track_review_widget
-      python_name: omero_screen_napari._review_widget:track_review_widget
+      python_name: omero_screen_napari._review_widget:TrackReviewWidget
       title: Make Track Review widget
   widgets:
     - command: omero-screen-napari.well_widget_combined

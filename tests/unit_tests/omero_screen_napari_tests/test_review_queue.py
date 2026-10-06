@@ -118,7 +118,8 @@ def test_widget_records_decision_and_follows_focus(
         patch.object(TrackReviewWidget, "_ensure_well"),
         patch.object(TrackReviewWidget, "_draw"),
     ):
-        widget = TrackReviewWidget(viewer)
+        # napari injects the viewer by this keyword when opened from the menu.
+        widget = TrackReviewWidget(napari_viewer=viewer)
         widget.load_queue(q)
         assert widget.current is not None and widget.current.id == "C2-2"
         viewer.dims.set_current_step.assert_called_with(0, 20)
@@ -131,3 +132,14 @@ def test_widget_records_decision_and_follows_focus(
     assert latest["C2-1"].verdict == "reject"
     assert latest["C2-1"].frames == [11]
     assert latest["C2-1"].outcome == "lost"
+
+
+def test_manifest_points_at_widget_class() -> None:
+    """napari injects ``napari_viewer`` into classes, not into bare functions."""
+    from importlib.resources import files
+
+    import yaml
+
+    manifest = yaml.safe_load(files("omero_screen_napari").joinpath("napari.yaml").read_text())
+    cmd = next(c for c in manifest["contributions"]["commands"] if c["id"].endswith("track_review_widget"))
+    assert cmd["python_name"].endswith(":TrackReviewWidget")

@@ -62,9 +62,9 @@ QUEUE_ENV = "OMERO_SCREEN_REVIEW_QUEUE"
 class TrackReviewWidget(QWidget):  # type: ignore[misc]
     """Dock widget driving a review session from a queue file."""
 
-    def __init__(self, viewer: Viewer) -> None:
+    def __init__(self, napari_viewer: Viewer) -> None:
         super().__init__()
-        self.viewer = viewer
+        self.viewer = napari_viewer
         self.queue: Queue | None = None
         self.queue_path: Path | None = None
         self.current: ReviewItem | None = None
@@ -351,8 +351,3 @@ def _cell_mask(nuclei: Any, item: ReviewItem) -> Any:
         return out
 
     return arr.map_blocks(select, dtype=np.uint8)
-
-
-def track_review_widget(viewer: Viewer) -> TrackReviewWidget:
-    """napari entry point for the Track review widget."""
-    return TrackReviewWidget(viewer)
