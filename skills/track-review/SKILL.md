@@ -28,7 +28,7 @@ the reviewer confirms it in the Track Review widget.
 
 ## Setup (the reviewer runs these; check before starting)
 
-1. Every well to review must be in the zarr cache (Welldata widget → Cache
+1. Every well to review must be in the zarr cache (Welldata widget → Plate Info → Cache
    Plate). `review_goto` fails for an
    uncached well.
 2. Build a queue (random sample per well, flagged cells + audit fraction):
