@@ -158,3 +158,74 @@ as the anchor — and write the corrections into the curated columns, leaving th
    This reverse trip is **not yet implemented**. For now the corrected CTC
    export (kept with its ``manifest.json``) and the ``.mastodon`` project are
    the record of corrections.
+
+
+6. Repair, review and curate in napari (PIP-FUCCI plates)
+---------------------------------------------------------
+
+On plates with a geminin channel (PIP-FUCCI), tracks can be repaired
+automatically and then checked by a reviewer, with an agent's help, inside
+napari. Nothing edits the tracker's output: corrections are entries in an
+edit log, and curated tracks are rebuilt from the automatic repair plus that
+log.
+
+**Automatic repair.** Cellpose often splits one nucleus into pieces, so the
+tracker reports divisions that never happened. The repair accepts a division
+only when both daughters lose geminin (it is degraded at anaphase), merges
+touching pieces back, detaches mislinked neighbours and re-joins restarts:
+
+.. code-block:: bash
+
+   cellview repair-tracks 5054 --dry-run      # report only
+   cellview repair-tracks 5054                # write track_id / parent_track_id
+
+**Review queue.** Cells present at a start frame are followed to a stop
+frame. A random sample is drawn per well; the cells the walker flags (lost,
+gaps, fragments, phases out of order, rare outcomes) and an audit fraction of
+unflagged ones are queued:
+
+.. code-block:: bash
+
+   cellview review-queue 5054 --well C2 --well C3 --sample 50 \
+       --start 72 --stop 168 --audit 0.2 --seed 1 --out review/
+
+**Filmstrips.** A crop window follows the cell through every frame, with its
+PIP, geminin and area trace underneath:
+
+.. code-block:: bash
+
+   omero-screen-images --env production track 5054 C2-t72-L524
+   omero-screen-images --env production track 5054 --queue review/queue.json --log review/edits.jsonl
+
+**Track Review widget.** Open *Plugins → Track Review Widget* and load
+``review/queue.json``. For each cell you can:
+
+* link it to its continuation (click it, or press Shift-1…9 for a numbered
+  candidate);
+* unlink it, or add or remove a nucleus;
+* split a nucleus or draw a missed one;
+* mark mitosis, death or slippage, or exclude the cell;
+* give a verdict.
+
+*Next break* walks along the track and *Follow cell* keeps it centred.
+Changes go to ``review/edits.jsonl`` and verdicts to ``review/decisions.json``.
+
+**Working with an agent.** With napari-mcp (currently the fork
+``HocheggerLab/napari-mcp@plugin-tools``), omero-screen adds review tools to
+the agent: go to a cell, show its filmstrip, rank candidates, and propose an
+edit. A proposal appears in the widget and is applied only when the reviewer
+confirms it:
+
+.. code-block:: bash
+
+   uv run --with "napari-mcp @ git+https://github.com/HocheggerLab/napari-mcp@plugin-tools" napari
+   claude mcp add --transport http napari http://127.0.0.1:9999/mcp
+
+**Edit log on the command line.**
+
+.. code-block:: bash
+
+   cellview curate show review/edits.jsonl
+   cellview curate add review/edits.jsonl link --plate 5054 --well C2 --cell 72:524 --frame 156 --label 3132
+   cellview curate undo review/edits.jsonl --plate 5054 --well C2
+   cellview curate replay review/edits.jsonl --plate 5054 --write

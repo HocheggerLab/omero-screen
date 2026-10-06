@@ -265,5 +265,8 @@ def curated_well(
             f"Plate {plate_id} well {well} has no '{marker}' values; not repaired."
         )
     result = repair_lineage(det.rename(columns={key: "marker"}), params)
+    from cellview.tracks.cells import apply_extras
+
     base = base_lineage(det, result)
-    return det, replay(base, log if log is not None else [], well)
+    curated = replay(base, log if log is not None else [], well)
+    return apply_extras(det, curated), curated
