@@ -1,3 +1,9 @@
+## omero-screen-v0.8.10 (2026-10-06)
+
+### Fix
+
+- **napari**: mask edits with re-measurement, and absorb/drop (#45)
+
 ## omero-screen-v0.8.9 (2026-10-06)
 
 ### Fix
