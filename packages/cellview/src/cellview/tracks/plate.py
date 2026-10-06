@@ -16,6 +16,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
+from cellview.tracks.edit import Curated, EditLog, base_lineage, replay
 from cellview.tracks.repair import RepairParams, repair_lineage
 
 
@@ -154,23 +155,86 @@ def repair_plate(
     if events_path is not None and events:
         pd.concat(events, ignore_index=True).to_csv(events_path, index=False)
     if not dry_run:
-        upd = pd.concat(updates, ignore_index=True)
-        conn.register("_repair_updates", upd)
-        try:
-            conn.execute("BEGIN")
-            conn.execute(
-                """
-                update measurements set
-                    track_id = u.track_id,
-                    parent_track_id = u.parent_track_id
-                from _repair_updates u
-                where measurements.measurement_id = u.measurement_id
-                """
-            )
-            conn.execute("COMMIT")
-        except duckdb.Error:
-            conn.execute("ROLLBACK")
-            raise
-        finally:
-            conn.unregister("_repair_updates")
+        write_tracks(conn, pd.concat(updates, ignore_index=True))
     return summaries
+
+
+def write_tracks(
+    conn: duckdb.DuckDBPyConnection, updates: pd.DataFrame
+) -> None:
+    """Write ``track_id`` / ``parent_track_id`` by ``measurement_id`` in one transaction."""
+    conn.register("_track_updates", updates)
+    try:
+        conn.execute("BEGIN")
+        conn.execute(
+            """
+            update measurements set
+                track_id = u.track_id,
+                parent_track_id = u.parent_track_id
+            from _track_updates u
+            where measurements.measurement_id = u.measurement_id
+            """
+        )
+        conn.execute("COMMIT")
+    except duckdb.Error:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.unregister("_track_updates")
+
+
+def well_bases(
+    conn: duckdb.DuckDBPyConnection,
+    plate_id: int,
+    marker: str = "Geminin",
+    wells: list[str] | None = None,
+    params: RepairParams | None = None,
+) -> dict[str, tuple[pd.DataFrame, Curated]]:
+    """Detections and automatically repaired base lineage for each well.
+
+    The base is always recomputed from the raw columns, so replaying an edit
+    log on it gives the same result however often curated ids were written.
+    """
+    det = load_detections(conn, plate_id, marker, wells)
+    return {
+        str(well): (sub, base_lineage(sub, repair_lineage(sub, params)))
+        for well, sub in det.groupby("well", sort=True)
+    }
+
+
+def curate_plate(
+    conn: duckdb.DuckDBPyConnection,
+    plate_id: int,
+    log: EditLog,
+    marker: str = "Geminin",
+    wells: list[str] | None = None,
+    write: bool = False,
+) -> dict[str, Curated]:
+    """Repair, then replay the edit log, for every well; optionally write the ids.
+
+    Returns:
+        The curated lineage per well (annotations included).
+    """
+    curated = {}
+    updates = []
+    for well, (det, base) in well_bases(conn, plate_id, marker, wells).items():
+        cur = replay(base, log, well)
+        curated[well] = cur
+        keys = zip(
+            det["timepoint"].astype(int),
+            det["track_id_raw"].astype(int),
+            strict=True,
+        )
+        tid = [cur.tracks[k] for k in keys]
+        updates.append(
+            pd.DataFrame(
+                {
+                    "measurement_id": det["measurement_id"].to_numpy(),
+                    "track_id": tid,
+                    "parent_track_id": [cur.parents.get(t, 0) for t in tid],
+                }
+            )
+        )
+    if write and updates:
+        write_tracks(conn, pd.concat(updates, ignore_index=True))
+    return curated
