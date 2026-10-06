@@ -114,6 +114,7 @@ def follow(
     size: int = 160,
     frames: list[int] | None = None,
     percentiles: tuple[float, float] = (1.0, 99.95),
+    patch_fn: Any = None,
 ) -> FollowedCell:
     """Cut crops centred on the cell in each frame.
 
@@ -127,6 +128,8 @@ def follow(
         size: Crop edge in pixels (even).
         frames: Subset of timepoints; default every row of ``path``.
         percentiles: Display limits per channel over all crops of the strip.
+        patch_fn: Optional ``(frame, y0, x0, label_crop) -> label_crop`` that
+            applies reviewer-made masks (see :func:`.masks.paint_patches`).
 
     Returns:
         A :class:`FollowedCell`.
@@ -142,7 +145,10 @@ def follow(
         imgs.append(
             np.stack([_window(image, t, cy, cx, half, c) for c in idx])
         )
-        labs.append(_window(nuclei, t, cy, cx, half))
+        lab = _window(nuclei, t, cy, cx, half)
+        if patch_fn is not None:
+            lab = patch_fn(t, cy - half, cx - half, lab)
+        labs.append(lab)
         cents.append((cy, cx))
         cell_labels.append(int(row.label))
         ts.append(t)

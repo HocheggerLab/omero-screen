@@ -22,6 +22,19 @@ items use the same form (``C2-t72-L524`` is anchor ``(72, 524)`` in well C2).
 ``clear_parent`` make the anchored cell a founder
 ``swap``        exchange the identities of two cells from ``frame`` on
 
+**Detection operations** (which nuclei belong to the cell in a frame range):
+
+``absorb``      add the nucleus with raw ``label`` to the cell in frames
+                ``frames = [t0, t1]`` (a piece the repair missed; measurements
+                combine exactly, area-weighted)
+``drop``        remove the nucleus with raw ``label`` from whatever track holds
+                it in ``frames`` (debris, a neighbour's piece)
+``mask_add``    a new nucleus mask drawn or split by the reviewer: ``frame``,
+                new ``label``, the ``patch`` file holding its pixels, its
+                ``measurements`` (taken from the image when it was committed)
+                and the raw labels it ``replaces`` in that frame. It joins the
+                anchored cell if ``cell`` is given, else starts a new track.
+
 **Annotations** (no change to the lineage): ``event`` (``mitosis``,
 ``death``, ``slippage`` at a frame), ``set_outcome``, ``exclude``, ``note``.
 
@@ -47,7 +60,16 @@ import pandas as pd
 from cellview.tracks.repair import RepairResult
 
 LOG_VERSION = 1
-TRACK_OPS = ("link", "unlink", "set_parent", "clear_parent", "swap")
+TRACK_OPS = (
+    "link",
+    "unlink",
+    "set_parent",
+    "clear_parent",
+    "swap",
+    "absorb",
+    "drop",
+    "mask_add",
+)
 ANNOTATION_OPS = ("event", "set_outcome", "exclude", "note")
 EVENT_KINDS = ("mitosis", "death", "slippage")
 AUTHORS = ("human", "agent")
@@ -93,12 +115,19 @@ class Curated:
         parents: Curated track id to parent id (0 = founder).
         annotations: Curated track id to its events, outcome, exclusion, notes.
         next_id: Next id handed to a track created by an edit.
+        extras: Detections added by ``mask_add``: ``(frame, label) -> measurements``.
+        removed: Raw detections replaced by a ``mask_add``.
+        aliases: A replaced raw detection → the reviewer mask that took its
+            place in the cell, so anchors naming it still resolve.
     """
 
     tracks: dict[Anchor, int]
     parents: dict[int, int]
     annotations: dict[int, dict[str, Any]] = field(default_factory=dict)
     next_id: int = 1
+    extras: dict[Anchor, dict[str, Any]] = field(default_factory=dict)
+    removed: set[Anchor] = field(default_factory=set)
+    aliases: dict[Anchor, Anchor] = field(default_factory=dict)
 
     # -- lookups ---------------------------------------------------------
 
@@ -109,6 +138,8 @@ class Curated:
             EditError: If no detection carries that raw label in that frame.
         """
         key = (int(anchor[0]), int(anchor[1]))
+        while key not in self.tracks and key in self.aliases:
+            key = self.aliases[key]
         if key not in self.tracks:
             raise EditError(
                 f"No nucleus with raw label {key[1]} in frame {key[0]}."
@@ -237,6 +268,69 @@ class Curated:
         for child in kids_b:
             self.parents[child] = a
 
+    def absorb(self, cell: Anchor, frames: tuple[int, int], label: int) -> int:
+        """Add the nucleus ``label`` to the cell in every frame of ``frames`` it exists in."""
+        tid = self.resolve(cell)
+        keys = [
+            (t, label)
+            for t in range(frames[0], frames[1] + 1)
+            if (t, label) in self.tracks
+        ]
+        if not keys:
+            raise EditError(
+                f"No nucleus {label} in frames {frames[0]}–{frames[1]}."
+            )
+        donors = {self.tracks[k] for k in keys} - {tid}
+        self._reassign(keys, tid)
+        for donor in donors:
+            self._drop_if_empty(donor)
+        return len(keys)
+
+    def drop(self, frames: tuple[int, int], label: int) -> int:
+        """Remove the nucleus ``label`` from its track in ``frames``."""
+        keys = [
+            (t, label)
+            for t in range(frames[0], frames[1] + 1)
+            if (t, label) in self.tracks
+        ]
+        if not keys:
+            raise EditError(
+                f"No tracked nucleus {label} in frames {frames[0]}–{frames[1]}."
+            )
+        owners = {self.tracks[k] for k in keys}
+        for key in keys:
+            del self.tracks[key]
+        for owner in owners:
+            self._drop_if_empty(owner)
+        return len(keys)
+
+    def mask_add(
+        self,
+        cell: Anchor | None,
+        frame: int,
+        label: int,
+        measurements: dict[str, Any],
+        replaces: list[int],
+    ) -> None:
+        """Add a reviewer-made nucleus; it replaces raw ``replaces`` labels in ``frame``."""
+        key = (int(frame), int(label))
+        if key in self.tracks or key in self.extras:
+            raise EditError(f"Label {label} already exists in frame {frame}.")
+        tid = self.resolve(cell) if cell is not None else None
+        for old in replaces:
+            old_key = (int(frame), int(old))
+            owner = self.tracks.pop(old_key, None)
+            self.removed.add(old_key)
+            if owner is not None and (tid is None or owner == tid):
+                # The new mask takes the replaced nucleus's place in its cell.
+                self.aliases.setdefault(old_key, key)
+            if owner is not None and owner != tid:
+                self._drop_if_empty(owner)
+        self.extras[key] = dict(measurements)
+        if tid is None:
+            tid = self._new_track()
+        self.tracks[key] = tid
+
     def annotate(self, op: str, cell: Anchor, args: dict[str, Any]) -> None:
         """Record an event, outcome, exclusion or note on the cell."""
         notes = self.annotations.setdefault(self.resolve(cell), {})
@@ -299,6 +393,14 @@ def _anchor(value: Any) -> Anchor:
         ) from err
 
 
+def _frames(value: Any) -> tuple[int, int]:
+    try:
+        t0, t1 = value
+        return int(t0), int(t1)
+    except (TypeError, ValueError) as err:
+        raise EditError(f"frames is [first, last], not {value!r}.") from err
+
+
 def apply_edit(curated: Curated, edit: Edit) -> None:
     """Apply one edit in place.
 
@@ -318,6 +420,21 @@ def apply_edit(curated: Curated, edit: Edit) -> None:
         elif edit.op == "swap":
             curated.swap(
                 _anchor(a["cell"]), _anchor(a["other"]), int(a["frame"])
+            )
+        elif edit.op == "absorb":
+            curated.absorb(
+                _anchor(a["cell"]), _frames(a["frames"]), int(a["label"])
+            )
+        elif edit.op == "drop":
+            curated.drop(_frames(a["frames"]), int(a["label"]))
+        elif edit.op == "mask_add":
+            cell = _anchor(a["cell"]) if a.get("cell") is not None else None
+            curated.mask_add(
+                cell,
+                int(a["frame"]),
+                int(a["label"]),
+                a["measurements"],
+                [int(x) for x in a.get("replaces", [])],
             )
         elif edit.op in ANNOTATION_OPS:
             curated.annotate(edit.op, _anchor(a["cell"]), a)
@@ -340,6 +457,9 @@ def replay(base: Curated, edits: Iterable[Edit], well: str) -> Curated:
         parents=dict(base.parents),
         annotations={k: dict(v) for k, v in base.annotations.items()},
         next_id=base.next_id,
+        extras=dict(base.extras),
+        removed=set(base.removed),
+        aliases=dict(base.aliases),
     )
     for edit in edits:
         if edit.well != well or edit.op == "revert" or edit.id in reverted:

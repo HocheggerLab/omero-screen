@@ -75,6 +75,7 @@ MARKER_LAYER = "review marker"
 CELL_LAYER = "review cell"
 CAND_LAYER = "review candidates"
 PROPOSAL_LAYER = "review proposal"
+DRAW_LAYER = "review draw"
 REVIEW_LAYERS = (
     PATH_LAYER,
     MARKER_LAYER,
@@ -101,6 +102,8 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         self._pixel_size = 1.0
         self._nuclei: Any = None
         self._focus_seen: str | None = None
+        self._mode: str | None = None  # absorb | drop | split
+        self._seeds: list[tuple[int, int]] = []
 
         self.settings = QSettings("omero-screen", "track-review")
         self.watcher = QFileSystemWatcher(self)
@@ -160,6 +163,38 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         undo = QPushButton("Undo")
         undo.clicked.connect(self.undo)
 
+        # -- mask edits (current frame) ----------------------------------------------
+        mask_buttons = []
+        for label, mode, tip in (
+            (
+                "Add nucleus",
+                "absorb",
+                "Click a nucleus to add it to this cell in the current frame",
+            ),
+            (
+                "Remove nucleus",
+                "drop",
+                "Click a nucleus to remove it from its track in the current frame",
+            ),
+            (
+                "Split nucleus",
+                "split",
+                "Click two seeds: first on this cell's part, then on the other",
+            ),
+        ):
+            btn = QPushButton(label)
+            btn.setToolTip(tip)
+            btn.clicked.connect(lambda _=False, m=mode: self._arm(m))
+            mask_buttons.append(btn)
+        draw = QPushButton("Draw nucleus")
+        draw.setToolTip(
+            "Paint a missed nucleus in the 'review draw' layer, then Commit drawing"
+        )
+        draw.clicked.connect(self.start_drawing)
+        commit = QPushButton("Commit drawing")
+        commit.clicked.connect(self.commit_drawing)
+        self.mode_label = QLabel("")
+
         # -- events / outcome ------------------------------------------------------
         events = QHBoxLayout()
         for kind in ("mitosis", "death", "slippage"):
@@ -216,6 +251,8 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
             [prev_btn, next_btn, brk, strip],
             [self.follow, self.isolate, self.zoom],
             [self.pick, cand, unlink, undo],
+            mask_buttons,
+            [draw, commit, self.mode_label],
         ):
             h = QHBoxLayout()
             for w in row:
@@ -478,6 +515,27 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
             ).contour = 2
         self._activate_image()
 
+    def _patches(
+        self, pts: list[tuple[int, float, float, int]]
+    ) -> dict[int, tuple[int, int, np.ndarray]]:
+        """Reviewer-made masks of the cell, by frame."""
+        if self.session is None or self.current is None:
+            return {}
+        from omero_screen_napari.review.masks import load_patch
+
+        try:
+            _, curated = self.session.source.well(self.current.well)
+        except Exception:
+            return {}
+        out = {}
+        for t, _, _, lab in pts:
+            meas = curated.extras.get((t, lab))
+            if meas and "patch" in meas:
+                out[t] = load_patch(
+                    self.session.edits_path.parent, meas["patch"]
+                )
+        return out
+
     def _activate_image(self) -> None:
         # Keep an image layer active so clicks and keys never edit our layers.
         for layer in self.viewer.layers:
@@ -600,8 +658,12 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         return True
 
     def _on_click(self, viewer: Any, event: Any) -> None:
-        if event.type == "mouse_press" and self.pick.isChecked():
+        if event.type != "mouse_press":
+            return
+        if self.pick.isChecked():
             self.pick_at(tuple(event.position))
+        elif self._mode is not None:
+            self._mask_click(tuple(event.position))
 
     def pick_at(self, position: tuple[float, ...]) -> int:
         """Link the cell to the nucleus at a world ``position`` in the current frame."""
@@ -622,6 +684,118 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
             )
             return 0
         return label if self._edit("link", {"frame": t, "label": label}) else 0
+
+    # -- mask edits ------------------------------------------------------------------
+
+    def _arm(self, mode: str) -> None:
+        self._mode, self._seeds = mode, []
+        self.mode_label.setText(
+            {
+                "absorb": "click a nucleus to add",
+                "drop": "click a nucleus to remove",
+                "split": "click seed 1 (this cell)",
+            }[mode]
+        )
+
+    def _disarm(self) -> None:
+        self._mode, self._seeds = None, []
+        self.mode_label.setText("")
+
+    def _canvas(self, position: tuple[float, ...]) -> tuple[int, int, int]:
+        t = int(self.viewer.dims.current_step[0])
+        return (
+            t,
+            int(round(position[-2] / self._pixel_size)),
+            int(round(position[-1] / self._pixel_size)),
+        )
+
+    def _mask_click(self, position: tuple[float, ...]) -> None:
+        if (
+            self.current is None
+            or self._nuclei is None
+            or self.session is None
+        ):
+            self._disarm()
+            return
+        t, y, x = self._canvas(position)
+        label = (
+            int(np.asarray(self._nuclei[t, y, x]))
+            if 0 <= y < self._nuclei.shape[-2]
+            and 0 <= x < self._nuclei.shape[-1]
+            else 0
+        )
+        mode = self._mode
+        if mode in ("absorb", "drop"):
+            self._disarm()
+            if not label:
+                notifications.show_warning("No nucleus under the cursor.")
+                return
+            self._edit(mode, {"frames": [t, t], "label": label})
+            return
+        # split: collect two seeds on the same raw label
+        self._seeds.append((y, x))
+        if len(self._seeds) == 1:
+            self._split_label = label
+            self.mode_label.setText("click seed 2 (the other part)")
+            return
+        seeds, split_label = self._seeds, getattr(self, "_split_label", 0)
+        self._disarm()
+        if not split_label:
+            notifications.show_warning("Seed 1 was not on a nucleus.")
+            return
+        from omero_screen_napari.review.masks import MaskError, commit_split
+
+        try:
+            commit_split(self.session, self.current.id, t, split_label, seeds)
+        except (MaskError, ValueError) as err:
+            notifications.show_warning(str(err))
+            return
+        self._redraw()
+        self.viewer.dims.set_current_step(0, t)
+
+    def start_drawing(self) -> None:
+        """Add an empty paint layer for the current frame; paint the missed nucleus."""
+        if self._nuclei is None:
+            return
+        if DRAW_LAYER in self.viewer.layers:
+            self.viewer.layers.remove(DRAW_LAYER)
+        shape = self._nuclei.shape[-2:]
+        layer = self.viewer.add_labels(
+            np.zeros(shape, dtype=np.uint8),
+            name=DRAW_LAYER,
+            scale=(self._pixel_size, self._pixel_size),
+            opacity=0.6,
+        )
+        layer.mode = "paint"
+        layer.selected_label = 1
+        layer.brush_size = 6
+        self.viewer.layers.selection.active = layer
+        self.mode_label.setText(
+            f"painting frame {int(self.viewer.dims.current_step[0])}"
+        )
+
+    def commit_drawing(self) -> None:
+        """Turn the painted pixels into a nucleus of this cell in the current frame."""
+        if (
+            DRAW_LAYER not in self.viewer.layers
+            or self.session is None
+            or self.current is None
+        ):
+            notifications.show_info("Start with Draw nucleus.")
+            return
+        from omero_screen_napari.review.masks import MaskError, commit_drawn
+
+        mask = np.asarray(self.viewer.layers[DRAW_LAYER].data) > 0
+        t = int(self.viewer.dims.current_step[0])
+        try:
+            commit_drawn(self.session, self.current.id, t, mask)
+        except (MaskError, ValueError) as err:
+            notifications.show_warning(str(err))
+            return
+        self.viewer.layers.remove(DRAW_LAYER)
+        self.mode_label.setText("")
+        self._redraw()
+        self.viewer.dims.set_current_step(0, t)
 
     def show_candidates(self) -> None:
         """Mark numbered continuation candidates at the current frame."""
@@ -802,8 +976,16 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         self.items.setCurrentRow(min(row + 1, self.items.count() - 1))
 
 
-def _cell_mask(nuclei: Any, labels: dict[int, int]) -> Any:
-    """Lazy ``(T, Y, X)`` uint8 mask of only the cell's nucleus in each frame."""
+def _cell_mask(
+    nuclei: Any,
+    labels: dict[int, int],
+    patches: dict[int, tuple[int, int, np.ndarray]] | None = None,
+) -> Any:
+    """Lazy ``(T, Y, X)`` uint8 mask of only the cell's nucleus in each frame.
+
+    Frames where the cell is a reviewer-made mask are drawn from its patch.
+    """
+    patches = patches or {}
     import dask.array as da
 
     arr = (
@@ -815,8 +997,23 @@ def _cell_mask(nuclei: Any, labels: dict[int, int]) -> Any:
     def select(block: np.ndarray, block_info: Any = None) -> np.ndarray:
         t0 = block_info[0]["array-location"][0][0]
         out = np.zeros(block.shape, dtype=np.uint8)
+        y_off = block_info[0]["array-location"][1][0]
+        x_off = block_info[0]["array-location"][2][0]
         for i in range(block.shape[0]):
-            label = labels.get(t0 + i)
+            t = t0 + i
+            if t in patches:
+                py, px, mask = patches[t]
+                ys, xs = np.nonzero(mask)
+                ys, xs = ys + py - y_off, xs + px - x_off
+                ok = (
+                    (ys >= 0)
+                    & (ys < block.shape[1])
+                    & (xs >= 0)
+                    & (xs < block.shape[2])
+                )
+                out[i, ys[ok], xs[ok]] = 1
+                continue
+            label = labels.get(t)
             if label:
                 out[i] = block[i] == label
         return out

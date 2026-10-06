@@ -24,7 +24,16 @@ import math
 from typing import Any, cast
 
 #: Operations an agent may propose.
-PROPOSABLE = ("link", "unlink", "event", "set_outcome", "exclude", "note")
+PROPOSABLE = (
+    "link",
+    "unlink",
+    "absorb",
+    "drop",
+    "event",
+    "set_outcome",
+    "exclude",
+    "note",
+)
 
 
 class NoReviewSession(RuntimeError):
@@ -267,8 +276,9 @@ def register(server: Any, state: Any) -> None:
 
         Args:
             item_id: Queue item id.
-            op: One of link, unlink, event, set_outcome, exclude, note.
-            args: For link {"frame", "label"}; unlink {"frame"}; event
+            op: One of link, unlink, absorb, drop, event, set_outcome, exclude, note.
+            args: For link {"frame", "label"}; unlink {"frame"}; absorb / drop
+                {"frames": [first, last], "label"}; event
                 {"kind": mitosis|death|slippage, "frame"}; set_outcome
                 {"outcome"}; exclude {"reason"}; note {"text"}.
             reason: Why, in one sentence the reviewer can check on screen.

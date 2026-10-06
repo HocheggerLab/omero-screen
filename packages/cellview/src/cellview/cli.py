@@ -542,6 +542,8 @@ _MARKER_OPT = click.option(
             "set_parent",
             "clear_parent",
             "swap",
+            "absorb",
+            "drop",
             "event",
             "set_outcome",
             "exclude",
@@ -558,6 +560,7 @@ _MARKER_OPT = click.option(
     help="Anchor FRAME:LABEL of the cell.",
 )
 @click.option("--frame", type=int, help="Frame (link, unlink, swap, event).")
+@click.option("--frames", help="Frame range FIRST:LAST (absorb, drop).")
 @click.option(
     "--label", type=int, help="Raw label the cell continues as (link)."
 )
@@ -598,6 +601,7 @@ def curate_add(
     well: str,
     cell: list[int],
     frame: int | None,
+    frames: str | None,
     label: int | None,
     parent: list[int] | None,
     other: list[int] | None,
@@ -614,6 +618,14 @@ def curate_add(
     from cellview.tracks.plate import MarkerNotFoundError, well_bases
 
     args: dict[str, Any] = {"cell": cell}
+    if frames:
+        try:
+            first, last = frames.split(":")
+            args["frames"] = [int(first), int(last)]
+        except ValueError as err:
+            raise click.BadParameter(
+                "use FIRST:LAST, e.g. 75:77", param_hint="--frames"
+            ) from err
     for key, value in (
         ("frame", frame),
         ("label", label),

@@ -384,3 +384,32 @@ def track_breaks(curated: Curated, anchor: Anchor, stop: int) -> list[int]:
     if frames and frames[-1] < stop and not divides:
         breaks.append(frames[-1] + 1)
     return [b for b in breaks if b >= anchor[0]]
+
+
+def apply_extras(det: pd.DataFrame, curated: Curated) -> pd.DataFrame:
+    """Detections as curated: raw rows replaced by reviewer masks removed, new ones added.
+
+    The automatic repair always runs on the raw table; this is applied after
+    the edit log, wherever curated data is read.
+    """
+    if not curated.removed and not curated.extras:
+        return det
+    keys = pd.MultiIndex.from_arrays(
+        [det["timepoint"].astype(int), det["label"].astype(int)]
+    )
+    keep = det[~keys.isin(list(curated.removed))] if curated.removed else det
+    rows = []
+    for (t, label), m in curated.extras.items():
+        row = {k: v for k, v in m.items() if k in det.columns}
+        row.update(
+            {
+                "timepoint": t,
+                "label": label,
+                "track_id_raw": label,
+                "parent_track_id_raw": 0,
+            }
+        )
+        rows.append(row)
+    if not rows:
+        return keep
+    return pd.concat([keep, pd.DataFrame(rows)], ignore_index=True)

@@ -7,6 +7,7 @@ the agent's ``filmstrip`` tool. Wells are loaded and repaired once per
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -44,25 +45,43 @@ class CellSource:
         default_factory=dict, repr=False
     )
     _bases: dict[str, Any] = field(default_factory=dict, repr=False)
+    _raw: dict[str, pd.DataFrame] = field(default_factory=dict, repr=False)
 
-    def well(self, well: str) -> tuple[pd.DataFrame, Any]:
-        """``(detections, curated lineage)`` for a well, loaded once."""
-        if well not in self._wells:
+    def raw(self, well: str) -> pd.DataFrame:
+        """The well's detections as tracked, before any curation (loaded once)."""
+        if well not in self._raw:
             import duckdb
-            from cellview.tracks.edit import EditLog
-            from cellview.tracks.plate import curated_well
+            from cellview.tracks.cells import load_well
 
             conn = duckdb.connect(
                 str(self.db_path or default_db_path()), read_only=True
             )
             try:
-                log = EditLog(self.log_path) if self.log_path else None
-                self._wells[well] = curated_well(
-                    conn, self.plate_id, well, log, self.marker
-                )
+                self._raw[well] = load_well(conn, self.plate_id, well)
             finally:
                 conn.close()
+        return self._raw[well]
+
+    def well(self, well: str) -> tuple[pd.DataFrame, Any]:
+        """``(curated detections, curated lineage)`` for a well: repair + edit log."""
+        if well not in self._wells:
+            from cellview.tracks.cells import apply_extras
+            from cellview.tracks.edit import EditLog, replay
+
+            log: Iterable[Any] = (
+                EditLog(self.log_path) if self.log_path else []
+            )
+            curated = replay(self.base(well), log, well)
+            self._wells[well] = (
+                apply_extras(self.raw(well), curated),
+                curated,
+            )
         return self._wells[well]
+
+    @property
+    def patch_dir(self) -> Path | None:
+        """Where reviewer-made nucleus masks are stored (beside the edit log)."""
+        return self.log_path.parent / "masks" if self.log_path else None
 
     def base(self, well: str) -> Any:
         """The well's automatically repaired lineage, before any edit."""
@@ -70,7 +89,7 @@ class CellSource:
         from cellview.tracks.repair import repair_lineage
 
         if well not in self._bases:
-            det, _ = self.well(well)
+            det = self.raw(well)
             key = self.marker.lower()
             self._bases[well] = base_lineage(
                 det, repair_lineage(det.rename(columns={key: "marker"}))
@@ -128,8 +147,19 @@ def render_cell(
         raise ValueError(
             f"No frames for cell {anchor} in well {well} in that range."
         )
+    from omero_screen_napari.review.masks import paint_patches
+
+    _, curated = source.well(well)
+    base_dir = source.patch_dir.parent if source.patch_dir else None
     followed = follow_from_cache(
-        source.plate_id, well, path, channels=channels, size=size
+        source.plate_id,
+        well,
+        path,
+        channels=channels,
+        size=size,
+        patch_fn=lambda t, y0, x0, crop: paint_patches(
+            crop, t, y0, x0, curated, base_dir
+        ),
     )
     label = (
         title

@@ -163,3 +163,33 @@ def test_base_lineage_from_repair() -> None:
     assert cur.next_id == 3
     table = cur.label_table()
     assert set(table.columns) == {"timepoint", "label", "track_id", "parent_track_id"}
+
+
+def test_absorb_and_drop_move_single_detections() -> None:
+    """Absorb adds a piece to the cell over a frame range; drop removes it from any track."""
+    cur = _curated({1: (range(0, 10), 1), 7: (range(3, 6), 7)})
+    assert cur.absorb((0, 1), (3, 5), 7) == 3
+    assert {cur.tracks[(t, 7)] for t in range(3, 6)} == {1}
+    assert 7 not in cur.parents  # the emptied track is gone
+    assert cur.drop((4, 4), 7) == 1
+    assert (4, 7) not in cur.tracks and cur.tracks[(3, 7)] == 1
+    with pytest.raises(EditError):
+        cur.absorb((0, 1), (20, 25), 7)
+
+
+def test_mask_add_replaces_raw_labels_and_joins_cell() -> None:
+    """A reviewer mask replaces the raw labels it covers and belongs to the anchored cell."""
+    from cellview.tracks.cells import apply_extras
+
+    cur = _curated({1: (range(0, 10), 1), 7: (range(0, 10), 7)})
+    cur.mask_add((0, 1), 5, 900, {"area": 120.0, "y": 1.0, "x": 2.0, "pip": 10.0, "patch": "masks/C2/t0005_L900.npz"}, [7])
+    cur.mask_add(None, 5, 901, {"area": 80.0, "y": 3.0, "x": 4.0, "pip": 20.0}, [])
+    assert cur.tracks[(5, 900)] == 1 and (5, 7) in cur.removed and (5, 7) not in cur.tracks
+    assert cur.parents[cur.tracks[(5, 901)]] == 0  # second part is a new founder
+    det = pd.DataFrame({"timepoint": [5, 5], "label": [1, 7], "track_id_raw": [1, 7], "parent_track_id_raw": [0, 0],
+                        "area": [100.0, 100.0], "y": [0.0, 9.0], "x": [0.0, 9.0], "pip": [1.0, 1.0]})
+    out = apply_extras(det, cur)
+    assert set(out.label) == {1, 900, 901}
+    assert out.set_index("label").loc[900, "pip"] == 10.0
+    with pytest.raises(EditError):
+        cur.mask_add((0, 1), 5, 900, {"area": 1.0}, [])
