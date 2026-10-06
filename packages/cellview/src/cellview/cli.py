@@ -399,6 +399,260 @@ def repair_tracks(
         )
 
 
+def _parse_anchor(
+    _ctx: Any, _param: Any, value: str | None
+) -> list[int] | None:
+    """Parse an anchor written ``FRAME:LABEL`` (e.g. ``72:524``)."""
+    if value is None:
+        return None
+    try:
+        frame, label = value.split(":")
+        return [int(frame), int(label)]
+    except ValueError as err:
+        raise click.BadParameter("use FRAME:LABEL, e.g. 72:524") from err
+
+
+@cli.group("curate", invoke_without_command=True, no_args_is_help=False)
+@click.pass_context
+def curate_group(ctx: click.Context) -> None:
+    """Curate tracked lineages through a replayable edit log.
+
+    Every correction is appended to a JSON-lines log and the curated lineage
+    is rebuilt by replaying it on the automatic repair. Cells are named by an
+    anchor FRAME:LABEL, the raw mask label of the cell in that frame.
+    """
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+        ctx.exit(0)
+
+
+_LOG_ARG = click.argument(
+    "log", type=click.Path(dir_okay=False, path_type=Path)
+)
+_PLATE_OPT = click.option(
+    "--plate", "plate_id", type=int, required=True, help="OMERO plate id."
+)
+_MARKER_OPT = click.option(
+    "--marker",
+    default="Geminin",
+    show_default=True,
+    help="Mitotic marker channel for the repair.",
+)
+
+
+@curate_group.command("add")
+@_LOG_ARG
+@click.argument(
+    "op",
+    type=click.Choice(
+        [
+            "link",
+            "unlink",
+            "set_parent",
+            "clear_parent",
+            "swap",
+            "event",
+            "set_outcome",
+            "exclude",
+            "note",
+        ]
+    ),
+)
+@_PLATE_OPT
+@click.option("--well", required=True, help="Well the edit applies to.")
+@click.option(
+    "--cell",
+    callback=_parse_anchor,
+    required=True,
+    help="Anchor FRAME:LABEL of the cell.",
+)
+@click.option("--frame", type=int, help="Frame (link, unlink, swap, event).")
+@click.option(
+    "--label", type=int, help="Raw label the cell continues as (link)."
+)
+@click.option(
+    "--parent",
+    callback=_parse_anchor,
+    help="Anchor of the parent (set_parent).",
+)
+@click.option(
+    "--other", callback=_parse_anchor, help="Anchor of the other cell (swap)."
+)
+@click.option(
+    "--kind",
+    type=click.Choice(["mitosis", "death", "slippage"]),
+    help="Event kind.",
+)
+@click.option("--outcome", help="Outcome (set_outcome).")
+@click.option("--text", help="Note text, or exclusion reason.")
+@click.option("--reason", default="", help="Why the edit is made.")
+@click.option(
+    "--author",
+    type=click.Choice(["human", "agent"]),
+    default="human",
+    show_default=True,
+)
+@click.option(
+    "--confirmed-by",
+    type=click.Choice(["human"]),
+    help="Who approved an agent's edit.",
+)
+@_MARKER_OPT
+@click.pass_obj
+def curate_add(
+    obj: Context,
+    log: Path,
+    op: str,
+    plate_id: int,
+    well: str,
+    cell: list[int],
+    frame: int | None,
+    label: int | None,
+    parent: list[int] | None,
+    other: list[int] | None,
+    kind: str | None,
+    outcome: str | None,
+    text: str | None,
+    reason: str,
+    author: str,
+    confirmed_by: str | None,
+    marker: str,
+) -> None:
+    """Validate an edit against the plate and append it to LOG."""
+    from cellview.tracks.edit import EditError, EditLog
+    from cellview.tracks.plate import MarkerNotFoundError, well_bases
+
+    args: dict[str, Any] = {"cell": cell}
+    for key, value in (
+        ("frame", frame),
+        ("label", label),
+        ("parent", parent),
+        ("other", other),
+        ("kind", kind),
+        ("outcome", outcome),
+        ("text" if op == "note" else "reason", text),
+    ):
+        if value is not None:
+            args[key] = value
+    try:
+        base = well_bases(obj.conn, plate_id, marker, [well])[well][1]
+        edit = EditLog(log).append(
+            op,
+            well,
+            args,
+            author=author,
+            confirmed_by=confirmed_by,
+            reason=reason,
+            base=base,
+        )
+    except (EditError, MarkerNotFoundError, KeyError) as err:
+        raise click.ClickException(str(err)) from err
+    click.echo(f"{edit.id} {edit.op} {well} {edit.args}")
+
+
+@curate_group.command("undo")
+@_LOG_ARG
+@_PLATE_OPT
+@click.option("--well", required=True, help="Well whose last edit to revert.")
+@_MARKER_OPT
+@click.pass_obj
+def curate_undo(
+    obj: Context, log: Path, plate_id: int, well: str, marker: str
+) -> None:
+    """Revert the last live edit for a well (appends a revert entry)."""
+    from cellview.tracks.edit import EditError, EditLog
+    from cellview.tracks.plate import well_bases
+
+    try:
+        base = well_bases(obj.conn, plate_id, marker, [well])[well][1]
+        edit = EditLog(log).undo(well, base=base)
+    except EditError as err:
+        raise click.ClickException(str(err)) from err
+    click.echo(f"{edit.id} reverts {edit.args['target']}")
+
+
+@curate_group.command("replay")
+@_LOG_ARG
+@_PLATE_OPT
+@click.option(
+    "--well",
+    "wells",
+    multiple=True,
+    help="Restrict to this well (repeatable).",
+)
+@click.option(
+    "--write",
+    is_flag=True,
+    help="Write curated track_id / parent_track_id to CellView.",
+)
+@click.option(
+    "--annotations",
+    "annotations_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Write per-track annotations (events, outcome, exclusion, notes) to this JSON file.",
+)
+@_MARKER_OPT
+@click.pass_obj
+def curate_replay(
+    obj: Context,
+    log: Path,
+    plate_id: int,
+    wells: tuple[str, ...],
+    write: bool,
+    annotations_path: Path | None,
+    marker: str,
+) -> None:
+    """Rebuild curated lineages: automatic repair plus every edit in LOG."""
+    import json
+
+    from cellview.tracks.edit import EditError, EditLog
+    from cellview.tracks.plate import MarkerNotFoundError, curate_plate
+
+    try:
+        curated = curate_plate(
+            obj.conn,
+            plate_id,
+            EditLog(log),
+            marker,
+            list(wells) or None,
+            write,
+        )
+    except (EditError, MarkerNotFoundError) as err:
+        raise click.ClickException(str(err)) from err
+    for well, cur in curated.items():
+        n_tracks = len(set(cur.tracks.values()))
+        n_div = len({p for p in cur.parents.values() if p})
+        click.echo(
+            f"{'Wrote' if write else 'Replayed'} {well}: {n_tracks} tracks, "
+            f"{n_div} divisions, {len(cur.annotations)} annotated"
+        )
+    if annotations_path is not None:
+        payload = {
+            well: {str(tid): notes for tid, notes in cur.annotations.items()}
+            for well, cur in curated.items()
+        }
+        annotations_path.write_text(json.dumps(payload, indent=2))
+
+
+@curate_group.command("show")
+@_LOG_ARG
+@click.option("--well", help="Only this well.")
+def curate_show(log: Path, well: str | None) -> None:
+    """List the entries of LOG, marking reverted ones."""
+    from cellview.tracks.edit import EditLog
+
+    entries = EditLog(log).entries()
+    reverted = {e.args.get("target") for e in entries if e.op == "revert"}
+    for e in entries:
+        if well and e.well != well:
+            continue
+        flag = " (reverted)" if e.id in reverted else ""
+        who = e.author + (f"/{e.confirmed_by}" if e.confirmed_by else "")
+        click.echo(
+            f"{e.id} {e.time} {who:12} {e.well} {e.op} {e.args}{flag}  {e.reason}"
+        )
+
+
 @cli.group("delete", invoke_without_command=True, no_args_is_help=False)
 @click.pass_context
 def delete_group(ctx: click.Context) -> None:

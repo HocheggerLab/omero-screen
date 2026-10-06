@@ -54,3 +54,19 @@ def test_plate_without_marker_is_refused(conn) -> None:
     """No geminin channel, no repair."""
     with pytest.raises(MarkerNotFoundError):
         repair_plate(conn, 5054, marker="Cdt1")
+
+
+def test_curate_plate_replays_log_and_writes(conn, tmp_path) -> None:
+    """Replay = repair from raw columns + edits; --write stores curated ids."""
+    from cellview.tracks.edit import EditLog
+    from cellview.tracks.plate import curate_plate, well_bases
+
+    conn.execute("insert into measurements values (99,1,25,400,100,300,1050,50,9,9,0,0)")
+    base = well_bases(conn, 5054)["C2"][1]
+    log = EditLog(tmp_path / "edits.jsonl")
+    log.append("link", "C2", {"cell": [0, 1], "frame": 25, "label": 9}, base=base)
+    curated = curate_plate(conn, 5054, log, write=True)
+    assert curated["C2"].tracks[(25, 9)] == 1
+    assert conn.execute("select track_id from measurements where measurement_id = 99").fetchone()[0] == 1
+    # Replaying again on the raw columns gives the same answer.
+    assert curate_plate(conn, 5054, log)["C2"].tracks == curated["C2"].tracks
