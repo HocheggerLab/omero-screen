@@ -225,3 +225,59 @@ def add_phases(
     out = path.copy()
     out["phase"] = out["timepoint"].map(calls).fillna("")
     return out
+
+
+def curated_tracks(
+    curated: Curated, det: pd.DataFrame, dna: str | None = None
+) -> pd.DataFrame:
+    """All detections collapsed onto curated tracks, one row per track and frame.
+
+    The same shape as :func:`cellview.tracks.repair.apply_repair` output, so
+    the fate walker runs on curated data unchanged. Channel columns are
+    area-weighted; ``dna`` (default: the first channel whose name contains
+    ``dna``, ``dapi`` or ``hoechst``) is also exposed as ``dna``.
+    """
+    key = pd.Series(
+        [
+            curated.tracks.get((int(t), int(lab)), 0)
+            for t, lab in zip(det["timepoint"], det["label"], strict=True)
+        ],
+        index=det.index,
+    )
+    d = det.assign(track_id=key)
+    d = d[d["track_id"] > 0]
+    skip = {
+        "measurement_id",
+        "timepoint",
+        "label",
+        "track_id_raw",
+        "parent_track_id_raw",
+        "area",
+        "track_id",
+    }
+    value_cols = [c for c in d.columns if c not in skip]
+    weighted = d[value_cols].multiply(d["area"], axis=0)
+    weighted[["track_id", "timepoint", "area"]] = d[
+        ["track_id", "timepoint", "area"]
+    ]
+    out = weighted.groupby(["track_id", "timepoint"], as_index=False).sum(
+        min_count=1
+    )
+    for col in value_cols:
+        out[col] = out[col] / out["area"]
+    out["n_pieces"] = d.groupby(["track_id", "timepoint"]).size().to_numpy()
+    out["parent_track_id"] = (
+        out["track_id"].map(curated.parents).fillna(0).astype(int)
+    )
+    if dna is None:
+        dna = next(
+            (
+                c
+                for c in value_cols
+                if any(k in c for k in ("dna", "dapi", "hoechst"))
+            ),
+            None,
+        )
+    if dna and dna != "dna":
+        out["dna"] = out[dna]
+    return out
