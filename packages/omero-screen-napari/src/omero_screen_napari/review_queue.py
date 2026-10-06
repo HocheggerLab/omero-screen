@@ -31,7 +31,11 @@ latest entry per item wins::
 
     {"version": 1, "decisions": [
         {"id": "C2-152", "verdict": "reject", "outcome": "death",
-         "frames": [163], "note": "...", "time": "2026-10-06T16:02:11"}
+         "frames": [163], "note": "...", "time": "2026-10-06T16:02:11",
+         "links": [{"frame": 156, "label": 3132}]}
+
+``links`` are continuations the reviewer picked by clicking a nucleus: from
+``frame`` on, the cell is the nucleus carrying raw mask ``label``.
     ]}
 """
 
@@ -117,6 +121,7 @@ class Decision:
     frames: list[int] = field(default_factory=list)
     note: str = ""
     time: str = ""
+    links: list[dict[str, int]] = field(default_factory=list)
 
 
 class QueueError(ValueError):

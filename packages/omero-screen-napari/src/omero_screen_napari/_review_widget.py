@@ -11,6 +11,10 @@ if needed, jumps to the frame, centres on the cell and marks it:
 * ``review cell``: an outline of the cell's own nucleus mask, computed lazily
   frame by frame from the cached labels. *Isolate* hides every other nucleus.
 
+*Pick continuation* arms a single click on the image: the nucleus under the
+cursor in the current frame is recorded as the cell's continuation (its raw
+mask label), which re-joins a track the tracker broke without Mastodon.
+
 The reviewer records a verdict, optionally a corrected outcome, frames of
 interest and a note; each verdict is appended to ``decisions.json`` beside the
 queue, which the agent reads back. When the agent sets ``focus`` in the queue,
@@ -55,6 +59,7 @@ from omero_screen_napari.review_queue import (
 PATH_LAYER = "review path"
 MARKER_LAYER = "review marker"
 CELL_LAYER = "review cell"
+PICK_LAYER = "review pick"
 NUCLEI_LAYER = "nuclei"
 QUEUE_ENV = "OMERO_SCREEN_REVIEW_QUEUE"
 
@@ -69,6 +74,8 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         self.queue_path: Path | None = None
         self.current: ReviewItem | None = None
         self.marked: list[int] = []
+        self.links: list[dict[str, int]] = []
+        self._pick_points: dict[int, tuple[int, int]] = {}
         self._loaded: tuple[int, str] | None = None
         self._pixel_size = 1.0
         self._nuclei: Any = None
@@ -104,6 +111,14 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         mark = QPushButton("Mark frame")
         mark.clicked.connect(self._mark_frame)
         self.marked_label = QLabel("marked: –")
+        self.pick = QPushButton("Pick continuation")
+        self.pick.setCheckable(True)
+        self.pick.setToolTip(
+            "Then click the nucleus that is this cell in the current frame."
+        )
+        clear = QPushButton("Clear marks")
+        clear.clicked.connect(self._clear_marks)
+        self.viewer.mouse_drag_callbacks.append(self._on_click)
         self.note = QLineEdit()
         self.note.setPlaceholderText("note")
 
@@ -132,6 +147,10 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         out_row.addWidget(self.outcome)
         out_row.addWidget(mark)
         layout.addLayout(out_row)
+        pick_row = QHBoxLayout()
+        pick_row.addWidget(self.pick)
+        pick_row.addWidget(clear)
+        layout.addLayout(pick_row)
         layout.addWidget(self.marked_label)
         layout.addWidget(self.note)
         layout.addLayout(verdicts)
@@ -234,8 +253,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
             notifications.show_warning(str(err))
             return
         self.current = item
-        self.marked = []
-        self.marked_label.setText("marked: –")
+        self._clear_marks()
         self.note.clear()
         self.outcome.setCurrentText(item.outcome)
         self.details.setText(
@@ -253,7 +271,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         self._update_isolation()
 
     def _draw(self, item: ReviewItem) -> None:
-        for name in (PATH_LAYER, MARKER_LAYER, CELL_LAYER):
+        for name in (PATH_LAYER, MARKER_LAYER, CELL_LAYER, PICK_LAYER):
             if name in self.viewer.layers:
                 self.viewer.layers.remove(name)
         if not item.path:
@@ -304,9 +322,77 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         t = int(self.viewer.dims.current_step[0])
         if t not in self.marked:
             self.marked.append(t)
-        self.marked_label.setText(
-            f"marked: {', '.join(map(str, sorted(self.marked)))}"
+        self._show_marks()
+
+    def _clear_marks(self) -> None:
+        self.marked, self.links, self._pick_points = [], [], {}
+        self.pick.setChecked(False)
+        if PICK_LAYER in self.viewer.layers:
+            self.viewer.layers.remove(PICK_LAYER)
+        self._show_marks()
+
+    def _show_marks(self) -> None:
+        frames = ", ".join(map(str, sorted(self.marked))) or "–"
+        links = (
+            ", ".join(f"t{k['frame']}→{k['label']}" for k in self.links) or "–"
         )
+        self.marked_label.setText(f"marked: {frames} · continuation: {links}")
+
+    def _on_click(self, viewer: Any, event: Any) -> None:
+        """Mouse callback: while *Pick continuation* is armed, record a click."""
+        if event.type == "mouse_press" and self.pick.isChecked():
+            self.pick_at(tuple(event.position))
+
+    def pick_at(self, position: tuple[float, ...]) -> int:
+        """Record the nucleus at a world ``position`` as the continuation.
+
+        Returns:
+            The picked raw mask label, or 0 if there is no nucleus there.
+        """
+        self.pick.setChecked(False)
+        if self.current is None or self._nuclei is None:
+            notifications.show_warning("Select a queue item first.")
+            return 0
+        t = int(self.viewer.dims.current_step[0])
+        y = int(round(position[-2] / self._pixel_size))
+        x = int(round(position[-1] / self._pixel_size))
+        shape = self._nuclei.shape
+        if not (0 <= y < shape[-2] and 0 <= x < shape[-1]):
+            return 0
+        label = int(np.asarray(self._nuclei[t, y, x]))
+        if label == 0:
+            notifications.show_warning(
+                "No nucleus under the cursor — click inside one."
+            )
+            return 0
+        self.links = [k for k in self.links if k["frame"] != t]
+        self.links.append({"frame": t, "label": label})
+        self.links.sort(key=lambda k: k["frame"])
+        self._pick_points[t] = (y, x)
+        self._draw_picks()
+        self._show_marks()
+        return label
+
+    def _draw_picks(self) -> None:
+        if PICK_LAYER in self.viewer.layers:
+            self.viewer.layers.remove(PICK_LAYER)
+        if not self._pick_points:
+            return
+        pts = np.array(
+            [[t, y, x] for t, (y, x) in sorted(self._pick_points.items())],
+            dtype=float,
+        )
+        self.viewer.add_points(
+            pts,
+            name=PICK_LAYER,
+            scale=(1.0, self._pixel_size, self._pixel_size),
+            size=40 * self._pixel_size,
+            symbol="ring",
+            face_color="lime",
+            border_width=0,
+            out_of_slice_display=False,
+        )
+        self.viewer.layers.selection.active = self.viewer.layers[0]
 
     def decide(self, verdict: str) -> None:
         """Record a verdict on the current item and move to the next one."""
@@ -318,6 +404,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
             verdict=verdict,
             outcome=self.outcome.currentText(),
             frames=sorted(self.marked),
+            links=list(self.links),
             note=self.note.text().strip(),
         )
         record_decision(decisions_path(self.queue_path), decision)

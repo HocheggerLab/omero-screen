@@ -140,6 +140,43 @@ def test_manifest_points_at_widget_class() -> None:
 
     import yaml
 
-    manifest = yaml.safe_load(files("omero_screen_napari").joinpath("napari.yaml").read_text())
-    cmd = next(c for c in manifest["contributions"]["commands"] if c["id"].endswith("track_review_widget"))
+    manifest = yaml.safe_load(
+        files("omero_screen_napari").joinpath("napari.yaml").read_text()
+    )
+    cmd = next(
+        c
+        for c in manifest["contributions"]["commands"]
+        if c["id"].endswith("track_review_widget")
+    )
     assert cmd["python_name"].endswith(":TrackReviewWidget")
+
+
+def test_pick_continuation_records_link(qapp, tmp_path: Path) -> None:
+    """A click on a nucleus stores its raw label as the cell's continuation."""
+    import numpy as np
+
+    from omero_screen_napari._review_widget import TrackReviewWidget
+
+    q = tmp_path / "queue.json"
+    write_queue(q, 5054, [_item()])
+    nuclei = np.zeros((20, 50, 50), dtype=np.uint32)
+    nuclei[12, 30:36, 40:46] = 3132
+    viewer = MagicMock()
+    viewer.dims.current_step = (12, 0, 0)
+    viewer.layers.__contains__.return_value = False
+    with (
+        patch.object(TrackReviewWidget, "_ensure_well"),
+        patch.object(TrackReviewWidget, "_draw"),
+    ):
+        widget = TrackReviewWidget(napari_viewer=viewer)
+        widget.load_queue(q)
+        widget.items.setCurrentRow(0)
+        widget._nuclei, widget._pixel_size = nuclei, 0.5
+        assert (
+            widget.pick_at((12, 10.0, 5.0)) == 0
+        )  # background: nothing recorded
+        assert widget.pick_at((12, 33 * 0.5, 43 * 0.5)) == 3132
+        widget.decide("correct")
+    assert latest_decisions(decisions_path(q))["C2-1"].links == [
+        {"frame": 12, "label": 3132}
+    ]
