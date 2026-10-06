@@ -37,6 +37,8 @@ from omero_screen_napari.review_queue import (
 
 #: The session the open widget is using; agent tools act on it.
 _ACTIVE: ReviewSession | None = None
+#: The open widget, so agent tools can move the viewer through it.
+_ACTIVE_UI: Any = None
 
 
 def active_session() -> ReviewSession | None:
@@ -44,10 +46,16 @@ def active_session() -> ReviewSession | None:
     return _ACTIVE
 
 
-def set_active_session(session: ReviewSession | None) -> None:
-    """Register the session agent tools should act on."""
-    global _ACTIVE
+def set_active_session(session: ReviewSession | None, ui: Any = None) -> None:
+    """Register the session (and the widget showing it) agent tools act on."""
+    global _ACTIVE, _ACTIVE_UI
     _ACTIVE = session
+    _ACTIVE_UI = ui
+
+
+def active_ui() -> Any:
+    """The open Track Review widget, if any."""
+    return _ACTIVE_UI
 
 
 @dataclass

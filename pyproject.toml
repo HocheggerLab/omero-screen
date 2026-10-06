@@ -125,6 +125,7 @@ dev = [
     "jupytext",
     "sphinx-autobuild>=2025.8.25",
     "sphinx-argparse>=0.5.2",
+    "fastmcp>=2.12",
 ]
 
 docs = [ # installed only when we build docs
