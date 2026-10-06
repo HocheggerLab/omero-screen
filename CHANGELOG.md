@@ -1,3 +1,10 @@
+## omero-screen-v0.8.8 (2026-10-06)
+
+### Fix
+
+- **napari**: review queue sampling and Track Review v2 (#43)
+- **napari**: follow tracked cells through time and render filmstrips (#42)
+
 ## omero-screen-v0.8.7 (2026-10-06)
 
 ### Fix
