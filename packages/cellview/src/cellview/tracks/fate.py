@@ -40,8 +40,10 @@ Outcomes:
 ``lost``
     The cell cannot be followed. Treat as censored.
 ``no_reporter``
-    Neither PIP nor geminin is ever expressed: a nucleus the lentiviral
-    reporter did not reach. It cannot be phase-called and is excluded from the
+    Neither PIP nor geminin is expressed in any frame of the cell's history,
+    observed for at least ``reporter_hours``: a nucleus the lentiviral reporter
+    did not reach. A brief both-low stretch is the early-S dip and does not
+    count. It cannot be phase-called and is excluded from the
     analysis (reported per well, not reviewed).
 
 Every cell carries review flags (:data:`FLAGS`) that say why a human should
@@ -65,6 +67,7 @@ FLAGS = (
     "outcome_review",  # a rare outcome that decides a phenotype call
     "lost",  # the cell could not be followed to an outcome
     "edge",  # the nucleus came within one diameter of the image border
+    "reporter_unclear",  # both reporters low throughout, but observed too briefly to call
 )
 
 PHASES = ("G1", "S", "G2")
@@ -99,6 +102,9 @@ class FateParams:
             its median is a death candidate.
         min_start_area: Start cells smaller than this fraction of the well
             median area are excluded as debris.
+        reporter_hours: Minimum observed time with neither reporter expressed
+            before a cell is called reporter-negative (longer than the
+            early-S dip, when both reporters are low).
     """
 
     interval_minutes: float = 20.0
@@ -116,6 +122,7 @@ class FateParams:
     arrest_hours: float = 2.0
     death_area: float = 0.5
     min_start_area: float = 0.7
+    reporter_hours: float = 24.0
 
     def frames(self, hours: float) -> int:
         """Convert hours to frames."""
@@ -240,21 +247,39 @@ def _mitotic_exit(
     return None
 
 
-def _reporter_negative(
+def _reporter_status(
     cell: pd.DataFrame, thr: Thresholds, params: FateParams
-) -> bool:
-    """True if the cell never expresses either PIP-FUCCI reporter.
+) -> str:
+    """``"positive"``, ``"negative"`` or ``"unclear"`` for one cell's reporters.
 
-    In every phase one reporter is up: PIP outside S, geminin from S to
-    mitosis. A nucleus whose PIP never reaches the S-phase threshold *and*
-    whose geminin never rises is therefore reporter-negative, not in a phase.
-    The 90th percentile is used so a few noisy frames cannot rescue it.
+    In every phase one reporter is up (PIP outside S, geminin from S to
+    mitosis) except a short dip at S entry, when PIP is already degraded and
+    geminin has not yet accumulated. Expressing cells on 5054 show that dip in
+    ~40% of tracks, usually under 3 h but up to ~20 h in the control, and longer
+    under knockdown, where a persistent both-low state may itself be a
+    phenotype. So a cell is only called negative if it *never* expresses either
+    reporter over its whole observed history (not just the analysis window)
+    and was observed for at least ``reporter_hours``. Shorter both-low
+    histories are ``unclear``: kept in the analysis and flagged.
+
+    Args:
+        cell: Every frame of the cell's tracks, including before the window.
+        thr: Well reference levels.
+        params: Thresholds.
     """
-    pip_peak = cell["pip"].quantile(0.9)
-    gem_peak = cell["geminin"].quantile(0.9)
-    return bool(
-        pip_peak < params.pip_low * thr.pip_high
-        and gem_peak < params.gem_high * thr.gem_low
+    roll = {"window": params.smooth, "center": True, "min_periods": 1}
+    pip = cell["pip"].rolling(**roll).median()
+    gem = cell["geminin"].rolling(**roll).median()
+    expressed = (pip >= params.pip_low * thr.pip_high) | (
+        gem >= params.gem_high * thr.gem_low
+    )
+    if expressed.any():
+        return "positive"
+    span = int(cell.index[-1]) - int(cell.index[0]) + 1
+    return (
+        "negative"
+        if span >= params.frames(params.reporter_hours)
+        else "unclear"
     )
 
 
@@ -364,7 +389,10 @@ def follow_cells(
                 outcome = "death"
         if outcome is None:
             outcome, outcome_frame = "no_mitosis", int(rows.index[-1])
-        reporter_negative = _reporter_negative(rows, thr, params)
+        history = pd.concat([idx.rows[s] for s in segments])
+        reporter = _reporter_status(
+            history[history.index <= stop], thr, params
+        )
 
         before_exit = phases[phases.index < (outcome_frame or stop + 1)]
         if not _phase_order_ok(before_exit):
@@ -387,8 +415,10 @@ def follow_cells(
             )
             if near.any():
                 flags.add("edge")
-        if reporter_negative:
+        if reporter == "negative":
             outcome, outcome_frame, flags = "no_reporter", None, set()
+        elif reporter == "unclear":
+            flags.add("reporter_unclear")
 
         cells.append(
             {
