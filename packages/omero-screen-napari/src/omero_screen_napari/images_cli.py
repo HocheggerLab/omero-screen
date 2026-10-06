@@ -1294,6 +1294,184 @@ def _check_names(names: list[str], available: list[str], hint: str) -> None:
         )
 
 
+@cli.command()
+@click.argument("plate_id", type=int)
+@click.argument("cells", nargs=-1)
+@click.option(
+    "--well",
+    help="Well of the CELLS (not needed for review ids like C2-t72-L524).",
+)
+@click.option(
+    "--queue",
+    "queue_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Render every item of this review queue (queue.json) instead of CELLS.",
+)
+@click.option(
+    "--log",
+    "log_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Edit log (edits.jsonl) to replay on the automatic repair before following.",
+)
+@click.option(
+    "--db",
+    "db_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="CellView database. Default: the active environment's (use --env production).",
+)
+@click.option(
+    "--channels",
+    default=None,
+    help="Comma-separated channels. Default: all but brightfield.",
+)
+@click.option(
+    "--size",
+    type=click.IntRange(min=32),
+    default=160,
+    show_default=True,
+    help="Crop edge (px).",
+)
+@click.option(
+    "--start",
+    type=int,
+    default=None,
+    help="First frame (default: the track's first).",
+)
+@click.option(
+    "--stop",
+    type=int,
+    default=None,
+    help="Last frame (default: the track's last).",
+)
+@click.option(
+    "--max-tiles", type=click.IntRange(min=1), default=24, show_default=True
+)
+@click.option(
+    "--marker",
+    default="Geminin",
+    show_default=True,
+    help="Mitotic marker for the repair.",
+)
+@click.option(
+    "--out",
+    "out_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=Path("track_filmstrips"),
+    show_default=True,
+    help="Output directory for the filmstrips and the manifest.",
+)
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["png", "pdf"]),
+    default="png",
+    show_default=True,
+)
+def track(
+    plate_id: int,
+    cells: tuple[str, ...],
+    well: str | None,
+    queue_path: Path | None,
+    log_path: Path | None,
+    db_path: Path | None,
+    channels: str | None,
+    size: int,
+    start: int | None,
+    stop: int | None,
+    max_tiles: int,
+    marker: str,
+    out_dir: Path,
+    fmt: str,
+) -> None:
+    """Filmstrips that follow tracked cells through time.
+
+    CELLS are anchors FRAME:LABEL (with --well) or review ids such as
+    C2-t72-L524. Each filmstrip crops a window centred on the cell in every
+    frame, outlines the cell, marks frames without a mask, and plots its PIP,
+    geminin and area with phase bands underneath.
+
+    \b
+    Examples:
+      omero-screen-images --env production track 5054 C2-t72-L524 --start 140 --stop 175
+      omero-screen-images --env production track 5054 --queue review/queue.json --log review/edits.jsonl
+    """
+    from omero_screen_napari.review.cells import (
+        CellSource,
+        parse_anchor,
+        render_cell,
+    )
+    from omero_screen_napari.review.filmstrip import save_filmstrip
+
+    targets: list[tuple[str, str, tuple[int, int]]] = []
+    if queue_path is not None:
+        from omero_screen_napari.review_queue import read_queue
+
+        queue = read_queue(queue_path)
+        if queue.plate_id != plate_id:
+            raise click.UsageError(
+                f"Queue is for plate {queue.plate_id}, not {plate_id}."
+            )
+        targets = [(i.id, i.well, parse_anchor(i.id)) for i in queue.items]
+    for cell in cells:
+        if "-t" in cell:
+            targets.append((cell, cell.split("-")[0], parse_anchor(cell)))
+        elif well:
+            targets.append(
+                (
+                    f"{well}-t{cell.replace(':', '-L')}",
+                    well,
+                    parse_anchor(cell),
+                )
+            )
+        else:
+            raise click.UsageError(
+                f"{cell}: give --well, or use a review id like C2-t72-L524."
+            )
+    if not targets:
+        raise click.UsageError("Nothing to render: give CELLS or --queue.")
+
+    source = CellSource(
+        plate_id, db_path=db_path, log_path=log_path, marker=marker
+    )
+    chans = _split_list(channels) if channels else None
+    written, failed = [], {}
+    for name, w, anchor in targets:
+        try:
+            fig = render_cell(
+                source,
+                w,
+                anchor,
+                chans,
+                size,
+                max_tiles,
+                start,
+                stop,
+                title=f"plate {plate_id}  {name}",
+            )
+            written.append(str(save_filmstrip(fig, out_dir / f"{name}.{fmt}")))
+        except Exception as err:  # one bad cell must not stop a batch
+            failed[name] = str(err)
+            click.echo(f"warning: {name}: {err}", err=True)
+    manifest = {
+        "command": "track",
+        "plate_id": plate_id,
+        "log": str(log_path) if log_path else None,
+        "channels": chans,
+        "size": size,
+        "start": start,
+        "stop": stop,
+        "written": written,
+        "failed": failed,
+    }
+    manifest_path = out_dir / "track_manifest.json"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2))
+    click.echo(
+        f"{len(written)} filmstrip(s) -> {out_dir}"
+        + (f"; {len(failed)} failed" if failed else "")
+    )
+
+
 def main() -> None:
     """Console-script entry point."""
     cli()

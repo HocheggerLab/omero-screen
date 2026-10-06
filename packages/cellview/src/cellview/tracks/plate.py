@@ -238,3 +238,32 @@ def curate_plate(
     if write and updates:
         write_tracks(conn, pd.concat(updates, ignore_index=True))
     return curated
+
+
+def curated_well(
+    conn: duckdb.DuckDBPyConnection,
+    plate_id: int,
+    well: str,
+    log: EditLog | None = None,
+    marker: str = "Geminin",
+    params: RepairParams | None = None,
+) -> tuple[pd.DataFrame, Curated]:
+    """One well's detections (all nuclear channels) and its curated lineage.
+
+    The lineage is the automatic repair of the raw tracks plus every edit in
+    ``log`` for this well. This is the starting point for following cells.
+
+    Raises:
+        MarkerNotFoundError: If the plate has no values for ``marker``.
+    """
+    from cellview.tracks.cells import load_well
+
+    det = load_well(conn, plate_id, well)
+    key = marker.lower()
+    if key not in det.columns:
+        raise MarkerNotFoundError(
+            f"Plate {plate_id} well {well} has no '{marker}' values; not repaired."
+        )
+    result = repair_lineage(det.rename(columns={key: "marker"}), params)
+    base = base_lineage(det, result)
+    return det, replay(base, log if log is not None else [], well)
