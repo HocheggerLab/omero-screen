@@ -39,6 +39,15 @@ Outcomes:
     recorded in ``end_phase``.
 ``lost``
     The cell cannot be followed. Treat as censored.
+``debris``
+    The object does not move (median step under ``still_px`` over the first
+    ``still_hours`` of the window) and never expresses a reporter: debris or
+    an old corpse, not a living cell. Excluded, not reviewed. Living RPE-1
+    nuclei move a median 13 px per 20 min frame at 20x.
+``stationary``
+    Does not move but expresses a reporter: possibly a cell in mitotic arrest
+    or dying. Excluded from the analysis but flagged for review, because in a
+    knockdown that may be the phenotype.
 ``no_reporter``
     Neither PIP nor geminin is expressed in any frame of the cell's history,
     observed for at least ``reporter_hours``: a nucleus the lentiviral reporter
@@ -102,6 +111,10 @@ class FateParams:
             its median is a death candidate.
         min_start_area: Start cells smaller than this fraction of the well
             median area are excluded as debris.
+        still_px: An object whose median frame-to-frame step over the first
+            ``still_hours`` of the window is below this many pixels is
+            stationary.
+        still_hours: Period over which motion is judged.
         reporter_hours: Minimum observed time with neither reporter expressed
             before a cell is called reporter-negative (longer than the
             early-S dip, when both reporters are low).
@@ -123,6 +136,8 @@ class FateParams:
     death_area: float = 0.5
     min_start_area: float = 0.7
     reporter_hours: float = 24.0
+    still_px: float = 3.0
+    still_hours: float = 4.0
 
     def frames(self, hours: float) -> int:
         """Convert hours to frames."""
@@ -283,6 +298,20 @@ def _reporter_status(
     )
 
 
+def _stationary(cell: pd.DataFrame, params: FateParams) -> bool:
+    """True if the object barely moves over the start of the window.
+
+    Needs at least half the judging period observed, so a cell lost after a
+    frame or two is not called stationary for lack of data.
+    """
+    n = params.frames(params.still_hours)
+    head = cell.iloc[:n]
+    if len(head) < max(3, n // 2):
+        return False
+    steps = np.hypot(head["y"].diff(), head["x"].diff()).dropna()
+    return bool(steps.median() < params.still_px)
+
+
 def _condensed_run(
     cell: pd.DataFrame, thr: Thresholds, params: FateParams
 ) -> tuple[int, int] | None:
@@ -415,7 +444,16 @@ def follow_cells(
             )
             if near.any():
                 flags.add("edge")
-        if reporter == "negative":
+        if _stationary(rows, params):
+            if reporter == "positive":
+                outcome, outcome_frame, flags = (
+                    "stationary",
+                    None,
+                    {"outcome_review"},
+                )
+            else:
+                outcome, outcome_frame, flags = "debris", None, set()
+        elif reporter == "negative":
             outcome, outcome_frame, flags = "no_reporter", None, set()
         elif reporter == "unclear":
             flags.add("reporter_unclear")
@@ -431,6 +469,7 @@ def follow_cells(
                 "end_phase": phases.iloc[-1],
                 "last_frame": int(rows.index[-1]),
                 "censored": outcome in ("lost", "no_mitosis"),
+                "excluded": outcome in ("debris", "stationary", "no_reporter"),
                 "review_flags": " ".join(f for f in FLAGS if f in flags),
                 "n_flags": len(flags),
             }

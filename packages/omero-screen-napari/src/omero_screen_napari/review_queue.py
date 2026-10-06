@@ -61,6 +61,8 @@ DEFAULT_OUTCOMES = (
     "lost",
     "not_a_cell",
     "no_reporter",
+    "debris",
+    "stationary",
 )
 
 #: Verdicts a reviewer can give.
