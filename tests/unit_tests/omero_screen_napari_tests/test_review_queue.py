@@ -96,6 +96,17 @@ def test_unknown_verdict_rejected(tmp_path: Path) -> None:
         )
 
 
+@pytest.fixture(autouse=True)
+def isolated_settings():
+    """Never let a test overwrite the reviewer's real 'last queue' setting."""
+    settings = MagicMock()
+    settings.value.return_value = ""
+    with patch(
+        "omero_screen_napari._review_widget.QSettings", return_value=settings
+    ):
+        yield settings
+
+
 @pytest.fixture(scope="module")
 def qapp():
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -180,3 +191,38 @@ def test_pick_continuation_records_link(qapp, tmp_path: Path) -> None:
     assert latest_decisions(decisions_path(q))["C2-1"].links == [
         {"frame": 12, "label": 3132}
     ]
+
+
+def test_draft_survives_restart_and_resume_skips_reviewed(
+    qapp, tmp_path: Path
+) -> None:
+    """Unfinished marks and notes come back after a restart; reviewed items are skipped."""
+    from omero_screen_napari._review_widget import TrackReviewWidget
+    from omero_screen_napari.review_queue import drafts_path, read_drafts
+
+    q = tmp_path / "queue.json"
+    write_queue(q, 5054, [_item("C2-1"), _item("C2-2", 20), _item("C2-3", 30)])
+    record_decision(decisions_path(q), Decision(id="C2-1", verdict="accept"))
+    viewer = MagicMock()
+    viewer.dims.current_step = (21, 0, 0)
+    viewer.layers.__contains__.return_value = False
+    with (
+        patch.object(TrackReviewWidget, "_ensure_well"),
+        patch.object(TrackReviewWidget, "_draw"),
+    ):
+        first = TrackReviewWidget(napari_viewer=viewer)
+        first.load_queue(q)
+        assert first.current.id == "C2-2"  # resumed past the reviewed item
+        first._mark_frame()
+        first.note.setText("half done")
+        first.note.textEdited.emit("half done")
+        assert read_drafts(drafts_path(q))["C2-2"]["frames"] == [21]
+
+        second = TrackReviewWidget(napari_viewer=viewer)
+        second.load_queue(q)
+        assert second.current.id == "C2-2"
+        assert second.marked == [21]
+        assert second.note.text() == "half done"
+        second.decide("correct")
+    assert "C2-2" not in read_drafts(drafts_path(q))
+    assert latest_decisions(decisions_path(q))["C2-2"].note == "half done"

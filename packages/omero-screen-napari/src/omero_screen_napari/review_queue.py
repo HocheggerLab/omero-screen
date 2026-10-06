@@ -190,6 +190,9 @@ def _atomic_write(path: Path, payload: dict[str, Any]) -> None:
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
     with os.fdopen(fd, "w") as fh:
         json.dump(payload, fh, indent=2)
+    os.chmod(
+        tmp, 0o644
+    )  # mkstemp creates 0600; keep the file readable/trackable
     os.replace(tmp, path)
 
 
@@ -257,3 +260,30 @@ def record_decision(path: Path, decision: Decision) -> Decision:
         {"version": QUEUE_VERSION, "decisions": [asdict(d) for d in existing]},
     )
     return decision
+
+
+def drafts_path(queue_path: Path) -> Path:
+    """Where unfinished work for ``queue_path`` is kept."""
+    return Path(queue_path).with_name("drafts.json")
+
+
+def read_drafts(path: Path) -> dict[str, dict[str, Any]]:
+    """Unfinished review state per item id; empty if none."""
+    path = Path(path)
+    if not path.exists():
+        return {}
+    return dict(json.loads(path.read_text()).get("drafts", {}))
+
+
+def save_draft(path: Path, item_id: str, draft: dict[str, Any] | None) -> None:
+    """Store (or, with ``None``, drop) the unfinished state for one item.
+
+    Drafts hold marked frames, picked continuations, the note and the chosen
+    outcome before a verdict is given, so closing napari loses nothing.
+    """
+    drafts = read_drafts(path)
+    if draft:
+        drafts[item_id] = draft
+    else:
+        drafts.pop(item_id, None)
+    _atomic_write(Path(path), {"version": QUEUE_VERSION, "drafts": drafts})

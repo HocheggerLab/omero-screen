@@ -30,7 +30,7 @@ import numpy as np
 from loguru import logger
 from napari.utils import notifications
 from napari.viewer import Viewer
-from qtpy.QtCore import QFileSystemWatcher
+from qtpy.QtCore import QFileSystemWatcher, QSettings
 from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -51,9 +51,12 @@ from omero_screen_napari.review_queue import (
     QueueError,
     ReviewItem,
     decisions_path,
+    drafts_path,
     latest_decisions,
+    read_drafts,
     read_queue,
     record_decision,
+    save_draft,
 )
 
 PATH_LAYER = "review path"
@@ -84,7 +87,9 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         self.watcher = QFileSystemWatcher(self)
         self.watcher.fileChanged.connect(self._on_file_changed)
 
-        self.path_edit = QLineEdit(os.environ.get(QUEUE_ENV, ""))
+        self.settings = QSettings("omero-screen", "track-review")
+        last = str(self.settings.value("queue_path", "") or "")
+        self.path_edit = QLineEdit(os.environ.get(QUEUE_ENV, "") or last)
         browse = QPushButton("Browse")
         browse.clicked.connect(self._browse)
         load = QPushButton("Load")
@@ -108,6 +113,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         self.zoom.setPrefix("zoom ")
 
         self.outcome = QComboBox()
+        self.outcome.activated.connect(lambda _: self._save_draft())
         mark = QPushButton("Mark frame")
         mark.clicked.connect(self._mark_frame)
         self.marked_label = QLabel("marked: –")
@@ -120,6 +126,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         clear.clicked.connect(self._clear_marks)
         self.viewer.mouse_drag_callbacks.append(self._on_click)
         self.note = QLineEdit()
+        self.note.textEdited.connect(lambda _: self._save_draft())
         self.note.setPlaceholderText("note")
 
         verdicts = QHBoxLayout()
@@ -180,12 +187,25 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         self.queue, self.queue_path = queue, Path(path)
         if str(path) not in self.watcher.files():
             self.watcher.addPath(str(path))
+        self.settings.setValue("queue_path", str(Path(path).resolve()))
         self.outcome.clear()
         self.outcome.addItems(["", *queue.outcomes])
         self._refresh_list(select=keep)
         if queue.focus and queue.focus != self._focus_seen:
             self._focus_seen = queue.focus
             self._select(queue.focus)
+        elif keep is None:
+            self._select_first_open()
+
+    def _select_first_open(self) -> None:
+        """Resume at the first item without a verdict."""
+        assert self.queue is not None and self.queue_path is not None
+        done = latest_decisions(decisions_path(self.queue_path))
+        open_items = [i.id for i in self.queue.items if i.id not in done]
+        if open_items:
+            self._select(open_items[0])
+        elif self.queue.items:
+            self.status.setText(self.status.text() + " — all done")
 
     def _on_file_changed(self, path: str) -> None:
         # Atomic replacement drops the watch; re-add before re-reading.
@@ -253,7 +273,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
             notifications.show_warning(str(err))
             return
         self.current = item
-        self._clear_marks()
+        self._clear_marks(save=False)
         self.note.clear()
         self.outcome.setCurrentText(item.outcome)
         self.details.setText(
@@ -262,6 +282,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
             f"{item.question}"
         )
         self._draw(item)
+        self._restore_draft(item.id)
         self.viewer.dims.set_current_step(0, item.frame)
         point = item.point_at(item.frame)
         if point is not None:
@@ -323,12 +344,51 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         if t not in self.marked:
             self.marked.append(t)
         self._show_marks()
+        self._save_draft()
 
-    def _clear_marks(self) -> None:
+    def _clear_marks(self, save: bool = True) -> None:
         self.marked, self.links, self._pick_points = [], [], {}
         self.pick.setChecked(False)
         if PICK_LAYER in self.viewer.layers:
             self.viewer.layers.remove(PICK_LAYER)
+        self._show_marks()
+        if save:
+            self._save_draft()
+
+    def _save_draft(self) -> None:
+        """Persist unfinished marks, picks, note and outcome for this item."""
+        if self.current is None or self.queue_path is None:
+            return
+        draft = {
+            "frames": sorted(self.marked),
+            "links": list(self.links),
+            "picks": {str(t): list(yx) for t, yx in self._pick_points.items()},
+            "note": self.note.text(),
+            "outcome": self.outcome.currentText(),
+        }
+        empty = not (draft["frames"] or draft["links"] or draft["note"])
+        unchanged = draft["outcome"] == self.current.outcome
+        save_draft(
+            drafts_path(self.queue_path),
+            self.current.id,
+            None if empty and unchanged else draft,
+        )
+
+    def _restore_draft(self, item_id: str) -> None:
+        assert self.queue_path is not None
+        draft = read_drafts(drafts_path(self.queue_path)).get(item_id)
+        if not draft:
+            return
+        self.marked = list(draft.get("frames", []))
+        self.links = list(draft.get("links", []))
+        self._pick_points = {
+            int(t): (int(yx[0]), int(yx[1]))
+            for t, yx in draft.get("picks", {}).items()
+        }
+        self.note.setText(draft.get("note", ""))
+        if draft.get("outcome"):
+            self.outcome.setCurrentText(draft["outcome"])
+        self._draw_picks()
         self._show_marks()
 
     def _show_marks(self) -> None:
@@ -371,6 +431,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         self._pick_points[t] = (y, x)
         self._draw_picks()
         self._show_marks()
+        self._save_draft()
         return label
 
     def _draw_picks(self) -> None:
@@ -408,6 +469,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
             note=self.note.text().strip(),
         )
         record_decision(decisions_path(self.queue_path), decision)
+        save_draft(drafts_path(self.queue_path), decision.id, None)
         logger.info(
             f"Review {decision.id}: {verdict} ({decision.outcome or 'no outcome'})"
         )
