@@ -39,6 +39,10 @@ Outcomes:
     recorded in ``end_phase``.
 ``lost``
     The cell cannot be followed. Treat as censored.
+``no_reporter``
+    Neither PIP nor geminin is ever expressed: a nucleus the lentiviral
+    reporter did not reach. It cannot be phase-called and is excluded from the
+    analysis (reported per well, not reviewed).
 
 Every cell carries review flags (:data:`FLAGS`) that say why a human should
 look at it.
@@ -102,7 +106,7 @@ class FateParams:
     pip_low: float = 0.35
     gem_high: float = 2.0
     max_gap: int = 3
-    reach: float = 1.5
+    reach: float = 3.5
     area_tol: float = 1.6
     marker_tol: float = 2.0
     exit_drop: float = 0.5
@@ -111,7 +115,7 @@ class FateParams:
     condensed_area: float = 0.6
     arrest_hours: float = 2.0
     death_area: float = 0.5
-    min_start_area: float = 0.3
+    min_start_area: float = 0.7
 
     def frames(self, hours: float) -> int:
         """Convert hours to frames."""
@@ -236,6 +240,24 @@ def _mitotic_exit(
     return None
 
 
+def _reporter_negative(
+    cell: pd.DataFrame, thr: Thresholds, params: FateParams
+) -> bool:
+    """True if the cell never expresses either PIP-FUCCI reporter.
+
+    In every phase one reporter is up: PIP outside S, geminin from S to
+    mitosis. A nucleus whose PIP never reaches the S-phase threshold *and*
+    whose geminin never rises is therefore reporter-negative, not in a phase.
+    The 90th percentile is used so a few noisy frames cannot rescue it.
+    """
+    pip_peak = cell["pip"].quantile(0.9)
+    gem_peak = cell["geminin"].quantile(0.9)
+    return bool(
+        pip_peak < params.pip_low * thr.pip_high
+        and gem_peak < params.gem_high * thr.gem_low
+    )
+
+
 def _condensed_run(
     cell: pd.DataFrame, thr: Thresholds, params: FateParams
 ) -> tuple[int, int] | None:
@@ -342,6 +364,7 @@ def follow_cells(
                 outcome = "death"
         if outcome is None:
             outcome, outcome_frame = "no_mitosis", int(rows.index[-1])
+        reporter_negative = _reporter_negative(rows, thr, params)
 
         before_exit = phases[phases.index < (outcome_frame or stop + 1)]
         if not _phase_order_ok(before_exit):
@@ -364,6 +387,8 @@ def follow_cells(
             )
             if near.any():
                 flags.add("edge")
+        if reporter_negative:
+            outcome, outcome_frame, flags = "no_reporter", None, set()
 
         cells.append(
             {

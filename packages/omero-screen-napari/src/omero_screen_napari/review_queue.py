@@ -60,6 +60,7 @@ DEFAULT_OUTCOMES = (
     "no_mitosis",
     "lost",
     "not_a_cell",
+    "no_reporter",
 )
 
 #: Verdicts a reviewer can give.
