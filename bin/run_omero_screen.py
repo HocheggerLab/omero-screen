@@ -311,11 +311,18 @@ def cli(
     log_file: str | None,
     verbose: bool,
 ) -> None:
-    """Run the OMERO-Screen analysis pipeline on one or more plates.
+    r"""Run the OMERO-Screen analysis pipeline on one or more plates.
 
     ID... are OMERO plate IDs. Each plate is segmented, measured and, where
     an EdU channel is present, assigned cell-cycle phases; results are
     attached back to the plate in OMERO.
+
+    \b
+    Setting up and checking an install:
+      omero-screen setup           configure the server, user and password
+      omero-screen doctor          check the installation
+      omero-screen config show     show the settings in effect
+      omero-screen models pull SET / models publish MODEL.pt
     """
     _apply_environment(
         env=env,

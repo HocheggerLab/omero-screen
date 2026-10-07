@@ -62,7 +62,7 @@ fi
 
 # 3. Install exactly the locked versions, with the napari GUI, without dev tools
 say "Installing packages (a few minutes the first time)"
-(cd "$TARGET" && uv sync --frozen --no-default-groups --group gui)
+(cd "$TARGET" && uv sync --frozen --no-default-groups --group gui --compile-bytecode)
 ln -sfn "$TARGET" "$HOME_DIR/current"
 
 # 4. Commands on the PATH
@@ -83,7 +83,7 @@ say "Installed omero-screen $VERSION in $TARGET"
 if [ "${OMERO_SCREEN_NO_SETUP:-0}" != "1" ]; then
     if [ -f "${OMERO_SCREEN_CONFIG_DIR:-$HOME/.config/omero-screen}/config.toml" ]; then
         say "Existing configuration kept (change it with: omero-screen setup)"
-    elif [ -t 0 ] || [ -r /dev/tty ]; then
+    elif (: </dev/tty) 2>/dev/null; then
         "$BIN_DIR/omero-screen" setup </dev/tty || say "Setup did not finish; run: omero-screen setup"
     else
         say "Next: omero-screen setup"
