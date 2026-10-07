@@ -131,3 +131,30 @@ def test_edit_log_is_replayed_before_sampling(fake_well, tmp_path) -> None:
         None, 1, "C2", rq.QueueSpec(start=5, stop=25, sample=10), log
     )
     assert list(sample.label) == [6]
+
+
+def test_stationary_cells_with_reporter_raise_a_warning() -> None:
+    """A well where many non-moving objects still express a reporter is flagged."""
+    cells = pd.DataFrame(
+        {
+            "outcome": ["divided"] * 8 + ["stationary"] * 2,
+            "excluded": [False] * 8 + [True] * 2,
+        }
+    )
+    summary = rq.exclusion_summary(cells, warn_fraction=0.05)
+    assert summary["stationary"] == 2 and summary["stationary_fraction"] == 0.2
+    assert summary["stationary_warning"]
+    calm = rq.exclusion_summary(
+        cells.assign(outcome=["divided"] * 8 + ["debris"] * 2)
+    )
+    assert calm["debris"] == 2 and not calm["stationary_warning"]
+
+
+def test_queue_records_exclusions(fake_well, tmp_path) -> None:
+    """queue.json carries the per-well exclusion counts."""
+    q, _, table = rq.build_queue(
+        None, 1, ["C2"], rq.QueueSpec(start=5, stop=25, sample=2), tmp_path
+    )
+    data = json.loads(q.read_text())
+    assert data["exclusions"]["C2"]["debris"] == 1
+    assert table.attrs["exclusions"]["C2"]["start_cells"] == 7

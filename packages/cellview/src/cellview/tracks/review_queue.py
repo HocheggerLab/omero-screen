@@ -57,6 +57,31 @@ class QueueSpec:
     audit: float = 0.2
     seed: int = 0
     tail: int = 6
+    stationary_warn: float = 0.05
+
+
+def exclusion_summary(
+    cells: pd.DataFrame, warn_fraction: float = 0.05
+) -> dict[str, Any]:
+    """Counts of start cells and of each exclusion, with a stationary-cell warning.
+
+    Objects that do not move are debris, and are excluded. If a sizeable
+    fraction of them still express a reporter (outcome ``stationary``), that
+    is not debris: a mitotic arrest or another phenotype that stops cells
+    moving would look like this. It should not happen in a control well.
+    """
+    counts = cells["outcome"].where(cells["excluded"]).value_counts()
+    n = len(cells)
+    stationary = int(counts.get("stationary", 0))
+    fraction = stationary / n if n else 0.0
+    return {
+        "start_cells": n,
+        "debris": int(counts.get("debris", 0)),
+        "stationary": stationary,
+        "no_reporter": int(counts.get("no_reporter", 0)),
+        "stationary_fraction": round(fraction, 4),
+        "stationary_warning": fraction > warn_fraction,
+    }
 
 
 def _largest_labels(det: pd.DataFrame, curated: Any) -> pd.Series:
@@ -128,6 +153,7 @@ def build_well(
         shape,
     )
     cells = apply_annotations(cells, curated)
+    summary = exclusion_summary(cells, spec.stationary_warn)
     labels = _largest_labels(det, curated)
 
     rng = np.random.default_rng([spec.seed, sum(map(ord, well))])
@@ -147,6 +173,7 @@ def build_well(
     audit_draw = rng.random(len(sampled))
     flagged = sampled["n_flags"] > 0
     sampled["queued"] = flagged | (audit_draw < spec.audit)
+    sampled.attrs["exclusions"] = summary
     sampled["reason"] = np.where(
         flagged,
         sampled["review_flags"],
@@ -193,9 +220,10 @@ def build_queue(
 ) -> tuple[Path, Path, pd.DataFrame]:
     """Build and write ``queue.json`` and ``sample.csv`` for several wells."""
     log = EditLog(log_path) if log_path else None
-    samples, items = [], []
+    samples, items, exclusions = [], [], {}
     for well in wells:
         s, i = build_well(conn, plate_id, well, spec, log, marker)
+        exclusions[well] = s.attrs.get("exclusions", {})
         samples.append(s)
         items += i
     rng = np.random.default_rng(spec.seed)
@@ -210,6 +238,7 @@ def build_queue(
                 "version": 1,
                 "plate_id": plate_id,
                 "spec": spec.__dict__,
+                "exclusions": exclusions,
                 "log": str(log_path) if log_path else None,
                 "items": items,
             },
@@ -217,6 +246,7 @@ def build_queue(
         )
     )
     sample = pd.concat(samples, ignore_index=True)
+    sample.attrs["exclusions"] = exclusions
     sample_path = out_dir / "sample.csv"
     cols = [
         "id",
