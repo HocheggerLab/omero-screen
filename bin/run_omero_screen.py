@@ -311,7 +311,7 @@ def cli(
     log_file: str | None,
     verbose: bool,
 ) -> None:
-    r"""Run the OMERO-Screen analysis pipeline on one or more plates.
+    """Run the OMERO-Screen analysis pipeline on one or more plates.
 
     ID... are OMERO plate IDs. Each plate is segmented, measured and, where
     an EdU channel is present, assigned cell-cycle phases; results are
@@ -323,7 +323,7 @@ def cli(
       omero-screen doctor          check the installation
       omero-screen config show     show the settings in effect
       omero-screen models pull SET / models publish MODEL.pt
-    """
+    """  # noqa: D301 - \b is Click's no-rewrap marker
     _apply_environment(
         env=env,
         config=config,
