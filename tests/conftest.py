@@ -1,6 +1,16 @@
-import logging
+"""Shared test fixtures."""
+
 import os
 import tempfile
+
+# omero_screen reads the user config (~/.config/omero-screen) when it is
+# imported, before any fixture runs. Point it at an empty directory first, so
+# tests never pick up a developer's real server and login.
+os.environ["OMERO_SCREEN_CONFIG_DIR"] = tempfile.mkdtemp(
+    prefix="omero-screen-test-config-"
+)
+
+import logging
 from collections.abc import Generator
 from pathlib import Path
 
