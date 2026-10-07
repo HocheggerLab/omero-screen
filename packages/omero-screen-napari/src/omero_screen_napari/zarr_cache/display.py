@@ -143,6 +143,10 @@ def load_plate_to_viewer(
         viewer, wells_data, channel_names, px, multi, info.get("rounds")
     )
     _add_label_layers(viewer, wells_data, "nuclei", px, multi)
+    if not multi:
+        _add_corrected_nuclei(
+            viewer, plate_id, target_wells[0], wells_data[0], px
+        )
     _add_label_layers(viewer, wells_data, "cells", px, multi)
     _add_missing_region_layer(viewer, wells_data, target_wells, px, multi)
 
@@ -474,6 +478,38 @@ def _add_label_layers(
         else (1.0, pixel_size_um, pixel_size_um)
     )
     viewer.add_labels(pyramid, name=key, scale=scale)
+
+
+def _add_corrected_nuclei(
+    viewer: Any,
+    plate_id: int,
+    well: str,
+    data: dict[str, Any],
+    pixel_size_um: float,
+) -> None:
+    """Add the track-corrected nuclei beside the first-pass ones, if stored.
+
+    The corrected layer shows final track ids (debris and unlinked nuclei
+    hidden, split nuclei joined); the first-pass ``nuclei`` layer stays loaded
+    but hidden, so toggling the two compares them directly.
+    """
+    from omero_screen_napari.zarr_cache.correction import (
+        corrected_pyramid,
+        load_correction,
+    )
+
+    if not data.get("nuclei"):
+        return
+    result = load_correction(plate_id, well)
+    if result is None:
+        return
+    viewer.add_labels(
+        corrected_pyramid(list(data["nuclei"]), result),
+        name="nuclei (corrected)",
+        scale=(1.0, pixel_size_um, pixel_size_um),
+    )
+    if "nuclei" in viewer.layers:
+        viewer.layers["nuclei"].visible = False
 
 
 def _add_missing_region_layer(

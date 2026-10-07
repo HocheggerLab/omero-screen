@@ -157,6 +157,50 @@ def load_tracking_model(
     return Trackastra.from_pretrained(model_name, device=device)
 
 
+def _configure_window(
+    model: Trackastra, per_frame: list[int], window: int | None
+) -> None:
+    """Set the model's temporal window for this stack and log its scale.
+
+    Args:
+        model: A model from :func:`load_tracking_model`; its config is edited
+            in place.
+        per_frame: Detections per frame.
+        window: Explicit override, or ``None`` (see :func:`track_nucleus_mask`).
+    """
+    n_frames = len(per_frame)
+    # Decide the temporal window. Trackastra reads it from the model config at
+    # predict time, so we set config["window"] in place (a subset of the
+    # trained window — never larger). Precedence:
+    #   explicit override  >  auto-fit on GPU  >  full window on CPU
+    config = getattr(model.transformer, "config", {})
+    device = str(getattr(model, "device", "cpu"))
+    model_window = _config_window(config, n_frames)
+    if window is not None:
+        config["window"] = window
+        logger.info(
+            f"Overriding Trackastra temporal window → {window:d} frames"
+        )
+    elif device == "cuda":
+        # Shrink the window just enough that the O(N²) attention fits free VRAM,
+        # keeping tracking on the GPU (fast) instead of falling back to CPU.
+        auto = _auto_gpu_window(per_frame, model_window)
+        if auto < model_window:
+            config["window"] = auto
+            logger.info(
+                f"Auto-reduced temporal window {model_window:d} → {auto:d} to fit GPU VRAM (override: --track-window N, or --track-device cpu for the full window at the cost of speed)."
+            )
+
+    # Diagnostic: the attention spatial-bias matrix is (heads, N, N) where
+    # N = detections summed over the frames in one window — this is what drives
+    # GPU memory (~N²). Surface it so the scale is visible, not guessed.
+    eff_window = _config_window(config, n_frames)
+    n_per_window = _max_detections_for_window(per_frame, eff_window)
+    logger.info(
+        f"Tracking {n_frames:d} frames, {min(per_frame):d}–{max(per_frame):d} objects/frame; effective window {eff_window:d} → ~{n_per_window:d} detections/window (attention memory scales as this squared)."
+    )
+
+
 def track_nucleus_mask(
     image_stack: npt.NDArray[Any],
     nucleus_mask: npt.NDArray[Any],
@@ -221,36 +265,7 @@ def track_nucleus_mask(
         int(np.unique(nucleus_mask[t]).size - 1) for t in range(n_frames)
     ]
 
-    # Decide the temporal window. Trackastra reads it from the model config at
-    # predict time, so we set config["window"] in place (a subset of the
-    # trained window — never larger). Precedence:
-    #   explicit override  >  auto-fit on GPU  >  full window on CPU
-    config = getattr(model.transformer, "config", {})
-    device = str(getattr(model, "device", "cpu"))
-    model_window = _config_window(config, n_frames)
-    if window is not None:
-        config["window"] = window
-        logger.info(
-            f"Overriding Trackastra temporal window → {window:d} frames"
-        )
-    elif device == "cuda":
-        # Shrink the window just enough that the O(N²) attention fits free VRAM,
-        # keeping tracking on the GPU (fast) instead of falling back to CPU.
-        auto = _auto_gpu_window(per_frame, model_window)
-        if auto < model_window:
-            config["window"] = auto
-            logger.info(
-                f"Auto-reduced temporal window {model_window:d} → {auto:d} to fit GPU VRAM (override: --track-window N, or --track-device cpu for the full window at the cost of speed)."
-            )
-
-    # Diagnostic: the attention spatial-bias matrix is (heads, N, N) where
-    # N = detections summed over the frames in one window — this is what drives
-    # GPU memory (~N²). Surface it so the scale is visible, not guessed.
-    eff_window = _config_window(config, n_frames)
-    n_per_window = _max_detections_for_window(per_frame, eff_window)
-    logger.info(
-        f"Tracking {n_frames:d} frames, {min(per_frame):d}–{max(per_frame):d} objects/frame; effective window {eff_window:d} → ~{n_per_window:d} detections/window (attention memory scales as this squared)."
-    )
+    _configure_window(model, per_frame, window)
 
     graph, _ = model.track(
         image_stack,
