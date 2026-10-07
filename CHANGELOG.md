@@ -1,3 +1,9 @@
+## omero-screen-v0.8.12 (2026-10-07)
+
+### Fix
+
+- **napari**: hide debris, agent-alone runs and proposal confidence (#47)
+
 ## omero-screen-v0.8.11 (2026-10-07)
 
 ### Fix
