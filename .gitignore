@@ -262,6 +262,9 @@ docker-compose.override.yml
 # Scratch
 # =========================
 scratch/
+# Personal scratch files (never commit: they tend to hold credentials)
+scratch*.py
+scratch*.ipynb
 
 
 
