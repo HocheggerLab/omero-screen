@@ -451,6 +451,13 @@ def _parse_anchor(
 )
 @click.option("--seed", type=int, default=0, show_default=True)
 @click.option(
+    "--stationary-warn",
+    type=click.FloatRange(0, 1),
+    default=0.05,
+    show_default=True,
+    help="Warn when this fraction of a well's start cells is stationary yet expresses a reporter.",
+)
+@click.option(
     "--log",
     "log_path",
     type=click.Path(dir_okay=False, path_type=Path),
@@ -474,6 +481,7 @@ def review_queue(
     sample: int,
     audit: float,
     seed: int,
+    stationary_warn: float,
     log_path: Path | None,
     marker: str,
     out_dir: Path,
@@ -495,11 +503,24 @@ def review_queue(
         )
     except ValueError as err:
         raise click.ClickException(str(err)) from err
+    exclusions = table.attrs.get("exclusions", {})
     for well, sub in table.groupby("well"):
+        ex = exclusions.get(well, {})
         click.echo(
-            f"{well}: sampled {len(sub)}, queued {int(sub.queued.sum())} "
+            f"{well}: {ex.get('start_cells', '?')} start cells; excluded debris {ex.get('debris', 0)}, "
+            f"stationary {ex.get('stationary', 0)}, no reporter {ex.get('no_reporter', 0)}; "
+            f"sampled {len(sub)}, queued {int(sub.queued.sum())} "
             f"({int((sub.reason == 'audit').sum())} audit)"
         )
+        if ex.get("stationary_warning"):
+            click.secho(
+                f"WARNING {well}: {ex['stationary']} of {ex['start_cells']} start cells "
+                f"({ex['stationary_fraction']:.0%}) do not move but express a reporter. "
+                f"That is not debris: check them (a phenotype?) before trusting the exclusion. "
+                f"In a control well this should not happen.",
+                fg="yellow",
+                err=True,
+            )
     click.echo(f"{q}\n{s}")
 
 
