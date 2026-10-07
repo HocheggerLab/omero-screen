@@ -451,6 +451,14 @@ def _parse_anchor(
 )
 @click.option("--seed", type=int, default=0, show_default=True)
 @click.option(
+    "--mode",
+    type=click.Choice(["human", "agent"]),
+    default="human",
+    show_default=True,
+    help="human: the agent proposes and the reviewer confirms. agent: the agent edits and decides alone "
+    "(use a separate --out to compare runs).",
+)
+@click.option(
     "--stationary-warn",
     type=click.FloatRange(0, 1),
     default=0.05,
@@ -481,6 +489,7 @@ def review_queue(
     sample: int,
     audit: float,
     seed: int,
+    mode: str,
     stationary_warn: float,
     log_path: Path | None,
     marker: str,
@@ -507,7 +516,8 @@ def review_queue(
     for well, sub in table.groupby("well"):
         ex = exclusions.get(well, {})
         click.echo(
-            f"{well}: {ex.get('start_cells', '?')} start cells; excluded debris {ex.get('debris', 0)}, "
+            f"{well}: {ex.get('start_cells', '?')} start cells "
+            f"(+{ex.get('debris_hidden', 0)} debris hidden); excluded debris {ex.get('debris', 0)}, "
             f"stationary {ex.get('stationary', 0)}, no reporter {ex.get('no_reporter', 0)}; "
             f"sampled {len(sub)}, queued {int(sub.queued.sum())} "
             f"({int((sub.reason == 'audit').sum())} audit)"

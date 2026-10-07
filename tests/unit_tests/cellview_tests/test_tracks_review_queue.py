@@ -63,6 +63,7 @@ def test_sampling_is_reproducible_and_excludes_debris(fake_well) -> None:
     b, _ = rq.build_well(None, 1, "C2", spec)
     assert list(a.id) == list(b.id) and len(a) == 3
     assert 99 not in set(a.label)
+    assert a.attrs["exclusions"]["debris_hidden"] == 1
     assert all(i["id"].startswith("C2-t5-L") for i in items_a)
     assert set(a.reason) <= {"audit"} | set(
         rq.QUESTIONS
@@ -156,5 +157,6 @@ def test_queue_records_exclusions(fake_well, tmp_path) -> None:
         None, 1, ["C2"], rq.QueueSpec(start=5, stop=25, sample=2), tmp_path
     )
     data = json.loads(q.read_text())
-    assert data["exclusions"]["C2"]["debris"] == 1
-    assert table.attrs["exclusions"]["C2"]["start_cells"] == 7
+    # The stationary, reporter-negative object is hidden before the walker.
+    assert data["exclusions"]["C2"]["debris_hidden"] == 1
+    assert table.attrs["exclusions"]["C2"]["start_cells"] == 6

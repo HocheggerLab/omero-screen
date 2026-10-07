@@ -41,11 +41,13 @@ class CellSource:
     db_path: Path | None = None
     log_path: Path | None = None
     marker: str = "Geminin"
+    hide_debris: bool = True
     _wells: dict[str, tuple[pd.DataFrame, Any]] = field(
         default_factory=dict, repr=False
     )
     _bases: dict[str, Any] = field(default_factory=dict, repr=False)
     _raw: dict[str, pd.DataFrame] = field(default_factory=dict, repr=False)
+    _debris: dict[str, set[int]] = field(default_factory=dict, repr=False)
 
     def raw(self, well: str) -> pd.DataFrame:
         """The well's detections as tracked, before any curation (loaded once)."""
@@ -57,10 +59,22 @@ class CellSource:
                 str(self.db_path or default_db_path()), read_only=True
             )
             try:
-                self._raw[well] = load_well(conn, self.plate_id, well)
+                det = load_well(conn, self.plate_id, well)
             finally:
                 conn.close()
+            if self.hide_debris:
+                from cellview.tracks.debris import drop_debris
+
+                det, self._debris[well] = drop_debris(det)
+            else:
+                self._debris[well] = set()
+            self._raw[well] = det
         return self._raw[well]
+
+    def debris(self, well: str) -> set[int]:
+        """Raw track ids (= mask labels) hidden as debris in this well."""
+        self.raw(well)
+        return self._debris.get(well, set())
 
     def well(self, well: str) -> tuple[pd.DataFrame, Any]:
         """``(curated detections, curated lineage)`` for a well: repair + edit log."""

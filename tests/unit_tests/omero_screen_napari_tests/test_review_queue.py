@@ -267,3 +267,36 @@ def test_session_status_counts_per_well(tmp_path: Path) -> None:
         "queued": 2,
         "reviewed": 1,
     }
+
+
+def test_agent_run_applies_proposals_and_allows_agent_verdicts(tmp_path: Path) -> None:
+    """In an agent run proposals apply at once (unconfirmed) and verdicts carry author agent."""
+    import json as _json
+
+    from omero_screen_napari.review.session import ReviewSession
+
+    q = _queue(tmp_path)
+    data = _json.loads(q.read_text())
+    data["mode"] = "agent"
+    q.write_text(_json.dumps(data))
+    session = ReviewSession(q)
+    with patch.object(ReviewSession, "edit") as edit:
+        prop = session.propose("C2-t72-L1", "link", {"frame": 86, "label": 7}, "only candidate", "clear")
+        edit.assert_called_once_with(
+            "C2-t72-L1", "link", {"frame": 86, "label": 7}, author="agent", confirmed_by=None, reason="only candidate"
+        )
+    assert prop.status == "applied" and prop.confidence == "clear"
+    session.verdict("C2-t72-L1", "accept", author="agent")
+    assert latest_decisions(decisions_path(q))["C2-t72-L1"].author == "agent"
+
+
+def test_human_run_keeps_proposals_pending(tmp_path: Path) -> None:
+    """In the default human run a proposal waits for the reviewer."""
+    from omero_screen_napari.review.session import ReviewSession
+
+    session = ReviewSession(_queue(tmp_path))
+    assert session.mode == "human"
+    with patch.object(ReviewSession, "edit") as edit:
+        prop = session.propose("C2-t72-L1", "unlink", {"frame": 86}, "jump", "uncertain")
+        edit.assert_not_called()
+    assert prop.status == "pending"

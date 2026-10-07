@@ -148,6 +148,15 @@ def test_candidates_are_json_clean(server) -> None:
     ]
 
 
+def test_agent_verdict_only_in_agent_runs(server) -> None:
+    """In a human run the agent cannot record verdicts; bad confidence is refused."""
+    srv, _ = server
+    with pytest.raises(Exception, match="reviewer's"):
+        _call(srv, "agent_verdict", {"item_id": "C2-t72-L5", "verdict": "accept"})
+    with pytest.raises(Exception, match="confidence"):
+        _call(srv, "propose_edit", {"item_id": "C2-t72-L5", "op": "note", "args": {"text": "x"}, "reason": "x", "confidence": "sure"})
+
+
 def test_no_session_is_a_clear_error(tmp_path: Path) -> None:
     """Without an open widget the tools say so."""
     set_active_session(None)
