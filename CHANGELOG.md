@@ -1,3 +1,9 @@
+## omero-screen-v0.8.11 (2026-10-07)
+
+### Fix
+
+- **cellview**: warn when stationary cells still express a reporter (#46)
+
 ## omero-screen-v0.8.10 (2026-10-06)
 
 ### Fix
