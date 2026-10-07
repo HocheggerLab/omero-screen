@@ -1472,6 +1472,112 @@ def track(
     )
 
 
+@cli.command()
+@click.argument("plate_id", type=int)
+@click.option(
+    "--well",
+    "wells",
+    multiple=True,
+    help="Well to correct (repeatable; default: every cached well).",
+)
+@click.option(
+    "--measure/--no-measure",
+    default=True,
+    show_default=True,
+    help="Measure the corrected nuclei (needs OMERO) and write final_data.csv.",
+)
+@click.option(
+    "--redo",
+    is_flag=True,
+    help="Recompute corrections already stored beside the cache.",
+)
+@click.option(
+    "--model",
+    default="general_2d",
+    show_default=True,
+    help="Trackastra model for the second pass (the pipeline's).",
+)
+@click.option(
+    "--device",
+    default="cpu",
+    show_default=True,
+    help="Torch device for Trackastra.",
+)
+@click.option(
+    "--out",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output CSV (default: final_data_corrected.csv beside the corrections).",
+)
+def correct(
+    plate_id: int,
+    wells: tuple[str, ...],
+    measure: bool,
+    redo: bool,
+    model: str,
+    device: str,
+    out: Path | None,
+) -> None:
+    """Correct and re-track the cached wells of PLATE_ID, then measure them.
+
+    The first-pass tracks (the cached nucleus masks) are corrected with the
+    FUCCI-gated repair, debris is hidden, and the corrected nuclei are tracked
+    again (``omero_screen.track_correction``). The correction is stored beside
+    the zarr cache, where the viewer shows it as ``nuclei (corrected)``. With
+    ``--measure`` the corrected nuclei are measured with the pipeline's own
+    feature extraction into a ``final_data`` CSV for ``cellview import csv``.
+    """
+    import pandas as pd
+
+    from omero_screen_napari.zarr_cache.correction import (
+        correct_cached_well,
+        correction_dir,
+        has_correction,
+        load_correction,
+        measure_cached_well,
+    )
+    from omero_screen_napari.zarr_cache.reader import cached_wells
+
+    targets = list(wells) or cached_wells(plate_id)
+    if not targets:
+        raise click.ClickException(f"Plate {plate_id} has no cached wells.")
+    tracker = None
+    results = {}
+    for w in targets:
+        if has_correction(plate_id, w) and not redo:
+            click.echo(f"{w}: using the stored correction")
+            results[w] = load_correction(plate_id, w)
+            continue
+        if tracker is None:
+            from omero_screen.tracking import load_tracking_model
+
+            tracker = load_tracking_model(model, device)
+        results[w] = correct_cached_well(plate_id, w, tracker)
+        click.echo(f"{w}: corrected")
+    if not measure:
+        return
+
+    from omero_screen.metadata_parser import MetadataParser
+
+    from omero_screen_napari.omero_data import OmeroConnection
+
+    conn = OmeroConnection().get_conn()
+    metadata = MetadataParser(conn, plate_id)
+    metadata.manage_metadata()
+    frames = [
+        measure_cached_well(conn, metadata, plate_id, w, results[w])
+        for w in targets
+    ]
+    df = pd.concat(frames, ignore_index=True)
+    cols = df.columns.tolist()
+    if "experiment" in cols:  # the pipeline's column order
+        i = cols.index("experiment")
+        df = df[cols[i:] + cols[:i]]
+    path = out or correction_dir(plate_id) / "final_data_corrected.csv"
+    df.to_csv(path, index=False)
+    click.echo(f"{len(df):,} rows -> {path}")
+
+
 def main() -> None:
     """Console-script entry point."""
     cli()
