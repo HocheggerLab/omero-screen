@@ -178,6 +178,43 @@ def load_stitching_config(path: str) -> None:
         raise e
 
 
+_CALIBRATION_KEYS = {"pixel_size_um", *STITCH_DEFAULTS}
+
+
+def add_calibrations(calibrations: dict[str, dict[str, float]]) -> None:
+    """Add or replace per-objective calibrations (e.g. from a site profile).
+
+    Args:
+        calibrations: ``{name: {pixel_size_um, overlap_x, overlap_y,
+            translate_x, translate_y}}``.
+
+    Raises:
+        ValueError: If an entry lacks a key or has an unknown one.
+    """
+    for name, entry in calibrations.items():
+        if set(entry) != _CALIBRATION_KEYS:
+            raise ValueError(
+                f"Stitch calibration '{name}' needs exactly the keys "
+                f"{sorted(_CALIBRATION_KEYS)}, got {sorted(entry)}"
+            )
+        STITCH_CALIBRATIONS[str(name)] = {
+            k: float(v) for k, v in entry.items()
+        }
+
+
+def _load_site_calibrations() -> None:
+    """Calibrations from the site profile and user config, if any."""
+    from omero_screen import settings
+
+    try:
+        table = settings.load().section("stitching").get("calibrations", {})
+        add_calibrations(table)
+    except (settings.ConfigError, ValueError, OSError) as err:
+        logger.warning(f"Ignoring stitch calibrations from the config: {err}")
+
+
+_load_site_calibrations()
+
 # Load stitch configuration from file if available
 path = os.getenv("OMERO_SCREEN_STITCH_CONFIG")
 if path is not None and os.path.exists(path):

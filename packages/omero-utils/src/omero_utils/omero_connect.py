@@ -11,12 +11,12 @@ Available functions:
 """
 
 import functools
-import os
 from collections.abc import Callable
 from typing import Any
 
 from loguru import logger
 from omero.gateway import BlitzGateway
+from omero_screen import settings
 
 from omero_utils.message import OmeroConnectionError, log_connection_success
 
@@ -47,23 +47,21 @@ def omero_connect(func: Callable[..., Any]) -> Callable[..., Any]:
 
     @functools.wraps(func)
     def wrapper_omero_connect(*args: Any, **kwargs: Any) -> Any:
-        username = os.getenv("USERNAME")
-        password = os.getenv("PASSWORD")
-        host = os.getenv("HOST")
         conn = None
         value = None
 
         try:
-            if not all([username, password, host]):
-                raise OmeroConnectionError(
-                    f"Missing required credentials. Need USERNAME, PASSWORD, and HOST.\nGot: host={host}, username={username}, password={'*' * len(password) if password else None}",
-                    logger,
-                )
+            try:
+                host, username, port, group, password = settings.login()
+            except settings.ConfigError as err:
+                raise OmeroConnectionError(str(err), logger) from err
 
             logger.debug(
                 f"Connecting to Omero at host: {host}, username: {username}"
             )
-            conn = BlitzGateway(username, password, host=host)
+            conn = BlitzGateway(
+                username, password, host=host, port=port, group=group
+            )
             conn.connect()
 
             if not conn.isConnected():

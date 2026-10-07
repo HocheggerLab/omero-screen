@@ -51,6 +51,37 @@ def caplog(
         loguru_logger.remove(handler_id)
 
 
+@pytest.fixture(autouse=True)
+def _isolated_user_config(tmp_path_factory, monkeypatch):
+    """Keep tests away from the developer's user config and keychain."""
+    import keyring
+    from keyring.backend import KeyringBackend
+
+    class _MemoryKeyring(KeyringBackend):
+        priority = 1  # type: ignore[assignment]
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.store: dict[tuple[str, str], str] = {}
+
+        def get_password(self, service, username):  # noqa: ANN001, ANN201
+            return self.store.get((service, username))
+
+        def set_password(self, service, username, password):  # noqa: ANN001, ANN201
+            self.store[(service, username)] = password
+
+        def delete_password(self, service, username):  # noqa: ANN001, ANN201
+            self.store.pop((service, username), None)
+
+    monkeypatch.setenv(
+        "OMERO_SCREEN_CONFIG_DIR", str(tmp_path_factory.mktemp("user-config"))
+    )
+    previous = keyring.get_keyring()
+    keyring.set_keyring(_MemoryKeyring())
+    yield
+    keyring.set_keyring(previous)
+
+
 @pytest.fixture
 def clean_env() -> Generator[None, None, None]:
     """Clean environment variables before and after tests"""

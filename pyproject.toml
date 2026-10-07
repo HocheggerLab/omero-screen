@@ -44,6 +44,7 @@ dependencies = [
     "trackastra==0.5.3",
     "loguru>=0.7.3",
     "marimo>=0.23.15",
+    "keyring>=25.7.0",
 ]
 
 [project.optional-dependencies]
