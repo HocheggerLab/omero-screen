@@ -52,7 +52,9 @@ def test_touching_pieces_without_geminin_drop_are_merged() -> None:
     assert set(r.assignment.values()) == {1}
     assert _divisions(r) == 0
     tracks = apply_repair(det, r, ("marker",))
-    assert tracks.loc[tracks.timepoint == 10, "area"].item() == pytest.approx(400)
+    assert tracks.loc[tracks.timepoint == 10, "area"].item() == pytest.approx(
+        400
+    )
     assert tracks.loc[tracks.timepoint == 10, "n_pieces"].item() == 2
 
 
@@ -141,7 +143,9 @@ def test_short_piece_of_a_nucleus_is_folded_back() -> None:
     assert r.assignment[2] == 1
     assert "piece" in set(r.events.rule)
     tracks = apply_repair(det, r)
-    assert tracks.loc[tracks.timepoint == 10, "area"].item() == pytest.approx(400)
+    assert tracks.loc[tracks.timepoint == 10, "area"].item() == pytest.approx(
+        400
+    )
 
 
 def test_short_track_away_from_any_nucleus_is_kept() -> None:
@@ -154,7 +158,9 @@ def test_short_track_away_from_any_nucleus_is_kept() -> None:
     assert r.assignment[2] == 2
 
 
-def test_metaphase_half_with_the_daughters_returns_them_to_the_mother() -> None:
+def test_metaphase_half_with_the_daughters_returns_them_to_the_mother() -> (
+    None
+):
     """The mother is cut in two at metaphase and Trackastra hands the
     daughters to the half that started a new track; the division is restored
     on the mother and judged by geminin."""
@@ -170,3 +176,17 @@ def test_metaphase_half_with_the_daughters_returns_them_to_the_mother() -> None:
     assert r.assignment[2] == 1
     assert r.parents[3] == 1 and r.parents[4] == 1
     assert {"piece", "mitosis"} <= set(r.events.rule)
+
+
+def test_piece_of_a_growing_daughter_is_judged_on_the_area_after() -> None:
+    """After mitosis a daughter nucleus grows fast: the area before the cut is
+    too small, the area after it matches."""
+    host = {t: (200.0, 100.0, 100.0) for t in range(10, 12)}
+    host.update({12: (270.0, 100.0, 95.0), 13: (520.0, 100.0, 100.0)})
+    host.update({t: (520.0, 100.0, 100.0) for t in range(14, 20)})
+    det = _det(
+        _rows(1, 0, host),
+        _rows(2, 0, {12: (160.0, 100.0, 110.0)}),
+    )
+    r = repair_lineage(det)
+    assert r.assignment[2] == 1
