@@ -29,17 +29,14 @@ from .config import set_env_vars  # noqa: E402
 class DefaultConfig:
     """Default configuration for the OMERO Screen application."""
 
-    MODEL_DICT: dict[str, str] = field(
-        default_factory=lambda: {
-            "nuclei": "Nuclei_Hoechst",
-            "RPE": "RPE-1_Tub_Hoechst",
-            "HELA": "HeLa_Tub_Hoechst",
-            "U2OS": "U2OS_Tub_Hoechst",
-            "HCC1143": "RPE-1_Tub_Hoechst",
-            "MM231": "MM231_Tub_Hoechst",
-            "PALB": "only_PALB",
-        }
-    )
+    # Segmentation models by role: "nuclei", then cell lines (substring
+    # match). Empty means the device default (see
+    # image_analysis.get_cell_model): Cellpose 4 on CUDA, stock Cellpose 3
+    # elsewhere. A site profile's model set or the user config fills it.
+    MODEL_DICT: dict[str, str] = field(default_factory=dict)
+
+    # One model for every role (``--cp4`` / ``--model``), or None.
+    MODEL_OVERRIDE: str | None = None
 
     # Feature configuration. The structured form states the per-channel /
     # per-mask split explicitly: ``intensity`` features are measured for every
@@ -141,8 +138,16 @@ def _overrides_from_settings() -> dict[str, Any]:
     cfg = settings.load()
     seg = cfg.section("segmentation")
     data: dict[str, Any] = {}
+    if model_set := seg.get("model_set"):
+        sets = seg.get("model_sets", {})
+        if model_set not in sets:
+            raise ValueError(
+                f"[segmentation] model_set = {model_set!r}, but the site "
+                f"profile defines only {sorted(sets)}"
+            )
+        data["MODEL_DICT"] = dict(sets[model_set].get("models", {}))
     if isinstance(seg.get("models"), dict):
-        data["MODEL_DICT"] = seg["models"]
+        data["MODEL_DICT"] = {**data.get("MODEL_DICT", {}), **seg["models"]}
     if isinstance(seg.get("channel_profiles"), dict):
         data["CHANNEL_SEG_PROFILES"] = seg["channel_profiles"]
     features = cfg.section("features")

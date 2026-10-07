@@ -17,7 +17,7 @@ OMERO plate
     ↓ [cellclass batch — generate batch.sh from train.txt]
     ↓ [bash batch.sh — run all training jobs]
     ↓ [cellclass extract — extract best checkpoint to TorchScript .pt]
-    ↓ [omero-screen --inference model.pt — apply at scale]
+    ↓ [omero-screen models publish model.pt, then omero-screen --inference model — apply at scale]
 ```
 
 ---
@@ -203,11 +203,14 @@ cellclass train training.json    # reads state, loads last checkpoint, resumes
 ## Step 7 — Apply Classifier in omero-screen
 
 ```bash
-# Single model
-omero-screen 1821 --inference micronuclei.pt
+# Once: upload the .pt and its .json sidecar to OMERO (add --replace to update)
+omero-screen models publish micronuclei.pt
+
+# Single model (by name, without .pt)
+omero-screen 1821 --inference micronuclei
 
 # Multiple models simultaneously
-omero-screen 1821 --inference micronuclei.pt mitotic_index.pt --gallery 15 --batch 32
+omero-screen 1821 --inference micronuclei mitotic_index --gallery 15 --batch 32
 ```
 
 Results added to `final_data_cc.csv` as a new column per classifier, plus gallery PNGs attached to the OMERO plate.
@@ -242,7 +245,7 @@ cellclass extract rois.3.json --save
 # → produces micronuclei_c2_l2.pt + micronuclei_c2_l2.json
 
 # 6. Apply
-omero-screen 1821 1822 1823 --inference micronuclei_c2_l2.pt --env production
+omero-screen 1821 1822 1823 --inference micronuclei_c2_l2 --env production
 ```
 
 ---

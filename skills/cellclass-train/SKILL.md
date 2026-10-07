@@ -117,7 +117,7 @@ Pick the run with the highest **test F1** (fall back to val F1 if no test split)
 ```bash
 uv run cellclass extract <npz>.{N}.json --save
 ```
-Produces `<model>_c<channels>_l<labels>.pt` (TorchScript) + a `.json` metadata sidecar (`labels`, `model`, `channels`, `input_shape`, metrics). This `.pt` is the artefact consumed at inference via `omero-screen <plate> --inference <model>.pt`.
+Produces `<model>_c<channels>_l<labels>.pt` (TorchScript) + a `.json` metadata sidecar (`labels`, `model`, `channels`, `input_shape`, metrics). Publish it to OMERO with `omero-screen models publish <model>.pt` (uploads the `.pt` and its `.json`); the pipeline then uses it by name, without `.pt`: `omero-screen <plate> --inference <model>`.
 
 **Report:** summary table (model × lr → val/test F1), the winning run, and the extracted model path. Offer inference wiring as an explicit optional follow-up — do not run it unprompted.
 

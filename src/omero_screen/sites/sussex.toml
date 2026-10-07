@@ -22,3 +22,33 @@ overlap_x = 25
 overlap_y = 26
 translate_x = -5
 translate_y = 4
+
+# Segmentation. With no model set chosen, omero-screen uses the device
+# default: Cellpose 4 (cpsam) on an NVIDIA GPU, stock Cellpose 3 elsewhere.
+# The lab's custom Cellpose 3 models are opt-in, for reproducing our data:
+#   [segmentation]
+#   model_set = "hocheggerlab"
+# in the user config, after `omero-screen models pull hocheggerlab`.
+[segmentation.model_sets.hocheggerlab]
+description = "Hochegger lab Cellpose 3 models (Hoechst nuclei, tubulin cells), Operetta 10x/40x"
+# Zenodo download URL with {name} for the file name; empty until published.
+url = ""
+
+[segmentation.model_sets.hocheggerlab.models]
+nuclei = "Nuclei_Hoechst"
+RPE = "RPE-1_Tub_Hoechst"
+HELA = "HeLa_Tub_Hoechst"
+U2OS = "U2OS_Tub_Hoechst"
+HCC1143 = "RPE-1_Tub_Hoechst"
+MM231 = "MM231_Tub_Hoechst"
+PALB = "only_PALB"
+
+# sha256 of each model file, checked after download.
+[segmentation.model_sets.hocheggerlab.sha256]
+Nuclei_Hoechst = "37daa7fe4e0301df7ddd436242ba8feb09e5e727c5195d7cbe7a56be6f05eb13"
+RPE-1_Tub_Hoechst = "18165761989fa4c78a4d947c317bf25c8a5e66053ebdcfa78fe10cb2b091d327"
+HeLa_Tub_Hoechst = "dedea3649cf3e888f546204e75c0033ae0cd18ef189ea36dd97b68ff062e484a"
+U2OS_Tub_Hoechst = "90dc2d7b034ac677628eb722d8de3d4029ccda5390e0c836cc542f6126532ca3"
+MM231_Tub_Hoechst = "22a8bae21a1c4b461dea17bb1b3adc52001e41b3d1d267fe50968606768801d1"
+only_PALB = "46b94e27e5c2f292bd2cfc6f620e34a510367f60093208ca5e50c66c75768534"
+40x_Tub_H2B = "3a03d4af539ab9c08f41a1f26daf37b617de22f4096adf26b0295363aeb5a2e4"

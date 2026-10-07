@@ -13,8 +13,25 @@ import torch
 
 transforms_logger = logging.getLogger(__name__)
 
-from cellpose.transforms import move_axis
 
+
+
+def move_axis(img, m_axis=-1, first=True):
+    """Move axis m_axis to the first or last position.
+
+    Copied from cellpose 4.0 ``transforms.move_axis``, removed in cellpose 4.2.
+    """
+    if m_axis == -1:
+        m_axis = img.ndim - 1
+    m_axis = min(img.ndim - 1, m_axis)
+    axes = np.arange(0, img.ndim)
+    if first:
+        axes[1:m_axis + 1] = axes[:m_axis]
+        axes[0] = m_axis
+    else:
+        axes[m_axis:-1] = axes[m_axis + 1:]
+        axes[-1] = m_axis
+    return img.transpose(tuple(axes))
 
 def convert_image(x, channels, channel_axis=None, z_axis=None, do_3D=False, nchan=2):
     """Converts the image to have the z-axis first, channels last.

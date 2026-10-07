@@ -67,3 +67,82 @@ def test_config_show_masks_the_password(
     assert result.exit_code == 0
     assert "s3cret" not in result.output
     assert "PASSWORD environment variable" in result.output
+
+
+def _site_with_models(tmp_path: Path, files: dict[str, bytes]) -> Path:
+    """A site profile whose model set downloads from a local folder."""
+    import hashlib
+
+    store = tmp_path / "store"
+    store.mkdir()
+    for name, data in files.items():
+        (store / name).write_bytes(data)
+    sums = "\n".join(
+        f'{name} = "{hashlib.sha256(data).hexdigest()}"' for name, data in files.items()
+    )
+    site = tmp_path / "site.toml"
+    site.write_text(
+        "[segmentation.model_sets.lab]\n"
+        f'url = "file://{store}/{{name}}"\n'
+        "[segmentation.model_sets.lab.models]\n"
+        'nuclei = "Nuc"\n'
+        "[segmentation.model_sets.lab.sha256]\n" + sums + "\n"
+    )
+    settings.write_user_config({"site": str(site)})
+    return store
+
+
+def test_models_pull_downloads_and_verifies(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _site_with_models(tmp_path, {"Nuc": b"weights"})
+    target = tmp_path / "models"
+    monkeypatch.setenv("CELLPOSE_LOCAL_MODELS_PATH", str(target))
+
+    result = runner.invoke(setup_cli.cli, ["models", "pull", "lab"])
+    assert result.exit_code == 0, result.output
+    assert (target / "Nuc").read_bytes() == b"weights"
+
+    again = runner.invoke(setup_cli.cli, ["models", "pull", "lab"])
+    assert "ok      Nuc" in again.output
+
+
+def test_models_pull_rejects_a_bad_checksum(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = _site_with_models(tmp_path, {"Nuc": b"weights"})
+    (store / "Nuc").write_bytes(b"tampered")
+    monkeypatch.setenv("CELLPOSE_LOCAL_MODELS_PATH", str(tmp_path / "models"))
+    result = runner.invoke(setup_cli.cli, ["models", "pull", "lab"])
+    assert result.exit_code != 0
+    assert "Checksum mismatch" in result.output
+    assert not (tmp_path / "models" / "Nuc").exists()
+
+
+def test_model_set_selects_the_site_models(tmp_path: Path) -> None:
+    """[segmentation] model_set fills MODEL_DICT from the site profile."""
+    from omero_screen import _overrides_from_settings
+
+    settings.write_user_config(
+        {"site": "sussex", "segmentation": {"model_set": "hocheggerlab"}}
+    )
+    models = _overrides_from_settings()["MODEL_DICT"]
+    assert models["nuclei"] == "Nuclei_Hoechst"
+
+
+def test_unknown_model_set_is_an_error() -> None:
+    from omero_screen import _overrides_from_settings
+
+    settings.write_user_config(
+        {"site": "sussex", "segmentation": {"model_set": "nope"}}
+    )
+    with pytest.raises(ValueError, match="hocheggerlab"):
+        _overrides_from_settings()
+
+
+def test_publish_needs_the_sidecar(runner: CliRunner, tmp_path: Path) -> None:
+    pt = tmp_path / "m_c2_l2.pt"
+    pt.write_bytes(b"x")
+    result = runner.invoke(setup_cli.cli, ["models", "publish", str(pt)])
+    assert result.exit_code != 0
+    assert ".json" in result.output

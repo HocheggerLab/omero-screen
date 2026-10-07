@@ -21,16 +21,6 @@ from typing import Any
 
 import click
 
-_CP4_MODELS: dict[str, str] = {
-    "nuclei": "cp4:cpsam",
-    "RPE": "cp4:cpsam",
-    "HELA": "cp4:cpsam",
-    "U2OS": "cp4:cpsam",
-    "HCC1143": "cp4:cpsam",
-    "MM231": "cp4:cpsam",
-    "PALB": "cp4:cpsam",
-}
-
 TRACK_DEFAULT_MODEL = "general_2d"
 
 
@@ -348,10 +338,7 @@ def cli(
     if model or cp4:
         from omero_screen import default_config
 
-        model_name = model if model else "cp4:cpsam"
-        default_config.MODEL_DICT = {
-            k: model_name for k in default_config.MODEL_DICT
-        }
+        default_config.MODEL_OVERRIDE = model if model else "cp4:cpsam"
 
     _run(
         ids=list(ids),
@@ -467,13 +454,14 @@ def _run(
 
 
 #: Subcommands of ``omero-screen`` that are not a pipeline run.
-SETUP_COMMANDS = ("setup", "doctor", "config")
+SETUP_COMMANDS = ("setup", "doctor", "config", "models")
 
 
 def main() -> None:
     """Entry point for the ``omero-screen`` console script.
 
-    ``omero-screen setup | doctor | config`` configure and check the install;
+    ``omero-screen setup | doctor | config | models`` configure and check the
+    install and manage models;
     anything else is a pipeline run on plate or screen ids.
     """
     if len(sys.argv) > 1 and sys.argv[1] in SETUP_COMMANDS:

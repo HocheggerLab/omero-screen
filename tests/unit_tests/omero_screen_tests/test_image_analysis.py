@@ -143,6 +143,19 @@ class TestFeatureClassification:
             assert feat in MORPHOLOGY_FEATURES
 
 
+@pytest.fixture
+def lab_model_set(monkeypatch):
+    """MODEL_DICT as the Sussex site profile's ``hocheggerlab`` model set."""
+    from omero_screen import default_config, settings
+
+    sets = settings.load_site("sussex")["segmentation"]["model_sets"]
+    monkeypatch.setattr(
+        default_config, "MODEL_DICT", dict(sets["hocheggerlab"]["models"])
+    )
+    monkeypatch.setattr(default_config, "MODEL_OVERRIDE", None)
+
+
+@pytest.mark.usefixtures("lab_model_set")
 class TestGetCellModel:
     """Test the get_cell_model function for model selection."""
 
@@ -903,3 +916,54 @@ class TestTimelapseNucleusCellLink:
         # Matched rows are unchanged by keep mode.
         assert df.loc[(5, 1), "Cyto_ID"] == 2
         assert df["Cyto_ID"].dtype == np.int64
+
+
+class TestDeviceDefaults:
+    """No models configured: the default depends on the compute device."""
+
+    @pytest.fixture(autouse=True)
+    def _unconfigured(self, monkeypatch):
+        from omero_screen import default_config
+
+        monkeypatch.setattr(default_config, "MODEL_DICT", {})
+        monkeypatch.setattr(default_config, "MODEL_OVERRIDE", None)
+
+    @staticmethod
+    def _device(monkeypatch, kind):
+        import torch
+
+        monkeypatch.setattr(
+            "omero_screen.torch.get_device", lambda: torch.device(kind)
+        )
+
+    def test_cuda_uses_cellpose4(self, monkeypatch):
+        from omero_screen.image_analysis import get_nucleus_model
+
+        self._device(monkeypatch, "cuda")
+        assert get_nucleus_model() == "cp4:cpsam"
+        assert get_cell_model("RPE-1") == "cp4:cpsam"
+
+    def test_mac_uses_stock_cellpose3_and_warns_once(self, monkeypatch):
+        from loguru import logger
+
+        from omero_screen import image_analysis
+
+        self._device(monkeypatch, "mps")
+        monkeypatch.setattr(image_analysis, "_warned_stock_models", False)
+        messages = []
+        handler = logger.add(messages.append, level="WARNING")
+        try:
+            assert image_analysis.get_nucleus_model() == "cp3:nuclei"
+            assert get_cell_model("RPE-1") == "cp3:cyto3"
+        finally:
+            logger.remove(handler)
+        assert len(messages) == 1
+        assert "Make a model for your cells" in messages[0]
+
+    def test_override_wins(self, monkeypatch):
+        from omero_screen import default_config
+        from omero_screen.image_analysis import get_nucleus_model
+
+        monkeypatch.setattr(default_config, "MODEL_OVERRIDE", "cp3:cyto3")
+        assert get_nucleus_model() == "cp3:cyto3"
+        assert get_cell_model("RPE-1") == "cp3:cyto3"
