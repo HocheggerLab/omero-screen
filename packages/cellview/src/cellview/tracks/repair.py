@@ -454,7 +454,7 @@ def _absorb_pieces(
     never a daughter and the fragment test never sees it. A piece is an
     unparented track of at most ``piece_frames`` frames touching exactly one
     nucleus (the host) in every frame. It is merged if together they hold
-    the host's area from just before (or after) the cut, or if the host ends
+    the host's area from just before or just after the cut, or if the host ends
     with the piece and the piece carries the children: a mitotic nucleus
     split at metaphase whose half was handed the daughters. The geminin test
     then judges that division on the host.
@@ -481,17 +481,17 @@ def _absorb_pieces(
             and not host.children
             and host.end == piece.end
         )
-        ref = next(
-            (t for t in (piece.begin - 1, piece.end + 1) if t in host.frames),
-            None,
-        )
-        ratio = float("nan")
-        if ref is not None:
-            joint = np.mean(
-                [piece.at(t)[0] + host.at(t)[0] for t in piece.frames]
-            )
-            ratio = float(joint / host.at(ref)[0])
-        if not (handover or params.area_lo <= ratio <= params.area_hi):
+        # Daughter nuclei grow fast after mitosis, so the area just before
+        # the cut can be far below the joint area; either side may vouch.
+        joint = np.mean([piece.at(t)[0] + host.at(t)[0] for t in piece.frames])
+        ratios = [
+            float(joint / host.at(t)[0])
+            for t in (piece.begin - 1, piece.end + 1)
+            if t in host.frames
+        ]
+        fits = [r for r in ratios if params.area_lo <= r <= params.area_hi]
+        ratio = fits[0] if fits else (ratios[0] if ratios else float("nan"))
+        if not (handover or fits):
             continue
         _, y, x, _ = piece.at(piece.begin)
         log.append(
