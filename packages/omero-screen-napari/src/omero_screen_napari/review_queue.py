@@ -125,6 +125,7 @@ class Decision:
     note: str = ""
     time: str = ""
     links: list[dict[str, int]] = field(default_factory=list)
+    author: str = "human"
 
 
 class QueueError(ValueError):

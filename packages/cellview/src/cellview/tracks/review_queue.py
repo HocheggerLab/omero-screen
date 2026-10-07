@@ -28,7 +28,8 @@ import duckdb
 import numpy as np
 import pandas as pd
 
-from cellview.tracks.cells import curated_tracks, load_well
+from cellview.tracks.cells import apply_extras, curated_tracks, load_well
+from cellview.tracks.debris import drop_debris
 from cellview.tracks.edit import EditLog, base_lineage, replay
 from cellview.tracks.fate import FateParams, apply_annotations, follow_cells
 from cellview.tracks.repair import repair_lineage
@@ -58,6 +59,7 @@ class QueueSpec:
     seed: int = 0
     tail: int = 6
     stationary_warn: float = 0.05
+    mode: str = "human"  # human: agent proposes, reviewer confirms; agent: agent works alone
 
 
 def exclusion_summary(
@@ -131,7 +133,8 @@ def build_well(
     params: FateParams | None = None,
 ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
     """Sample and queue one well. Returns ``(sample table, queue items)``."""
-    det = load_well(conn, plate_id, well)
+    raw = load_well(conn, plate_id, well)
+    det, debris = drop_debris(raw)
     key = marker.lower()
     if key not in det:
         raise ValueError(
@@ -141,6 +144,7 @@ def build_well(
     curated = replay(
         base_lineage(det, result), log if log is not None else [], well
     )
+    det = apply_extras(det, curated)
     tracks = curated_tracks(curated, det)
     shape = (int(det["y"].max()) + 1, int(det["x"].max()) + 1)
     cells, states = follow_cells(
@@ -154,6 +158,9 @@ def build_well(
     )
     cells = apply_annotations(cells, curated)
     summary = exclusion_summary(cells, spec.stationary_warn)
+    # Debris is hidden before the repair and the walker; count what was present at the start.
+    at_start = raw[raw["timepoint"] == spec.start]
+    summary["debris_hidden"] = int(at_start["track_id_raw"].isin(debris).sum())
     labels = _largest_labels(det, curated)
 
     rng = np.random.default_rng([spec.seed, sum(map(ord, well))])
@@ -237,6 +244,7 @@ def build_queue(
             {
                 "version": 1,
                 "plate_id": plate_id,
+                "mode": spec.mode,
                 "spec": spec.__dict__,
                 "exclusions": exclusions,
                 "log": str(log_path) if log_path else None,

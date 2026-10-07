@@ -141,6 +141,12 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         brk.clicked.connect(self.next_break)
         self.follow = QCheckBox("Follow cell")
         self.follow.setChecked(True)
+        self.hide_debris = QCheckBox("Hide debris")
+        self.hide_debris.setChecked(True)
+        self.hide_debris.setToolTip(
+            "Blank stationary, reporter-negative objects in the nuclei layer (data untouched)"
+        )
+        self.hide_debris.toggled.connect(lambda _: self._apply_debris())
         self.isolate = QCheckBox("Isolate")
         self.isolate.toggled.connect(lambda _: self._update_isolation())
         self.zoom = QSpinBox()
@@ -249,7 +255,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         layout.addWidget(self.details)
         for row in (
             [prev_btn, next_btn, brk, strip],
-            [self.follow, self.isolate, self.zoom],
+            [self.follow, self.hide_debris, self.isolate, self.zoom],
             [self.pick, cand, unlink, undo],
             mask_buttons,
             [draw, commit, self.mode_label],
@@ -428,7 +434,9 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         )
         nuclei = read_well(plate_id, well)["nuclei"]
         self._nuclei = nuclei[0] if nuclei else None
+        self._nuclei_levels = list(nuclei) if nuclei else []
         self._loaded = (plate_id, well)
+        self._apply_debris()
 
     def go_to(self, item: ReviewItem, frame: int | None = None) -> None:
         """Load the item's well, draw the cell and jump to ``frame`` (default: the item's)."""
@@ -592,6 +600,32 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         self.viewer.dims.set_current_step(0, later[0])
         self._centre(later[0] - 1)
         self.show_candidates()
+
+    def _apply_debris(self) -> None:
+        """Show the nuclei layer with debris labels blanked, or the original."""
+        if NUCLEI_LAYER not in self.viewer.layers or not getattr(
+            self, "_nuclei_levels", None
+        ):
+            return
+        layer: Any = self.viewer.layers[NUCLEI_LAYER]
+        ids: set[int] = set()
+        if (
+            self.hide_debris.isChecked()
+            and self.session is not None
+            and self._loaded is not None
+        ):
+            try:
+                ids = self.session.source.debris(self._loaded[1])
+            except Exception as err:
+                notifications.show_warning(f"Could not classify debris: {err}")
+        layer.data = (
+            _hide_labels(self._nuclei_levels, ids)
+            if ids
+            else self._nuclei_levels
+        )
+        self.status.setToolTip(
+            f"{len(ids)} debris objects hidden" if ids else ""
+        )
 
     def _update_isolation(self) -> None:
         if NUCLEI_LAYER in self.viewer.layers:
@@ -897,7 +931,10 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
     def _refresh_proposals(self) -> None:
         self.proposal_list.clear()
         for p in self._pending():
-            self.proposal_list.addItem(f"{p.id} {p.op} {p.args} — {p.reason}")
+            tag = f"[{p.confidence}] " if p.confidence else ""
+            self.proposal_list.addItem(
+                f"{tag}{p.id} {p.op} {p.args} — {p.reason}"
+            )
         if self.proposal_list.count():
             self.proposal_list.setCurrentRow(0)
         if self.session is not None:
@@ -974,6 +1011,27 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         row = self.items.currentRow()
         self._refresh_list()
         self.items.setCurrentRow(min(row + 1, self.items.count() - 1))
+
+
+def _hide_labels(levels: list[Any], ids: set[int]) -> list[Any]:
+    """Lazy copies of a label pyramid with ``ids`` set to background."""
+    import dask.array as da
+
+    lut = np.array(sorted(ids), dtype=np.int64)
+
+    def blank(block: np.ndarray) -> np.ndarray:
+        out = block.copy()
+        out[np.isin(block, lut)] = 0
+        return out
+
+    return [
+        (
+            da.from_zarr(lv)
+            if not isinstance(lv, np.ndarray | da.Array)
+            else da.asarray(lv)
+        ).map_blocks(blank, dtype=lv.dtype)
+        for lv in levels
+    ]
 
 
 def _cell_mask(

@@ -257,8 +257,9 @@ def curated_well(
         MarkerNotFoundError: If the plate has no values for ``marker``.
     """
     from cellview.tracks.cells import load_well
+    from cellview.tracks.debris import drop_debris
 
-    det = load_well(conn, plate_id, well)
+    det, _ = drop_debris(load_well(conn, plate_id, well))
     key = marker.lower()
     if key not in det.columns:
         raise MarkerNotFoundError(

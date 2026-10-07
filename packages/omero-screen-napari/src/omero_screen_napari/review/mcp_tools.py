@@ -270,9 +270,14 @@ def register(server: Any, state: Any) -> None:
 
     @server.tool()
     async def propose_edit(
-        item_id: str, op: str, args: dict[str, Any], reason: str
+        item_id: str,
+        op: str,
+        args: dict[str, Any],
+        reason: str,
+        confidence: str = "uncertain",
     ) -> dict[str, Any]:
-        """Propose a change for the reviewer to confirm. Nothing changes until they do.
+        """Propose a change. In a human run nothing changes until the reviewer confirms;
+        in an agent run (queue built with --mode agent) it is applied at once.
 
         Args:
             item_id: Queue item id.
@@ -282,13 +287,17 @@ def register(server: Any, state: Any) -> None:
                 {"kind": mitosis|death|slippage, "frame"}; set_outcome
                 {"outcome"}; exclude {"reason"}; note {"text"}.
             reason: Why, in one sentence the reviewer can check on screen.
+            confidence: "clear" if the filmstrip and numbers leave no doubt,
+                otherwise "uncertain".
         """
         from omero_screen_napari.review.session import active_ui
 
         if op not in PROPOSABLE:
             raise ValueError(f"op must be one of {PROPOSABLE}")
+        if confidence not in ("clear", "uncertain"):
+            raise ValueError("confidence must be 'clear' or 'uncertain'")
         session = _session()
-        prop = session.propose(item_id, op, args, reason)
+        prop = session.propose(item_id, op, args, reason, confidence)
         ui = active_ui()
         if (
             ui is not None
@@ -296,7 +305,30 @@ def register(server: Any, state: Any) -> None:
             and ui.current.id == item_id
         ):
             state.gui_execute(ui._refresh_proposals)
+            if prop.status == "applied":
+                state.gui_execute(ui._redraw)
         return _cdict(prop.__dict__)
+
+    @server.tool()
+    async def agent_verdict(
+        item_id: str, verdict: str, outcome: str = "", note: str = ""
+    ) -> dict[str, Any]:
+        """Record the agent's own verdict on an item. Only allowed in an agent run
+        (queue built with --mode agent); in a human run the reviewer decides.
+
+        Args:
+            item_id: Queue item id.
+            verdict: accept, correct, reject or unsure.
+            outcome: The outcome you conclude, if it differs from the automatic one.
+            note: One sentence on why.
+        """
+        session = _session()
+        if session.mode != "agent":
+            raise PermissionError(
+                "Verdicts are the reviewer's in a human run; use propose_edit and let them decide."
+            )
+        d = session.verdict(item_id, verdict, outcome, note, author="agent")
+        return _cdict(d.__dict__)
 
     @server.tool()
     async def proposal_status(

@@ -67,7 +67,10 @@ class Proposal:
     op: str
     args: dict[str, Any]
     reason: str
-    status: str = "pending"  # pending | confirmed | rejected
+    confidence: str = ""  # clear | uncertain
+    status: str = (
+        "pending"  # pending | confirmed | rejected | applied (agent run)
+    )
     note: str = ""
     time: str = ""
 
@@ -97,6 +100,13 @@ class ReviewSession:
     @property
     def proposals_path(self) -> Path:
         return self.queue_path.with_name("proposals.json")
+
+    @property
+    def mode(self) -> str:
+        """``human`` (agent proposes, reviewer confirms) or ``agent`` (agent works alone)."""
+        return str(
+            json.loads(self.queue_path.read_text()).get("mode", "human")
+        )
 
     def reload_queue(self) -> None:
         """Re-read the queue file (the agent may have rewritten it)."""
@@ -249,7 +259,9 @@ class ReviewSession:
         outcome: str = "",
         note: str = "",
         frames: list[int] | None = None,
+        author: str = "human",
     ) -> Decision:
+        """Record a verdict on an item (``author`` is ``agent`` only in an agent run)."""
         return record_decision(
             decisions_path(self.queue_path),
             Decision(
@@ -258,6 +270,7 @@ class ReviewSession:
                 outcome=outcome,
                 note=note,
                 frames=frames or [],
+                author=author,
             ),
         )
 
@@ -276,9 +289,19 @@ class ReviewSession:
         )
 
     def propose(
-        self, item_id: str, op: str, args: dict[str, Any], reason: str
+        self,
+        item_id: str,
+        op: str,
+        args: dict[str, Any],
+        reason: str,
+        confidence: str = "",
     ) -> Proposal:
-        """Record an agent proposal; it changes nothing until confirmed."""
+        """Record an agent proposal.
+
+        In a ``human`` run it changes nothing until the reviewer confirms it.
+        In an ``agent`` run it is applied at once as an unconfirmed agent edit
+        (status ``applied``).
+        """
         self.item(item_id)
         props = self.proposals()
         prop = Proposal(
@@ -287,8 +310,19 @@ class ReviewSession:
             op=op,
             args=args,
             reason=reason,
+            confidence=confidence,
             time=datetime.now().isoformat(timespec="seconds"),
         )
+        if self.mode == "agent":
+            self.edit(
+                item_id,
+                op,
+                args,
+                author="agent",
+                confirmed_by=None,
+                reason=reason,
+            )
+            prop.status = "applied"
         self._save_proposals([*props, prop])
         return prop
 
