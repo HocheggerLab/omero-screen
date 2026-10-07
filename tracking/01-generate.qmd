@@ -1,0 +1,76 @@
+---
+title: "Generate tracks"
+---
+
+Tracking uses [Trackastra](https://github.com/weigertlab/trackastra) (Weigert
+lab, ECCV 2024), a track-by-detection model with pretrained weights and no
+parameters to tune. Turn it on with `--track`:
+
+```bash
+uv run omero-screen 12345 --stitch --track            # default model general_2d
+uv run omero-screen 12345 --stitch --track ctc        # another pretrained model
+```
+
+`--track` takes an optional model: a pretrained name or a checkpoint path. On
+its own it uses `general_2d`.
+
+## How it works
+
+1. Tracking runs on the **stitched whole-well nucleus mask**, so it requires
+   [`--stitch`](../user-guide/stitching.qmd) and follows cells across
+   field boundaries.
+2. Trackastra relabels the nucleus mask in place, so each nucleus's label *is*
+   its `track_id`. Cell and cytoplasm measurements are tied to their nucleus by
+   overlap, so they inherit the track ID.
+3. Four columns go into the measurements: `track_id` and `parent_track_id`
+   (curated) plus `track_id_raw` and `parent_track_id_raw` (unchanged tracker
+   output). At a division, both daughters get new track IDs whose
+   `parent_track_id` is the mother's.
+4. On single-timepoint (fixed-cell) plates `--track` does nothing: the output is
+   byte-identical to a run without it.
+
+## Linking modes
+
+Choose with `--track-mode`:
+
+| Mode | |
+|---|---|
+| `greedy` (default) | Fast greedy linking with divisions |
+| `greedy_nodiv` | Slightly faster, no divisions; rarely useful for cell-cycle work |
+| `ilp` | Integer linear programming: most accurate and slowest. Needs the optional `motile` solver stack. |
+
+## GPU memory
+
+Trackastra's attention is a dense `(heads, N, N)` matrix whose memory grows with
+`N²`, where `N ≈ window × detections per frame`. A dense well over a long
+window can run out of GPU memory. By default this is handled for you:
+
+- Tracking runs on the GPU and, from a calibrated estimate of the detections per
+  window, **reduces the temporal window** until it fits in free VRAM. This is
+  logged as `Auto-reduced temporal window X → Y`. A diagnostic line reports the
+  number of frames, objects per frame, effective window and detections per
+  window.
+- `--track-window N` forces a window and skips the automatic fit.
+- `--track-device cpu` runs the identical computation in host RAM. It is slower,
+  but has no VRAM ceiling and keeps the full window: the choice when accuracy
+  matters more than time on the densest wells. Without the option, CUDA is used
+  when available, and CPU otherwise; Apple MPS falls back to CPU.
+- `--track-batch-size N` (default 4) is the number of windows scored per forward
+  pass. Lower it if you still hit CUDA out-of-memory errors.
+
+## Tracks in CellView
+
+Import the plate as usual:
+
+```bash
+uv run cellview import plate 12345
+```
+
+The track columns are picked up automatically, with no schema change, and can
+be queried alongside intensities, areas and cell-cycle phase.
+
+## Next
+
+Open the well in the [Tracks widget](../napari/user-guide/tracks_widget.html)
+to overlay tracks, inspect a lineage tree, export one track as CSV, or export
+the well for [Mastodon](mastodon.qmd).

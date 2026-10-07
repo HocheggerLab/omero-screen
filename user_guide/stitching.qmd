@@ -1,0 +1,111 @@
+---
+title: "Stitched mode"
+---
+
+By default the pipeline segments each field of view on its own and merges the
+results. On tiled plates, where every well is acquired as several positions,
+`--stitch` switches to a **whole-well canvas**:
+
+1. All fields of the well are downloaded and flatfield-corrected.
+2. The fields are stitched into one `(T, Y, X, C)` canvas. Stage positions from
+   OMERO give each field's `(column, row)` in the grid; the spacing between
+   tiles comes from a [per-objective calibration](#stitch-calibration).
+3. Cellpose runs **once** on the canvas, tiling the large input internally. A
+   cell straddling two fields is no longer cut in half by the border filter on
+   each side.
+4. The whole-well mask is split back into per-field tiles (each label goes to the
+   field holding its centroid) and uploaded to the OMERO segmentation dataset
+   with the suffix `_stitched_segmentation`.
+5. Features are measured on the canvas, so each cell appears exactly once in the
+   output.
+
+```bash
+uv run omero-screen <plate_id> --stitch
+```
+
+**Use `--stitch` for:**
+
+- multi-position acquisitions with tiled fields per well;
+- live-cell timelapses, where one global segmentation keeps labels consistent
+  across the canvas. [Tracking](../tracking/index.qmd) requires it;
+- large cells that often straddle field boundaries.
+
+**Don't use it for:**
+
+- single-position acquisitions (one image per well). The per-field path is
+  faster and stitching gains nothing;
+- plates without reliable stage positions. The stitcher needs `PosX`/`PosY` on
+  every well sample; if they are missing or noisy the canvas will not align.
+
+The napari widgets recognise stitched plates by their `_stitched_segmentation`
+images and load the masks without further configuration. Only stitched plates
+can be [cached as OME-Zarr](caching.qmd) for whole-plate browsing.
+
+## Stitch calibration
+
+Tiles are placed by grid arithmetic. A field at grid position `(col, row)` is
+written at canvas offset `col * (tile_w - overlap_x) + row * translate_x`, and
+likewise in y. Stage positions fix the grid *indices*, not the spacing, so
+`overlap_*` and `translate_*` must match the acquisition.
+
+These values depend on the objective. The same physical overlap covers twice as
+many pixels at 20x as at 10x. The 10x values on a 20x plate shear every seam by
+about 19 px; a nucleus on a seam is then segmented twice, once in each tile,
+which inflates counts and, on timelapses, breaks tracks.
+
+The pipeline therefore picks the calibration from the plate's **pixel size**,
+read from OMERO by `MetadataParser`, in `STITCH_CALIBRATIONS`
+(`omero_utils.stitching`):
+
+| Objective | Pixel size (µm) | `overlap_x` / `overlap_y` | `translate_x` / `translate_y` |
+|---|---|---|---|
+| 10x | 1.2 | 7 / 7 | -3 / 3 |
+| 20x | 0.6 | 25 / 26 | -5 / 4 |
+
+The chosen calibration is logged at INFO on every stitched run. A pixel size
+that matches no entry falls back to the 10x values **with a warning**; calibrate
+the objective rather than ignoring it.
+
+### Checking a plate
+
+The seam diagnostic is read-only and works on any stitched plate:
+
+```bash
+uv run python scripts/diagnose_stitch_seams.py <plate_id>
+```
+
+It counts how often pairs of detections near a seam are separated by the same
+small displacement, compared with an interior control. A clean plate shows no
+peak. A peak at *d* px means `overlap` is short by *d*. Use the same script to
+calibrate a new objective.
+
+### Another microscope
+
+`OMERO_SCREEN_STITCH_CONFIG`, or `--stitch-config PATH`, points at a JSON file
+with your own values. It replaces the table and switches off selection by pixel
+size. `src/data/omero_screen_stitch_config.json` shows the format.
+
+## Host memory
+
+Flatfield-corrected fields are held as `float32`, which halves the canvas
+compared with `float64`. Long multi-channel timelapses can still exceed host RAM
+when all fields and the canvas are in memory together. **Streaming** stitches
+one timepoint at a time: the peak becomes the canvas plus one frame's fields,
+at the cost of `n_fields × T` OMERO reads instead of `n_fields`.
+
+Streaming switches on automatically when the estimated peak exceeds 70 % of the
+RAM budget:
+
+- The budget is the job's cgroup memory limit when there is one, so a SLURM
+  job's real ceiling is used, and otherwise total physical RAM. If neither can
+  be read, the pipeline does not auto-stream.
+- The estimated peak is about 2.5 × the float32 canvas (all raw fields, the
+  canvas and a transient copy). The estimate is logged for every stitched well.
+
+Force the choice with `--stream-stitch` / `--no-stream-stitch`, or
+`OMERO_SCREEN_STITCH_STREAMING=1` / `0`. Both require `--stitch`.
+
+::: {.callout-note}
+Streaming bounds only the stitching stage. Feature extraction still holds the
+full canvas in memory.
+:::

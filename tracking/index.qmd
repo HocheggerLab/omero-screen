@@ -1,0 +1,44 @@
+---
+title: "Live-cell tracking"
+---
+
+OMERO-Screen can follow individual cells through time. On a live-cell timelapse,
+every segmented nucleus is linked across frames so that it keeps one `track_id`
+for its whole lifetime, and each division is recorded as a parent → daughter
+link. Tracks go into the same CellView database as every other measurement.
+You can explore them in napari, correct them by hand in
+[Mastodon](https://mastodon.readthedocs.io/), and, on PIP-FUCCI plates, repair
+and review them with an edit log.
+
+## The workflow
+
+```text
+omero-screen --stitch --track           1  generate tracks
+     │  Trackastra links nuclei across frames; track_id / parent_track_id
+     │  go into the measurements
+     ▼
+cellview import plate                   2  tracks land in CellView
+     ▼
+napari: Tracks widget                   3  view, inspect lineages, export
+     ├──▶ Mastodon (Fiji)               4a manual curation of any plate
+     └──▶ repair + review in napari     4b PIP-FUCCI plates: edit log
+```
+
+| Step | Tool | Guide |
+|---|---|---|
+| 1–2 | `omero-screen --stitch --track`, `cellview import plate` | [Generate tracks](generate.qmd) |
+| 3 | Tracks widget | [Tracks widget](../napari/user-guide/tracks_widget.html) |
+| 4a | Mastodon | [Curate in Mastodon](mastodon.qmd) |
+| 4b | `cellview repair-tracks`, Track Review widget, `cellview curate` | [Repair and review](review.qmd) |
+
+## Raw and curated columns
+
+Every tracked cell carries two pairs of columns:
+
+- `track_id_raw` / `parent_track_id_raw`: the tracker's output. Nothing ever
+  changes them.
+- `track_id` / `parent_track_id`: the current best lineage. Repair and curation
+  write here.
+
+Keeping the raw pair means every correction can be audited, and repeated, from
+the tracker's original output.

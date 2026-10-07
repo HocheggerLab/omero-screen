@@ -1,0 +1,52 @@
+---
+title: "Running on a SLURM cluster"
+---
+
+`bin/sbatch_omero_screen.py` writes a SLURM job script that runs
+`omero-screen` and submits it with `sbatch`. It is set up for the Sussex HPC
+(job classes, GPU nodes); other clusters will need its template adjusted.
+
+::: {.callout-note}
+This is a `bin/` utility and still uses argparse, unlike the installed
+commands. It keeps argparse conventions, including abbreviated options.
+:::
+
+```bash
+python bin/sbatch_omero_screen.py 12345 67890 --env production --stitch --track
+```
+
+By default it submits one job per plate ID.
+
+## Job options
+
+| Option | Default | Effect |
+|---|---|---|
+| `--class CLASS` | `gpu` | SLURM job class |
+| `-u`, `--username USER` | current user | Cluster username |
+| `-t`, `--threads N` | 1 | CPU threads; raise it when running without a GPU |
+| `--hours N` | 24 | Wall-clock limit in hours |
+| `-m`, `--memory N` | 32 | Memory in GB |
+| `--gpu` / `--no-gpu` | on | Request a GPU node |
+| `--exec` / `--no-exec` | on | Execute the generated script statements |
+| `--submit` / `--no-submit` | on | Submit with `sbatch` |
+| `--multi-submit` / `--no-multi-submit` | on | One job per plate ID |
+
+The memory you request becomes the job's cgroup limit, which the pipeline reads
+to decide whether to [stream the stitch](stitching.qmd#host-memory).
+
+## Pipeline options
+
+These are forwarded to `omero-screen` in every job. They mean the same as in the
+[CLI reference](../reference/cli/omero_screen.qmd).
+
+| Option | Forwarded as |
+|---|---|
+| `--env ENV` | `--env` |
+| `--config PATH` | `--config`, resolved to an absolute path and checked at submission |
+| `--inference MODEL [MODEL ...]` | `--inference` |
+| `--segmentation` | `--segmentation` |
+| `--delete` | `--delete` |
+| `--cp4`, `--model MODEL` | `--cp4`, `--model` |
+| `--stitch`, `--stitch-config PATH` | `--stitch`, `--stitch-config` |
+| `--stream-stitch` / `--no-stream-stitch` | the same |
+| `--track [MODEL]`, `--track-mode`, `--track-device`, `--track-window`, `--track-batch-size` | the same |

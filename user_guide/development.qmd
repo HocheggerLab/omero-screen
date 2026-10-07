@@ -1,0 +1,85 @@
+---
+title: "Development"
+---
+
+Set up a development environment, run the tests against a local OMERO server,
+and preview the documentation.
+
+## Setup
+
+```bash
+uv sync --dev
+uv run pre-commit install
+```
+
+The pre-commit hooks run ruff (lint and format) and mypy. Fix what they report
+rather than bypassing them with `--no-verify`.
+
+## Tests
+
+Unit tests live in `tests/unit_tests`, one directory per package:
+
+```bash
+uv run pytest                                      # everything
+uv run pytest tests/unit_tests/omero_screen_tests  # one package
+```
+
+End-to-end tests in `tests/e2e_tests` run against an OMERO server under
+production-like conditions. Run one by name:
+
+```bash
+uv run omero-integration-test e2e_connection
+uv run omero-integration-test e2e_excel
+```
+
+## Local OMERO test server
+
+A separate OMERO server for development runs in Docker on `127.0.0.2:4064`
+(user `root`, password `omero`):
+
+```bash
+./scripts/manage_test_server.sh start
+./scripts/manage_test_server.sh status
+./scripts/manage_test_server.sh stop
+```
+
+Import Operetta screens into it with `load_plates.sh`. Nothing is imported
+without `-x`:
+
+```bash
+./scripts/load_plates.sh -d /path/to/plates -x
+```
+
+[Try it on sample data](try-it.qmd) walks through a full run on this server.
+
+## Documentation
+
+The docs are built with Great Docs: six sites, one per package, assembled into
+one tree.
+
+```bash
+./scripts/build_docs.sh            # build everything into ./_site
+./scripts/build_docs.sh --serve    # build, then serve on localhost:8000
+./scripts/dev_docs.py              # root site, rebuilt and reloaded on save
+./scripts/dev_docs.py --package packages/cellview
+```
+
+Use `dev_docs.py` rather than `great-docs build --watch`, which watches copies
+of the sources and never sees your edits. CLI references are generated from the
+Click commands, so change the command's help text rather than writing option
+tables by hand.
+
+## Commits and releases
+
+Work goes from an issue to a branch to a pull request (`Closes #N`), and is
+squash-merged once CI is green. Use conventional commits (`uv run cz commit`).
+After the merge, the release workflow bumps the version, tags it and updates the
+changelog. With squash merges, the **PR title** decides the release:
+
+| PR title type | Release |
+|---|---|
+| `fix(<scope>): …` | patch |
+| `feat(<scope>): …` | minor |
+| `docs`, `ci`, `chore`, `dev` | none |
+
+Don't run `cz bump` or create version tags by hand.
