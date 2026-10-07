@@ -31,6 +31,13 @@ Each two-daughter event is classified, in this order:
     daughter. The daughter that continues the parent's position is merged into
     it and the other becomes a founder.
 
+Before each pass over the divisions, a short unparented track that touches
+one nucleus in every frame of its life (``piece``) is folded into it: a
+nucleus cut in two for a frame or two, typically around mitosis, whose piece
+started its own track and so was never a daughter. When the piece was handed
+the daughters of a nucleus split at metaphase, they pass to the host, and its
+division is then judged like any other.
+
 After a pass over the divisions, an unparented track that starts where exactly
 one childless track ended in the previous frame is joined to it (``restart``):
 Trackastra cannot express a merge, so two pieces fusing back into one nucleus
@@ -88,6 +95,8 @@ class RepairParams:
         area_hi: Upper bound on the same ratio.
         restart_reach: A restart joins a track that ended within this multiple
             of the sum of their equivalent radii.
+        piece_frames: An unparented track of at most this many frames that
+            touches one nucleus throughout is a piece of it (``piece``).
         max_passes: Safety bound on repair passes.
     """
 
@@ -100,6 +109,7 @@ class RepairParams:
     area_lo: float = 0.8
     area_hi: float = 1.25
     restart_reach: float = 1.0
+    piece_frames: int = 3
     max_passes: int = 50
 
     @property
@@ -405,6 +415,103 @@ def _join_restarts(
     return changed
 
 
+def _host(
+    lin: _Lineage,
+    tid: int,
+    params: RepairParams,
+    by_frame: dict[int, list[int]],
+) -> int | None:
+    """The one track a short piece touches in every frame of its life."""
+    piece = lin.tracks[tid]
+    host: int | None = None
+    for t in sorted(piece.frames):
+        pa, py, px, _ = piece.at(t)
+        touching = [
+            k
+            for k in by_frame.get(t, [])
+            if k != tid
+            and (other := lin.tracks.get(k)) is not None
+            and t in other.frames
+            and np.hypot(other.at(t)[1] - py, other.at(t)[2] - px)
+            <= params.touch * (_radius(pa) + _radius(other.at(t)[0]))
+        ]
+        if len(touching) != 1 or (host is not None and touching[0] != host):
+            return None
+        host = touching[0]
+    return host
+
+
+def _absorb_pieces(
+    lin: _Lineage,
+    params: RepairParams,
+    pass_no: int,
+    log: list[dict[str, Any]],
+) -> bool:
+    """Fold short pieces of a nucleus back into it.
+
+    Cellpose often cuts a nucleus in two for a frame or two, most often just
+    before or after mitosis. The cut-off piece starts its own track, so it is
+    never a daughter and the fragment test never sees it. A piece is an
+    unparented track of at most ``piece_frames`` frames touching exactly one
+    nucleus (the host) in every frame. It is merged if together they hold
+    the host's area from just before (or after) the cut, or if the host ends
+    with the piece and the piece carries the children: a mitotic nucleus
+    split at metaphase whose half was handed the daughters. The geminin test
+    then judges that division on the host.
+    """
+    by_frame: dict[int, list[int]] = {}
+    for k, track in lin.tracks.items():
+        for t in track.frames:
+            by_frame.setdefault(t, []).append(k)
+    changed = False
+    for tid in sorted(lin.tracks):
+        piece = lin.tracks.get(tid)
+        if (
+            piece is None
+            or piece.parent
+            or len(piece.frames) > params.piece_frames
+        ):
+            continue
+        host_id = _host(lin, tid, params, by_frame)
+        if host_id is None:
+            continue
+        host = lin.tracks[host_id]
+        handover = (
+            bool(piece.children)
+            and not host.children
+            and host.end == piece.end
+        )
+        ref = next(
+            (t for t in (piece.begin - 1, piece.end + 1) if t in host.frames),
+            None,
+        )
+        ratio = float("nan")
+        if ref is not None:
+            joint = np.mean(
+                [piece.at(t)[0] + host.at(t)[0] for t in piece.frames]
+            )
+            ratio = float(joint / host.at(ref)[0])
+        if not (handover or params.area_lo <= ratio <= params.area_hi):
+            continue
+        _, y, x, _ = piece.at(piece.begin)
+        log.append(
+            {
+                "pass": pass_no,
+                "parent": host_id,
+                "children": str(tid),
+                "frame": piece.begin,
+                "rule": "piece",
+                "area_ratio": ratio,
+                "y": y,
+                "x": x,
+            }
+        )
+        host.resolved = False
+        lin.merge(host_id, tid)
+        changed = True
+    return changed
+
+
 def repair_lineage(
     det: pd.DataFrame, params: RepairParams | None = None
 ) -> RepairResult:
@@ -434,7 +541,8 @@ def repair_lineage(
     log: list[dict[str, Any]] = []
     passes = 0
     for passes in range(1, params.max_passes + 1):
-        changed = _resolve_divisions(lin, params, passes, log)
+        changed = _absorb_pieces(lin, params, passes, log)
+        changed |= _resolve_divisions(lin, params, passes, log)
         changed |= _join_restarts(lin, params, passes, log)
         if not changed:
             break

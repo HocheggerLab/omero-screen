@@ -217,7 +217,10 @@ def _arrays(session: Any, well: str) -> tuple[Any, Any, list[str]]:
     data = read_well(session.queue.plate_id, well)
     if not data["image"] or not data["nuclei"]:
         raise MaskError(f"Well {well} is not in the zarr cache.")
-    return data["image"][0], data["nuclei"][0], data["channel_names"]
+    from omero_screen_napari.zarr_cache.correction import tracked_nuclei
+
+    nuclei = tracked_nuclei(session.queue.plate_id, well, list(data["nuclei"]))
+    return data["image"][0], nuclei[0], data["channel_names"]
 
 
 def commit_split(

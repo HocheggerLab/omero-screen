@@ -354,3 +354,13 @@ def corrected_pyramid(
         arr: Any = lv if isinstance(lv, da.Array) else da.from_zarr(lv)  # type: ignore[no-untyped-call]
         pyramid.append(arr.map_blocks(relabel, dtype=np.uint32))
     return pyramid
+
+
+def tracked_nuclei(plate_id: int, well: str, levels: list[Any]) -> list[Any]:
+    """The nucleus pyramid whose labels match the well's tracks in CellView.
+
+    With a stored correction CellView holds the corrected nuclei, so the
+    corrected pyramid is returned; otherwise the cached (first-pass) one.
+    """
+    result = load_correction(plate_id, well) if levels else None
+    return corrected_pyramid(levels, result) if result is not None else levels
