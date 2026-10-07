@@ -433,9 +433,20 @@ class TrackReviewWidget(QWidget):
         self._pixel_size = float(
             plate_info(plate_id).get("pixel_size_um") or 1.0
         )
-        nuclei = read_well(plate_id, well)["nuclei"]
+        from omero_screen_napari.zarr_cache.correction import tracked_nuclei
+
+        # CellView holds the corrected tracks when a correction is stored, so
+        # the review works on corrected nuclei; the first-pass layer it
+        # replaces is not shown separately here.
+        nuclei = tracked_nuclei(
+            plate_id, well, list(read_well(plate_id, well)["nuclei"] or [])
+        )
         self._nuclei = nuclei[0] if nuclei else None
-        self._nuclei_levels = list(nuclei) if nuclei else []
+        self._nuclei_levels = list(nuclei)
+        if "nuclei (corrected)" in self.viewer.layers:
+            self.viewer.layers.remove("nuclei (corrected)")
+        if NUCLEI_LAYER in self.viewer.layers:
+            self.viewer.layers[NUCLEI_LAYER].visible = True
         self._loaded = (plate_id, well)
         self._apply_debris()
 
