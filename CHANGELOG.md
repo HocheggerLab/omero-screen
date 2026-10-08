@@ -1,3 +1,9 @@
+## omero-screen-v0.8.18 (2026-10-08)
+
+### Fix
+
+- **pipeline**: record versions, settings and models on each processed plate (#60)
+
 ## omero-screen-v0.8.17 (2026-10-08)
 
 ### Fix
