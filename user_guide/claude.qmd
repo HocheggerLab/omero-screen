@@ -1,0 +1,98 @@
+---
+title: "Working with Claude"
+---
+
+You can run OMERO-Screen by talking to Claude instead of typing commands. Claude
+runs the tools for you, explains what it is doing, and asks before it changes
+anything in OMERO. This page sets that up. It takes about ten minutes.
+
+## What you need
+
+- The **Claude desktop app** (claude.ai/download), signed in.
+- **OMERO-Screen installed** with the one-line installer
+  ([Install & configure](installation.qmd)). The installer ends with
+  `omero-screen setup`, which saves your OMERO login.
+- For OMERO from outside the university, the **VPN**.
+
+## 1. Install the OMERO-Screen plugin
+
+The plugin teaches Claude how OMERO-Screen works.
+
+1. Open the Claude desktop app.
+2. Go to **Customize → Plugins**.
+3. Choose **Add marketplace** and paste:
+
+   ```
+   HocheggerLab/omero-screen
+   ```
+
+4. Find **omero-screen** in the list and click **Install**.
+
+The plugin updates itself when we publish improvements.
+
+::: {.callout-note}
+If your lab uses a Claude Team plan, the administrator can install the plugin
+for everyone (**Organization settings → Plugins & skills → Sync from GitHub**,
+repository `HocheggerLab/omero-screen`). You then skip this step.
+:::
+
+## 2. Start a session that can use your computer
+
+OMERO-Screen runs on your computer: napari opens windows on your screen, and
+OMERO is reached over your network. Claude therefore has to work on your
+computer, not only in the cloud.
+
+- Start a session in the desktop app with access to a folder on your computer,
+  for example a `Claude` folder in your Documents. This is where Claude saves
+  figures and tables.
+- **Test it.** Ask:
+
+  > Check my OMERO-Screen installation.
+
+  Claude should run `omero-screen doctor` and report a list of checks. If it
+  says it cannot run commands on your computer, use the **Code** tab of the
+  desktop app instead; it looks like a chat too, runs on your computer, and
+  uses the same plugin.
+
+## 3. Things to ask
+
+Start with something small, and say what you want in your own words. Claude
+will ask when it needs a plate number or a channel name.
+
+**Check and look**
+
+> Check my OMERO-Screen installation.
+
+> Which plates do I have in OMERO? Show me plate 1234: wells, channels and cell lines.
+
+> Open plate 1234, well B3 in napari.
+
+**Train a classifier**
+
+> I want to train a classifier that recognises micronuclei. Open plate 1234 in
+> napari and help me collect example cells with and without micronuclei.
+
+> Train a classifier on the cells I collected and show me how well it does.
+
+> Publish the best model to OMERO and run it on plates 1234 and 1235.
+
+**Analyse and plot**
+
+> Import plate 1234 into CellView.
+
+> Load plate 1234 from CellView and plot the γH2AX intensity per siRNA, as a PDF.
+
+> Make a cell-cycle plot for plates 1234 and 1235, controls first.
+
+## Good to know
+
+- **Claude asks before changing OMERO**: running the pipeline on a plate,
+  publishing a classifier, deleting anything. Reading and plotting it does
+  without asking.
+- **Your password is never in the chat.** If Claude says your login is missing,
+  run `omero-screen setup` in Terminal yourself; it asks for the password there
+  and keeps it in your keychain.
+- **When something fails**, ask Claude to run the check again. A failed
+  connection is almost always the VPN.
+- **Segmentation on a Mac** uses the standard Cellpose 3 models, which work for
+  most cells. For better masks, see [Make a model for your cells](models.qmd).
