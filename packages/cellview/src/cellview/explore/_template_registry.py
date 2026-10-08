@@ -29,6 +29,10 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import duckdb
 
 BUILTIN_TEMPLATE_DIR = Path(__file__).parent / "templates"
 USER_TEMPLATE_DIR = Path.home() / ".cellview" / "templates"
@@ -131,7 +135,7 @@ def get_template(name: str) -> TemplateInfo | None:
 # ---------------------------------------------------------------------------
 
 
-def sync_filesystem_to_db(conn: duckdb.DuckDBPyConnection) -> int:  # type: ignore[name-defined]  # noqa: F821
+def sync_filesystem_to_db(conn: duckdb.DuckDBPyConnection) -> int:
     """Register all filesystem-visible templates into the DB.
 
     Scans both built-in and user template directories and upserts each
@@ -165,7 +169,7 @@ def sync_filesystem_to_db(conn: duckdb.DuckDBPyConnection) -> int:  # type: igno
 
 
 def list_templates_from_db(
-    conn: duckdb.DuckDBPyConnection,  # type: ignore[name-defined]  # noqa: F821
+    conn: duckdb.DuckDBPyConnection,
 ) -> list[TemplateInfo]:
     """Return all registered templates from the DB, validated against the filesystem.
 
@@ -198,7 +202,7 @@ def list_templates_from_db(
 
 
 def get_template_from_db(
-    conn: duckdb.DuckDBPyConnection,  # type: ignore[name-defined]  # noqa: F821
+    conn: duckdb.DuckDBPyConnection,
     name: str,
 ) -> TemplateInfo | None:
     """Look up a template by name, preferring the DB record.

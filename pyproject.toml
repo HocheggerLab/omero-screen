@@ -152,6 +152,15 @@ exclude = [
     "omero_screen_napari_original/",
 ]
 
+# cellview explore templates are fill-in notebooks: the user defines
+# `conditions` (and the condition column) before running, so the name is
+# unbound by design. Keep every other check on.
+[[tool.ty.overrides]]
+include = ["packages/cellview/src/cellview/explore/templates/**"]
+
+[tool.ty.overrides.rules]
+unresolved-reference = "ignore"
+
 # ===========================
 # Mypy Configuration Section
 # ===========================

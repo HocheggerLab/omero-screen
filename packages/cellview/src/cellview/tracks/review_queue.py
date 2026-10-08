@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import duckdb
 import numpy as np
@@ -33,6 +33,9 @@ from cellview.tracks.debris import drop_debris
 from cellview.tracks.edit import EditLog, base_lineage, replay
 from cellview.tracks.fate import FateParams, apply_annotations, follow_cells
 from cellview.tracks.repair import repair_lineage
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 QUESTIONS = {
     "lost": "The track ends without an outcome. Where does the cell go? Pick its continuation, or mark death.",
@@ -111,7 +114,8 @@ def _path(
             float(r.x),
             int(labels.get((int(r.track_id), int(r.timepoint)), 0)),
         ]
-        for r in rows.itertuples()
+        # Row attributes are typed Scalar by the stubs; columns are numeric.
+        for r in cast("Iterable[Any]", rows.itertuples())
     ]
     if pts:
         t, y, x, _ = pts[-1]
@@ -188,7 +192,8 @@ def build_well(
     )
 
     items = []
-    for row in sampled[sampled["queued"]].itertuples():
+    queued = sampled[sampled["queued"]]
+    for row in cast("Iterable[Any]", queued.itertuples()):
         first_flag = str(row.reason).split()[0]
         frame = (
             int(row.outcome_frame)

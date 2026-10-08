@@ -14,6 +14,8 @@ zarr masks and CellView rows stay as they were. Short tracks (fewer than
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 
@@ -69,14 +71,14 @@ def debris_tracks(
 
 
 def drop_debris(
-    det: pd.DataFrame, **kwargs: float
+    det: pd.DataFrame, **kwargs: Any
 ) -> tuple[pd.DataFrame, set[int]]:
     """``(detections without debris, debris track ids)``.
 
     Debris tracks are removed whole; a daughter whose parent was debris
     becomes a founder.
     """
-    ids = debris_tracks(det, **kwargs)  # type: ignore[arg-type]
+    ids = debris_tracks(det, **kwargs)
     if not ids:
         return det, ids
     clean = det[~det["track_id_raw"].isin(ids)].copy()

@@ -62,7 +62,10 @@ look at it.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 import numpy as np
 import pandas as pd
@@ -174,9 +177,14 @@ def call_phases(
     cell: pd.DataFrame, thr: Thresholds, params: FateParams
 ) -> pd.Series:
     """Per-frame PIP-FUCCI phase for one cell, from smoothed signals."""
-    roll = {"window": params.smooth, "center": True, "min_periods": 1}
-    pip = cell["pip"].rolling(**roll).median()
-    gem = cell["geminin"].rolling(**roll).median()
+    pip = (
+        cell["pip"].rolling(params.smooth, center=True, min_periods=1).median()
+    )
+    gem = (
+        cell["geminin"]
+        .rolling(params.smooth, center=True, min_periods=1)
+        .median()
+    )
     s_phase = pip < params.pip_low * thr.pip_high
     gem_hi = gem > params.gem_high * thr.gem_low
     return pd.Series(
@@ -199,8 +207,9 @@ class _Index:
     """Lookups over a well's repaired tracks."""
 
     def __init__(self, tracks: pd.DataFrame) -> None:
+        # Track ids are integers; the stubs type groupby keys as Scalar.
         self.rows = {
-            tid: g.sort_values("timepoint").set_index("timepoint")
+            cast(int, tid): g.sort_values("timepoint").set_index("timepoint")
             for tid, g in tracks.groupby("track_id")
         }
         self.parent = (
@@ -283,9 +292,14 @@ def _reporter_status(
         thr: Well reference levels.
         params: Thresholds.
     """
-    roll = {"window": params.smooth, "center": True, "min_periods": 1}
-    pip = cell["pip"].rolling(**roll).median()
-    gem = cell["geminin"].rolling(**roll).median()
+    pip = (
+        cell["pip"].rolling(params.smooth, center=True, min_periods=1).median()
+    )
+    gem = (
+        cell["geminin"]
+        .rolling(params.smooth, center=True, min_periods=1)
+        .median()
+    )
     # Strict comparisons: a well whose lower geminin quartile is 0 must not
     # count a zero signal as expressed.
     expressed = (pip > params.pip_low * thr.pip_high) | (
@@ -324,7 +338,7 @@ def _condensed_run(
     )
     best: tuple[int, int] | None = None
     run_start, run = 0, 0
-    for t, c in condensed.items():
+    for t, c in cast("Iterable[tuple[int, bool]]", condensed.items()):
         if c:
             run_start = int(t) if run == 0 else run_start
             run += 1
@@ -494,7 +508,8 @@ def _events_by_track(
     out: dict[int, list[tuple[str, int]]] = {}
     if events is None or events.empty or assignment is None:
         return out
-    for ev in events.itertuples():
+    # Row attributes are typed Scalar by the stubs; these columns are ints.
+    for ev in cast("Iterable[Any]", events.itertuples()):
         rule = "fragment" if ev.rule == "fragment" else None
         if getattr(ev, "refractory", False) is True:
             rule = "refractory"
@@ -525,6 +540,7 @@ def apply_annotations(cells: pd.DataFrame, curated: Any) -> pd.DataFrame:
     out = cells.copy()
     out["curated"] = False
     for i, row in out.iterrows():
+        i = cast(int, i)  # follow_cells builds `cells` with a RangeIndex
         notes: dict[str, Any] = {}
         for seg in str(row["segments"]).split():
             for key, val in curated.annotations.get(int(seg), {}).items():

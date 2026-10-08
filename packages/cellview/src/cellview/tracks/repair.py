@@ -49,7 +49,10 @@ neighbour cannot be told apart from geometry alone.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 import numpy as np
 import pandas as pd
@@ -181,7 +184,8 @@ class _Lineage:
                 track.frames[t] = row.copy()
             self.rep[tid] = tid
         parents = det.groupby("track_id_raw")["parent_track_id_raw"].max()
-        for tid, pid in parents.items():
+        # Raw track ids are integers; the stubs type the labels Hashable.
+        for tid, pid in cast("Iterable[tuple[int, Any]]", parents.items()):
             pid = int(pid) if pd.notna(pid) else 0
             if pid and pid in self.tracks:
                 self.tracks[int(tid)].parent = pid
