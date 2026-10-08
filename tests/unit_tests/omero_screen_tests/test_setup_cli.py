@@ -17,6 +17,7 @@ def test_setup_stores_the_password_in_the_keychain_only(
     runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(setup_cli, "_try_login", lambda *a: "lab")
+    monkeypatch.delenv("PASSWORD", raising=False)  # set in CI; would win
     result = runner.invoke(
         setup_cli.cli,
         ["setup", "--site", "sussex", "--username", "ab123"],
