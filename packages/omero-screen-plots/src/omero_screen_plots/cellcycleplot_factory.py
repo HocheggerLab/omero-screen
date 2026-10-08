@@ -1007,40 +1007,26 @@ class StackedCellCyclePlot(BaseCellCyclePlot):
     def _prepare_stacked_data(
         self, df: pd.DataFrame, conditions: list[str], condition_col: str
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """Prepare mean and std data for stacked plots."""
-        # Check if we have enough replicates for meaningful standard deviation
-        n_plates = df["plate_id"].nunique()
+        """Prepare mean and std data for stacked plots.
 
-        if n_plates < 2:
-            # For single repeat, only calculate mean (no std)
-            summary = df.pivot_table(
-                values="percent",
-                index=condition_col,
-                columns="cell_cycle",
-                aggfunc="mean",
-                fill_value=0,
-            )
-            # Reindex to ensure all conditions are present
-            df_mean = summary.reindex(conditions).fillna(0)
-            # Create empty std dataframe with same structure
+        The std is taken over the plates of each condition, and is 0 where a
+        condition has a single observation (one plate, or several plates
+        that each hold a different condition).
+        """
+        grouped = df.groupby([condition_col, "cell_cycle"])["percent"]
+        df_mean = grouped.mean().unstack(fill_value=0).reindex(conditions)
+        df_mean = df_mean.fillna(0)
+        if df["plate_id"].nunique() < 2:
             df_std = pd.DataFrame(
                 0, index=df_mean.index, columns=df_mean.columns
             )
         else:
-            # For multiple repeats, calculate both mean and std
-            summary = df.pivot_table(
-                values="percent",
-                index=condition_col,
-                columns="cell_cycle",
-                aggfunc=["mean", "std"],
-                fill_value=0,
+            df_std = (
+                grouped.std()
+                .unstack()
+                .reindex(index=df_mean.index, columns=df_mean.columns)
+                .fillna(0)
             )
-            # Reindex to ensure all conditions are present
-            summary = summary.reindex(conditions)
-            # Extract mean and std dataframes
-            df_mean = summary["mean"].fillna(0)
-            df_std = summary["std"].fillna(0)
-
         return df_mean, df_std
 
     def _format_stacked_axes(

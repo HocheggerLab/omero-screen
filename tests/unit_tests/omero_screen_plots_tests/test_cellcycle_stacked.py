@@ -397,3 +397,27 @@ class TestCellCycleStackedParametrized:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestSingleObservationPerCondition:
+    """Several plates, but each condition on one plate only (#5)."""
+
+    @patch("matplotlib.pyplot.show")
+    def test_no_keyerror_when_conditions_do_not_span_plates(self, mock_show):
+        """Each condition seen once: std is 0 and the plot is drawn."""
+        rows = []
+        for plate, condition in ((1001, "day1"), (1002, "day2")):
+            for phase, n in (("G1", 60), ("S", 25), ("G2/M", 15)):
+                rows += [
+                    {"plate_id": plate, "well": "A1", "experiment": "e",
+                     "condition": condition, "cell_line": "RPE-1",
+                     "cell_cycle": phase}
+                ] * n
+        fig, ax = cellcycle_stacked(
+            df=pd.DataFrame(rows),
+            conditions=["day1", "day2"],
+            selector_col=None,
+            save=False,
+        )
+        assert isinstance(fig, Figure)
+        assert len(ax.patches) > 0
