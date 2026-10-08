@@ -9,6 +9,15 @@ Executable runbook for the **cellclass** classifier training pipeline. Drives a 
 
 **This skill runs in-place.** It does not SSH anywhere. If training must happen on a GPU box, the user opens a Claude Code session *on that box* and runs this skill there. Device is auto-detected, never hardcoded.
 
+**How to run the commands.** The examples use `uv run`, which works in a
+developer checkout of omero-screen. In a user install (`install.sh`) there is no
+checkout: drop `uv run` from `cellclass …` (the command is on the `PATH`), and
+replace `uv run python` with `~/.local/share/omero-screen/current/.venv/bin/python`.
+`<skill_dir>` is the directory of this SKILL.md. When the model is extracted,
+publish it with `omero-screen models publish <name>.pt` so the pipeline can use
+it (`omero-screen <plate> --inference <name>`); ask the user first, since it
+writes to OMERO.
+
 **Background reference:** the conceptual pipeline (stages, internals) is documented in the Obsidian vault note `CellClass training pipeline` under `[[&CellClass]]`. The CLI lives in the `cellclass` package of the omero-screen workspace; the unified `cellclass` command is available in any environment that has the workspace installed. Legacy `cellclass-*` executables remain compatibility aliases.
 
 ---

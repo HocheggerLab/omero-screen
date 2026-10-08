@@ -8,8 +8,43 @@ description: Answer questions and guide workflows for the omero-screen monorepo 
 This skill covers all user-facing workflows in the **omero-screen** monorepo: a Python pipeline for high-content immunofluorescence microscopy analysis connecting OMERO server, Cellpose segmentation, DuckDB storage, napari visualisation, and CNN classifiers.
 
 **Docs:** https://hocheggerlab.github.io/omero-screen/
-**GitHub:** https://github.com/Helfrid/omero-screen
-**Project root:** `~/code/omero-screen` (resolve `~` to the current user's home directory)
+**GitHub:** https://github.com/HocheggerLab/omero-screen
+
+**Two kinds of install:**
+- **User install** (`install.sh`): the commands (`omero-screen`, `cellview`,
+  `cellclass`, `napari`, …) are on the `PATH` in `~/.local/bin`; the code is in
+  `~/.local/share/omero-screen/current`. There is no git checkout, so run
+  commands directly, without `uv run`.
+- **Developer install**: a clone (usually `~/code/omero-screen`); run commands
+  with `uv run` from it.
+
+Settings live in `~/.config/omero-screen/config.toml` (written by
+`omero-screen setup`); the password is in the system keychain.
+
+---
+
+## Working with someone who does not code
+
+Many users are biologists who know chat assistants but not the terminal.
+
+- **Check first, explain after.** Start with `omero-screen doctor`. When
+  anything fails, run it again and fix what it reports before trying
+  something else. Most problems are the VPN (OMERO unreachable) or a missing
+  `omero-screen setup`.
+- **Say what you are about to do, in plain words**, before each command
+  ("I'll look up plate 1234 in OMERO"), and what the result means after it.
+  Don't paste long logs; summarise them.
+- **Never show or ask for the password in the chat.** `omero-screen setup` asks
+  for it itself, in the terminal; tell the user to run it there. Don't read or
+  print `~/.config/omero-screen/`, `.env` files or the keychain.
+- **Ask before anything that changes OMERO**: running the pipeline on a plate
+  (it writes masks and results), `omero-screen models publish`, deleting
+  data. Reading is fine without asking.
+- **napari is a window on the user's screen.** Start it for them
+  (`napari &`), then say exactly which menu to open and what to click.
+- **Results go into CellView.** For analysis and figures, load data with
+  `cellview_load_data` and the omero-screen-plots functions; save figures as
+  PDF and say where.
 
 ---
 
@@ -39,8 +74,8 @@ For questions spanning multiple areas, read both reference files before answerin
 omero-screen <plate_id>                          # basic run
 omero-screen 1234 1235 --env production          # multiple plates, production env
 omero-screen 1234 --segmentation                 # segmentation only, no feature extraction
-omero-screen 1234 --inference micronuclei.pth    # with classifier inference
-omero-screen 1234 --cp4                          # use Cellpose 4 (cpsam) models
+omero-screen 1234 --inference micronuclei       # classifier by name (published with `omero-screen models publish`)
+omero-screen 1234 --cp4                          # use Cellpose 4 (cpsam) for everything
 omero-screen 1234 --model cp4:cpsam              # override all models explicitly
 omero-screen 1234 --benchmark                    # record per-image timing JSON
 ```
@@ -69,10 +104,14 @@ df, vars = cellview_load_data(experiment="palb_washout")    # by experiment name
 ./scripts/load_plates.sh -d /path/to/plates -x
 ```
 
-### Environment
+### Setup and checks
 ```bash
-uv sync --dev && source .venv/bin/activate
-ENV=production omero-screen 1234   # select env inline
+omero-screen setup         # server, user name, password (keychain)
+omero-screen doctor        # check everything; says how to fix failures
+omero-screen config show   # settings in effect and where each came from
+omero-screen --version
+omero-screen models pull hocheggerlab   # the lab's custom Cellpose models
+omero-screen models publish model.pt    # upload a classifier for --inference
 ```
 
 ---
@@ -99,9 +138,12 @@ omero-screen/
 
 | Problem | Fix |
 |---|---|
-| GPU not detected | Run `omero_screen.torch.get_device()` in Python; check PyTorch+CUDA install |
+| Anything fails | Run `omero-screen doctor` first and fix what it reports |
+| Cannot connect to OMERO | VPN off, or login not set up: `omero-screen setup` |
+| GPU not detected | `omero-screen doctor` shows the device; on a Mac it is MPS, not CUDA |
 | Flatfield correction slow | First run generates masks from 100 images — subsequent runs load cached masks |
-| Missing cell line model | Add `{"MODEL_DICT": {"CELLLINE": "model_name"}}` to config JSON at `OMERO_SCREEN_CONFIG` |
+| Which model segmented a plate? | Read the `omero-screen/provenance` map annotation on the plate |
+| Custom model per cell line | `[segmentation.models]` in the user config (`CELLLINE = "model_name"`), or `[segmentation] model_set = "..."` |
 | CellView import fails | CSV needs `plate_id`, `cell_line`, `condition` columns plus measurement columns |
-| Logging missing in napari | Plugin mode writes to file — check `LOG_FILE_PATH` in `.env` |
-| `--cp4` vs default | Default uses Cellpose 3 models from `MODEL_DICT`; `--cp4` uses Cellpose 4 (cpsam) for all cell lines |
+| Logging missing in napari | Plugin mode writes to a file: `logs/app.log`, or `OMERO_SCREEN_LOG_FILE` |
+| Default segmentation model | With no models configured: Cellpose 4 (cpsam) on an NVIDIA GPU, stock Cellpose 3 (nuclei, cyto3) on a Mac or CPU. `--cp4` / `--model` override it |

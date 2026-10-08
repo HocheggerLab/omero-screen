@@ -149,6 +149,7 @@ exclude = [
     "examples/.*",
     ".*/test_stats\\.py$",
     "skills/.*",                          # runtime-agnostic skill asset scripts
+    "plugins/.*/skills/.*",
 ]
 incremental = true
 cache_dir = ".mypy_cache"
@@ -228,6 +229,7 @@ extend-exclude = [
     "**/notebooks/**",         # Everything in any notebooks dir
     "**/cellpose3/**",         # Everything ported from Cellpose v3
     "skills/**",               # Runtime-agnostic skill asset scripts
+    "plugins/*/skills/**",
 ]
 
 fix = true
@@ -258,6 +260,7 @@ version = "0.8.21"
 tag_format = "omero-screen-v$version"
 version_files = [
     "src/omero_screen/__init__.py:__version__",
+    "plugins/omero-screen/.claude-plugin/plugin.json:\"version\"",
     "pyproject.toml:version",
     "packages/cellview/pyproject.toml:version",
     "packages/cellview/src/cellview/__init__.py:__version__",
