@@ -316,7 +316,14 @@ def cli(
     ID... are OMERO plate IDs. Each plate is segmented, measured and, where
     an EdU channel is present, assigned cell-cycle phases; results are
     attached back to the plate in OMERO.
-    """
+
+    \b
+    Setting up and checking an install:
+      omero-screen setup           configure the server, user and password
+      omero-screen doctor          check the installation
+      omero-screen config show     show the settings in effect
+      omero-screen models pull SET / models publish MODEL.pt
+    """  # noqa: D301 - \b is Click's no-rewrap marker
     _apply_environment(
         env=env,
         config=config,
