@@ -1,3 +1,9 @@
+## omero-screen-v0.8.13 (2026-10-08)
+
+### Fix
+
+- remove scratch.py and ignore scratch files (#55)
+
 ## omero-screen-v0.8.12 (2026-10-07)
 
 ### Fix

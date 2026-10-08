@@ -1,6 +1,6 @@
 [project]
 name = "omero-screen-napari"
-version = "0.8.12"
+version = "0.8.13"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -172,7 +172,7 @@ python_files = ["test_*.py"]
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.8.12"
+version = "0.8.13"
 tag_format = "omero-screen-napari-v$version"
 version_files = [
     "src/omero_screen_napari/__init__.py:__version__",

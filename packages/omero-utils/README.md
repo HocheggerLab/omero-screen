@@ -5,7 +5,7 @@ Brief Description of project
 ## Status
 
 
-Version: ![version](https://img.shields.io/badge/version-0.8.12-blue)
+Version: ![version](https://img.shields.io/badge/version-0.8.13-blue)
 
 [![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/downloads/)
 
