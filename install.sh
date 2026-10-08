@@ -5,7 +5,7 @@
 #   curl -LsSf https://raw.githubusercontent.com/HocheggerLab/omero-screen/main/install.sh | sh
 #
 # Options (as environment variables):
-#   OMERO_SCREEN_VERSION   release tag (default: the latest omero-screen-v* release)
+#   OMERO_SCREEN_VERSION   release tag (default: the highest omero-screen-v* tag)
 #   OMERO_SCREEN_BRANCH    install a branch instead of a release (for testing)
 #   OMERO_SCREEN_HOME      install location (default: ~/.local/share/omero-screen)
 #   OMERO_SCREEN_BIN       where commands are linked (default: ~/.local/bin)
@@ -47,8 +47,10 @@ if [ -n "${OMERO_SCREEN_BRANCH:-}" ]; then
 else
     VERSION="${OMERO_SCREEN_VERSION:-}"
     if [ -z "$VERSION" ]; then
-        VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=50" \
-            | sed -n 's/.*"tag_name": *"\(omero-screen-v[^"]*\)".*/\1/p' | head -n 1)
+        # Releases are git tags (omero-screen-vX.Y.Z); take the highest version.
+        VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/tags?per_page=100" \
+            | sed -n 's/.*"name": *"\(omero-screen-v[0-9][^"]*\)".*/\1/p' \
+            | sort -t . -k 1,1 -k 2,2n -k 3,3n | tail -n 1)
         [ -n "$VERSION" ] || die "could not find the latest release; set OMERO_SCREEN_VERSION"
     fi
     ARCHIVE="https://github.com/$REPO/archive/refs/tags/$VERSION.tar.gz"
@@ -77,7 +79,7 @@ case ":$PATH:" in
     *) say "Add $BIN_DIR to your PATH (e.g. in ~/.zshrc): export PATH=\"$BIN_DIR:\$PATH\""
        PATH="$BIN_DIR:$PATH"; export PATH ;;
 esac
-say "Installed omero-screen $VERSION in $TARGET"
+say "Installed $VERSION in $TARGET"
 
 # 5. Configure and check
 if [ "${OMERO_SCREEN_NO_SETUP:-0}" != "1" ]; then
