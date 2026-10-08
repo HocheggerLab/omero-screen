@@ -74,7 +74,6 @@ from omero_utils.stitching import (
     stitch_from_offsets,
 )
 
-from omero_screen import default_config
 from omero_screen.cellcycle_analysis import cellcycle_analysis
 from omero_screen.constants import OmeroScreenNS
 from omero_screen.gallery_figure import create_gallery
@@ -84,6 +83,7 @@ from omero_screen.image_analysis import (
     ImageProperties,
     StitchedWellImage,
     get_cell_model,
+    get_nucleus_model,
 )
 from omero_screen.image_classifier import ImageClassifier
 from omero_screen.metadata_parser import strip_role_suffix
@@ -609,12 +609,7 @@ def _segment_stitched_nuclei(
         Mask array of shape (T, Y, X) with uint16 labels (max 65535 cells/well —
         well above realistic crowding for a 1080×1080 × N grid).
     """
-    model_name = default_config.MODEL_DICT.get("nuclei")
-    if model_name is None:
-        raise RuntimeError(
-            "No nuclei segmentation model configured. "
-            "Add a 'nuclei' entry to MODEL_DICT in your config."
-        )
+    model_name = get_nucleus_model()
     segmentation_model = SegmentationModel(model_name)
 
     if segmentation_model.get_type() == "cellpose3":

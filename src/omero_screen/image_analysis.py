@@ -332,13 +332,7 @@ class Image:
         else:
             self.nuc_diameter = 10
 
-        model_name = default_config.MODEL_DICT.get("nuclei")
-        if model_name is None:
-            raise RuntimeError(
-                "No nuclei segmentation model configured. "
-                "Add a 'nuclei' entry to MODEL_DICT in your config."
-            )
-
+        model_name = get_nucleus_model()
         segmentation_model = _get_segmentation_model(model_name)
         # Get the image array via the nuclei role (resolved by MetadataParser).
         if self._nucleus_channel not in self.img_dict:
@@ -587,21 +581,61 @@ class StitchedWellImage:
         self.tile_w = tile_w
 
 
+#: Device defaults when no segmentation models are configured.
+CP4_DEFAULT = "cp4:cpsam"
+CP3_DEFAULTS = {"nuclei": "cp3:nuclei", "cell": "cp3:cyto3"}
+
+_warned_stock_models = False
+
+
+def _device_default(role: str) -> str:
+    """Cellpose 4 on an NVIDIA GPU; the stock Cellpose 3 models elsewhere."""
+    global _warned_stock_models
+    from omero_screen.torch import get_device
+
+    device = get_device()
+    if device.type == "cuda":
+        return CP4_DEFAULT
+    if not _warned_stock_models:
+        logger.warning(
+            f"No segmentation models configured and no NVIDIA GPU ({device}): "
+            "using the stock Cellpose 3 models (nuclei, cyto3). They segment "
+            "most cells reasonably; a model trained on your own cells and "
+            "microscope does better (docs: 'Make a model for your cells'). "
+            "Cellpose 4 (--cp4) is practical only on an NVIDIA GPU."
+        )
+        _warned_stock_models = True
+    return CP3_DEFAULTS[role]
+
+
+def get_nucleus_model() -> str:
+    """The nucleus segmentation model in effect."""
+    if default_config.MODEL_OVERRIDE:
+        return default_config.MODEL_OVERRIDE
+    return default_config.MODEL_DICT.get("nuclei") or _device_default("nuclei")
+
+
 def get_cell_model(
     cell_line: str,
-    default_model: str | None = default_config.MODEL_DICT["U2OS"],
+    default_model: str | None = None,
 ) -> str | None:
     """Gets the cell segmentation model for the specified cell line.
 
-    If the cell line is not recognised the default model is returned.
+    With no models configured, the device default is used for every cell
+    line. Otherwise the cell line is looked up in ``MODEL_DICT`` (exact, then
+    substring), falling back to ``default_model`` or the ``U2OS`` entry.
 
     Args:
         cell_line: Cell line.
-        default_model: The default model if the cell line is not recognised.
+        default_model: The model if the cell line is not recognised.
 
     Returns:
         model name
     """
+    if default_config.MODEL_OVERRIDE:
+        return default_config.MODEL_OVERRIDE
+    if not default_config.MODEL_DICT:
+        return _device_default("cell")
     cell_line = cell_line.replace(
         " ", ""
     ).upper()  # remove spaces and make uppercase
@@ -619,7 +653,7 @@ def get_cell_model(
         if k in cell_line:
             return v
 
-    return default_model
+    return default_model or default_config.MODEL_DICT.get("U2OS")
 
 
 class ImageProperties:

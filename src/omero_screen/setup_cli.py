@@ -343,6 +343,169 @@ def config_show() -> None:
             click.echo(f"[{table}] configured (site profile / user config)")
 
 
+# --- models ------------------------------------------------------------------
+
+#: Namespace of classifier files published to OMERO.
+CLASSIFIER_NS = "omero_screen.classifier"
+#: Project that published classifiers are attached to.
+CLASSIFIER_PROJECT = "Classifiers"
+
+
+@cli.group()
+def models() -> None:
+    """Get segmentation models; publish classifiers to OMERO."""
+
+
+def _cellpose_dir() -> Path:
+    return Path(
+        os.environ.get("CELLPOSE_LOCAL_MODELS_PATH", "~/.cellpose/models")
+    ).expanduser()
+
+
+def _sha256(path: Path) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+@models.command("pull")
+@click.argument("model_set")
+def models_pull(model_set: str) -> None:
+    """Download the Cellpose models of MODEL_SET from the site profile.
+
+    Files already present with the right checksum are skipped. Use the set
+    by adding ``[segmentation] model_set = "<MODEL_SET>"`` to the user config.
+    """
+    import urllib.request
+
+    sets = settings.load().section("segmentation").get("model_sets", {})
+    if model_set not in sets:
+        raise click.ClickException(
+            f"Unknown model set {model_set!r}; the site profile has "
+            f"{sorted(sets) or 'none'}."
+        )
+    entry = sets[model_set]
+    url, files = entry.get("url", ""), entry.get("sha256", {})
+    if not url:
+        raise click.ClickException(
+            f"Model set {model_set!r} has no download URL yet: ask the site "
+            "maintainer, or copy the model files into "
+            f"{_cellpose_dir()} by hand."
+        )
+    target = _cellpose_dir()
+    target.mkdir(parents=True, exist_ok=True)
+    for name, expected in files.items():
+        dest = target / name
+        if dest.exists() and _sha256(dest) == expected:
+            click.echo(f"ok      {name}")
+            continue
+        partial = dest.with_suffix(".part")
+        urllib.request.urlretrieve(url.format(name=name), partial)
+        if _sha256(partial) != expected:
+            partial.unlink()
+            raise click.ClickException(f"Checksum mismatch for {name}")
+        partial.replace(dest)
+        click.echo(f"fetched {name}")
+    click.echo(
+        f'Done. Use it with  [segmentation] model_set = "{model_set}"  '
+        f"in {settings.user_config_path()}"
+    )
+
+
+def _classifier_project(conn: Any) -> Any:
+    """The user's Classifiers project, created if needed."""
+    import omero
+
+    owner = conn.getUser().getId()
+    found = list(
+        conn.getObjects(
+            "Project",
+            opts={"owner": owner},
+            attributes={"name": CLASSIFIER_PROJECT},
+        )
+    )
+    if found:
+        return found[0]
+    project = omero.model.ProjectI()
+    project.setName(omero.rtypes.rstring(CLASSIFIER_PROJECT))
+    saved = conn.getUpdateService().saveAndReturnObject(project)
+    return conn.getObject("Project", saved.getId().getValue())
+
+
+@models.command("publish")
+@click.argument(
+    "model", type=click.Path(exists=True, dir_okay=False, path_type=Path)
+)
+@click.option(
+    "--replace",
+    is_flag=True,
+    help="Replace a published classifier of the same name.",
+)
+def models_publish(model: Path, replace: bool) -> None:
+    """Upload a classifier (MODEL.pt and its .json sidecar) to OMERO.
+
+    The pipeline then uses it with ``--inference <name>``, the file name
+    without ``.pt``. Files are attached to your ``Classifiers`` project.
+    """
+    from omero.gateway import BlitzGateway
+
+    pt = model if model.suffix == ".pt" else model.with_suffix(".pt")
+    sidecar = pt.with_suffix(".json")
+    for path in (pt, sidecar):
+        if not path.exists():
+            raise click.ClickException(
+                f"{path} not found: publish the .pt written by "
+                "`cellclass extract` together with its .json sidecar."
+            )
+    host, username, port, group, password = settings.login()
+    conn = BlitzGateway(username, password, host=host, port=port, group=group)
+    if not conn.connect():
+        raise click.ClickException(
+            f"Could not connect to {host} as {username}."
+        )
+    try:
+        existing = [
+            f
+            for path in (pt, sidecar)
+            for f in conn.getObjects(
+                "OriginalFile", attributes={"name": path.name}
+            )
+        ]
+        if existing and not replace:
+            raise click.ClickException(
+                f"A classifier named {pt.stem!r} is already published; use "
+                "--replace, or choose a new name (e.g. add a version)."
+            )
+        if existing:
+            anns = [
+                a.getId()
+                for a in conn.getObjects(
+                    "FileAnnotation", opts={"ns": CLASSIFIER_NS}
+                )
+                if a.getFile().getName() in (pt.name, sidecar.name)
+            ]
+            if anns:
+                conn.deleteObjects("FileAnnotation", anns, wait=True)
+        project = _classifier_project(conn)
+        for path in (pt, sidecar):
+            ann = conn.createFileAnnfromLocalFile(
+                str(path),
+                mimetype="application/octet-stream",
+                ns=CLASSIFIER_NS,
+            )
+            project.linkAnnotation(ann)
+        click.echo(
+            f"Published {pt.stem!r} to {host}. Run the pipeline with "
+            f"--inference {pt.stem}"
+        )
+    finally:
+        conn.close()
+
+
 def run(argv: list[str]) -> None:
     """Run a subcommand (used by the ``omero-screen`` entry point)."""
     cli.main(args=argv, prog_name="omero-screen")

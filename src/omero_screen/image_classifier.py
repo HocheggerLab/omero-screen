@@ -145,32 +145,37 @@ class ImageClassifier:
         local_path = (
             pathlib.Path.home() / ".cache" / "omero_screen" / file_name
         )
-
-        # If the model file does not exist locally
-        if not local_path.exists():
-            local_path.parent.mkdir(parents=True, exist_ok=True)
-
-            files = list(
-                conn.getObjects("OriginalFile", attributes={"name": file_name})
+        files = list(
+            conn.getObjects("OriginalFile", attributes={"name": file_name})
+        )
+        if len(files) > 1:
+            logger.warning(
+                f"Multiple files with name '{file_name}' found in OMERO."
             )
-            if not files:
-                logger.warning(f"File '{file_name}' not found in OMERO.")
-                return None
-            if len(files) != 1:
+            return None
+        if not files:
+            if local_path.exists():
                 logger.warning(
-                    f"Multiple files with name '{file_name}' found in OMERO."
+                    f"File '{file_name}' not found in OMERO; using the cached "
+                    f"copy {local_path}."
                 )
-                return None
+                return local_path
+            logger.warning(f"File '{file_name}' not found in OMERO.")
+            return None
 
-            # Download the model file
-            attachment = files[0]
-            with open(local_path, "wb") as f:
-                for chunk in attachment.getFileInChunks():
-                    f.write(chunk)
-            logger.info(f"Downloaded model file to {local_path}")
+        # A classifier republished under the same name has a different size;
+        # re-download rather than reuse the stale cached copy.
+        attachment = files[0]
+        if (
+            local_path.exists()
+            and local_path.stat().st_size == attachment.getSize()
+        ):
             return local_path
-
-        # Already cached
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(local_path, "wb") as f:
+            for chunk in attachment.getFileInChunks():
+                f.write(chunk)
+        logger.info(f"Downloaded model file to {local_path}")
         return local_path
 
     def _extract_channels(

@@ -26,26 +26,32 @@ class labels (`l2`). Both files must be kept together.
 
 ## omero-screen pipeline
 
-Set the environment variable before running the pipeline:
+The pipeline loads classifiers from OMERO, not from local files. Publish the
+`.pt` together with its `.json` sidecar once:
 
 ```bash
-export OMERO_SCREEN_INFERENCE_MODEL=/path/to/shufflenet2x1_0_c2_l2.pt
-omero-screen <plate_id>
+omero-screen models publish shufflenet2x1_0_c2_l2.pt
 ```
 
-Or pass it directly on the command line:
+This attaches both files to your `Classifiers` project in OMERO. To publish a
+retrained model under the same name, add `--replace`. A new name (for example,
+with a version) keeps the old model available.
+
+Then run the pipeline with the model **name**, without `.pt`:
 
 ```bash
-omero-screen <plate_id> --inference shufflenet2x1_0_c2_l2.pt
+omero-screen <plate_id> --inference shufflenet2x1_0_c2_l2
 ```
 
-Multiple models can be chained (colon-separated in the environment variable, or multiple
-`--inference` arguments):
+Multiple models can be chained (several names after `--inference`, or
+colon-separated in `OMERO_SCREEN_INFERENCE_MODEL`):
 
 ```bash
-omero-screen <plate_id> \
-    --inference mitosis_model.pt ppase_model.pt
+omero-screen <plate_id> --inference mitosis_model ppase_model
 ```
+
+Downloaded models are cached in `~/.cache/omero_screen/` and fetched again if
+the published file changes.
 
 Gallery images showing example cells per predicted class are attached as PNG figures to
 the OMERO plate. Configure gallery output with:
