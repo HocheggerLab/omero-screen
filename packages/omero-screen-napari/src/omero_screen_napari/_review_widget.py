@@ -59,6 +59,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from omero_screen_napari.layer_sync import hold_until_loaded
 from omero_screen_napari.review.session import (
     ReviewSession,
     set_active_session,
@@ -492,7 +493,7 @@ class TrackReviewWidget(QWidget):
         scale = (1.0, self._pixel_size, self._pixel_size)
         coords = np.array([[t, y, x] for t, y, x, _ in pts], dtype=float)
         if len(coords) > 1:
-            self.viewer.add_tracks(  # ty: ignore[unresolved-attribute]
+            path = self.viewer.add_tracks(  # ty: ignore[unresolved-attribute]
                 np.column_stack([np.zeros(len(coords)), coords]),
                 name=PATH_LAYER,
                 scale=scale,
@@ -501,6 +502,7 @@ class TrackReviewWidget(QWidget):
                 colormap="hsv",
                 blending="translucent",
             )
+            hold_until_loaded(self.viewer, path)
         gap = np.array([lab == 0 for *_, lab in pts])
         self.viewer.add_points(  # ty: ignore[unresolved-attribute]
             coords,

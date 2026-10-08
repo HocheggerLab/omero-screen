@@ -26,6 +26,7 @@ from napari.utils import notifications
 from napari.viewer import Viewer
 from qtpy.QtWidgets import QFileDialog
 
+from omero_screen_napari.layer_sync import hold_until_loaded
 from omero_screen_napari.mastodon_export import export_well_ctc
 from omero_screen_napari.omero_data_singleton import omero_data
 from omero_screen_napari.tracks_loader import (
@@ -172,7 +173,7 @@ def tracks_widget(
     # arboretum's lineage view until divisions are turned back on).
     graph = tracks.graph if show_divisions else {}
 
-    viewer.add_tracks(  # ty: ignore[unresolved-attribute]
+    layer = viewer.add_tracks(  # ty: ignore[unresolved-attribute]
         tracks.data,
         graph=graph,
         properties=tracks.properties,
@@ -181,6 +182,9 @@ def tracks_widget(
         name=_TRACKS_LAYER_NAME,
         **add_kwargs,
     )
+    # Tracks are in memory and the images load asynchronously: keep the
+    # tracks on the frame the images are showing (#11).
+    hold_until_loaded(viewer, layer)
 
     # Arboretum picks a track on double-click; napari's built-in
     # double-click-to-zoom would otherwise also fire and zoom the camera at
