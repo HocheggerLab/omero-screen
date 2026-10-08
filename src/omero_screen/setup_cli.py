@@ -425,7 +425,8 @@ def models_pull(model_set: str) -> None:
 
 def _classifier_project(conn: Any) -> Any:
     """The user's Classifiers project, created if needed."""
-    import omero
+    from omero.model import ProjectI
+    from omero.rtypes import rstring
 
     owner = conn.getUser().getId()
     found = list(
@@ -437,8 +438,8 @@ def _classifier_project(conn: Any) -> Any:
     )
     if found:
         return found[0]
-    project = omero.model.ProjectI()
-    project.setName(omero.rtypes.rstring(CLASSIFIER_PROJECT))
+    project = ProjectI()
+    project.setName(rstring(CLASSIFIER_PROJECT))
     saved = conn.getUpdateService().saveAndReturnObject(project)
     return conn.getObject("Project", saved.getId().getValue())
 

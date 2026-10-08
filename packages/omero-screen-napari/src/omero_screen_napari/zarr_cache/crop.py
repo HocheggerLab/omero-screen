@@ -186,6 +186,18 @@ def _open_cached_root(plate_path: str) -> zarr.Group:
     return open_cached_group(plate_path, max_size=_CHUNK_CACHE_BYTES)
 
 
+def _as_group(node: zarr.Array | zarr.Group) -> zarr.Group:
+    """Narrow a zarr node to a group; the NGFF layout guarantees it."""
+    assert isinstance(node, zarr.Group), f"expected group, got {node!r}"
+    return node
+
+
+def _as_array(node: zarr.Array | zarr.Group) -> zarr.Array:
+    """Narrow a zarr node to an array; the NGFF layout guarantees it."""
+    assert isinstance(node, zarr.Array), f"expected array, got {node!r}"
+    return node
+
+
 @lru_cache(maxsize=64)
 def _open_well_image_array(plate_path: str, well: str) -> zarr.Array:
     """Cached open of the level-0 image array for one well.
@@ -194,7 +206,7 @@ def _open_well_image_array(plate_path: str, well: str) -> zarr.Array:
     ``LRUCacheStore``) its chunks are kept resident between calls.
     """
     root = _open_cached_root(plate_path)
-    return root[_well_group_path(well)]["0"]
+    return _as_array(_as_group(root[_well_group_path(well)])["0"])
 
 
 @lru_cache(maxsize=64)
@@ -203,13 +215,13 @@ def _open_well_label_array(
 ) -> zarr.Array:
     """Cached open of a level-0 label array for one well."""
     root = _open_cached_root(plate_path)
-    img_grp = root[_well_group_path(well)]
-    if (
-        "labels" not in img_grp.group_keys()
-        or mask_name not in img_grp["labels"].group_keys()
-    ):
+    img_grp = _as_group(root[_well_group_path(well)])
+    if "labels" not in img_grp.group_keys():
         raise KeyError(mask_name)
-    return img_grp["labels"][mask_name]["0"]
+    labels_grp = _as_group(img_grp["labels"])
+    if mask_name not in labels_grp.group_keys():
+        raise KeyError(mask_name)
+    return _as_array(_as_group(labels_grp[mask_name])["0"])
 
 
 # Materialised level-0 slabs per (plate_path, well, t). Galleries,

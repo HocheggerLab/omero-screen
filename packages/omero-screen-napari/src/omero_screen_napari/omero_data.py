@@ -223,5 +223,6 @@ class OmeroConnection:
             raise RuntimeError(
                 f"Failed to establish connection to OMERO server at {self.host} as {self.username}"
             )
+        assert conn.c is not None  # set by a successful connect()
         conn.c.enableKeepAlive(60)
         return conn

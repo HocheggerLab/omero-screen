@@ -9,7 +9,7 @@ import os
 import re
 import threading
 from collections.abc import Callable, Generator
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 import polars as pl
@@ -69,7 +69,7 @@ from omero_screen_napari.zarr_cache import (
 # Logging
 
 
-class MetadataWidget(QWidget):  # type: ignore
+class MetadataWidget(QWidget):
     """Displays well metadata and optional classifier class counts."""
 
     def __init__(
@@ -93,10 +93,13 @@ class MetadataWidget(QWidget):  # type: ignore
             self._layout.addWidget(QLabel("<b>Classifiers</b>"))
             table = QTableWidget(0, 3)
             table.setHorizontalHeaderLabels(["Classifier", "Class", "Cells"])
-            table.setEditTriggers(QTableWidget.NoEditTriggers)  # type: ignore[attr-defined]
-            table.setSelectionMode(QTableWidget.NoSelection)  # type: ignore[attr-defined]
-            table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)  # type: ignore[attr-defined, union-attr]
-            table.verticalHeader().setVisible(False)  # type: ignore[union-attr]
+            table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+            h_header = table.horizontalHeader()
+            v_header = table.verticalHeader()
+            assert h_header is not None and v_header is not None
+            h_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            v_header.setVisible(False)
             table.setSortingEnabled(False)
             for classifier, entries in classifier_data.items():
                 for class_val, count in entries:
@@ -114,7 +117,7 @@ class MetadataWidget(QWidget):  # type: ignore
         self.setLayout(self._layout)
 
 
-class CachedPlatesSelector(QWidget):  # type: ignore[misc]
+class CachedPlatesSelector(QWidget):
     """Compact dropdown showing plates from the cache.
 
     Includes cached plates (with images in the local cache) and removed
@@ -143,7 +146,9 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
         # Row 2: combo + buttons
         combo_row = QHBoxLayout()
         self._combo = QComboBox()
-        self._combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self._combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToContents
+        )
         self._combo.setMinimumWidth(200)
         self._combo.currentIndexChanged.connect(self._on_index_changed)
         self._combo.activated.connect(self._on_activated)
@@ -210,7 +215,7 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
         idx = self._combo.currentIndex()
         if idx < 0:
             return None
-        return self._combo.itemData(idx, Qt.ItemDataRole.UserRole)  # type: ignore[no-any-return]
+        return self._combo.itemData(idx, Qt.ItemDataRole.UserRole)
 
     def _select_plate(self, plate_id: int | None) -> None:
         """Select the specified plate."""
@@ -282,10 +287,10 @@ class CachedPlatesSelector(QWidget):  # type: ignore[misc]
             self,
             "Delete Cached Plate",
             f"Delete all cached data for plate {plate_id}?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             delete_plate_from_cache(plate_id)
             # Also evict the zarr-cache copy (separate store, separate
             # eviction path). Without this, orphan zarr directories
@@ -360,7 +365,7 @@ class MockEvent:
         self.source = source
 
 
-class BackgroundGeneratorWorker(GeneratorWorker):  # type: ignore[misc]
+class BackgroundGeneratorWorker(GeneratorWorker):
     """Worker that runs a generator in the background."""
 
     stop_flag: threading.Event | None = None
@@ -390,7 +395,7 @@ _stitch_widget_ref: Any = None
 _cached_plates_selector_ref: CachedPlatesSelector | None = None
 
 
-def well_widget_combined() -> QWidget:  # type: ignore
+def well_widget_combined() -> QWidget:
     """Combine the well and stitched data widgets with a Plate Info button."""
     from omero_screen_napari._logging import init_plugin_logging
 
@@ -621,7 +626,7 @@ def welldata_widget(
         try:
             if _plate_is_stitched(plate_num):
                 msg = QMessageBox()
-                msg.setIcon(QMessageBox.Warning)
+                msg.setIcon(QMessageBox.Icon.Warning)
                 msg.setWindowTitle("Stitched plate — build zarr cache first")
                 msg.setText(
                     f"Plate {plate_num} was processed in stitched mode but "
@@ -632,7 +637,7 @@ def welldata_widget(
                     f"to build the zarr cache once, then loading is "
                     f"fast and bounded-memory."
                 )
-                msg.exec_()
+                msg.exec()
                 return
         except Exception as exc:  # noqa: BLE001 — safety net only
             logger.debug(
@@ -659,10 +664,10 @@ def welldata_widget(
             type(e)
         ):  # Avoid double message for the common ValueError
             msg = QMessageBox()
-            msg.setIcon(QMessageBox.Critical)
+            msg.setIcon(QMessageBox.Icon.Critical)
             msg.setText(f"An unexpected error occurred: {e}")
             msg.setWindowTitle("Widget Error")
-            msg.exec_()
+            msg.exec()
 
 
 def _display_plate(viewer: Viewer) -> None:
@@ -932,7 +937,7 @@ def start_zarr_build_worker(
         # base/pos are integer step counts (well_index * steps + sub-progress).
         sub = {"base": 0, "pos": 0, "well": 0}
 
-        @ensure_main_thread  # type: ignore[misc]
+        @ensure_main_thread
         def on_step(well_id: str, frac: float) -> None:
             """Fractional bar update (integer steps); marshalled to the GUI."""
             if not pbr:
@@ -965,7 +970,7 @@ def start_zarr_build_worker(
                     # @ensure_main_thread wraps on_step's return as a Future;
                     # the builder calls it fire-and-forget, so the runtime
                     # contract (str, float) -> None still holds.
-                    step_cb=on_step,  # type: ignore[arg-type]
+                    step_cb=cast(Callable[[str, float], None], on_step),
                     omero_conn=omero_conn,
                     # 3 OMERO connections in flight. Empirically the
                     # sweet spot for the Sussex OMERO link — higher
@@ -983,7 +988,12 @@ def start_zarr_build_worker(
                 omero_conn.close(hard=False)
             return None
 
-        worker = create_worker(_generator, _worker_class=GeneratorWorker)
+        # BackgroundGeneratorWorker so napari's quit() sets stop_flag, as
+        # the other cache workers do; a plain GeneratorWorker ignored it.
+        worker = create_worker(
+            _generator, _worker_class=BackgroundGeneratorWorker
+        )
+        assert isinstance(worker, BackgroundGeneratorWorker)
         worker.stop_flag = stop_flag
 
         def on_yield(well_id: str) -> None:
@@ -1038,7 +1048,9 @@ def start_zarr_build_worker(
                 notifications.show_warning(msg)
 
         worker.yielded.connect(on_yield)
-        worker.finished.connect(on_finished)
+        # superqt types no-arg signals as SigInst[None] (ty: ignore below).
+        finished = worker.finished
+        finished.connect(on_finished)  # ty: ignore[invalid-argument-type]
         worker.errored.connect(on_error)
         worker.returned.connect(on_returned)
         worker.start()
@@ -1111,6 +1123,7 @@ def start_cache_worker(plate_id: int) -> None:
             max_workers=max_workers,
             _worker_class=BackgroundGeneratorWorker,
         )
+        assert isinstance(worker, BackgroundGeneratorWorker)
         worker.stop_flag = stop_flag
 
         def on_finished() -> Any:
@@ -1159,9 +1172,11 @@ def start_cache_worker(plate_id: int) -> None:
                 notifications.show_warning(msg)
 
         worker.yielded.connect(on_progress)
-        worker.finished.connect(on_finished)
+        # superqt types no-arg signals as SigInst[None] (ty: ignore below).
+        finished = worker.finished
+        finished.connect(on_finished)  # ty: ignore[invalid-argument-type]
         worker.errored.connect(on_error)
-        worker.aborted.connect(on_aborted)
+        worker.aborted.connect(on_aborted)  # ty: ignore[invalid-argument-type]
         worker.returned.connect(on_returned)
         worker.start()
 
@@ -1262,6 +1277,7 @@ def start_data_worker(
             cache_images=cache_images,
             _worker_class=BackgroundGeneratorWorker,
         )
+        assert isinstance(worker, BackgroundGeneratorWorker)
         worker.stop_flag = stop_flag
 
         def on_finished() -> Any:
@@ -1307,11 +1323,13 @@ def start_data_worker(
                 pbr[0].close()
 
         worker.yielded.connect(on_progress)
-        worker.finished.connect(on_finished)
+        # superqt types no-arg signals as SigInst[None] (ty: ignore below).
+        finished = worker.finished
+        finished.connect(on_finished)  # ty: ignore[invalid-argument-type]
         worker.errored.connect(on_error)
         # Note: This does not seem to be called when napari exits and aborts threads
         # in the global pool. So we also check abort_requested in on_progress.
-        worker.aborted.connect(on_aborted)
+        worker.aborted.connect(on_aborted)  # ty: ignore[invalid-argument-type]
         worker.start()
 
         # The download has started. Store objects to allow it to be cancelled.
@@ -1349,8 +1367,8 @@ def add_image_to_viewer(viewer: Viewer) -> None:
         layer.name = channel_names[i]
 
     # Configure the scale bar
-    viewer.scale_bar.visible = True
-    viewer.scale_bar.unit = "µm"
+    viewer.canvas.overlays.scale_bar.visible = True
+    viewer.canvas.overlays.scale_bar.unit = "µm"
 
 
 def on_contrast_change(event: Any) -> None:
@@ -1417,7 +1435,7 @@ def handle_metadata_widget(
 
     if metadata_widget is not None:
         with contextlib.suppress(LookupError):
-            viewer.window.remove_dock_widget(metadata_widget)  # type: ignore
+            viewer.window.remove_dock_widget(metadata_widget)
 
     # Include well position in the displayed metadata
     well_metadata: dict[str, Any] = {}
@@ -1439,7 +1457,8 @@ def set_color_maps(viewer: Viewer) -> None:
     channel_names = [layer.name for layer in viewer.layers]
     color_maps: list[str | Colormap] = _generate_color_map(channel_names)
     for i, c in enumerate(color_maps):
-        viewer.layers[i].colormap = c
+        # Layers are all Image layers here; base Layer lacks colormap.
+        viewer.layers[i].colormap = c  # ty: ignore[unresolved-attribute]
 
 
 def add_label_layers(
@@ -1452,7 +1471,7 @@ def add_label_layers(
         return
     logger.debug(f"The labels shape is {labels.shape} ({labels.dtype})")
     if labels.shape[-1] == 1:
-        viewer.add_labels(
+        viewer.add_labels(  # ty: ignore[unresolved-attribute]
             np.squeeze(labels).astype(int),
             name="Nuclei Masks",
             scale=scale,
@@ -1460,8 +1479,13 @@ def add_label_layers(
     elif labels.shape[-1] == 2:
         channel_1_masks = labels[..., 0].astype(int)
         channel_2_masks = labels[..., 1].astype(int)
-        viewer.add_labels(channel_1_masks, name="Nuclei Masks", scale=scale)
-        viewer.add_labels(channel_2_masks, name="Cell Masks", scale=scale)
+        # add_* methods are generated at runtime; ty cannot see them.
+        viewer.add_labels(  # ty: ignore[unresolved-attribute]
+            channel_1_masks, name="Nuclei Masks", scale=scale
+        )
+        viewer.add_labels(  # ty: ignore[unresolved-attribute]
+            channel_2_masks, name="Cell Masks", scale=scale
+        )
     else:
         raise ValueError("Invalid segmentation label shape")
 
@@ -1597,8 +1621,8 @@ def _display_stitched(
         if stitched_labels.ndim == 3:
             stitched_labels = stitched_labels[np.newaxis, ...]
         add_label_layers(viewer, labels=stitched_labels)
-    viewer.scale_bar.visible = True
-    viewer.scale_bar.unit = "µm"
+    viewer.canvas.overlays.scale_bar.visible = True
+    viewer.canvas.overlays.scale_bar.unit = "µm"
     # viewer.reset_view()
 
 

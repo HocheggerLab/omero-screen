@@ -50,7 +50,6 @@ omero-screen-napari = "omero_screen_napari:napari.yaml"
 omero_screen = "omero_screen_napari.review.mcp_tools:register"
 
 
-
 [project.scripts]
 omero-train = "omero_screen_napari.trainingdata_db.cli:main"
 omero-screen-images = "omero_screen_napari.images_cli:main"
@@ -61,43 +60,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/omero_screen_napari"]
-
-# ===========================
-# Mypy Configuration Section
-# ===========================
-
-[tool.mypy]
-strict = true
-python_version = 3.12
-exclude = [
-    "tests/.*",
-    ".venv/.*",
-    "venv/.*",
-    "env/.*",
-    "build/.*",
-    "dist/.*",
-    "migrations/.*",
-]
-
-incremental = true
-cache_dir = ".mypy_cache"
-ignore_missing_imports = false
-#follow_imports = "silent"
-pretty = true
-warn_unused_configs = true
-
-[[tool.mypy.overrides]]
-module = [
-    "zarr",
-    "zarr.*",
-    "ome_zarr",
-    "ome_zarr.*",
-    "omero",
-    "omero.*",
-    "dask",
-    "dask.*",
-]
-ignore_missing_imports = true
 
 
 # ===========================

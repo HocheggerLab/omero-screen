@@ -636,10 +636,9 @@ def _select_well_sample(
     """Get a dataframe for the specified well sample."""
     mask1 = df["well"].values == well
     mask2 = df["image_id"].values == image_id
-    df1 = df[mask1 & mask2].copy()
+    df1 = pd.DataFrame(df.loc[mask1 & mask2], copy=True)
     df1.reset_index(drop=True, inplace=True)
-    # mypy identifies this as Series[Any] and not a DataFrame
-    return df1  # type: ignore[return-value]
+    return df1
 
 
 def _get_well_samples(
@@ -1092,7 +1091,7 @@ def _get_mask_from_map(
         axis_lengths = [image.getSizeX(), image.getSizeY(), 1, 1, 1]
         _, masks = get_image(conn, image.getId(), axis_lengths=axis_lengths)
         # masks is TZYXC: convert to a YX image
-        return masks[0][0][..., 0]  # type: ignore[no-any-return]
+        return masks[0][0][..., 0]
     raise OmeroError(
         f"Segmentation not found in for image {image_id}",
         logger,

@@ -99,8 +99,10 @@ jobs:
       - name: Format with Ruff
         run: uv run ruff format --check .
 
-      - name: Type check with mypy
-        run: uv run mypy src
+      - name: Type check with ty
+        # The whole workspace (all six packages), in the project venv; ty is
+        # pinned in the dev group and configured in pyproject.toml [tool.ty].
+        run: uv run ty check
 
       - name: Set-up env
         run: |

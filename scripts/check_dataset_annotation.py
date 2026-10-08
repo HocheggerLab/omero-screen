@@ -32,6 +32,7 @@ HOST), selected by the ENV variable as elsewhere in the pipeline.
 """
 
 import argparse
+from typing import Any
 
 from omero.gateway import BlitzGateway, MapAnnotationWrapper
 from omero_utils.omero_connect import omero_connect
@@ -41,10 +42,10 @@ import omero_screen  # noqa: F401
 from omero_screen.constants import OmeroScreenNS
 
 
-def _describe_owner(obj: object) -> str:
+def _describe_owner(obj: Any) -> str:
     """Return a 'name (id=N)' string for an OMERO object's owner, if available."""
     try:
-        details = obj.getDetails()  # type: ignore[attr-defined]
+        details = obj.getDetails()
         owner = details.getOwner()
         return f"{owner.getOmeName()} (id={owner.getId()})"
     except Exception:  # pragma: no cover - best-effort diagnostics

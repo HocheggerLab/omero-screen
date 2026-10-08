@@ -111,7 +111,6 @@ gui = ["omero-screen-napari[qt]"]
 
 dev = [
     "commitizen>=4.1.0",
-    "mypy>=1.15.0",
     "pandas-stubs",
     "typing-extensions>=4.9.0",
     "pre-commit>=4.0.1",
@@ -121,47 +120,46 @@ dev = [
     "nbstripout",
     "jupytext",
     "fastmcp>=2.12",
+    "ty==0.0.85",
 ]
 
 # ===========================
-# Mypy Configuration Section
+# ty Configuration Section
 # ===========================
+# ty (Astral) type-checks the whole workspace in the project venv, in
+# pre-commit and CI. It is beta: pinned exactly in both, bumped deliberately.
 
-[tool.mypy]
-strict = true
-python_version = "3.12"
-explicit_package_bases = true
-namespace_packages = true
-allow_untyped_decorators = true
-mypy_path = "src:packages/omero-utils/src:packages/omero-screen-napari/src:packages/omero-screen-plots/src:packages/cellview/src:packages/cellclass/src"
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.analysis]
+# Third-party typing gaps, handled here instead of with per-line ignores:
+# - Ice, omero.api / .model / .rtypes / .sys: Ice generates its
+#   exceptions and the model classes (PlateI, LengthI, ...) at import time,
+#   so ty cannot see them statically;
+# - ezomero: its untyped decorators make every wrapped function `object`.
+replace-imports-with-any = ["Ice", "omero.api", "omero.api.**", "omero.model", "omero.model.**", "omero.rtypes", "omero.sys", "ezomero", "ezomero.**"]
+
+[tool.ty.src]
 exclude = [
-    "tests/.*",
-    ".venv/.*",
-    "venv/.*",
-    "env/.*",
-    "build/.*",
-    "dist/.*",
-    "migrations/.*",
-    ".*/(examples|docs|notebooks)/.*",    # Multiple dirs in one pattern
-    ".*_nb\\.py$",                        # Jupytext files with _nb suffix
-    ".*\\.ipynb$",
-    "omero_screen_napari_original/.*",
-    "examples/.*",
-    ".*/test_stats\\.py$",
-    "skills/.*",                          # runtime-agnostic skill asset scripts
-    "plugins/.*/skills/.*",
+    "tests/",                                 # not type-checked, by choice
+    "src/omero_screen/cellpose3/",            # ported from Cellpose v3
+    "skills/",                                # runtime-agnostic skill asset scripts
+    "plugins/*/skills/",
+    "**/examples/",
+    "**/docs/",
+    "**/notebooks/",
+    "omero_screen_napari_original/",
 ]
-incremental = true
-cache_dir = ".mypy_cache"
-ignore_missing_imports = true
-pretty = true
-warn_unused_configs = false
-warn_unused_ignores = false
 
-[[tool.mypy.overrides]]
-# Ignore everything ported from Cellpose v3
-module = "omero_screen.cellpose3.*"
-ignore_errors = true
+# cellview explore templates are fill-in notebooks: the user defines
+# `conditions` (and the condition column) before running, so the name is
+# unbound by design. Keep every other check on.
+[[tool.ty.overrides]]
+include = ["packages/cellview/src/cellview/explore/templates/**"]
+
+[tool.ty.overrides.rules]
+unresolved-reference = "ignore"
 
 
 # ===========================

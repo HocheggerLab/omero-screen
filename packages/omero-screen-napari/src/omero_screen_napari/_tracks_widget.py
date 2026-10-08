@@ -158,7 +158,7 @@ def tracks_widget(
 
     # Replace any existing tracks layer so re-running is idempotent.
     if _TRACKS_LAYER_NAME in viewer.layers:
-        del viewer.layers[_TRACKS_LAYER_NAME]
+        viewer.layers.remove(viewer.layers[_TRACKS_LAYER_NAME])
 
     scale = _reference_scale(viewer)
     add_kwargs: dict[str, object] = {}
@@ -172,7 +172,7 @@ def tracks_widget(
     # arboretum's lineage view until divisions are turned back on).
     graph = tracks.graph if show_divisions else {}
 
-    viewer.add_tracks(
+    viewer.add_tracks(  # ty: ignore[unresolved-attribute]
         tracks.data,
         graph=graph,
         properties=tracks.properties,
@@ -363,7 +363,7 @@ def unpin_plate_widget(viewer: Viewer) -> None:
         )
 
 
-def tracks_gui_widget() -> Container:  # type: ignore[type-arg]
+def tracks_gui_widget() -> Container:
     """Stack the Tracks, per-track CSV, Mastodon-export and pin/unpin widgets."""
     from omero_screen_napari._logging import init_plugin_logging
 

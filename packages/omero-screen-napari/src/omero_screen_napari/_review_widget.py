@@ -88,7 +88,7 @@ QUEUE_ENV = "OMERO_SCREEN_REVIEW_QUEUE"
 DB_ENV = "OMERO_SCREEN_REVIEW_DB"
 
 
-class TrackReviewWidget(QWidget):  # type: ignore[misc]
+class TrackReviewWidget(QWidget):
     """Dock widget driving a :class:`ReviewSession`."""
 
     def __init__(self, napari_viewer: Viewer) -> None:
@@ -131,7 +131,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         self.items.currentRowChanged.connect(self._on_row)
         self.details = QLabel("No queue loaded.")
         self.details.setWordWrap(True)
-        self.details.setTextFormat(Qt.RichText)
+        self.details.setTextFormat(Qt.TextFormat.RichText)
 
         # -- navigation ------------------------------------------------------
         prev_btn, next_btn = QPushButton("◀ Cell"), QPushButton("Cell ▶")
@@ -454,7 +454,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         t = item.frame if frame is None else frame
         self.viewer.dims.set_current_step(0, t)
         self._centre(t)
-        self.viewer.camera.zoom = self.zoom.value()
+        self.viewer.scene.camera.zoom = self.zoom.value()
         self._refresh_proposals()
 
     def _redraw(self) -> None:
@@ -469,7 +469,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
             self.path_df = None
         for name in REVIEW_LAYERS:
             if name in self.viewer.layers:
-                self.viewer.layers.remove(name)
+                self.viewer.layers.remove(self.viewer.layers[name])
         self.cands = None
         self._draw_path()
         self._show_details()
@@ -492,7 +492,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         scale = (1.0, self._pixel_size, self._pixel_size)
         coords = np.array([[t, y, x] for t, y, x, _ in pts], dtype=float)
         if len(coords) > 1:
-            self.viewer.add_tracks(
+            self.viewer.add_tracks(  # ty: ignore[unresolved-attribute]
                 np.column_stack([np.zeros(len(coords)), coords]),
                 name=PATH_LAYER,
                 scale=scale,
@@ -502,7 +502,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
                 blending="translucent",
             )
         gap = np.array([lab == 0 for *_, lab in pts])
-        self.viewer.add_points(
+        self.viewer.add_points(  # ty: ignore[unresolved-attribute]
             coords,
             name=MARKER_LAYER,
             scale=scale,
@@ -513,7 +513,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
             out_of_slice_display=False,
         )
         if self._nuclei is not None:
-            self.viewer.add_labels(
+            self.viewer.add_labels(  # ty: ignore[unresolved-attribute]
                 _cell_mask(
                     self._nuclei, {t: lab for t, _, _, lab in pts if lab}
                 ),
@@ -579,7 +579,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
             return
         before = [p for p in pts if p[0] <= t] or pts[:1]
         _, y, x, _ = before[-1]
-        self.viewer.camera.center = (
+        self.viewer.scene.camera.center = (
             y * self._pixel_size,
             x * self._pixel_size,
         )
@@ -792,9 +792,9 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         if self._nuclei is None:
             return
         if DRAW_LAYER in self.viewer.layers:
-            self.viewer.layers.remove(DRAW_LAYER)
+            self.viewer.layers.remove(self.viewer.layers[DRAW_LAYER])
         shape = self._nuclei.shape[-2:]
-        layer = self.viewer.add_labels(
+        layer = self.viewer.add_labels(  # ty: ignore[unresolved-attribute]
             np.zeros(shape, dtype=np.uint8),
             name=DRAW_LAYER,
             scale=(self._pixel_size, self._pixel_size),
@@ -826,7 +826,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         except (MaskError, ValueError) as err:
             notifications.show_warning(str(err))
             return
-        self.viewer.layers.remove(DRAW_LAYER)
+        self.viewer.layers.remove(self.viewer.layers[DRAW_LAYER])
         self.mode_label.setText("")
         self._redraw()
         self.viewer.dims.set_current_step(0, t)
@@ -842,12 +842,12 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
             notifications.show_warning(str(err))
             return
         if CAND_LAYER in self.viewer.layers:
-            self.viewer.layers.remove(CAND_LAYER)
+            self.viewer.layers.remove(self.viewer.layers[CAND_LAYER])
         if self.cands is None or self.cands.empty:
             notifications.show_info("No candidates within reach.")
             return
         coords = self.cands[["timepoint", "y", "x"]].to_numpy(dtype=float)
-        self.viewer.add_points(
+        self.viewer.add_points(  # ty: ignore[unresolved-attribute]
             coords,
             name=CAND_LAYER,
             scale=(1.0, self._pixel_size, self._pixel_size),
@@ -944,7 +944,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
 
     def _draw_proposal(self) -> None:
         if PROPOSAL_LAYER in self.viewer.layers:
-            self.viewer.layers.remove(PROPOSAL_LAYER)
+            self.viewer.layers.remove(self.viewer.layers[PROPOSAL_LAYER])
         pending = self._pending()
         row = self.proposal_list.currentRow()
         if (
@@ -965,7 +965,7 @@ class TrackReviewWidget(QWidget):  # type: ignore[misc]
         hit = det[(det.timepoint == int(frame)) & (det.label == int(label))]
         if hit.empty:
             return
-        self.viewer.add_points(
+        self.viewer.add_points(  # ty: ignore[unresolved-attribute]
             hit[["timepoint", "y", "x"]].to_numpy(dtype=float),
             name=PROPOSAL_LAYER,
             scale=(1.0, self._pixel_size, self._pixel_size),

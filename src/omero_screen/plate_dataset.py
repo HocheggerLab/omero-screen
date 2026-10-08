@@ -15,13 +15,14 @@ Typical usage:
 
 """
 
-import omero
 from loguru import logger
 from omero.gateway import (
     BlitzGateway,
     BlitzObjectWrapper,
     MapAnnotationWrapper,
 )
+from omero.model import DatasetI, ProjectDatasetLinkI, ProjectI
+from omero.rtypes import rstring
 from omero_utils.map_anns import add_map_annotations, parse_annotations
 from omero_utils.message import PlateDataError, log_success
 
@@ -136,8 +137,8 @@ class PlateDataset:
         )
         if len(projects) == 0:
             logger.debug("Creating Screens project")
-            obj = omero.model.ProjectI()
-            obj.setName(omero.rtypes.rstring("Screens"))
+            obj = ProjectI()
+            obj.setName(rstring("Screens"))
             project_id = (
                 self.conn.getUpdateService()
                 .saveAndReturnObject(obj)
@@ -184,13 +185,13 @@ class PlateDataset:
             )
             return int(dataset_id)
         else:
-            obj = omero.model.DatasetI()
-            obj.setName(omero.rtypes.rstring(self.plate_id))
+            obj = DatasetI()
+            obj.setName(rstring(self.plate_id))
             obj = self.conn.getUpdateService().saveAndReturnObject(obj)
             new_dataset_id = obj.getId().val
-            link = omero.model.ProjectDatasetLinkI()
+            link = ProjectDatasetLinkI()
             link.setChild(obj)
-            link.setParent(omero.model.ProjectI(project_id, False))
+            link.setParent(ProjectI(project_id, False))
             self.conn.getUpdateService().saveObject(link)
             log_success(
                 SUCCESS_STYLE,

@@ -184,7 +184,7 @@ def create_model(
     return mapping.get(model)
 
 
-class ROIBasedDenseNetModel121(nn.Module):  # type: ignore[misc]
+class ROIBasedDenseNetModel121(nn.Module):
     """ROIBased Dense Net Model121 classifier."""
 
     def __init__(
@@ -217,10 +217,10 @@ class ROIBasedDenseNetModel121(nn.Module):  # type: ignore[misc]
         roi_features = self.roi_model.features(roi)
         roi_features = torch.flatten(roi_features, 1)
         x = torch.relu(self.fc1(roi_features))
-        return self.fc2(self.dropout(x))  # type: ignore[no-any-return]
+        return self.fc2(self.dropout(x))
 
 
-class ROIBasedDenseNetModel161(nn.Module):  # type: ignore[misc]
+class ROIBasedDenseNetModel161(nn.Module):
     """ROIBased Dense Net Model161 classifier."""
 
     def __init__(
@@ -253,10 +253,10 @@ class ROIBasedDenseNetModel161(nn.Module):  # type: ignore[misc]
         roi_features = self.roi_model.features(roi)
         roi_features = torch.flatten(roi_features, 1)
         x = torch.relu(self.fc1(roi_features))
-        return self.fc2(self.dropout(x))  # type: ignore[no-any-return]
+        return self.fc2(self.dropout(x))
 
 
-class ROIBasedDenseNetModel169(nn.Module):  # type: ignore[misc]
+class ROIBasedDenseNetModel169(nn.Module):
     """ROIBased Dense Net Model169 classifier."""
 
     def __init__(
@@ -289,10 +289,10 @@ class ROIBasedDenseNetModel169(nn.Module):  # type: ignore[misc]
         roi_features = self.roi_model.features(roi)
         roi_features = torch.flatten(roi_features, 1)
         x = torch.relu(self.fc1(roi_features))
-        return self.fc2(self.dropout(x))  # type: ignore[no-any-return]
+        return self.fc2(self.dropout(x))
 
 
-class ROIBasedDenseNetModel201(nn.Module):  # type: ignore[misc]
+class ROIBasedDenseNetModel201(nn.Module):
     """ROIBased Dense Net Model201 classifier."""
 
     def __init__(
@@ -325,10 +325,10 @@ class ROIBasedDenseNetModel201(nn.Module):  # type: ignore[misc]
         roi_features = self.roi_model.features(roi)
         roi_features = torch.flatten(roi_features, 1)
         x = torch.relu(self.fc1(roi_features))
-        return self.fc2(self.dropout(x))  # type: ignore[no-any-return]
+        return self.fc2(self.dropout(x))
 
 
-class ROIBasedSqueezeNetModel1_0(nn.Module):  # type: ignore[misc]
+class ROIBasedSqueezeNetModel1_0(nn.Module):
     """ROIBased Squeeze Net Model1_0 classifier."""
 
     def __init__(
@@ -361,10 +361,10 @@ class ROIBasedSqueezeNetModel1_0(nn.Module):  # type: ignore[misc]
         roi_features = self.global_avg_pool(roi_features)
         roi_features = torch.flatten(roi_features, 1)
         x = torch.relu(self.fc1(roi_features))
-        return self.fc2(self.dropout(x))  # type: ignore[no-any-return]
+        return self.fc2(self.dropout(x))
 
 
-class ROIBasedShuffleNetModel2x1_0(nn.Module):  # type: ignore[misc]
+class ROIBasedShuffleNetModel2x1_0(nn.Module):
     """ROIBased Shuffle Net Model2x1_0 classifier."""
 
     def __init__(
@@ -395,10 +395,10 @@ class ROIBasedShuffleNetModel2x1_0(nn.Module):  # type: ignore[misc]
         """Run the forward pass and return logits."""
         roi_features = self.roi_model(roi)
         x = torch.relu(self.fc1(roi_features))
-        return self.fc2(self.dropout(x))  # type: ignore[no-any-return]
+        return self.fc2(self.dropout(x))
 
 
-class ROIBasedShuffleNetModel2x1_5(nn.Module):  # type: ignore[misc]
+class ROIBasedShuffleNetModel2x1_5(nn.Module):
     """ROIBased Shuffle Net Model2x1_5 classifier."""
 
     def __init__(
@@ -429,10 +429,10 @@ class ROIBasedShuffleNetModel2x1_5(nn.Module):  # type: ignore[misc]
         """Run the forward pass and return logits."""
         roi_features = self.roi_model(roi)
         x = torch.relu(self.fc1(roi_features))
-        return self.fc2(self.dropout(x))  # type: ignore[no-any-return]
+        return self.fc2(self.dropout(x))
 
 
-class ROIBasedShuffleNetModel2x2_0(nn.Module):  # type: ignore[misc]
+class ROIBasedShuffleNetModel2x2_0(nn.Module):
     """ROIBased Shuffle Net Model2x2_0 classifier."""
 
     def __init__(
@@ -463,10 +463,10 @@ class ROIBasedShuffleNetModel2x2_0(nn.Module):  # type: ignore[misc]
         """Run the forward pass and return logits."""
         roi_features = self.roi_model(roi)
         x = torch.relu(self.fc1(roi_features))
-        return self.fc2(self.dropout(x))  # type: ignore[no-any-return]
+        return self.fc2(self.dropout(x))
 
 
-class ROIBasedEfficientNetB3(nn.Module):  # type: ignore[misc]
+class ROIBasedEfficientNetB3(nn.Module):
     """ROIBased Efficient Net B3 classifier."""
 
     def __init__(
@@ -497,10 +497,10 @@ class ROIBasedEfficientNetB3(nn.Module):  # type: ignore[misc]
         """Run the forward pass and return logits."""
         roi_features = self.roi_model(roi)
         x = torch.relu(self.fc1(roi_features))
-        return self.fc2(self.dropout(x))  # type: ignore[no-any-return]
+        return self.fc2(self.dropout(x))
 
 
-class ROIBasedEfficientNetB4(nn.Module):  # type: ignore[misc]
+class ROIBasedEfficientNetB4(nn.Module):
     """ROIBased Efficient Net B4 classifier."""
 
     def __init__(
@@ -531,10 +531,10 @@ class ROIBasedEfficientNetB4(nn.Module):  # type: ignore[misc]
         """Run the forward pass and return logits."""
         roi_features = self.roi_model(roi)
         x = torch.relu(self.fc1(roi_features))
-        return self.fc2(self.dropout(x))  # type: ignore[no-any-return]
+        return self.fc2(self.dropout(x))
 
 
-class ROIBasedEfficientNetB3s(nn.Module):  # type: ignore[misc]
+class ROIBasedEfficientNetB3s(nn.Module):
     """ROIBased Efficient Net B3s classifier."""
 
     def __init__(
@@ -566,7 +566,7 @@ class ROIBasedEfficientNetB3s(nn.Module):  # type: ignore[misc]
 
     def forward(self, roi: Tensor) -> Tensor:
         """Run the forward pass and return logits."""
-        return self.roi_model(roi)  # type: ignore[no-any-return]
+        return self.roi_model(roi)
 
     def parameters(self, recurse: bool = True) -> Iterator[nn.Parameter]:
         """Yield trainable parameters, respecting freeze_weights setting."""
@@ -578,7 +578,7 @@ class ROIBasedEfficientNetB3s(nn.Module):  # type: ignore[misc]
         yield from super().parameters(recurse=recurse)
 
 
-class ROIBasedEfficientNetB4s(nn.Module):  # type: ignore[misc]
+class ROIBasedEfficientNetB4s(nn.Module):
     """ROIBased Efficient Net B4s classifier."""
 
     def __init__(
@@ -610,7 +610,7 @@ class ROIBasedEfficientNetB4s(nn.Module):  # type: ignore[misc]
 
     def forward(self, roi: Tensor) -> Tensor:
         """Run the forward pass and return logits."""
-        return self.roi_model(roi)  # type: ignore[no-any-return]
+        return self.roi_model(roi)
 
     def parameters(self, recurse: bool = True) -> Iterator[nn.Parameter]:
         """Yield trainable parameters, respecting freeze_weights setting."""
@@ -622,7 +622,7 @@ class ROIBasedEfficientNetB4s(nn.Module):  # type: ignore[misc]
         yield from super().parameters(recurse=recurse)
 
 
-class ROIBasedResNeXt50_32x4d(nn.Module):  # type: ignore[misc]
+class ROIBasedResNeXt50_32x4d(nn.Module):
     """ROIBased Res Ne Xt50_32x4d classifier."""
 
     def __init__(
@@ -654,10 +654,10 @@ class ROIBasedResNeXt50_32x4d(nn.Module):  # type: ignore[misc]
         roi_features = self.roi_model(roi)
         roi_features = torch.flatten(roi_features, 1)
         x = torch.relu(self.fc1(roi_features))
-        return self.fc2(self.dropout(x))  # type: ignore[no-any-return]
+        return self.fc2(self.dropout(x))
 
 
-class AttentionModule(nn.Module):  # type: ignore[misc]
+class AttentionModule(nn.Module):
     """Spatial attention module combining two feature maps."""
 
     def __init__(
@@ -689,7 +689,7 @@ class AttentionModule(nn.Module):  # type: ignore[misc]
         return weighted_features, attention_map
 
 
-class ChannelAttentionModule(nn.Module):  # type: ignore[misc]
+class ChannelAttentionModule(nn.Module):
     """Channel attention module."""
 
     def __init__(self, num_channels: int = 256) -> None:
@@ -710,10 +710,10 @@ class ChannelAttentionModule(nn.Module):  # type: ignore[misc]
         x_max = x_max.view(x.size(0), -1)
         attention = torch.sigmoid(self.mlp(x_avg) + self.mlp(x_max))
         attention = attention.view(attention.size(0), -1, 1, 1)
-        return attention * x  # type: ignore[no-any-return]
+        return attention * x
 
 
-class CustomAlexNet(nn.Module):  # type: ignore[misc]
+class CustomAlexNet(nn.Module):
     """Custom Alex Net classifier."""
 
     def __init__(
@@ -740,10 +740,10 @@ class CustomAlexNet(nn.Module):  # type: ignore[misc]
 
     def forward(self, x: Tensor) -> Tensor:
         """Run the forward pass and return logits."""
-        return self.roi_model(x)  # type: ignore[no-any-return]
+        return self.roi_model(x)
 
 
-class AlexNetAttention(nn.Module):  # type: ignore[misc]
+class AlexNetAttention(nn.Module):
     """AlexNet with spatial attention."""
 
     def __init__(
@@ -787,10 +787,10 @@ class AlexNetAttention(nn.Module):  # type: ignore[misc]
         )
         x = torch.flatten(x, 1)
         x = self.dropout(x)
-        return self.classifier(x)  # type: ignore[no-any-return]
+        return self.classifier(x)
 
 
-class CustomGoogLeNet(nn.Module):  # type: ignore[misc]
+class CustomGoogLeNet(nn.Module):
     """GoogLeNet without auxiliary classifiers."""
 
     def __init__(
@@ -836,10 +836,10 @@ class CustomGoogLeNet(nn.Module):  # type: ignore[misc]
         x = g.avgpool(x)
         x = torch.flatten(x, 1)
         x = g.dropout(x)
-        return g.fc(x)  # type: ignore[no-any-return]
+        return g.fc(x)
 
 
-class GoogLeNetAttention(nn.Module):  # type: ignore[misc]
+class GoogLeNetAttention(nn.Module):
     """GoogLeNet with spatial attention at inception4a and inception4e."""
 
     def __init__(
@@ -895,10 +895,10 @@ class GoogLeNetAttention(nn.Module):  # type: ignore[misc]
         )
         x = torch.flatten(x, 1)
         x = g.dropout(x)
-        return g.fc(x)  # type: ignore[no-any-return]
+        return g.fc(x)
 
 
-class SimpleGoogLeNet(nn.Module):  # type: ignore[misc]
+class SimpleGoogLeNet(nn.Module):
     """Lightweight GoogLeNet using a subset of inception blocks."""
 
     def __init__(
@@ -952,10 +952,10 @@ class SimpleGoogLeNet(nn.Module):  # type: ignore[misc]
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         x = self.dropout(x)
-        return self.fc(x)  # type: ignore[no-any-return]
+        return self.fc(x)
 
 
-class SimpleGoogLeNetAttention(nn.Module):  # type: ignore[misc]
+class SimpleGoogLeNetAttention(nn.Module):
     """Lightweight GoogLeNet with spatial attention."""
 
     def __init__(
@@ -1028,7 +1028,7 @@ class SimpleGoogLeNetAttention(nn.Module):  # type: ignore[misc]
         return x
 
 
-class SimpleGoogLeNetChannelAttention(nn.Module):  # type: ignore[misc]
+class SimpleGoogLeNetChannelAttention(nn.Module):
     """Lightweight GoogLeNet with channel attention."""
 
     def __init__(
@@ -1093,10 +1093,10 @@ class SimpleGoogLeNetChannelAttention(nn.Module):  # type: ignore[misc]
         )
         x = torch.flatten(x, 1)
         x = self.dropout(x)
-        return self.fc(x)  # type: ignore[no-any-return]
+        return self.fc(x)
 
 
-class SimpleGoogLeNetAttentionBoth(nn.Module):  # type: ignore[misc]
+class SimpleGoogLeNetAttentionBoth(nn.Module):
     """Lightweight GoogLeNet with both channel and spatial attention."""
 
     def __init__(
@@ -1165,4 +1165,4 @@ class SimpleGoogLeNetAttentionBoth(nn.Module):  # type: ignore[misc]
         )
         x = torch.flatten(x, 1)
         x = self.dropout(x)
-        return self.fc(x)  # type: ignore[no-any-return]
+        return self.fc(x)

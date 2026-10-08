@@ -21,7 +21,7 @@ from __future__ import annotations
 import contextlib
 import os
 import shutil
-from collections.abc import Iterator
+from collections.abc import Generator
 from pathlib import Path
 
 from loguru import logger
@@ -90,7 +90,7 @@ def pin_plate(plate_id: int, *, persist: bool = True) -> None:
 
 
 @contextlib.contextmanager
-def transient_pin(plate_id: int) -> Iterator[None]:
+def transient_pin(plate_id: int) -> Generator[None]:
     """Pin a plate for the duration of a block, then restore the prior state.
 
     Used around a build so a concurrent build's pre-flight eviction cannot

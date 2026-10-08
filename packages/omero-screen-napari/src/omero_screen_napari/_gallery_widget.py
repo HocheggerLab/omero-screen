@@ -134,14 +134,14 @@ def _commit_viewer_contrast_to_intensities() -> None:
         logger.info(f"Gallery contrast synced from viewer: {new_intensities}")
 
 
-def gallery_gui_widget() -> Container:  # type: ignore
+def gallery_gui_widget() -> Container:
     from omero_screen_napari._logging import init_plugin_logging
 
     init_plugin_logging()
     gallery_widget_instance = gallery_widget()
     reset_widget_instance = reset_widget()
     export_widget_instance = gallery_export_widget()
-    container = Container(  # type: ignore[type-var]
+    container = Container(
         widgets=[
             gallery_widget_instance,
             reset_widget_instance,
@@ -150,7 +150,9 @@ def gallery_gui_widget() -> Container:  # type: ignore
     )
     setup = ClassifierSetupWidget()
     container.native.layout().addWidget(setup.widget)
-    container._classifier_setup = setup  # prevent GC: signals reference self via bound methods  # type: ignore[attr-defined]
+    container._classifier_setup = (
+        setup  # prevent GC: signals reference self via bound methods
+    )
     return container
 
 

@@ -24,7 +24,7 @@ from omero_screen_napari.welldata_api import (
 )
 
 
-def aligned_plate_widget_gui() -> Container:  # type: ignore[type-arg]
+def aligned_plate_widget_gui() -> Container:
     """This function combines the widgets into a single widget."""
     from omero_screen_napari._logging import init_plugin_logging
 
@@ -149,5 +149,5 @@ def _add_image_to_viewer(
         layer.name = channel_names[i]
 
     # Configure the scale bar
-    viewer.scale_bar.visible = True
-    viewer.scale_bar.unit = "µm"
+    viewer.canvas.overlays.scale_bar.visible = True
+    viewer.canvas.overlays.scale_bar.unit = "µm"

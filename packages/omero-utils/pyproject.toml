@@ -13,36 +13,6 @@ dependencies = []
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# ===========================
-# Mypy Configuration Section
-# ===========================
-
-[tool.mypy]
-strict = true
-python_version = 3.12
-exclude = [
-    "tests/.*",
-    ".venv/.*",
-    "venv/.*",
-    "env/.*",
-    "build/.*",
-    "dist/.*",
-    "migrations/.*",
-]
-
-incremental = true
-cache_dir = ".mypy_cache"
-ignore_missing_imports = false
-#follow_imports = "silent"
-pretty = true
-warn_unused_configs = true
-
-["tool.mypy.some_untyped_package.*"]
-ignore_missing_imports = true
-
-["tool.mypy.another_untyped_package.*"]
-ignore_missing_imports = true
-
 
 # ===========================
 # Ruff Configuration Section

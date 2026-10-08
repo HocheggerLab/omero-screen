@@ -47,7 +47,7 @@ class Model(Enum):
     @property
     def size(self) -> int:
         """Return the expected square input size in pixels."""
-        return int(self._size_)  # type: ignore[attr-defined]
+        return int(self._size_)
 
 
 class Existing(StrEnum):

@@ -18,9 +18,10 @@ cell masks for accuracy benchmarking.
 import argparse
 import os
 import sys
+from typing import Any
 
 
-def _get_channel_names(conn: object, image: object) -> list[str]:
+def _get_channel_names(conn: Any, image: Any) -> list[str]:
     """Resolve channel names from well/plate map annotations.
 
     Args:
@@ -34,24 +35,24 @@ def _get_channel_names(conn: object, image: object) -> list[str]:
 
     from omero_screen.constants import OmeroScreenNS
 
-    n_channels = int(image.getSizeC())  # type: ignore[attr-defined]
+    n_channels = int(image.getSizeC())
     defaults = [f"ch{i}" for i in range(n_channels)]
 
     # image → well → plate; reload each via conn to get fully-loaded objects
-    well_id = image.getWellId() if hasattr(image, "getWellId") else None  # type: ignore[attr-defined]
+    well_id = image.getWellId() if hasattr(image, "getWellId") else None
     if well_id is None:
         # Fall back: navigate via listParents
-        parents = list(image.listParents())  # type: ignore[attr-defined]
+        parents = list(image.listParents())
         well_id = parents[0].getId() if parents else None
 
     if well_id is None:
         return defaults
 
-    well = conn.getObject("Well", well_id)  # type: ignore[attr-defined]
+    well = conn.getObject("Well", well_id)
     if well is None:
         return defaults
 
-    plate = conn.getObject("Plate", well.getPlate().getId())  # type: ignore[attr-defined]
+    plate = conn.getObject("Plate", well.getPlate().getId())
     candidates = [obj for obj in [well, plate] if obj is not None]
 
     channel_map: dict[int, str] = {}
@@ -97,7 +98,7 @@ def main() -> None:
     @omero_connect
     def _load(
         image_id: int, conn: BlitzGateway | None = None
-    ) -> tuple[object, ...]:  # type: ignore[return]
+    ) -> tuple[object, ...]:
         assert conn is not None
         image = conn.getObject("Image", image_id)
         if image is None:

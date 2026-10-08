@@ -7,7 +7,7 @@ for annotation without requiring welldata_widget pre-loading.
 import json
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -114,7 +114,9 @@ def load_cell_population(
     cells: list[tuple[int, int, int, str | None]] = []
     for image_id in sorted(df["image_id"].unique()):
         image_df = df[df["image_id"] == image_id]
-        rows, cols, _ = _resolve_centroids(image_df, segmentation)  # type: ignore[arg-type]
+        # Callers pass the user-data value: "nucleus" or "cell".
+        seg = cast(Literal["nucleus", "cell"], segmentation)
+        rows, cols, _ = _resolve_centroids(image_df, seg)
         if has_prediction:
             # _resolve_centroids drops duplicate centroids for cell
             # segmentation, so re-read predictions from the same rows.
@@ -343,7 +345,11 @@ def load_crops_from_omero(
         # Get timepoint from metadata
         timepoint = int(user_data_dict.get("timepoint", 0))
         crop_size = user_data_dict["crop_size"]
-        segmentation = user_data_dict.get("segmentation", "nucleus")
+        # The gallery user data only ever stores "nucleus" or "cell".
+        segmentation = cast(
+            Literal["nucleus", "cell"],
+            user_data_dict.get("segmentation", "nucleus"),
+        )
 
         # Resolve indices → real OMERO image IDs (needed by both the zarr
         # fast path and the legacy per-image loop below).
@@ -594,7 +600,7 @@ def _run_crop_pipeline(
     well: Any,
     image_id_by_index: dict[int, int],
     centroids: Any,
-    segmentation: str,
+    segmentation: Literal["nucleus", "cell"],
     crop_size: int,
     timepoint: int,
     intensities: dict[int, tuple[float, float]] | None,
@@ -626,7 +632,7 @@ def _run_crop_pipeline(
     pipeline = CropPipeline(
         source=source,
         centroids_df=centroids,
-        segmentation=segmentation,  # type: ignore[arg-type]
+        segmentation=segmentation,
         crop_size=crop_size,
         timepoint=timepoint,
         excluded_centroids=excluded_centroids,
@@ -640,7 +646,7 @@ def _run_crop_pipeline(
         return CropPipeline(
             source=_omero_source(),
             centroids_df=centroids,
-            segmentation=segmentation,  # type: ignore[arg-type]
+            segmentation=segmentation,
             crop_size=crop_size,
             timepoint=timepoint,
             excluded_centroids=excluded_centroids,

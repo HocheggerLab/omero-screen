@@ -781,7 +781,7 @@ def _create_foreground(
             (np.ones((width, 1), dtype=np.uint8), 1),
             (np.ones((1, width), dtype=np.uint8), 1),
         ]
-        return erosion(foreground, footprint=foot, mode="constant")  # type: ignore[no-any-return]
+        return erosion(foreground, footprint=foot, mode="constant")
     return None
 
 
@@ -1351,7 +1351,7 @@ def _stitched_well_loop(
             )
             image_props = ImageProperties(
                 well,
-                stitched_image,  # type: ignore[arg-type]  # StitchedWellImage duck-types Image
+                stitched_image,  # StitchedWellImage duck-types Image
                 metadata,
                 image_classifier=image_classifier,
                 # A tracked nucleus without a cell mask in some frame must

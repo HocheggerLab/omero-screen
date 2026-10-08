@@ -12,8 +12,8 @@ from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
-from matplotlib.axes import Axes
 from scipy.ndimage import gaussian_filter1d
 
 from omero_screen_plots.utils import save_fig
@@ -88,7 +88,7 @@ def normalize_by_mode(
             group_data = df.loc[group_mask, intensity_column]
 
             try:
-                mode_value = find_intensity_mode(group_data)  # type: ignore[arg-type]
+                mode_value = find_intensity_mode(group_data)
 
                 # Normalize: divide by mode so peak becomes 1.0
                 valid_mask = (
@@ -97,7 +97,7 @@ def normalize_by_mode(
                     & (df[intensity_column] > 0)
                 )
                 df_result.loc[valid_mask, normalized_column] = (
-                    df.loc[valid_mask, intensity_column] / mode_value  # type: ignore[operator]
+                    df.loc[valid_mask, intensity_column] / mode_value
                 )
 
                 print(f"Group {group_value}: mode = {mode_value:.0f}")
@@ -115,14 +115,14 @@ def normalize_by_mode(
     else:
         # Normalize entire dataset
         try:
-            mode_value = find_intensity_mode(df[intensity_column])  # type: ignore[arg-type]
+            mode_value = find_intensity_mode(df[intensity_column])
 
             # Normalize: divide by mode so peak becomes 1.0
             valid_mask = np.isfinite(df[intensity_column]) & (
                 df[intensity_column] > 0
             )
             df_result.loc[valid_mask, normalized_column] = (
-                df.loc[valid_mask, intensity_column] / mode_value  # type: ignore[operator]
+                df.loc[valid_mask, intensity_column] / mode_value
             )
 
             print(f"Dataset mode = {mode_value:.0f}")
@@ -337,7 +337,7 @@ def plot_normalization_result(
 
 # TODO Rename this here and in `plot_normalization_result`
 def _extracted_from_plot_normalization_result_122(
-    axes: Axes, arg1: int, arg2: str, arg3: str
+    axes: npt.NDArray[np.object_], arg1: int, arg2: str, arg3: str
 ) -> None:
     axes[arg1].set_title(arg2)
     axes[arg1].set_xlabel(arg3)

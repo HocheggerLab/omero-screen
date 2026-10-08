@@ -21,6 +21,7 @@ import platform
 import time
 from pathlib import Path
 from statistics import mean, median, stdev
+from typing import Any
 
 from omero.gateway import (
     BlitzGateway,
@@ -118,9 +119,9 @@ def _delete_plate_metadata(conn: BlitzGateway, plate_id: int) -> None:
         )
         return
 
-    def _delete_all_annotations(obj: object, label: str) -> None:
+    def _delete_all_annotations(obj: Any, label: str) -> None:
         ann_ids: list[int] = []
-        for ann in obj.listAnnotations():  # type: ignore[attr-defined]
+        for ann in obj.listAnnotations():
             if isinstance(ann, MapAnnotationWrapper | FileAnnotationWrapper):
                 ann_id = ann.getId()
                 if ann_id is not None:

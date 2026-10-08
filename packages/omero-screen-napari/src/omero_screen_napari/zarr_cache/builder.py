@@ -130,7 +130,7 @@ def _retry_transient_omero[**P, R](fn: Callable[P, R]) -> Callable[P, R]:
                     min(attempt - 1, len(_OMERO_RETRY_BACKOFF_S) - 1)
                 ]
                 logger.warning(
-                    f"{fn.__name__} failed ({type(e).__name__}: {e}); "
+                    f"{wrapper.__name__} failed ({type(e).__name__}: {e}); "
                     f"retry {attempt:d}/{_OMERO_BLOCK_ATTEMPTS - 1:d} "
                     f"on a new connection in {delay:.0f}s"
                 )

@@ -455,7 +455,7 @@ class StandardFeaturePlot(BaseFeaturePlot):
                 ]
                 if not cond_plate_data.empty:
                     x_base = cond_to_x[condition]
-                    y_values = cond_plate_data[feature].values
+                    y_values = cond_plate_data[feature].to_numpy()
 
                     # Add jitter for visibility when multiple plates
                     if len(plate_ids) > 1:
@@ -544,7 +544,7 @@ class StandardFeaturePlot(BaseFeaturePlot):
                 ]
                 if not cond_plate_data.empty:
                     x_base = cond_to_x[condition]
-                    y_values = cond_plate_data[feature].values
+                    y_values = cond_plate_data[feature].to_numpy()
                     # Add jitter for visibility
                     x_jittered = x_base + np.random.uniform(
                         -0.1, 0.1, size=len(y_values)

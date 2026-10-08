@@ -68,13 +68,11 @@ def main() -> None:
     if args.env:
         os.environ["ENV"] = args.env
 
+    from loguru import logger
     from omero.gateway import BlitzGateway
     from omero_utils.omero_connect import omero_connect
 
-    from omero_screen.config import get_logger
     from omero_screen.sampling import segmentation_samples
-
-    logger = get_logger(__name__)
 
     out = (
         args.out
@@ -82,7 +80,7 @@ def main() -> None:
         else os.getenv("SAMPLING_OUTPUT_DIRECTORY", default="samples")
     )
 
-    logger.info("Exporting to: %s", out)
+    logger.info(f"Exporting to: {out}")
     os.makedirs(out, exist_ok=True)
 
     @omero_connect

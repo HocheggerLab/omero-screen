@@ -18,7 +18,7 @@ import json
 import os
 import shutil
 from collections.abc import Callable, Iterable
-from typing import Any
+from typing import Any, cast
 
 import dask.array as da
 import numpy as np
@@ -66,7 +66,7 @@ _ZARR_FORMAT = 2
 _NGFF_FORMAT = FormatV04()
 
 
-class _StageProgress(Callback):  # type: ignore[misc]
+class _StageProgress(Callback):
     """Map a dask compute's task completion onto a [base, base+span] fraction.
 
     ``write_image`` / ``write_labels`` stream their lazy blocks via the dask
@@ -275,7 +275,7 @@ class PlateZarrWriter:
         rows = sorted({w[0] for w in wells})
         cols = sorted({int(w[1:]) for w in wells})
         col_strs = [str(c) for c in cols]
-        well_dicts = [
+        well_dicts: list[str | dict[str, Any]] = [
             {
                 "path": f"{w[0]}/{int(w[1:])}",
                 "rowIndex": rows.index(w[0]),
@@ -390,7 +390,9 @@ class PlateZarrWriter:
         root = zarr.open_group(
             str(self.path), mode="a", zarr_format=_ZARR_FORMAT
         )
-        advertised = {w["path"] for w in root.attrs["plate"]["wells"]}
+        # NGFF plate metadata written by ensure_plate: a dict of wells.
+        plate_meta = cast(dict[str, Any], root.attrs["plate"])
+        advertised = {w["path"] for w in plate_meta["wells"]}
         row, col = _split_well(well)
         well_key = f"{row}/{col}"
         if well_key not in advertised:

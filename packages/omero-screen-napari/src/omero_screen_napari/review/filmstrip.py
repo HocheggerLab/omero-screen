@@ -10,8 +10,9 @@ shown above marked.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import matplotlib
 
@@ -127,8 +128,9 @@ def render_filmstrip(
     path = cell.path
     hours = path["timepoint"] * interval_minutes / 60
     if phases is not None:
+        # The index is ``timepoint``: integer frames.
         for (t, ph), nxt in zip(
-            phases.items(),
+            cast(Iterable[tuple[int, Any]], phases.items()),
             list(phases.index[1:]) + [phases.index[-1] + 1],
             strict=True,
         ):

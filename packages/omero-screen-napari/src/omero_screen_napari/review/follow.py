@@ -12,8 +12,9 @@ strip), so brightness changes between frames are real, not rescaling.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -140,7 +141,8 @@ def follow(
         rows = rows[rows["timepoint"].isin(frames)]
     half = size // 2
     imgs, labs, cents, cell_labels, ts = [], [], [], [], []
-    for row in rows.itertuples():
+    # itertuples rows carry dynamic per-column attributes.
+    for row in cast(Iterable[Any], rows.itertuples()):
         t, cy, cx = int(row.timepoint), int(round(row.y)), int(round(row.x))
         imgs.append(
             np.stack([_window(image, t, cy, cx, half, c) for c in idx])

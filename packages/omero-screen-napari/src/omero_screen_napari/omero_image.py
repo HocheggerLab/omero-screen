@@ -35,7 +35,7 @@ _OMERO_PIXEL_DTYPES: dict[str, np.dtype[Any]] = {
 }
 
 
-class NumpyDisk(Disk):  # type: ignore[misc]
+class NumpyDisk(Disk):
     """Diskcache Disk that stores numpy arrays with Blosc compression.
 
     On-disk format for ``MODE_NUMPY_COMPRESSED`` (mode 6)::
@@ -89,7 +89,7 @@ class NumpyDisk(Disk):  # type: ignore[misc]
             with open(full_path, "xb") as f:
                 f.write(blob)
             return size, MODE_NUMPY_COMPRESSED, filename, None
-        return super().store(value, read, key)  # type: ignore[no-any-return]
+        return super().store(value, read, key)
 
     def fetch(
         self, mode: int, filename: str | None, value: Any, read: bool
@@ -203,7 +203,9 @@ _cache = Cache(
     ),
 )
 logger.info(
-    f"Image cache: {_cache.directory} (size limit: {_cache.size_limit:d})"
+    f"Image cache: {_cache.directory} "
+    # diskcache sets its settings as instance attributes at runtime.
+    f"(size limit: {_cache.size_limit:d})"  # ty: ignore[unresolved-attribute]
 )
 
 
@@ -287,7 +289,7 @@ def get_image_timepoint(
         a = get_omero_image_timepoint(store, t, shape, dt_be)
         _cache.set(k, a, tag=tag)
         store.close()
-    return a  # type: ignore[no-any-return]
+    return a
 
 
 def get_bytes_size(conn: BlitzGateway, image_id: int) -> int:
@@ -327,6 +329,7 @@ def initialise_download(
     Returns:
         store, image shape, pixels type
     """
+    assert conn.c is not None  # an open BlitzGateway always has a client
     store = conn.c.sf.createRawPixelsStore().ice_invocationTimeout(
         _PIXELS_CALL_TIMEOUT_MS
     )
@@ -435,7 +438,7 @@ def add_cached_image(
     Returns:
         True if item was added
     """
-    return _cache.set(key, array, tag=tag)  # type: ignore[no-any-return]
+    return _cache.set(key, array, tag=tag)
 
 
 def get_cached_image(
@@ -449,7 +452,7 @@ def get_cached_image(
     Returns:
         Image (or None)
     """
-    return _cache.get(key)  # type: ignore[no-any-return]
+    return _cache.get(key)
 
 
 def is_cached(key: str | int | bytes) -> bool:
@@ -473,7 +476,7 @@ def evict(tag: int | float | str | None = None) -> int:
     Returns:
         Count of evicted items
     """
-    return _cache.evict(tag)  # type: ignore[no-any-return]
+    return _cache.evict(tag)
 
 
 def cache_volume() -> int:
@@ -491,4 +494,5 @@ def cache_size_limit() -> int:
     Returns:
         Size limit in bytes
     """
-    return int(_cache.size_limit)
+    # diskcache sets its settings as instance attributes at runtime.
+    return int(_cache.size_limit)  # ty: ignore[unresolved-attribute]

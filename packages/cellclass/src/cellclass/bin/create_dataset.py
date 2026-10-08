@@ -23,7 +23,7 @@ import numpy.typing as npt
 
 
 def _binary_mask(
-    mask: npt.NDArray[np.integer],  # type: ignore[type-arg]
+    mask: npt.NDArray[np.integer],
 ) -> tuple[npt.NDArray[np.uint8] | None, bool]:
     """Convert to a binary mask using the pixel value at the centre."""
     y, x = mask.shape[-2:]
@@ -40,7 +40,7 @@ def _binary_mask(
 
 
 def _to_uint8(
-    image: npt.NDArray[np.floating],  # type: ignore[type-arg]
+    image: npt.NDArray[np.floating],
 ) -> npt.NDArray[np.uint8]:
     """Convert image to uint8 using the (1, 99) percentiles."""
     out = np.zeros(image.shape, dtype=np.uint8)
@@ -86,7 +86,7 @@ def _extract_roi(
             roi[pady : pady + wy, padx : padx + wx, channel] = im[y0:y1, x0:x1]
         else:
             roi[..., channel] = im
-    return roi.transpose((2, 0, 1)), shiftx, shifty  # type: ignore[return-value]
+    return roi.transpose((2, 0, 1)), shiftx, shifty
 
 
 def run(args: argparse.Namespace) -> None:
@@ -130,7 +130,7 @@ def run(args: argparse.Namespace) -> None:
     multi = 0
 
     for f in tqdm.tqdm(glob.glob(os.path.join(args.dir, "*.npy"))):
-        d = np.load(f, allow_pickle=True).item()  # type: ignore[arg-type]
+        d = np.load(f, allow_pickle=True).item()
         targets = d["target"]
         images = d["data"][0]
         masks = d["data"][1]
@@ -167,7 +167,7 @@ def run(args: argparse.Namespace) -> None:
             sy.append(shifty)
 
             h: str | None = hashlib.sha256(roi.tobytes()).hexdigest()
-            im = hashes.get(h, [])  # type: ignore[arg-type]
+            im = hashes.get(h, [])
             for j in im:
                 if np.array_equal(roi, j):
                     h = None
@@ -178,7 +178,7 @@ def run(args: argparse.Namespace) -> None:
                 dup += 1
                 continue
             im.append(roi)
-            hashes[h] = im  # type: ignore[index]
+            hashes[h] = im
 
             counts[label] = counts.get(label, 0) + 1
             labels.append(label)

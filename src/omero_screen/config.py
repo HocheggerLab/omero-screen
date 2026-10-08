@@ -368,7 +368,7 @@ def is_level_enabled(level: str = "DEBUG") -> bool:
     try:
         # ``_core.min_level`` is the lowest level across active sinks (loguru
         # internal; not in the public type stub).
-        core = _loguru_logger._core  # type: ignore[attr-defined]
+        core = _loguru_logger._core  # ty: ignore[unresolved-attribute]
         return bool(core.min_level <= _loguru_logger.level(level).no)
     except (AttributeError, ValueError):
         return True

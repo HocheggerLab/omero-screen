@@ -296,12 +296,12 @@ class ClassificationPlotBuilder(BasePlotBuilder):
 
         # Add legend if requested
         if self.config.show_legend:
-            self.ax.legend(
+            legend = self.ax.legend(
                 fontsize=7,
                 bbox_to_anchor=self.config.legend_bbox,
                 loc="upper left",
             )
-            self.ax.get_legend().set_title("")
+            legend.set_title("")
 
         return self
 

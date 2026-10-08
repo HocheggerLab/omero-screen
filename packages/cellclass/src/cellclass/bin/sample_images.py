@@ -43,7 +43,7 @@ def run(
         if crop:
             for i, image in enumerate(sampled_images):
                 # Use first channel
-                c = centroid(image[0])  # type: ignore[no-untyped-call]
+                c = centroid(image[0])
                 m0 = max(int(c[0]) - crop // 2, 0)
                 m1 = max(int(c[1]) - crop // 2, 0)
                 sampled_images[i] = image[:, m0 : m0 + crop, m1 : m1 + crop]

@@ -43,7 +43,7 @@ import duckdb
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-from scipy.spatial import cKDTree
+from scipy.spatial import KDTree
 
 DEFAULT_DB = "~/.cellview/cellview.duckdb"
 
@@ -168,7 +168,7 @@ def pair_separations(df: pd.DataFrame, max_sep: float) -> pd.DataFrame:
         pts = sub[["y", "x"]].to_numpy()
         if len(pts) < 2:
             continue
-        for i, j in cKDTree(pts).query_pairs(max_sep):
+        for i, j in KDTree(pts).query_pairs(max_sep):
             rows.append(
                 (
                     pts[i, 0],

@@ -134,15 +134,16 @@ def read_well(plate_id: int, well: str) -> dict[str, Any]:
     root = open_plate(plate_id)
     row = well[0]
     col = str(int(well[1:]))
-    field_grp = root[f"{row}/{col}/0"]
+    field_grp = _as_group(root[f"{row}/{col}/0"])
 
     # Pyramid levels are stored as numeric subgroups "0", "1", "2", ...
     img_levels = sorted(
         [k for k in field_grp.array_keys() if k.isdigit()], key=int
     )
-    images = [field_grp[k] for k in img_levels]
+    images = [_as_array(field_grp[k]) for k in img_levels]
 
-    labels_grp = field_grp.get("labels", None)
+    labels_node = field_grp.get("labels", None)
+    labels_grp = _as_group(labels_node) if labels_node is not None else None
     nuclei = _read_label_pyramid(labels_grp, "nuclei") if labels_grp else []
     cells = _read_label_pyramid(labels_grp, "cells") if labels_grp else None
 
@@ -167,6 +168,18 @@ def _read_label_pyramid(
     """Return list of label arrays (one per pyramid level), or None if absent."""
     if name not in labels_grp:
         return None
-    grp = labels_grp[name]
+    grp = _as_group(labels_grp[name])
     levels = sorted([k for k in grp.array_keys() if k.isdigit()], key=int)
-    return [grp[k] for k in levels]
+    return [_as_array(grp[k]) for k in levels]
+
+
+def _as_group(node: zarr.Array | zarr.Group) -> zarr.Group:
+    """Narrow a zarr node to a group; the NGFF layout guarantees it."""
+    assert isinstance(node, zarr.Group), f"expected group, got {node!r}"
+    return node
+
+
+def _as_array(node: zarr.Array | zarr.Group) -> zarr.Array:
+    """Narrow a zarr node to an array; the NGFF layout guarantees it."""
+    assert isinstance(node, zarr.Array), f"expected array, got {node!r}"
+    return node

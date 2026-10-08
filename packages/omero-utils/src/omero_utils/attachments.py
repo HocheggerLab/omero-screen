@@ -82,7 +82,7 @@ def parse_excel_data(
                 tmp.write(chunk)
             tmp.flush()
         logger.info("Parsing Excel Metadata File")
-        return pd.read_excel(tmp_path, sheet_name=None)  # type: ignore[no-any-return]
+        return pd.read_excel(tmp_path, sheet_name=None)
     finally:
         if tmp_path:
             os.unlink(tmp_path)  # Delete the temporary file
@@ -104,8 +104,10 @@ def parse_csv_data(
     original_file: OriginalFileWrapper = file_ann.getFile()
     tmp_path = None
     try:
-        tmp_path = tempfile.mktemp(suffix=".csv")
-        with open(tmp_path, "wb") as file_on_disk:
+        with tempfile.NamedTemporaryFile(
+            suffix=".csv", delete=False
+        ) as file_on_disk:
+            tmp_path = file_on_disk.name
             for chunk in original_file.asFileObj():
                 file_on_disk.write(chunk)
 
