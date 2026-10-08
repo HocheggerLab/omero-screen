@@ -3,102 +3,101 @@
 With napari's async slicing on (``zarr_cache.display._ensure_async_slicing``),
 image and label layers read a new frame from the zarr cache off the GUI
 thread, and keep showing the old frame until it arrives. Layers held in memory
-(tracks, points) are sliced at once, so during playback they run ahead of the
-images: the tracks for frame *t* appear before the cells of frame *t* (#11).
+(tracks) are sliced at once, so during playback they ran ahead of the images:
+the tracks for frame *t* appeared before the cells of frame *t* (#11).
 
-:func:`hold_until_loaded` makes such a layer wait: when the time changes while
-any visible async layer is still loading, the layer keeps its old frame, and
-moves to the viewer's current frame as soon as every one of them has loaded.
-With async slicing off, or nothing loading, it updates at once as before.
+:func:`hold_until_loaded` makes such a layer follow the images rather than the
+time slider. While an image is loading, a time change leaves the layer where it
+is; each time an image layer draws a frame, the layer is moved to that frame.
+During fast playback the slider runs ahead of what is shown, so following the
+slider would always be wrong; following the drawn frame is right at any speed.
+With async slicing off, or nothing loading, the layer updates at once.
 """
 
 from __future__ import annotations
 
-import time
-from collections.abc import Callable
 from typing import Any
 
 from loguru import logger
 
-#: How often a held layer checks whether the images have loaded (ms).
-POLL_MS = 15
-#: Release a held layer after this long even if a layer never loads (s).
-MAX_HOLD_S = 2.0
+
+def is_async(layer: Any) -> bool:
+    """Whether napari slices ``layer`` off the GUI thread (image, labels, …)."""
+    state = getattr(layer, "_slicing_state", None)
+    return callable(getattr(state, "_make_slice_request", None))
+
+
+def displayed_point(layer: Any) -> tuple[float, ...] | None:
+    """The world point of the frame ``layer`` is drawing, if napari exposes it.
+
+    For async layers, ``_slice_input`` is replaced only when a loaded slice is
+    applied, so it names the frame on screen, not the one requested.
+    """
+    try:
+        return tuple(layer._slice_input.world_slice.point)
+    except AttributeError:
+        return None
 
 
 class LayerHold:
-    """Defers a layer's slicing while other layers of the viewer are loading.
+    """Moves a layer only to frames that the viewer's images are drawing.
 
-    Wraps the layer's ``_slice_dims`` (napari's per-layer slicing entry
-    point). The Qt timer is created by :func:`hold_until_loaded`; the logic
-    here is plain Python so it can be tested without a GUI.
+    Wraps the layer's ``_slice_dims`` (napari's per-layer slicing entry point)
+    and is told by :meth:`on_drawn` when another layer has drawn a frame. The
+    logic is plain Python so it can be tested without a GUI.
     """
 
-    def __init__(
-        self,
-        viewer: Any,
-        layer: Any,
-        start_timer: Callable[[], None],
-        stop_timer: Callable[[], None],
-        clock: Callable[[], float] = time.monotonic,
-    ) -> None:
-        """Hold ``layer`` in ``viewer``; ``start/stop_timer`` drive :meth:`poll`."""
+    def __init__(self, viewer: Any, layer: Any) -> None:
+        """Hold ``layer`` in ``viewer``."""
         self.viewer = viewer
         self.layer = layer
         self._original = layer._slice_dims
-        self._start_timer = start_timer
-        self._stop_timer = stop_timer
-        self._clock = clock
-        self._pending = False
-        self._since = 0.0
         layer._slice_dims = self._slice_dims
 
-    def loading(self) -> bool:
-        """Whether a visible layer other than the held one is still loading."""
-        return any(
-            not getattr(other, "loaded", True)
+    def _sources(self) -> list[Any]:
+        return [
+            other
             for other in self.viewer.layers
-            if other is not self.layer and getattr(other, "visible", True)
-        )
+            if other is not self.layer
+            and getattr(other, "visible", True)
+            and is_async(other)
+        ]
+
+    def loading(self) -> bool:
+        """Whether a visible async layer is still loading a frame."""
+        return any(not getattr(s, "loaded", True) for s in self._sources())
 
     def _slice_dims(self, dims: Any, force: bool = False) -> None:
+        # A time change while the images load: wait for them to draw it.
         if not self.loading():
-            self._release_pending()
             self._original(dims=dims, force=force)
-            return
-        if not self._pending:
-            self._since = self._clock()
-        self._pending = True
-        self._start_timer()
 
-    def poll(self) -> None:
-        """Slice the held layer once nothing is loading (or after the timeout)."""
-        if not self._pending:
-            self._stop_timer()
+    def on_drawn(self, source: Any) -> None:
+        """Move the held layer to the frame ``source`` has just drawn."""
+        if source is self.layer or not getattr(source, "visible", True):
             return
-        timed_out = self._clock() - self._since > MAX_HOLD_S
-        if timed_out:
-            logger.debug(f"{self.layer.name}: released after {MAX_HOLD_S} s")
-        if timed_out or not self.loading():
-            self._release_pending()
-            self._original(dims=self.viewer.dims, force=False)
-
-    def _release_pending(self) -> None:
-        self._pending = False
-        self._stop_timer()
+        point = displayed_point(source)
+        dims = self.viewer.dims
+        if point is not None and hasattr(dims, "model_copy"):
+            dims = dims.model_copy()
+            full = list(dims.point)
+            n = min(len(point), len(full))
+            # Layers with fewer dimensions are aligned to the last axes.
+            full[len(full) - n :] = point[len(point) - n :]
+            dims.point = tuple(full)
+        self._original(dims=dims, force=False)
 
     def detach(self) -> None:
         """Restore the layer's own slicing."""
-        self._stop_timer()
         self.layer._slice_dims = self._original
 
 
 def hold_until_loaded(viewer: Any, layer: Any) -> LayerHold | None:
-    """Make ``layer`` follow the time only once the viewer's images have loaded.
+    """Make ``layer`` show the frame that the viewer's images are showing.
 
     Args:
         viewer: The napari viewer.
-        layer: An in-memory layer (tracks, points) added to ``viewer``.
+        layer: An in-memory layer (tracks) added to ``viewer``.
 
     Returns:
         The hold, or ``None`` if this napari has no per-layer slicing hook to
@@ -107,19 +106,37 @@ def hold_until_loaded(viewer: Any, layer: Any) -> LayerHold | None:
     if not callable(getattr(layer, "_slice_dims", None)):
         logger.debug("napari has no Layer._slice_dims; layer sync disabled")
         return None
-    from qtpy.QtCore import QTimer
+    hold = LayerHold(viewer, layer)
+    connected: dict[int, tuple[Any, Any]] = {}
 
-    timer = QTimer()
-    timer.setInterval(POLL_MS)
-    hold = LayerHold(viewer, layer, timer.start, timer.stop)
-    timer.timeout.connect(hold.poll)
-    # The hold (and its timer) live as long as the layer.
-    layer._omero_screen_hold = (hold, timer)
+    def _connect(other: Any) -> None:
+        if other is layer or not is_async(other) or id(other) in connected:
+            return
+
+        def _drawn(event: Any) -> None:
+            hold.on_drawn(other)
+
+        other.events.set_data.connect(_drawn)
+        connected[id(other)] = (other, _drawn)
+
+    def _on_inserted(event: Any) -> None:
+        _connect(event.value)
 
     def _on_removed(event: Any) -> None:
         if event.value is layer:
             hold.detach()
+            for other, callback in connected.values():
+                other.events.set_data.disconnect(callback)
+            connected.clear()
+            viewer.layers.events.inserted.disconnect(_on_inserted)
             viewer.layers.events.removed.disconnect(_on_removed)
+        elif (entry := connected.pop(id(event.value), None)) is not None:
+            entry[0].events.set_data.disconnect(entry[1])
 
+    for other in viewer.layers:
+        _connect(other)
+    viewer.layers.events.inserted.connect(_on_inserted)
     viewer.layers.events.removed.connect(_on_removed)
+    # napari holds its callbacks weakly; keep them alive with the layer.
+    layer._omero_screen_hold = (hold, _on_inserted, _on_removed, connected)
     return hold

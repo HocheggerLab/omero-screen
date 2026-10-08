@@ -1,110 +1,107 @@
-"""Tracks wait for asynchronously loaded images (#11)."""
+"""Tracks follow the frame the asynchronously loaded images draw (#11)."""
 
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
-from omero_screen_napari import layer_sync
 from omero_screen_napari.layer_sync import LayerHold
+
+
+class FakeDims:
+    """Viewer dims with a copyable point."""
+
+    def __init__(self, point: tuple[float, ...]) -> None:
+        """Start at ``point``."""
+        self.point = point
+
+    def model_copy(self) -> "FakeDims":
+        """A detached copy, as pydantic's ``model_copy``."""
+        return FakeDims(self.point)
 
 
 @dataclass
 class FakeLayer:
-    """A layer that records what it was sliced to."""
+    """A layer that records the points it was sliced to."""
 
     name: str
+    asynchronous: bool = False
     loaded: bool = True
     visible: bool = True
-    sliced: list[Any] = field(default_factory=list)
+    shown: tuple[float, ...] = (0.0, 0.0, 0.0)
+    sliced: list[tuple[float, ...]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Give async layers napari's async slicing hook and a drawn slice."""
+        if self.asynchronous:
+            self._slicing_state = SimpleNamespace(
+                _make_slice_request=lambda d: d
+            )
+
+    @property
+    def _slice_input(self) -> Any:
+        return SimpleNamespace(world_slice=SimpleNamespace(point=self.shown))
 
     def _slice_dims(self, dims: Any, force: bool = False) -> None:
-        self.sliced.append(dims)
+        self.sliced.append(dims.point)
 
 
-@dataclass
-class FakeViewer:
-    """Layers and the current dims."""
-
-    layers: list[FakeLayer]
-    dims: Any = "current"
-
-
-class Clock:
-    """A settable monotonic clock."""
-
-    def __init__(self) -> None:
-        """Start at zero."""
-        self.now = 0.0
-
-    def __call__(self) -> float:
-        """The current time."""
-        return self.now
-
-
-def make_hold() -> tuple[
-    FakeViewer, FakeLayer, FakeLayer, LayerHold, list[str]
-]:
-    """An image and a held tracks layer; the timer calls are logged."""
-    image = FakeLayer("image")
+def make_hold() -> tuple[SimpleNamespace, FakeLayer, FakeLayer, LayerHold]:
+    """An async image and a held tracks layer at time 0."""
+    image = FakeLayer("image", asynchronous=True)
     tracks = FakeLayer("tracks")
-    viewer = FakeViewer([image, tracks])
-    timer: list[str] = []
-    hold = LayerHold(
-        viewer,
-        tracks,
-        lambda: timer.append("start"),
-        lambda: timer.append("stop"),
-        clock=Clock(),
+    viewer = SimpleNamespace(
+        layers=[image, tracks], dims=FakeDims((0.0, 0.0, 0.0))
     )
-    return viewer, image, tracks, hold, timer
+    return viewer, image, tracks, LayerHold(viewer, tracks)
 
 
 def test_slices_at_once_when_nothing_loads() -> None:
     """No layer loading: the tracks update as before."""
-    _, _, tracks, _, timer = make_hold()
-    tracks._slice_dims("t1")
-    assert tracks.sliced == ["t1"]
-    assert "start" not in timer
+    viewer, _, tracks, _ = make_hold()
+    viewer.dims.point = (4.0, 0.0, 0.0)
+    tracks._slice_dims(viewer.dims)
+    assert tracks.sliced == [(4.0, 0.0, 0.0)]
 
 
-def test_waits_for_the_image_then_takes_the_current_frame() -> None:
-    """Held while the image loads, then moved to the viewer's frame."""
-    viewer, image, tracks, hold, timer = make_hold()
+def test_follow_the_drawn_frame_not_the_slider() -> None:
+    """During fast playback the tracks show what the image shows."""
+    viewer, image, tracks, hold = make_hold()
     image.loaded = False
-    tracks._slice_dims("t1")
-    tracks._slice_dims("t2")
+    viewer.dims.point = (5.0, 0.0, 0.0)
+    tracks._slice_dims(viewer.dims)
     assert tracks.sliced == []
-    assert timer[-1] == "start"
-    hold.poll()
-    assert tracks.sliced == []
-    image.loaded = True
-    hold.poll()
-    assert tracks.sliced == ["current"]
-    assert timer[-1] == "stop"
+    # The image draws frame 3 while the slider has moved on to 5.
+    image.shown = (3.0, 0.0, 0.0)
+    hold.on_drawn(image)
+    assert tracks.sliced == [(3.0, 0.0, 0.0)]
+    assert viewer.dims.point == (5.0, 0.0, 0.0)
 
 
-def test_hidden_layers_are_not_waited_for() -> None:
-    """A hidden image does not hold the tracks."""
-    _, image, tracks, _, _ = make_hold()
+def test_lower_dimensional_source_is_aligned_to_the_last_axes() -> None:
+    """A (t, y, x) image in a (c, t, y, x) viewer sets the time axis."""
+    viewer, image, tracks, hold = make_hold()
+    viewer.dims = FakeDims((1.0, 0.0, 0.0, 0.0))
+    image.shown = (6.0, 0.0, 0.0)
+    hold.on_drawn(image)
+    assert tracks.sliced == [(1.0, 6.0, 0.0, 0.0)]
+
+
+def test_hidden_and_sync_layers_are_ignored() -> None:
+    """Only visible async layers hold or move the tracks."""
+    viewer, image, tracks, hold = make_hold()
     image.loaded, image.visible = False, False
-    tracks._slice_dims("t1")
-    assert tracks.sliced == ["t1"]
-
-
-def test_released_after_the_timeout() -> None:
-    """An image that never loads does not freeze the tracks."""
-    _, image, tracks, hold, _ = make_hold()
-    image.loaded = False
-    tracks._slice_dims("t1")
-    assert isinstance(hold._clock, Clock)
-    hold._clock.now = layer_sync.MAX_HOLD_S + 0.1
-    hold.poll()
-    assert tracks.sliced == ["current"]
+    other_tracks = FakeLayer("other tracks", loaded=False)
+    viewer.layers.append(other_tracks)
+    tracks._slice_dims(viewer.dims)
+    assert tracks.sliced == [(0.0, 0.0, 0.0)]
+    hold.on_drawn(image)
+    assert tracks.sliced == [(0.0, 0.0, 0.0)]
 
 
 def test_detach_restores_slicing() -> None:
     """Detaching gives the layer its own slicing back."""
-    _, image, tracks, hold, _ = make_hold()
+    viewer, image, tracks, hold = make_hold()
     hold.detach()
     image.loaded = False
-    tracks._slice_dims("t1")
-    assert tracks.sliced == ["t1"]
+    tracks._slice_dims(viewer.dims)
+    assert tracks.sliced == [(0.0, 0.0, 0.0)]
