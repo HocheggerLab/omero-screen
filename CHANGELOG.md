@@ -1,3 +1,9 @@
+## omero-screen-v0.8.15 (2026-10-08)
+
+### Fix
+
+- **segmentation**: device-aware model defaults, opt-in lab models, models pull/publish (#51)
+
 ## omero-screen-v0.8.14 (2026-10-08)
 
 ### Fix
