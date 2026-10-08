@@ -132,6 +132,13 @@ dev = [
 [tool.ty.environment]
 python-version = "3.12"
 
+[tool.ty.analysis]
+# Third-party typing gaps, handled here instead of with per-line ignores:
+# - omero.model / omero.rtypes: Ice generates the model classes (PlateI,
+#   LengthI, ...) at import time, so ty cannot see them statically;
+# - ezomero: its untyped decorators make every wrapped function `object`.
+replace-imports-with-any = ["omero.model", "omero.model.**", "omero.rtypes", "ezomero", "ezomero.**"]
+
 [tool.ty.src]
 exclude = [
     "tests/",                                 # PR 2 brings tests in
