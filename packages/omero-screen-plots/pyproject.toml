@@ -22,45 +22,6 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/omero_screen_plots"]
 
-# ===========================
-# Mypy Configuration Section
-# ===========================
-
-[tool.mypy]
-strict = true
-python_version = 3.12
-explicit_package_bases = true
-namespace_packages = true
-exclude = [
-    "tests/.*",
-    ".venv/.*",
-    "venv/.*",
-    "env/.*",
-    "build/.*",
-    "dist/.*",
-    "migrations/.*",
-    ".*/(examples|docs|notebooks)/.*",    # Multiple dirs in one pattern
-    ".*_nb\\.py$",                        # Jupytext files with _nb suffix
-    ".*\\.ipynb$",
-]
-
-incremental = true
-cache_dir = ".mypy_cache"
-ignore_missing_imports = true
-pretty = true
-warn_unused_configs = true
-
-["tool.mypy.seaborn"]
-ignore_missing_imports = true
-
-["tool.mypy.scipy.*"]
-ignore_missing_imports = true
-
-["tool.mypy.some_untyped_package.*"]
-ignore_missing_imports = true
-
-["tool.mypy.another_untyped_package.*"]
-ignore_missing_imports = true
 
 [dependency-groups]
 dev = [

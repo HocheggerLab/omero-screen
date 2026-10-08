@@ -12,8 +12,19 @@ uv sync --dev
 uv run pre-commit install
 ```
 
-The pre-commit hooks run ruff (lint and format) and mypy. Fix what they report
-rather than bypassing them with `--no-verify`.
+The pre-commit hooks run ruff (lint and format) and the
+[ty](https://github.com/astral-sh/ty) type checker. Fix what they report
+rather than bypassing them with `--no-verify`. CI type-checks the whole
+workspace:
+
+```bash
+uv run ty check
+```
+
+ty is pinned to an exact version in the dev group, because it is still beta
+and its diagnostics change between releases; bump it deliberately. It reads
+`# ty: ignore[<rule>]` comments, not mypy's `# type: ignore[<code>]`.
+Configuration is in `[tool.ty]` in the root `pyproject.toml`.
 
 ## Tests
 

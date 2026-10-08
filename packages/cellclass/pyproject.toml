@@ -23,7 +23,6 @@ wandb = ["wandb>=0.18.7"]
 dev = [
     "pytest>=7.4.4",
     "ruff>=0.4",
-    "mypy>=1.10",
 ]
 
 [project.scripts]
@@ -47,27 +46,6 @@ where = ["src"]
 # Mypy Configuration
 # ===========================
 
-[tool.mypy]
-strict = true
-python_version = "3.12"
-explicit_package_bases = true
-namespace_packages = true
-allow_untyped_decorators = true
-mypy_path = "src"
-exclude = [
-    "tests/.*",
-    ".venv/.*",
-    "build/.*",
-    "dist/.*",
-    "src/bin/.*",
-    ".*/test_stats\\.py",
-]
-incremental = true
-cache_dir = ".mypy_cache"
-ignore_missing_imports = true
-pretty = true
-warn_unused_configs = false
-warn_unused_ignores = false
 
 # ===========================
 # Ruff Configuration

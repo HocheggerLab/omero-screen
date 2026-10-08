@@ -111,7 +111,6 @@ gui = ["omero-screen-napari[qt]"]
 
 dev = [
     "commitizen>=4.1.0",
-    "mypy>=1.15.0",
     "pandas-stubs",
     "typing-extensions>=4.9.0",
     "pre-commit>=4.0.1",
@@ -160,46 +159,6 @@ include = ["packages/cellview/src/cellview/explore/templates/**"]
 
 [tool.ty.overrides.rules]
 unresolved-reference = "ignore"
-
-# ===========================
-# Mypy Configuration Section
-# ===========================
-
-[tool.mypy]
-strict = true
-python_version = "3.12"
-explicit_package_bases = true
-namespace_packages = true
-allow_untyped_decorators = true
-mypy_path = "src:packages/omero-utils/src:packages/omero-screen-napari/src:packages/omero-screen-plots/src:packages/cellview/src:packages/cellclass/src"
-exclude = [
-    "tests/.*",
-    ".venv/.*",
-    "venv/.*",
-    "env/.*",
-    "build/.*",
-    "dist/.*",
-    "migrations/.*",
-    ".*/(examples|docs|notebooks)/.*",    # Multiple dirs in one pattern
-    ".*_nb\\.py$",                        # Jupytext files with _nb suffix
-    ".*\\.ipynb$",
-    "omero_screen_napari_original/.*",
-    "examples/.*",
-    ".*/test_stats\\.py$",
-    "skills/.*",                          # runtime-agnostic skill asset scripts
-    "plugins/.*/skills/.*",
-]
-incremental = true
-cache_dir = ".mypy_cache"
-ignore_missing_imports = true
-pretty = true
-warn_unused_configs = false
-warn_unused_ignores = false
-
-[[tool.mypy.overrides]]
-# Ignore everything ported from Cellpose v3
-module = "omero_screen.cellpose3.*"
-ignore_errors = true
 
 
 # ===========================
