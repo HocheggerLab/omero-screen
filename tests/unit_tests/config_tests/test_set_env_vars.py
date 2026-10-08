@@ -75,25 +75,18 @@ def test_fallback_to_default_env(tmp_path, monkeypatch, clean_env):
     assert os.getenv("LOG_LEVEL") == "INFO", "Should use fallback .env values"
 
 
-def test_no_config_files_error(tmp_path, monkeypatch, clean_env):
-    """Test that appropriate error is raised when no config files exist."""
+def test_no_config_files_is_not_an_error(tmp_path, monkeypatch, clean_env):
+    """Without any configuration, importing succeeds and nothing is set.
 
-    def mock_find_project_root():
-        return tmp_path
-
-    monkeypatch.setattr("omero_screen.config.find_project_root", mock_find_project_root)
-    # Also neutralise the package-relative fallback root so no real .env on
-    # disk is discovered.
+    CellView and the plots work offline; a missing OMERO login is reported
+    when a connection is made (``omero_screen.settings.login``).
+    """
+    monkeypatch.setattr("omero_screen.config.find_project_root", lambda: tmp_path)
     monkeypatch.setattr("omero_screen.config.project_root", tmp_path)
 
-    with pytest.raises(OSError) as exc_info:
-        set_env_vars()
+    set_env_vars()
 
-    error_msg = str(exc_info.value)
-    assert "No configuration found!" in error_msg
-    assert "Current environment: development" in error_msg
-    assert str(tmp_path / ".env.development") in error_msg
-    assert str(tmp_path / ".env") in error_msg
+    assert os.getenv("HOST") is None
 
 
 def test_package_root_fallback_when_cwd_has_no_config(

@@ -6,6 +6,7 @@ import json
 import os
 import warnings
 from dataclasses import dataclass, field
+from typing import Any
 
 # Trackastra pulls in chardet>=7, but ``requests`` constrains it to <6 and so
 # emits a RequestsDependencyWarning on every import. The libraries function
@@ -111,29 +112,55 @@ default_config = DefaultConfig()
 
 set_env_vars()
 
+
+def _apply_overrides(data: dict[str, Any]) -> None:
+    """Override MODEL_DICT / FEATURELIST / CHANNEL_SEG_PROFILES from ``data``."""
+    models = data.get("MODEL_DICT")
+    if isinstance(models, dict):
+        default_config.MODEL_DICT = models
+    features = data.get("FEATURELIST")
+    if isinstance(features, dict | list):
+        _validate_featurelist(features)
+        default_config.FEATURELIST = features
+    profiles = data.get("CHANNEL_SEG_PROFILES")
+    if isinstance(profiles, dict):
+        merged = {
+            k.lower(): v
+            for k, v in default_config.CHANNEL_SEG_PROFILES.items()
+        }
+        for name, prof in profiles.items():
+            if isinstance(prof, dict):
+                merged[name.lower()] = prof
+        default_config.CHANNEL_SEG_PROFILES = merged
+
+
+def _overrides_from_settings() -> dict[str, Any]:
+    """``[segmentation]`` and ``[features]`` of the site profile / user config."""
+    from omero_screen import settings
+
+    cfg = settings.load()
+    seg = cfg.section("segmentation")
+    data: dict[str, Any] = {}
+    if isinstance(seg.get("models"), dict):
+        data["MODEL_DICT"] = seg["models"]
+    if isinstance(seg.get("channel_profiles"), dict):
+        data["CHANNEL_SEG_PROFILES"] = seg["channel_profiles"]
+    features = cfg.section("features")
+    if features:
+        data["FEATURELIST"] = features
+    return data
+
+
+# The site profile and user config first; an OMERO_SCREEN_CONFIG JSON (or the
+# pipeline's --config) is an explicit override on top.
+_apply_overrides(_overrides_from_settings())
+
 # Load configuration from file if available
 path = os.getenv("OMERO_SCREEN_CONFIG")
 if path is not None and os.path.exists(path):
     try:
         with open(path) as f:
-            data = json.load(f)
-            models = data.get("MODEL_DICT", None)
-            if isinstance(models, dict):
-                default_config.MODEL_DICT = models
-            features = data.get("FEATURELIST", None)
-            if isinstance(features, dict | list):
-                _validate_featurelist(features)
-                default_config.FEATURELIST = features
-            profiles = data.get("CHANNEL_SEG_PROFILES", None)
-            if isinstance(profiles, dict):
-                merged = {
-                    k.lower(): v
-                    for k, v in default_config.CHANNEL_SEG_PROFILES.items()
-                }
-                for name, prof in profiles.items():
-                    if isinstance(prof, dict):
-                        merged[name.lower()] = prof
-                default_config.CHANNEL_SEG_PROFILES = merged
+            _apply_overrides(json.load(f))
     except Exception as e:  # noqa: BLE001
         logger.error(f"Failed to load configuration '{path}': {e}")
         raise e

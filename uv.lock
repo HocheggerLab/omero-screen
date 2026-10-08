@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12, <3.15"
 resolution-markers = [
     "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
@@ -3991,7 +3991,6 @@ wheels = [
 name = "omero-screen"
 version = "0.8.13"
 source = { editable = "." }
-default-groups = ["dev", "gui"]
 dependencies = [
     { name = "cellpose" },
     { name = "cellview" },
@@ -4000,6 +3999,7 @@ dependencies = [
     { name = "ezomero" },
     { name = "ipykernel" },
     { name = "jupyter" },
+    { name = "keyring" },
     { name = "loguru" },
     { name = "marimo" },
     { name = "matplotlib" },
@@ -4058,6 +4058,7 @@ requires-dist = [
     { name = "ezomero", specifier = ">=3.1.1" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "jupyter", specifier = ">=1.1.1" },
+    { name = "keyring", specifier = ">=25.7.0" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "marimo", specifier = ">=0.23.15" },
     { name = "matplotlib", specifier = ">=3.10.1" },

@@ -466,8 +466,21 @@ def _run(
     run_plate_loop(ids)
 
 
+#: Subcommands of ``omero-screen`` that are not a pipeline run.
+SETUP_COMMANDS = ("setup", "doctor", "config")
+
+
 def main() -> None:
-    """Entry point for the ``omero-screen`` console script."""
+    """Entry point for the ``omero-screen`` console script.
+
+    ``omero-screen setup | doctor | config`` configure and check the install;
+    anything else is a pipeline run on plate or screen ids.
+    """
+    if len(sys.argv) > 1 and sys.argv[1] in SETUP_COMMANDS:
+        from omero_screen.setup_cli import run
+
+        run(sys.argv[1:])
+        return
     try:
         cli.main(standalone_mode=False)
     except click.exceptions.Abort:

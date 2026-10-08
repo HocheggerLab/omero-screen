@@ -1,0 +1,24 @@
+# Site profile: Hochegger lab, University of Sussex.
+# A site profile holds what everyone at a site shares. Users pick it with
+# `omero-screen setup` (site = "sussex"); their own config holds the rest.
+
+[omero]
+host = "ome2.hpc.sussex.ac.uk"
+port = 4064
+
+# Stitch calibrations per objective, chosen by the plate's pixel size.
+# 10x: long-standing lab values, confirmed on plate 3868 (no duplicated objects
+# at the seams). 20x: measured on plate 5054 (scripts/diagnose_stitch_seams.py).
+[stitching.calibrations.10x]
+pixel_size_um = 1.2
+overlap_x = 7
+overlap_y = 7
+translate_x = -3
+translate_y = 3
+
+[stitching.calibrations.20x]
+pixel_size_um = 0.6
+overlap_x = 25
+overlap_y = 26
+translate_x = -5
+translate_y = 4

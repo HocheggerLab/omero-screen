@@ -36,8 +36,8 @@ Main Functions:
 Attributes:
     project_root (Path): The root directory of the project, used to locate .env files.
 
-Raises:
-    OSError: If required configuration is missing or environment variables are not set.
+Nothing is required at import; a missing OMERO login is reported by
+:func:`omero_screen.settings.login` when a connection is made.
 """
 
 import logging
@@ -151,10 +151,11 @@ def switch_env(env: str) -> None:
 def set_env_vars() -> None:
     """Loads environment variables from configuration files or the environment.
 
-    If the ENV variable is not set, defaults to 'development'. Attempts to load variables from a file named .env.{ENV} first; if not found, falls back to .env. If neither file exists, checks that all required environment variables are set in the environment.
-
-    Raises:
-        OSError: If no configuration file is found and required environment variables are missing.
+    If the ENV variable is not set, defaults to 'development'. Loads the first
+    ``.env.{ENV}`` (or ``.env``) found, then fills any variable still unset from
+    the site profile and user config (:mod:`omero_screen.settings`). Nothing is
+    required at import: a missing OMERO login is reported when a connection is
+    made.
     """
     # Get environment, defaulting to development
     env = os.getenv("ENV", "development").lower()
@@ -187,45 +188,24 @@ def set_env_vars() -> None:
         for env_path in (root / f".env.{env}", root / ".env"):
             if env_path.exists():
                 _load_env_file(env_path)
+                _apply_user_settings()
                 return
 
-    # Retain the previous diagnostics' notion of a single project root.
-    diagnostics_root = candidate_roots[-1]
-    env_specific_path = diagnostics_root / f".env.{env}"
-    default_env_path = diagnostics_root / ".env"
+    # No .env file: the user config (``omero-screen setup``) supplies the
+    # settings. Nothing is required at import any more: CellView and the
+    # plots work offline, and a missing OMERO login is reported when a
+    # connection is attempted (see omero_screen.settings.login).
+    _apply_user_settings()
 
-    # If no files found, check for required environment variables. Logging is
-    # not listed: it is configured in code with safe defaults (see
-    # configure_logging), so it never gates startup.
-    required_vars = [
-        "ENV",
-        "USERNAME",
-        "PASSWORD",
-        "HOST",
-    ]
 
-    if all(os.getenv(var) is not None for var in required_vars):
-        # All required variables are present in environment
-        return
+def _apply_user_settings() -> None:
+    """Fill unset variables from the site profile and user config."""
+    from omero_screen import settings
 
-    # If we get here, no configuration was found
-    error_msg = "\n".join(
-        [
-            "No configuration found!",
-            f"Current environment: {env}",
-            f"Project root detected as: {diagnostics_root}",
-            "Tried looking for:",
-            f"  - {env_specific_path}",
-            f"  - {default_env_path}",
-            "And checked environment variables for:",
-            f"  - {', '.join(required_vars)}",
-            "\nSolutions:",
-            f"  1. Create a .env.{env} file in {diagnostics_root}",
-            "  2. Set OMERO_SCREEN_PROJECT_ROOT=/path/to/your/omero-screen",
-            "  3. Set all required environment variables directly",
-        ]
-    )
-    raise OSError(error_msg)
+    try:
+        settings.apply()
+    except (settings.ConfigError, OSError, ValueError) as err:
+        _loguru_logger.warning(f"Ignoring the omero-screen user config: {err}")
 
 
 # Third-party loggers we keep quiet (their records are intercepted into loguru).

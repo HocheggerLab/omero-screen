@@ -161,12 +161,13 @@ class OmeroData:
 class OmeroConnection:
     """Provide a connection to OMERO.
 
-    Connection credentials are obtained from the environment.
+    Connection settings come from the environment and the user config; the
+    password from the environment, the keychain or a password file (see
+    :mod:`omero_screen.settings`). They are resolved when connecting.
     """
 
     def __init__(self) -> None:
         self.username = os.getenv("USERNAME")
-        self.password = os.getenv("PASSWORD")
         self.host = os.getenv("HOST")
         self.conn: BlitzGateway | None = None
 
@@ -207,7 +208,16 @@ class OmeroConnection:
         Raises:
             RuntimeError: if a connection cannot be opened.
         """
-        conn = BlitzGateway(self.username, self.password, host=self.host)
+        from omero_screen import settings
+
+        try:
+            host, username, port, group, password = settings.login()
+        except settings.ConfigError as err:
+            raise RuntimeError(str(err)) from err
+        self.host, self.username = host, username
+        conn = BlitzGateway(
+            username, password, host=host, port=port, group=group
+        )
         conn.connect()
         if not conn.isConnected():
             raise RuntimeError(
