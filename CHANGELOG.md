@@ -1,3 +1,9 @@
+## omero-screen-v0.8.19 (2026-10-08)
+
+### Fix
+
+- **cellview**: do not import the stitch_mode marker as a condition variable (#61)
+
 ## omero-screen-v0.8.18 (2026-10-08)
 
 ### Fix
