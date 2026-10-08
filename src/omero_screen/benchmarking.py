@@ -25,7 +25,7 @@ import json
 import os
 import platform
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -76,10 +76,10 @@ def _collect_system_info() -> dict[str, Any]:
 
     # Cellpose version
     try:
-        import cellpose
+        from importlib.metadata import version
 
-        info["cellpose_version"] = cellpose.__version__
-    except (ImportError, AttributeError):
+        info["cellpose_version"] = version("cellpose")
+    except ImportError:
         info["cellpose_version"] = "unknown"
 
     return info
@@ -99,7 +99,7 @@ class BenchmarkTimer:
         self._n_wells = 0
 
     @contextmanager
-    def stage(self, name: str) -> Iterator[None]:
+    def stage(self, name: str) -> Generator[None]:
         """Time a named stage. Works both at plate level and within an image context."""
         start = time.perf_counter()
         try:
@@ -112,7 +112,7 @@ class BenchmarkTimer:
                 self._stages[name] = elapsed
 
     @contextmanager
-    def image(self, image_id: int, well: str = "") -> Iterator[None]:
+    def image(self, image_id: int, well: str = "") -> Generator[None]:
         """Time processing for a single image."""
         record = _ImageRecord(image_id=image_id, well=well)
         record.start = time.perf_counter()
@@ -211,11 +211,11 @@ class _NoOpTimer:
     """No-op timer returned when benchmarking is disabled. Zero overhead."""
 
     @contextmanager
-    def stage(self, name: str) -> Iterator[None]:  # noqa: ARG002
+    def stage(self, name: str) -> Generator[None]:  # noqa: ARG002
         yield
 
     @contextmanager
-    def image(self, image_id: int, well: str = "") -> Iterator[None]:  # noqa: ARG002
+    def image(self, image_id: int, well: str = "") -> Generator[None]:  # noqa: ARG002
         yield
 
     def set_well_count(self, n: int) -> None:  # noqa: ARG002

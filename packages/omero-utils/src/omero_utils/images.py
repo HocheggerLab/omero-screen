@@ -308,7 +308,7 @@ def _process_mip(conn: BlitzGateway, image_id: int) -> npt.NDArray[Any]:
 
     """
     _, array = get_image(conn, image_id)
-    return np.max(array, axis=1, keepdims=True)  # type: ignore
+    return np.max(array, axis=1, keepdims=True)
 
 
 def _image_generator(

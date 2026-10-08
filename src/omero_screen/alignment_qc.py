@@ -257,8 +257,14 @@ def matched_residuals(
         align = alignment_df[alignment_df["plate"] == plate]
         if per_sample:
             shift_map = {
-                (r.well, r.image_id): (float(r.x), float(r.y))
-                for r in align.itertuples()
+                (w, i): (float(x), float(y))
+                for w, i, x, y in zip(
+                    align["well"],
+                    align["image_id"],
+                    align["x"].to_numpy(float),
+                    align["y"].to_numpy(float),
+                    strict=True,
+                )
             }
             keys = list(
                 zip(
@@ -275,7 +281,13 @@ def matched_residuals(
             )
         else:
             shift_map = {
-                r.well: (float(r.x), float(r.y)) for r in align.itertuples()
+                w: (float(x), float(y))
+                for w, x, y in zip(
+                    align["well"],
+                    align["x"].to_numpy(float),
+                    align["y"].to_numpy(float),
+                    strict=True,
+                )
             }
             sx = np.array(
                 [shift_map.get(w, (np.nan, np.nan))[0] for w in sub["well"]]
@@ -589,12 +601,17 @@ def plot_shift_vectorfield(alignment_df: pd.DataFrame) -> Figure:
     for ax, plate in zip(axs[0], plates, strict=True):
         grp = alignment_df[alignment_df["plate"] == plate]
         rows, cols, us, vs = [], [], [], []
-        for r in grp.itertuples():
-            row, col = well_to_grid(str(r.well))
+        for well, x, y in zip(
+            grp["well"],
+            grp["x"].to_numpy(float),
+            grp["y"].to_numpy(float),
+            strict=True,
+        ):
+            row, col = well_to_grid(str(well))
             rows.append(row)
             cols.append(col)
-            us.append(float(r.x))
-            vs.append(float(r.y))
+            us.append(float(x))
+            vs.append(float(y))
         # invert y so row A is at the top, like a physical plate
         ax.quiver(
             cols,

@@ -314,7 +314,7 @@ class Image:
         """
         overlap = (c_mask != 0) * (n_mask != 0)
         cyto_mask_binary = (c_mask != 0) * (overlap == 0)
-        return c_mask * cyto_mask_binary  # type: ignore[no-any-return]
+        return c_mask * cyto_mask_binary
 
     def _n_segmentation(self) -> npt.NDArray[Any]:
         """Performs nuclei segmentation using Cellpose models.
@@ -680,7 +680,7 @@ class ImageProperties:
     def __init__(
         self,
         well: WellWrapper,
-        image_obj: Image,
+        image_obj: Image | StitchedWellImage,
         meta_data: MetadataParser,
         featurelist: FeatureConfig = default_config.FEATURELIST,
         image_classifier: None | list[ImageClassifier] = None,
@@ -690,7 +690,7 @@ class ImageProperties:
 
         Args:
             well (WellWrapper): OMERO WellWrapper object for the current well.
-            image_obj (Image): Image object containing segmentation masks and corrected images.
+            image_obj: Image object, or a stitched well, with segmentation masks and corrected images.
             meta_data (MetadataParser): Metadata parser with channel and plate information.
             featurelist: Feature configuration — structured ``{"intensity": [...],
                 "morphology": [...]}`` or a legacy flat list. Defaults to
@@ -1009,7 +1009,7 @@ class ImageProperties:
         if timepoints > 1:
             data_list = []
             for t in range(timepoints):
-                props = measure.regionprops_table(  # type: ignore[no-untyped-call]
+                props = measure.regionprops_table(
                     label[t],
                     # squeezing z
                     np.squeeze(self._image.img_dict[channel][t]),
@@ -1027,7 +1027,7 @@ class ImageProperties:
                 by=["timepoint", "label"]
             ).reset_index(drop=True)
         else:
-            props = measure.regionprops_table(  # type: ignore[no-untyped-call]
+            props = measure.regionprops_table(
                 label,
                 # squeezing tz
                 np.squeeze(self._image.img_dict[channel]),

@@ -92,7 +92,7 @@ def _create_image(image: npt.NDArray[Any]) -> npt.NDArray[Any]:
     s = image_normalized.shape
     if s[0] == 1:
         # single-channel
-        return image_normalized[0]  # type: ignore[no-any-return]
+        return image_normalized[0]
 
     # multi-channel
     # Pad with a blank plane or crop to 3 channels

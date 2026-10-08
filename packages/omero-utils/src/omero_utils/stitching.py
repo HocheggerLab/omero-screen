@@ -357,15 +357,15 @@ def positions_to_layout(
                 i = grid[y, x - 1]
                 j = grid[y, x]
                 if i >= 0 and j >= 0:
-                    rx.append(positions[j][0] - positions[i][0])  # type: ignore[index]
-                    ry.append(positions[j][1] - positions[i][1])  # type: ignore[index]
+                    rx.append(positions[j][0] - positions[i][0])
+                    ry.append(positions[j][1] - positions[i][1])
         for x in range(maxx):
             for y in range(1, maxy):
                 i = grid[y - 1, x]
                 j = grid[y, x]
                 if i >= 0 and j >= 0:
-                    cx.append(positions[j][0] - positions[i][0])  # type: ignore[index]
-                    cy.append(positions[j][1] - positions[i][1])  # type: ignore[index]
+                    cx.append(positions[j][0] - positions[i][0])
+                    cy.append(positions[j][1] - positions[i][1])
 
         logger.debug(positions)
         # Avoid numpy warning for empty lists
@@ -484,7 +484,7 @@ def compose_tiles_from_offsets(
     )
     sum_arr = np.zeros(out.shape[0:2])
 
-    for im, pos in zip(tiles, offsets, strict=True):
+    for im, pos in zip(tiles, np.asarray(offsets).tolist(), strict=True):
         xp, yp = pos
         for c in range(channels):
             out[yp : yp + tile_h, xp : xp + tile_w, c] += m * im[..., c]
@@ -553,7 +553,7 @@ def compose_labels_from_offsets(
 
     border = get_overlap(offsets, tile_h, tile_w)
 
-    for im, pos in zip(tiles, offsets, strict=True):
+    for im, pos in zip(tiles, np.asarray(offsets).tolist(), strict=True):
         xp, yp = pos
         for c in range(channels):
             out[c] = merge_labels(
@@ -688,8 +688,8 @@ def merge_labels(
     map1[:] = m[map1]
     map2[:] = m[map2]
 
-    map_array(im1, omap1, map1, out=im1)  # type: ignore
-    map_array(im2, omap2, map2, out=im2)  # type: ignore
+    map_array(im1, omap1, map1, out=im1)
+    map_array(im2, omap2, map2, out=im2)
 
     im1[yp : yp + s[0], xp : xp + s[1]] |= im2
 
@@ -1197,7 +1197,7 @@ def recompose_tiles(
         dtype=dtype,
     )
 
-    for im, pos in zip(stacked, offsets, strict=True):
+    for im, pos in zip(stacked, np.asarray(offsets).tolist(), strict=True):
         xp, yp = pos
         canvas[:, yp : yp + tile_h, xp : xp + tile_w, :] = im
 

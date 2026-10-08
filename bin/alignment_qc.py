@@ -106,7 +106,7 @@ def main() -> None:
 
     import pandas as pd
     from loguru import logger
-    from omero.gateway import BlitzGateway
+    from omero.gateway import BlitzGateway, BlitzObjectWrapper
     from omero_utils.attachments import (
         attach_figure,
         delete_file_attachment,
@@ -122,7 +122,9 @@ def main() -> None:
         _get_well_images,
     )
 
-    def _load_csv(plate: object, filename: str, plate_id: int) -> pd.DataFrame:
+    def _load_csv(
+        plate: BlitzObjectWrapper, filename: str, plate_id: int
+    ) -> pd.DataFrame:
         att = get_file_attachments(plate, filename)
         if not att:
             raise SystemExit(
@@ -220,7 +222,7 @@ def main() -> None:
     def _save_figures(
         figures: dict[str, Any],
         dest: "Path",
-        plate: object | None,
+        plate: BlitzObjectWrapper | None,
         conn: BlitzGateway,
     ) -> None:
         """Write figures as PDF+PNG and optionally attach the PNG to a plate."""

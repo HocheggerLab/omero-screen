@@ -121,6 +121,7 @@ dev = [
     "nbstripout",
     "jupytext",
     "fastmcp>=2.12",
+    "ty==0.0.85",
 ]
 
 # ===========================
@@ -137,7 +138,7 @@ python-version = "3.12"
 # - omero.model / omero.rtypes: Ice generates the model classes (PlateI,
 #   LengthI, ...) at import time, so ty cannot see them statically;
 # - ezomero: its untyped decorators make every wrapped function `object`.
-replace-imports-with-any = ["omero.model", "omero.model.**", "omero.rtypes", "ezomero", "ezomero.**"]
+replace-imports-with-any = ["omero.model", "omero.model.**", "omero.rtypes", "omero.sys", "ezomero", "ezomero.**"]
 
 [tool.ty.src]
 exclude = [

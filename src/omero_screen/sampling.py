@@ -18,10 +18,10 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-import omero
 from loguru import logger
 from omero.gateway import BlitzGateway, ImageWrapper, MapAnnotationWrapper
 from omero.rtypes import unwrap
+from omero.sys import ParametersI
 from tifffile import imwrite
 
 from omero_screen.constants import OmeroScreenNS
@@ -154,7 +154,7 @@ def _get_image_ids(
     query_service = conn.getQueryService()
     # https://omero.readthedocs.io/en/stable/developers/Model/EveryObject.html#plate
     # https://omero.readthedocs.io/en/stable/developers/Model/EveryObject.html#image
-    params = omero.sys.ParametersI()
+    params = ParametersI()
     query = f"""select w.id, i.id, pi.sizeT from Plate as p
         left join p.wells as w
         left join w.wellSamples as ws

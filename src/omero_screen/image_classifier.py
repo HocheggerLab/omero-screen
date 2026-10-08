@@ -121,7 +121,7 @@ class ImageClassifier:
         }
 
         # Load the model
-        model = torch.jit.load(  # type: ignore[no-untyped-call]
+        model = torch.jit.load(
             model_filename, map_location=torch.device("cpu")
         )
         model = model.to(self.device)
@@ -380,7 +380,7 @@ class ImageClassifier:
             tensor = np.divide(batch_imgs, 255, dtype=np.float32)
             # Resize to model input size
             output_shape = batch_imgs.shape[0:2] + self.input_shape
-            tensor = skimage.transform.resize(  # type: ignore[no-untyped-call]
+            tensor = skimage.transform.resize(
                 tensor, output_shape, mode="edge"
             )
             # Convert to tensor in place
@@ -461,7 +461,7 @@ class ImageClassifier:
             raise Exception(
                 "Image classifier only supports 2D images: " + str(image.shape)
             )
-        return i[y0:y1, x0:x1]  # type: ignore[no-any-return]
+        return i[y0:y1, x0:x1]
 
     def _to_uint8(self, image: npt.NDArray[Any]) -> npt.NDArray[np.uint8]:
         """Convert image to uint8 using the (1, 99) percentiles.
@@ -581,7 +581,7 @@ class ImageClassifier:
             # Find closest label
             dmin = np.prod(np.array(cropped_label.shape))
             dmin = dmin**2
-            for p in regionprops(cropped_label.astype(int)):  # type: ignore[no-untyped-call]
+            for p in regionprops(cropped_label.astype(int)):
                 y, x = p.centroid
                 d = (cx - x) ** 2 + (cy - y) ** 2
                 if d < dmin:

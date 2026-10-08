@@ -380,7 +380,7 @@ def _generate_image(image: ImageWrapper, channel: int) -> npt.NDArray[Any]:
         image
     """
     pixels = image.getPrimaryPixels()
-    return pixels.getPlane(0, channel, 0)  # type: ignore[no-any-return]
+    return pixels.getPlane(0, channel, 0)
 
 
 def example_fig(

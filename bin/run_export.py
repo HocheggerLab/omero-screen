@@ -62,7 +62,7 @@ def _parse_timepoints(spec: str | None) -> set[int] | None:
     return selected
 
 
-def _export_options(func):  # type: ignore[no-untyped-def]
+def _export_options(func):
     """Apply the options shared by ``plate`` and ``screen``."""
     options = [
         click.option(
@@ -121,6 +121,7 @@ def _run_export(
 ) -> None:
     """Export each plate in ``plate_ids`` into ``out_dir``."""
     # Imported here so ``--env`` has already been applied to os.environ.
+    from omero.gateway import BlitzGateway
     from omero_utils.omero_connect import omero_connect
 
     from omero_screen.export import (
@@ -138,7 +139,8 @@ def _run_export(
     )
 
     @omero_connect
-    def run(conn=None):  # type: ignore[no-untyped-def]
+    def run(conn: BlitzGateway | None = None) -> None:
+        assert conn is not None  # injected by @omero_connect
         for plate_id in plate_ids:
             spec = read_plate(
                 conn,
@@ -222,10 +224,12 @@ def export_screen(
     if env:
         os.environ["ENV"] = env
 
+    from omero.gateway import BlitzGateway
     from omero_utils.omero_connect import omero_connect
 
     @omero_connect
-    def plate_ids(conn=None):  # type: ignore[no-untyped-def]
+    def plate_ids(conn: BlitzGateway | None = None) -> list[int]:
+        assert conn is not None  # injected by @omero_connect
         screen = conn.getObject("Screen", screen_id)
         if screen is None:
             raise click.ClickException(f"Screen {screen_id} was not found")

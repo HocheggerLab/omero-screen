@@ -77,7 +77,7 @@ class SegmentationModel:
         # Dynamic switch between Cellpose 3 and 4
         self._cp3 = model_type == "cp3"
         if self._cp3:
-            self.model = CM3(device=self.device, model_type=model_name)  # type: ignore[no-untyped-call]
+            self.model = CM3(device=self.device, model_type=model_name)
         else:
             self.model = CM4(device=self.device, pretrained_model=model_name)
 
@@ -94,7 +94,7 @@ class SegmentationModel:
         """
         return "cellpose3" if self._cp3 else "cellpose4"
 
-    def eval(self, img: npt.NDArray[Any], **kwargs) -> npt.NDArray[Any]:  # type: ignore[no-untyped-def]
+    def eval(self, img: npt.NDArray[Any], **kwargs) -> npt.NDArray[Any]:
         """Segment the image.
 
         Segmentation uses cellpose 3 or cellpose 4 models. Additional arguments may be passed to the
@@ -123,8 +123,8 @@ class SegmentationModel:
         if self._cp3 and "channels" not in kwargs:
             nchan = img.shape[kwargs["channel_axis"]]
             kwargs["channels"] = [[0, 0]] if nchan == 1 else [[1, 2]]
-        m, _flows, _styles = self.model.eval(img, **kwargs)  # type: ignore[no-untyped-call]
-        return m  # type: ignore[no-any-return]
+        m, _flows, _styles = self.model.eval(img, **kwargs)
+        return m
 
 
 def _guess_model_type(name: str) -> str:

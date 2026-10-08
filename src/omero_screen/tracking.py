@@ -264,8 +264,12 @@ def track_nucleus_mask(
     # the relabelled mask and the parent map are guaranteed consistent.
     track_df, relabelled = graph_to_ctc(graph, nucleus_mask, check=False)
     parent_map = {
-        int(row.label): int(row.parent)
-        for row in track_df.itertuples(index=False)
+        int(label): int(parent)
+        for label, parent in zip(
+            track_df["label"].to_numpy(),
+            track_df["parent"].to_numpy(),
+            strict=True,
+        )
     }
     relabelled = relabelled.astype(nucleus_mask.dtype, copy=False)
 

@@ -136,24 +136,24 @@ def _create_img(
     rng = np.random.default_rng()
     for x in range(cell_radius, dim[1] - cell_radius, cell_radius * 2):
         for y in range(cell_radius, dim[0] - cell_radius, cell_radius * 2):
-            rr, cc = ellipse(  # type: ignore[no-untyped-call]
+            rr, cc = ellipse(
                 x,
                 y,
                 cell_radius,
                 cell_radius * rng.uniform(0.7, 1),
                 dim,
                 rotation=rng.uniform(-3.14, 3.14),
-            )  # type: ignore
+            )
             mask[1, rr, cc] = 1
             mask[2, rr, cc] = 1
-            rr, cc = ellipse(  # type: ignore[no-untyped-call]
+            rr, cc = ellipse(
                 x,
                 y,
                 nucleus_radius * rng.uniform(0.7, 1.2),
                 nucleus_radius * rng.uniform(0.7, 1.2),
                 dim,
                 rotation=rng.uniform(-3.14, 3.14),
-            )  # type: ignore
+            )
             mask[0, rr, cc] = 1
     # Mask is CYX. Create output image of TCZYX.
     img = np.zeros((size_t, 3, size_z) + dim, dtype=np.uint8)
@@ -198,7 +198,7 @@ def _upload_image(conn: BlitzGateway, img: npt.NDArray[Any]) -> int:
     p.setPhysicalSizeY(u)
     conn.getUpdateService().saveObject(p)
 
-    return image.getId()  # type: ignore[no-any-return]
+    return image.getId()
 
 
 def base_plate(

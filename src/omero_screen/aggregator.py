@@ -56,7 +56,7 @@ def median_filter(
     rescaled_pixel_data = pixel_data * scale
     rescaled_pixel_data = rescaled_pixel_data.astype(np.uint16)
     # Note: skimage is not typed
-    output_pixels: npt.NDArray[Any] = skimage.filters.median(  # type: ignore[no-untyped-call]
+    output_pixels: npt.NDArray[Any] = skimage.filters.median(
         rescaled_pixel_data, strel, behavior="rank"
     )
     output_pixels = output_pixels / scale

@@ -571,7 +571,7 @@ def open_well_arrays(
     row, col = well[0], well[1:]
     group = f"{row}/{col}/0"
     try:
-        root = zarr.open(str(path), mode="r")
+        root = zarr.open_group(str(path), mode="r")
         labels = root[f"{group}/labels/nuclei/0"]
         image = root[f"{group}/0"]
     except KeyError as exc:  # pragma: no cover - depends on cache contents
@@ -616,7 +616,7 @@ def _measure_mask(
     """
     if not mask.any():
         return None
-    props = measure.regionprops(  # type: ignore[no-untyped-call]
+    props = measure.regionprops(
         mask.astype(np.uint8), intensity_image=intensity
     )[0]
     return {
@@ -681,7 +681,7 @@ def remeasure_event(
     union = (lab == pruned) | (lab == kept)
     closed = ndimage.binary_closing(
         union,
-        structure=morphology.disk(close_radius),  # type: ignore[no-untyped-call]
+        structure=morphology.disk(close_radius),
     )
 
     record: dict[str, Any] = {
