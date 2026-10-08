@@ -1,3 +1,9 @@
+## omero-screen-v0.8.14 (2026-10-08)
+
+### Fix
+
+- **config**: user config with site profiles, keychain password, setup/doctor/config show (#50)
+
 ## omero-screen-v0.8.13 (2026-10-08)
 
 ### Fix
