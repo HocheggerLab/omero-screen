@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from omero_screen_napari.trainingdata_db.database import TrainingDB
 
 
-class DirectLoadDialog(QDialog):  # type: ignore[misc]
+class DirectLoadDialog(QDialog):
     """Dialog for loading data directly from OMERO for annotation.
 
     Allows user to input:
@@ -484,7 +484,7 @@ class DirectLoadDialog(QDialog):  # type: ignore[misc]
         # Left as AutoText: the summary opens with a tag, so Qt detects it
         # as rich text without pinning a Qt5/Qt6-specific enum path.
         box.setText(format_info_html(info, header))
-        box.exec_()
+        box.exec()
 
     def _restore_classifier_selection(self) -> None:
         """Re-apply the remembered classifier column and class.

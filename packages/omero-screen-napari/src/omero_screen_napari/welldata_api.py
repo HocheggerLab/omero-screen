@@ -112,11 +112,11 @@ def parse_omero_data(
             if not hasattr(sys, "ps1") and "pytest" not in sys.modules:
                 # Show QMessageBox only in GUI mode
                 msg_box = QMessageBox()
-                msg_box.setIcon(QMessageBox.Warning)
+                msg_box.setIcon(QMessageBox.Icon.Warning)
                 msg_box.setText(str(e))
                 msg_box.setWindowTitle("Error")
-                msg_box.setStandardButtons(QMessageBox.Ok)
-                msg_box.exec_()
+                msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+                msg_box.exec()
 
 
 def parse_plate_data(
@@ -885,9 +885,9 @@ class CellViewParser:
         cancel_button.clicked.connect(dialog.reject)
 
         # Show dialog
-        result = dialog.exec_()
+        result = dialog.exec()
 
-        if result == QDialog.Accepted:
+        if result == QDialog.DialogCode.Accepted:
             if new_radio.isChecked():
                 # Creating new project
                 new_name = name_edit.text().strip()
@@ -1106,9 +1106,9 @@ class CellViewParser:
         cancel_button.clicked.connect(dialog.reject)
 
         # Show dialog
-        result = dialog.exec_()
+        result = dialog.exec()
 
-        if result == QDialog.Accepted:
+        if result == QDialog.DialogCode.Accepted:
             if new_radio.isChecked():
                 # Creating new experiment
                 new_name = name_edit.text().strip()
@@ -1236,9 +1236,9 @@ class CellViewParser:
         cancel_button.clicked.connect(dialog.reject)
 
         # Show dialog
-        result = dialog.exec_()
+        result = dialog.exec()
 
-        if result == QDialog.Accepted:
+        if result == QDialog.DialogCode.Accepted:
             # Collect metadata
             confirmed_metadata = {
                 "plate_id": self._plate_id,
@@ -1502,24 +1502,24 @@ class CellViewParser:
         msg_box = QMessageBox()
 
         if msg_type == "info":
-            msg_box.setIcon(QMessageBox.Information)
+            msg_box.setIcon(QMessageBox.Icon.Information)
             msg_box.setWindowTitle("Information")
         elif msg_type == "warning":
-            msg_box.setIcon(QMessageBox.Warning)
+            msg_box.setIcon(QMessageBox.Icon.Warning)
             msg_box.setWindowTitle("Warning")
         elif msg_type == "error":
-            msg_box.setIcon(QMessageBox.Critical)
+            msg_box.setIcon(QMessageBox.Icon.Critical)
             msg_box.setWindowTitle("Error")
         elif msg_type == "success":
-            msg_box.setIcon(QMessageBox.Information)
+            msg_box.setIcon(QMessageBox.Icon.Information)
             msg_box.setWindowTitle("Success")
 
         msg_box.setText(message)
-        msg_box.setStandardButtons(QMessageBox.Ok)
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
 
         # Only show in GUI mode
         if not hasattr(sys, "ps1") and "pytest" not in sys.modules:
-            msg_box.exec_()
+            msg_box.exec()
         else:
             logger.info(f"[{msg_type.upper()}] {message}")
 
@@ -1775,7 +1775,7 @@ class ScaleIntensityParser:
         """
         self._get_values()
         if self._intensities:
-            self._omero_data.intensities = self._intensities  # type: ignore
+            self._omero_data.intensities = self._intensities
         else:
             logger.error("Problem with loading intensities to scale channels.")
             raise ValueError(
@@ -2240,7 +2240,7 @@ class ImageParser:
         if len(corrected_array.shape) == 2:
             corrected_array = corrected_array[..., np.newaxis]
         logger.debug(f"Corrected image shape: {corrected_array.shape}")
-        return corrected_array  # type: ignore
+        return corrected_array
 
     def _check_label_data(self) -> None:
         label_names = [

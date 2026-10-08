@@ -219,7 +219,7 @@ def _well_sort_key(well_pos: str) -> tuple[str, int]:
 # --------------- Qt Dialog ---------------
 
 
-class PlateInfoDialog(QDialog):  # type: ignore[misc]
+class PlateInfoDialog(QDialog):
     """Dialog showing a summary table of all wells in a plate.
 
     Args:
@@ -337,7 +337,7 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
                 f"({', '.join(str(p) for p in rounds)})"
             )
         label = QLabel(text)
-        label.setTextFormat(Qt.RichText)  # type: ignore[attr-defined]
+        label.setTextFormat(Qt.TextFormat.RichText)
         return label
 
     def _build_table(
@@ -366,8 +366,8 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
 
         table = QTableWidget(len(rows), len(columns))
         table.setHorizontalHeaderLabels(columns)
-        table.setSelectionBehavior(QTableWidget.SelectRows)
-        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         # Sorting must be disabled during population — Qt re-sorts after
         # each setItem(), scrambling row indices for subsequent columns.
         table.setSortingEnabled(False)
@@ -397,7 +397,7 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
 
             # Images (numeric for sorting)
             img_item = QTableWidgetItem()
-            img_item.setData(Qt.ItemDataRole.DisplayRole, row_data["images"])  # type: ignore[arg-type]
+            img_item.setData(Qt.ItemDataRole.DisplayRole, row_data["images"])
             table.setItem(row_idx, col, img_item)
             col += 1
 
@@ -405,7 +405,7 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
             tp_item = QTableWidgetItem()
             tp_item.setData(
                 Qt.ItemDataRole.DisplayRole, row_data["timepoints"]
-            )  # type: ignore[arg-type]
+            )
             table.setItem(row_idx, col, tp_item)
             col += 1
 
@@ -421,36 +421,43 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
                 self._cached_wells.add(well_pos)
 
         table.setSortingEnabled(True)
-        table.sortItems(1, Qt.AscendingOrder)  # type: ignore[attr-defined]
+        table.sortItems(1, Qt.SortOrder.AscendingOrder)
 
         # Place "Select All" checkbox in the header (column 0)
         header = table.horizontalHeader()
         if header:
-            header.setSectionResizeMode(0, QHeaderView.Fixed)
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
             table.setColumnWidth(0, 40)
             # Well column
-            header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(
+                1, QHeaderView.ResizeMode.ResizeToContents
+            )
             # Metadata columns — last one stretches, rest resize to contents
             for i in range(2, 2 + n_meta):
                 if i == 1 + n_meta:  # last metadata column
-                    header.setSectionResizeMode(i, QHeaderView.Stretch)
+                    header.setSectionResizeMode(
+                        i, QHeaderView.ResizeMode.Stretch
+                    )
                 else:
                     header.setSectionResizeMode(
-                        i, QHeaderView.ResizeToContents
+                        i, QHeaderView.ResizeMode.ResizeToContents
                     )
             # If no metadata columns, stretch the Well column instead
             if n_meta == 0:
-                header.setSectionResizeMode(1, QHeaderView.Stretch)
+                header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
             # Tail columns: Images, Timepoints, Labels, Cached
             for i in range(2 + n_meta, len(columns)):
-                header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+                header.setSectionResizeMode(
+                    i, QHeaderView.ResizeMode.ResizeToContents
+                )
 
         # Replace "Select" header text with a checkbox widget
         self._select_all_cb = QCheckBox()
         self._select_all_cb.setToolTip("Select / Deselect All")
         self._select_all_cb.stateChanged.connect(self._on_select_all_toggled)
         table.setHorizontalHeaderItem(0, QTableWidgetItem(""))
-        table.horizontalHeader().setMinimumSectionSize(40)  # type: ignore[union-attr]
+        if header:
+            header.setMinimumSectionSize(40)
 
         return table
 
@@ -480,7 +487,9 @@ class PlateInfoDialog(QDialog):  # type: ignore[misc]
 
         # Fallback: use Qt row selection if no checkboxes are checked
         if not well_positions:
-            selected_rows = self.table.selectionModel().selectedRows()  # type: ignore[union-attr]
+            selection_model = self.table.selectionModel()
+            assert selection_model is not None  # always set on a view
+            selected_rows = selection_model.selectedRows()
             for index in selected_rows:
                 item = self.table.item(index.row(), 1)
                 if item:

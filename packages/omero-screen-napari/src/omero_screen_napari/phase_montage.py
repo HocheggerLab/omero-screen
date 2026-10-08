@@ -29,11 +29,11 @@ Two choices in here are about honesty rather than looks:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -802,7 +802,8 @@ def _normalise(
 ) -> npt.NDArray[np.float32]:
     lo, hi = limits
     out = (plane.astype(np.float32) - lo) / max(hi - lo, 1e-6)
-    clipped: npt.NDArray[np.float32] = np.clip(out, 0.0, 1.0)
+    # out is float32 at runtime; the stubs widen the scalar arithmetic.
+    clipped = cast(npt.NDArray[np.float32], np.clip(out, 0.0, 1.0))
     return clipped
 
 
@@ -925,7 +926,7 @@ def _add_scale_bar(ax: Any, crop_px: int, pixel_size_um: float | None) -> None:
 
 
 @contextmanager
-def montage_style() -> Iterator[Any]:
+def montage_style() -> Generator[Any]:
     """Apply the figure typography, yielding ``pyplot``.
 
     Must wrap **saving** as well as drawing. Matplotlib bakes a font *size* into

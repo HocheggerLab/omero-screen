@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from omero_screen_napari.trainingdata_db.database import TrainingDB
 
 
-class AnnotationSessionManager(QDialog):  # type: ignore[misc]
+class AnnotationSessionManager(QDialog):
     """Unified dialog for managing annotation sessions.
 
     Combines session browsing, file validation, class distribution stats,
@@ -119,9 +119,11 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
             ]
         )
 
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SingleSelection)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSortingEnabled(True)
 
         self._load_sessions()
@@ -130,11 +132,17 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
         header = self.table.horizontalHeader()
         if header:
             for i in range(7):
-                header.setSectionResizeMode(i, QHeaderView.ResizeToContents)
+                header.setSectionResizeMode(
+                    i, QHeaderView.ResizeMode.ResizeToContents
+                )
             # Class Distribution stretches
-            header.setSectionResizeMode(7, QHeaderView.Stretch)
-            header.setSectionResizeMode(8, QHeaderView.ResizeToContents)
-            header.setSectionResizeMode(9, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(
+                8, QHeaderView.ResizeMode.ResizeToContents
+            )
+            header.setSectionResizeMode(
+                9, QHeaderView.ResizeMode.ResizeToContents
+            )
 
         main_layout.addWidget(self.table)
 
@@ -234,15 +242,15 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
         for row_idx, session in enumerate(sessions):
             # Row number (1-based)
             row_item = QTableWidgetItem()
-            row_item.setData(Qt.ItemDataRole.DisplayRole, row_idx + 1)  # type: ignore
-            row_item.setData(Qt.ItemDataRole.UserRole, session["id"])  # type: ignore
+            row_item.setData(Qt.ItemDataRole.DisplayRole, row_idx + 1)
+            row_item.setData(Qt.ItemDataRole.UserRole, session["id"])
             self.table.setItem(row_idx, 0, row_item)
 
             # Plate ID
             plate_item = QTableWidgetItem()
             plate_item.setData(
                 Qt.ItemDataRole.DisplayRole, session["plate_id"]
-            )  # type: ignore
+            )
             self.table.setItem(row_idx, 1, plate_item)
 
             # Well
@@ -265,7 +273,7 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
             timepoint = session.get("timepoint")
             tp_item = QTableWidgetItem()
             if timepoint is not None:
-                tp_item.setData(Qt.ItemDataRole.DisplayRole, timepoint)  # type: ignore
+                tp_item.setData(Qt.ItemDataRole.DisplayRole, timepoint)
             else:
                 tp_item.setText("N/A")
             self.table.setItem(row_idx, 4, tp_item)
@@ -281,7 +289,7 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
             stat_entry = stats_lookup.get(session["id"], {})
             total_cells = stat_entry.get("total_cells", 0)
             cells_item = QTableWidgetItem()
-            cells_item.setData(Qt.ItemDataRole.DisplayRole, total_cells)  # type: ignore
+            cells_item.setData(Qt.ItemDataRole.DisplayRole, total_cells)
             self.table.setItem(row_idx, 6, cells_item)
 
             dist = stat_entry.get("class_distribution", {})
@@ -299,9 +307,9 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
                 "\u2713 Valid" if valid else f"\u2717 {msg}"
             )
             if valid:
-                status_item.setForeground(Qt.darkGreen)  # type: ignore
+                status_item.setForeground(Qt.GlobalColor.darkGreen)
             else:
-                status_item.setForeground(Qt.red)  # type: ignore
+                status_item.setForeground(Qt.GlobalColor.red)
             self.table.setItem(row_idx, 8, status_item)
 
             # Actions (Load + Delete buttons)
@@ -341,7 +349,7 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
             if (
                 row_item
                 and row_item.data(Qt.ItemDataRole.UserRole) == session_id
-            ):  # type: ignore
+            ):
                 status_item = self.table.item(row, 8)
                 if status_item and not status_item.text().startswith("\u2713"):
                     QMessageBox.warning(
@@ -411,10 +419,10 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
             f"Image: {session['image_id']}\n"
             f"File: {file_path.name}\n\n"
             f"This will permanently delete the session and its NPY file.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
-        if reply != QMessageBox.Yes:
+        if reply != QMessageBox.StandardButton.Yes:
             return
 
         try:
@@ -472,10 +480,10 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
             f"No sessions remain for '{self.classifier_name}'.\n\n"
             f"Delete the entire classifier and its folder on disk?\n"
             f"{classifier_dir}",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
-        if reply != QMessageBox.Yes:
+        if reply != QMessageBox.StandardButton.Yes:
             return
 
         # Delete from DB
@@ -557,7 +565,7 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
 
         progress = QProgressDialog("Building dataset…", None, 0, 0, self)
         progress.setWindowTitle("Export Dataset")
-        progress.setWindowModality(Qt.WindowModal)  # type: ignore[attr-defined]
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setMinimumDuration(0)
         progress.show()
 
@@ -645,9 +653,9 @@ class AnnotationSessionManager(QDialog):  # type: ignore[misc]
                 on_load_callback=self.on_direct_load_callback,
                 parent=self,
             )
-            dialog.exec_()
+            dialog.exec()
 
-            if dialog.result() == QDialog.Accepted:
+            if dialog.result() == QDialog.DialogCode.Accepted:
                 self._refresh()
 
         except Exception as e:

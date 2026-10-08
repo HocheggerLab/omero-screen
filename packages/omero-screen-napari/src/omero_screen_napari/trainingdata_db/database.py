@@ -8,7 +8,7 @@ and annotations.
 import json
 import os
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any, cast
@@ -73,7 +73,7 @@ class TrainingDB:
         logger.info(f"Training database initialized at {self.db_path}")
 
     @contextmanager
-    def _get_connection(self) -> Iterator[sqlite3.Connection]:
+    def _get_connection(self) -> Generator[sqlite3.Connection]:
         """Context manager for database connections.
 
         Yields:

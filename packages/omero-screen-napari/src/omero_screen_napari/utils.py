@@ -35,7 +35,7 @@ def scale_image(
     for i in range(img.shape[-1]):
         scaled_channel = exposure.rescale_intensity(
             img[..., i],
-            in_range=intensities[i],  # type: ignore
+            in_range=intensities[i],
         )
         scaled_channels.append(scaled_channel)
     return np.stack(scaled_channels, axis=-1)

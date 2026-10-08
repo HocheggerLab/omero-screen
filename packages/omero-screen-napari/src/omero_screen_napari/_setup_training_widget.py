@@ -24,7 +24,7 @@ def setup_training_widget(
     class_options: list[str] | None = None,
     class_name: str | None = None,
     user_data: "UserData | None" = global_user_data,
-) -> Container:  # type: ignore
+) -> Container:
     widget = SetupTrainingWidget(
         class_options, class_name, user_data, omero_data
     )
@@ -119,7 +119,7 @@ class SetupTrainingWidget:
             self.meta_data_saver.update_classifier_name(new_classifier_name)
         self.meta_data_saver.save_data()
 
-    def create_container(self) -> Container:  # type: ignore
+    def create_container(self) -> Container:
         widgets = [
             self.add_class_widget,
             self.reset_class_options_widget,
@@ -351,7 +351,11 @@ class MetaDataSaver:
             ),
             "target": self.omero_data.selected_classes,
         }
-        np.save(file_path, training_dict, allow_pickle=True)  # type: ignore[arg-type,call-overload]
+        np.save(
+            file_path,
+            np.asarray(training_dict, dtype=object),
+            allow_pickle=True,
+        )
         logger.info(f"Initial session NPY saved to {file_path}")
 
         # Tell the training widget which file to use for subsequent saves.
@@ -444,7 +448,7 @@ class MetaDataSaver:
     def _compare_metadata(self) -> bool:
         with self.meta_data_path.open("r") as json_file:
             existing_metadata = json.load(json_file)
-        return existing_metadata == self.metadata  # type: ignore
+        return existing_metadata == self.metadata
 
     def _validate_classifier_name(self, text_input: str) -> None:
         if not text_input.strip():
@@ -488,26 +492,28 @@ class MetaDataSaver:
 
     def _show_error_message(self, message: str) -> None:
         msg_box = QMessageBox()
-        msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setIcon(QMessageBox.Icon.Warning)
         msg_box.setText(message)
         msg_box.setWindowTitle("Error")
-        msg_box.setStandardButtons(QMessageBox.Ok)
-        msg_box.exec_()
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg_box.exec()
 
     def _show_success_message(self, message: str) -> None:
         msg_box = QMessageBox()
-        msg_box.setIcon(QMessageBox.Information)
+        msg_box.setIcon(QMessageBox.Icon.Information)
         msg_box.setText(message)
         msg_box.setWindowTitle("Success")
-        msg_box.setStandardButtons(QMessageBox.Ok)
-        msg_box.exec_()
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg_box.exec()
 
     def _show_confirmation_dialog(self, message: str) -> bool:
         msg_box = QMessageBox()
-        msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setIcon(QMessageBox.Icon.Warning)
         msg_box.setText(message)
         msg_box.setWindowTitle("Warning")
-        msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        msg_box.setDefaultButton(QMessageBox.No)
-        reply = msg_box.exec_()
-        return bool(reply == QMessageBox.Yes)
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+        reply = msg_box.exec()
+        return bool(reply == QMessageBox.StandardButton.Yes)

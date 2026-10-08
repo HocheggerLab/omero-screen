@@ -1,7 +1,7 @@
 import json
 from dataclasses import asdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import napari
 import numpy as np
@@ -23,6 +23,7 @@ from omero_screen_napari.omero_data_singleton import omero_data
 from omero_screen_napari.trainingdata_db.database import TrainingDB
 
 if TYPE_CHECKING:
+    from napari.layers import Image
     from napari.viewer import Viewer
 
     from omero_screen_napari.gallery_userdata import UserData
@@ -36,7 +37,7 @@ _UNSET = object()
 def training_widget(
     class_name: str | None = None,
     user_data: "UserData | None" = userdata,
-) -> Container:  # type: ignore
+) -> Container:
     from omero_screen_napari._logging import init_plugin_logging
 
     init_plugin_logging()
@@ -84,6 +85,7 @@ class ImageNavigator:
 
     def update_image(self) -> None:
         viewer = napari.current_viewer()
+        assert viewer is not None, "update_image needs an active viewer"
         current_choices = self.class_choice.choices
         self.class_choice.changed.disconnect(self.assign_class)
 
@@ -107,7 +109,9 @@ class ImageNavigator:
 
     def _save_current_settings(self, viewer: "Viewer") -> None:
         if not self.first_load and viewer.layers:
-            self.saved_contrast_limits = viewer.layers[0].contrast_limits
+            # Layer 0 is the image this navigator added.
+            image_layer = cast("Image", viewer.layers[0])
+            self.saved_contrast_limits = image_layer.contrast_limits
             logger.info(
                 f"Saving contrast limits: {self.saved_contrast_limits}"
             )
@@ -168,7 +172,8 @@ class ImageNavigator:
                 logger.debug(
                     f"Applying contrast limits: {self.saved_contrast_limits}"
                 )
-                viewer.layers[0].contrast_limits = self.saved_contrast_limits
+                image_layer = cast("Image", viewer.layers[0])
+                image_layer.contrast_limits = self.saved_contrast_limits
             else:
                 logger.warning(
                     f"Contrast limits {self.saved_contrast_limits} are out of range for the new image intensity values."
@@ -230,7 +235,9 @@ class TrainingWidget:
         self.class_name = class_name
 
         self.training_data_saver: TrainingDataSaver | None = None
-        self.setup_key_bindings(napari.current_viewer())
+        viewer = napari.current_viewer()
+        assert viewer is not None, "TrainingWidget needs an active viewer"
+        self.setup_key_bindings(viewer)
 
         # Initialize database and classifier selector
         self.db = TrainingDB()
@@ -287,10 +294,10 @@ class TrainingWidget:
             None,
             "Assign all cells",
             f"Assign all {n} cells to '{class_name}'?\nThis will overwrite existing assignments.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self.image_navigator.assign_all_to_class(class_name)
 
     def update_class_options(self, class_options: list[str]) -> None:
@@ -476,7 +483,7 @@ class TrainingWidget:
             )
             return default
 
-    def create_container(self) -> Container:  # type: ignore
+    def create_container(self) -> Container:
         # Create container with magicgui widgets
         widgets = [
             self.previous_image_widget,
@@ -649,7 +656,7 @@ class TrainingDataSaver:
 
     def save_both(self) -> None:
         self.training_dict = self._create_training_dict()
-        np.save(self.file_path, self.training_dict)  # type: ignore
+        np.save(self.file_path, np.asarray(self.training_dict, dtype=object))
         self._save_metadata(self.meta_data_path, self.metadata)
         self._save_to_database()
 
@@ -660,7 +667,7 @@ class TrainingDataSaver:
 
     def _save_training_data(self) -> None:
         self.training_dict = self._create_training_dict()
-        np.save(self.file_path, self.training_dict)  # type: ignore
+        np.save(self.file_path, np.asarray(self.training_dict, dtype=object))
 
         # Save to DB
         self._save_to_database()
@@ -713,7 +720,7 @@ class TrainingDataSaver:
     def compare_metadata(self) -> bool:
         with self.meta_data_path.open("r") as json_file:
             existing_metadata = json.load(json_file)
-        return existing_metadata == self.metadata  # type: ignore
+        return existing_metadata == self.metadata
 
     def _validate_classifier_name(self, text_input: str) -> None:
         if not text_input.strip():
@@ -839,28 +846,30 @@ class TrainingDataSaver:
 
 def _show_error_message(message: str) -> None:
     msg_box = QMessageBox()
-    msg_box.setIcon(QMessageBox.Warning)
+    msg_box.setIcon(QMessageBox.Icon.Warning)
     msg_box.setText(message)
     msg_box.setWindowTitle("Error")
-    msg_box.setStandardButtons(QMessageBox.Ok)
-    msg_box.exec_()
+    msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+    msg_box.exec()
 
 
 def _show_success_message(message: str) -> None:
     msg_box = QMessageBox()
-    msg_box.setIcon(QMessageBox.Information)
+    msg_box.setIcon(QMessageBox.Icon.Information)
     msg_box.setText(message)
     msg_box.setWindowTitle("Success")
-    msg_box.setStandardButtons(QMessageBox.Ok)
-    msg_box.exec_()
+    msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+    msg_box.exec()
 
 
 def _show_confirmation_dialog(message: str) -> bool:
     msg_box = QMessageBox()
-    msg_box.setIcon(QMessageBox.Warning)
+    msg_box.setIcon(QMessageBox.Icon.Warning)
     msg_box.setText(message)
     msg_box.setWindowTitle("Warning")
-    msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-    msg_box.setDefaultButton(QMessageBox.No)
-    reply = msg_box.exec_()
-    return bool(reply == QMessageBox.Yes)
+    msg_box.setStandardButtons(
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+    )
+    msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+    reply = msg_box.exec()
+    return bool(reply == QMessageBox.StandardButton.Yes)

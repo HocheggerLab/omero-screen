@@ -217,7 +217,7 @@ class ClassifierInfoPanel:
                     on_direct_load_callback=self._on_direct_load_callback,
                     parent=self.manage_button,
                 )
-                dialog.exec_()
+                dialog.exec()
             except Exception as e:
                 logger.exception(f"Failed to show session manager: {e}")
 
@@ -377,7 +377,7 @@ class ClassifierSelector:
         """
         return self.selector_widget
 
-    def create_widget(self) -> Container:  # type: ignore
+    def create_widget(self) -> Container:
         """Create magicgui Container with dropdown and info panel.
 
         Returns:

@@ -1,5 +1,5 @@
 import random
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
@@ -92,7 +92,7 @@ def build_gallery_figure(
         omero_data.selected_images = [
             exposure.rescale_intensity(
                 x.astype(np.float64), in_range=(info.min, info.max)
-            )  # type: ignore
+            )
             for x in omero_data.selected_images
         ]
 
@@ -149,10 +149,13 @@ def parse_crops_into_omero_data(
         omero_data.cropped_cell_meta = []
         return
 
+    # UserData stores the GUI choice as a plain str; the widget only
+    # offers "nucleus" or "cell".
+    segmentation = cast(Literal["nucleus", "cell"], user_data.segmentation)
     pipeline = CropPipeline(
         source=source,
         centroids_df=centroids,
-        segmentation=user_data.segmentation,  # type: ignore[arg-type]
+        segmentation=segmentation,
         crop_size=user_data.crop_size,
         timepoint=int(user_data.timepoint),
         excluded_centroids=excluded_centroids,
@@ -169,7 +172,7 @@ def parse_crops_into_omero_data(
         result = CropPipeline(
             source=WelldataSource(omero_data),
             centroids_df=centroids,
-            segmentation=user_data.segmentation,  # type: ignore[arg-type]
+            segmentation=segmentation,
             crop_size=user_data.crop_size,
             timepoint=int(user_data.timepoint),
             excluded_centroids=excluded_centroids,
@@ -512,7 +515,7 @@ class RandomImageParser:
         masked_images = []
         for image, mask in zip(
             self._random_images, self._random_labels, strict=False
-        ):  # type: ignore
+        ):
             # Ensure mask is 2D (H, W) before expanding to match image channels
             if mask.ndim > 2:
                 mask = np.squeeze(mask)
@@ -583,7 +586,7 @@ def draw_contours(
     img: np.ndarray[Any, Any], label: np.ndarray[Any, Any]
 ) -> np.ndarray[Any, Any]:
     channel_num = img.shape[-1]
-    contours = find_contours(label, 0.5)  # type: ignore
+    contours = find_contours(label, 0.5)
     for contour in contours:
         for coords in contour:
             x, y = coords.astype(int)
