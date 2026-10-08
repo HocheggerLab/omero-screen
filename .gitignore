@@ -70,12 +70,9 @@ instance/
 # Scrapy stuff:
 .scrapy
 
-# Sphinx documentation
-docs/_build/
-**/docs/_build/
-
-# Generated documentation plots (SVGs) - allow _static/*.svg to be committed
-**/docs/_build/**/*.svg
+# Legacy Sphinx documentation, kept locally (untracked) after the Great Docs
+# migration (#53)
+_legacy_sphinx/
 
 # PyBuilder
 .pybuilder/

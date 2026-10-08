@@ -1,11 +1,7 @@
 name: Documentation
 
-# Builds and publishes the six-site Great Docs platform documentation.
-#
-# This workflow owns the GitHub Pages deployment. docs.yml (Sphinx) still
-# builds, so the remaining docs/ tree cannot rot unnoticed, but its deploy job
-# is disabled — two workflows publishing to one Pages environment race, and the
-# loser silently overwrites the winner.
+# Builds and publishes the six-site Great Docs platform documentation, and
+# owns the GitHub Pages deployment.
 
 on:
   push:
