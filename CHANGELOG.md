@@ -1,3 +1,9 @@
+## omero-screen-v0.8.22 (2026-10-08)
+
+### Fix
+
+- **claude**: plugin marketplace with the user skills; install and Claude docs (#64)
+
 ## omero-screen-v0.8.21 (2026-10-08)
 
 ### Fix
