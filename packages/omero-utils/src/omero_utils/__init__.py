@@ -13,7 +13,7 @@ Available modules:
 
 """
 
-__version__ = "0.8.20"
+__version__ = "0.8.21"
 from omero_screen.config import set_env_vars
 
 set_env_vars()

@@ -1,3 +1,9 @@
+## omero-screen-v0.8.21 (2026-10-08)
+
+### Fix
+
+- **plots**: font fallbacks after Arial in the plot styles (#63)
+
 ## omero-screen-v0.8.20 (2026-10-08)
 
 ### Fix
