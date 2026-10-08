@@ -1,3 +1,9 @@
+## omero-screen-v0.8.16 (2026-10-08)
+
+### Fix
+
+- **install**: one-line installer for test users (#54)
+
 ## omero-screen-v0.8.15 (2026-10-08)
 
 ### Fix
