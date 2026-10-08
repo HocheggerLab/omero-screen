@@ -78,6 +78,7 @@ def _explicit(ctx: click.Context, name: str) -> bool:
 
 
 @click.group(name="cellclass")
+@click.version_option(package_name="cellclass", prog_name="cellclass")
 def cli() -> None:
     """Train and evaluate cell-image classifiers."""
 
