@@ -147,6 +147,19 @@ def plate_loop(
                 f"Unrecognised cell line: {cell_line}", logger
             )
 
+    from omero_screen.provenance import record_provenance, run_provenance
+
+    record_provenance(
+        conn,
+        plate_id,
+        run_provenance(
+            metadata,
+            stitch_mode=stitch_mode,
+            segmentation_mode=segmentation_mode,
+            delete_existing=delete_existing,
+        ),
+    )
+
     dataset_id = PlateDataset(conn, plate_id).dataset_id
 
     if delete_existing:

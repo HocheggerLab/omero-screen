@@ -11,3 +11,4 @@ class OmeroScreenNS(StrEnum):
 
     METADATA = "omero-screen/metadata"
     DATASET = "omero-screen/dataset"
+    PROVENANCE = "omero-screen/provenance"
