@@ -15,6 +15,7 @@
 """Extract a TorchScript model and JSON sidecar from a training checkpoint."""
 
 import argparse
+from typing import Any
 
 from cellclass.models import Model
 
@@ -48,7 +49,7 @@ def run(args: argparse.Namespace) -> None:
     checkpoint = torch.load(filename, map_location=device, weights_only=False)
 
     # Model metadata
-    d = {}
+    d: dict[str, Any] = {}
 
     for k in [
         "epoch",

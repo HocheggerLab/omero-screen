@@ -16,7 +16,8 @@
 import math
 
 import numpy as np
-from stats import Statistics
+
+from cellclass.stats import Statistics
 
 
 class TestStatistics:

@@ -87,7 +87,7 @@ def run(args: argparse.Namespace) -> None:
     from cellclass.training import FocalLoss, train_epoch
 
     if args.wandb:
-        import wandb
+        import wandb  # ty: ignore[unresolved-import]  # optional extra
 
     from cellclass._logging import configure_logging
 
@@ -237,7 +237,10 @@ def run(args: argparse.Namespace) -> None:
         trans.insert(
             0,
             RandomAffine(
-                degrees=0, translate=(args.translate, args.translate)
+                # int is a numbers.Number at runtime; ty cannot see the ABC
+                # registration.
+                degrees=0,  # ty: ignore[invalid-argument-type]
+                translate=(args.translate, args.translate),
             ),
         )
     if args.rotate:

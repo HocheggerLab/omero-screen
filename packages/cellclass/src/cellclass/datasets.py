@@ -49,10 +49,10 @@ class ROIDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):  # type: ignore[mi
         """Return the number of samples in the dataset."""
         return int(len(self.labels))
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
         """Return the ROI tensor and label tensor at the given index."""
-        roi = from_numpy(self.rois[idx])
-        label = torch.tensor(int(self.labels[idx]), dtype=torch.long)
+        roi = from_numpy(self.rois[index])
+        label = torch.tensor(int(self.labels[index]), dtype=torch.long)
         if self.transform is not None:
             roi = self.transform(roi)
         return roi, label
