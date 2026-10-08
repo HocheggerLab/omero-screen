@@ -444,7 +444,7 @@ class TrackReviewWidget(QWidget):
         self._nuclei = nuclei[0] if nuclei else None
         self._nuclei_levels = list(nuclei)
         if "nuclei (corrected)" in self.viewer.layers:
-            self.viewer.layers.remove("nuclei (corrected)")
+            self.viewer.layers.remove(self.viewer.layers["nuclei (corrected)"])
         if NUCLEI_LAYER in self.viewer.layers:
             self.viewer.layers[NUCLEI_LAYER].visible = True
         self._loaded = (plate_id, well)

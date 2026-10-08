@@ -56,7 +56,7 @@ class FrameStack(Protocol):
     def shape(self) -> tuple[int, ...]:  # noqa: D102
         ...
 
-    def __getitem__(self, key: Any) -> Any: ...  # noqa: D105
+    def __getitem__(self, key: Any, /) -> Any: ...  # noqa: D105
 
 
 @dataclass(frozen=True)
@@ -363,8 +363,8 @@ def retrack(
     # Trackastra.track would also build a relabelled copy of the full mask;
     # its two steps are called directly to skip that (trackastra pinned 0.5.3).
     predictions = model._predict(
-        imgs,  # type: ignore[arg-type]
-        masks,  # type: ignore[arg-type]
+        imgs,  # ty: ignore[invalid-argument-type]
+        masks,  # ty: ignore[invalid-argument-type]
         normalize_imgs=False,
         batch_size=batch_size or model.batch_size,
     )
