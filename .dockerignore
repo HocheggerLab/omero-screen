@@ -11,7 +11,7 @@
 .env.*
 _site
 great-docs
-docs/_build
+_legacy_sphinx
 notebooks
 **/.ipynb_checkpoints
 *.zarr
