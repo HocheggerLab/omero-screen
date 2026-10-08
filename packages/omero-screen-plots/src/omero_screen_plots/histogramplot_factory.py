@@ -520,7 +520,7 @@ class HistogramPlot(BasePlotBuilder):
                 )
         else:
             min_val, max_val = np.min(all_data), np.max(all_data)
-            return np.linspace(min_val, max_val, self.config.bins + 1)  # type: ignore[no-any-return]
+            return np.linspace(min_val, max_val, self.config.bins + 1)
 
         return None
 

@@ -23,7 +23,7 @@ from torch.utils.data import DataLoader
 
 # FocalLoss with optional alpha weights tensor for class imbalance.
 # Adapted from: https://discuss.pytorch.org/t/is-this-a-correct-implementation-for-focal-loss-in-pytorch/43327/8
-class FocalLoss(nn.Module):  # type: ignore[misc]
+class FocalLoss(nn.Module):
     """Focal loss with optional per-class alpha weights."""
 
     def __init__(

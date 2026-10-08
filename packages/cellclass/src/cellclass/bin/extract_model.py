@@ -140,7 +140,7 @@ def run(args: argparse.Namespace) -> None:
 
     logging.info(f"Saving model script: {name_pt}")
     script = torch.jit.script(model)
-    script.save(name_pt)  # type: ignore[no-untyped-call]
+    script.save(name_pt)
     # load using:
     # model = torch.jit.load('model_scripted.pt')
     # model.eval()

@@ -119,7 +119,7 @@ def run(args: argparse.Namespace) -> None:
             exit(1)
         input_shape = tuple(input_shape[-2:])
         # Load the scripted model
-        model = torch.jit.load(args.script)  # type: ignore[no-untyped-call]
+        model = torch.jit.load(args.script)
     else:
         # Create from the supported set of models
         model = create_model(

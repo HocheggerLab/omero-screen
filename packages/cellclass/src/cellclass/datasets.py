@@ -24,7 +24,7 @@ from torch import from_numpy
 from torch.utils.data import Dataset
 
 
-class ROIDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):  # type: ignore[misc]
+class ROIDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
     """Dataset of image regions (ROIs) and integer class labels.
 
     Args:
