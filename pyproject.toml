@@ -124,6 +124,27 @@ dev = [
 ]
 
 # ===========================
+# ty Configuration Section
+# ===========================
+# ty (Astral) type-checks the whole workspace in the project venv, in
+# pre-commit and CI. It is beta: pinned exactly in both, bumped deliberately.
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.src]
+exclude = [
+    "tests/",                                 # PR 2 brings tests in
+    "src/omero_screen/cellpose3/",            # ported from Cellpose v3
+    "skills/",                                # runtime-agnostic skill asset scripts
+    "plugins/*/skills/",
+    "**/examples/",
+    "**/docs/",
+    "**/notebooks/",
+    "omero_screen_napari_original/",
+]
+
+# ===========================
 # Mypy Configuration Section
 # ===========================
 
