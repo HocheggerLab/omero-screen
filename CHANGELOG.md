@@ -1,3 +1,9 @@
+## omero-screen-v0.8.23 (2026-10-08)
+
+### Fix
+
+- **types**: replace mypy with ty for the whole workspace (#65)
+
 ## omero-screen-v0.8.22 (2026-10-08)
 
 ### Fix
