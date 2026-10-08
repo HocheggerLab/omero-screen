@@ -1,3 +1,10 @@
+## omero-screen-v0.8.17 (2026-10-08)
+
+### Fix
+
+- **cli**: --version for omero-screen and cellclass (#59)
+- **install**: find the latest version from release tags (#58)
+
 ## omero-screen-v0.8.16 (2026-10-08)
 
 ### Fix
