@@ -1,0 +1,99 @@
+---
+title: "Repair and review (PIP-FUCCI)"
+---
+
+On plates with a geminin channel (PIP-FUCCI), tracks can be repaired
+automatically and then checked by a reviewer in napari, with an agent's help if
+you like. Nothing edits the tracker's output. Corrections are entries in an
+**edit log**, and the curated lineage is always rebuilt from the automatic
+repair plus that log, so it can be reproduced, inspected and undone.
+
+## 1. Automatic repair
+
+Cellpose often splits one nucleus into pieces, and the tracker then reports
+divisions that never happened. The repair accepts a division only when both
+daughters lose geminin, which is degraded at anaphase. It merges touching pieces
+back, detaches mislinked neighbours and rejoins tracks that restart.
+
+```bash
+uv run cellview repair-tracks 5054 --dry-run     # report only
+uv run cellview repair-tracks 5054               # write track_id / parent_track_id
+```
+
+The repair reads `track_id_raw` / `parent_track_id_raw` and writes `track_id` /
+`parent_track_id`, so running it again gives the same result. `--well`
+restricts it to some wells, `--marker` names the mitotic marker channel
+(default `Geminin`), and `--events FILE` writes every repair decision to a CSV.
+
+## 2. Review queue
+
+Cells present at a start frame are followed to a stop frame. A random sample is
+drawn per well. The cells the walker flags (lost, gaps, fragments, phases out of
+order, rare outcomes) are queued, plus an audit fraction of the unflagged ones:
+
+```bash
+uv run cellview review-queue 5054 --well C2 --well C3 --sample 50 \
+    --start 72 --stop 168 --audit 0.2 --seed 1 --out review/
+```
+
+This writes `review/queue.json` and `review/sample.csv`. Pass `--log
+review/edits.jsonl` to build a queue on top of corrections already made.
+
+## 3. Filmstrips
+
+A filmstrip crops a window that follows the cell through every frame, with its
+PIP, geminin and area traces underneath:
+
+```bash
+uv run omero-screen-images --env production track 5054 C2-t72-L524
+uv run omero-screen-images --env production track 5054 \
+    --queue review/queue.json --log review/edits.jsonl
+```
+
+## 4. Track Review widget
+
+Open **Plugins → Track Review Widget** and load `review/queue.json`. For each
+cell you can:
+
+- link it to its continuation (click it, or press Shift-1…9 for a numbered
+  candidate);
+- unlink it, or add or remove a nucleus;
+- split a nucleus, or draw one that was missed;
+- mark mitosis, death or slippage, or exclude the cell;
+- give a verdict.
+
+*Next break* jumps along the track to the next problem and *Follow cell* keeps
+the cell centred. Edits go to `review/edits.jsonl` and verdicts to
+`review/decisions.json`.
+
+## Working with an agent
+
+With [napari-mcp](https://github.com/HocheggerLab/napari-mcp/tree/plugin-tools)
+installed, omero-screen-napari adds review tools to the agent through
+napari-mcp's plugin hook. The agent can go to a cell, show its filmstrip, rank
+candidate continuations and propose an edit. A proposal appears in the widget
+and is applied only when the reviewer confirms it.
+
+```bash
+uv run --with "napari-mcp @ git+https://github.com/HocheggerLab/napari-mcp@plugin-tools" napari
+claude mcp add --transport http napari http://127.0.0.1:9999/mcp
+```
+
+The plugin hook is on the `plugin-tools` branch of the HocheggerLab fork until
+upstream napari-mcp releases it.
+
+## The edit log on the command line
+
+```bash
+uv run cellview curate show review/edits.jsonl
+uv run cellview curate add review/edits.jsonl link \
+    --plate 5054 --well C2 --cell 72:524 --frame 156 --label 3132
+uv run cellview curate undo review/edits.jsonl --plate 5054 --well C2
+uv run cellview curate replay review/edits.jsonl --plate 5054 --write
+```
+
+`add` validates an edit against the plate before appending it. `undo` appends a
+revert entry instead of deleting anything. `replay` rebuilds the curated lineage
+from the automatic repair plus every live edit; `--write` stores it in CellView.
+Every edit type and option is in the
+[CellView CLI reference](../cellview/reference/cli/index.html).

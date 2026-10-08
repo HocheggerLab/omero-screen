@@ -1,0 +1,83 @@
+---
+title: "Curate in Mastodon"
+---
+
+Automatic tracking is never perfect, so tracks are corrected by hand in
+[Mastodon](https://mastodon.readthedocs.io/), a Fiji tool for editing tracks.
+The image comes straight from the [local OME-Zarr cache](../user-guide/caching.qmd);
+the tracks come from a Cell Tracking Challenge (CTC) bundle exported by the
+Tracks widget.
+
+::: {.callout-important}
+**Use the CTC importer, not the CSV importer.** Mastodon's CSV importer creates
+spots but **no links**, so it silently drops every track and lineage. Its
+label-image importer cannot create division links. Only the
+[Cell Tracking Challenge](https://celltrackingchallenge.net/) importer rebuilds
+full lineages, divisions included, because it reads the parent of each track
+from `res_track.txt`.
+:::
+
+## 1. Export the bundle
+
+Cache the plate and open the well in napari, then click **Export well for
+Mastodon (CTC)** in the
+[Tracks widget](../napari/user-guide/tracks_widget.html#export-well-for-mastodon-ctc).
+It writes `~/mastodon_exports/plate_<id>_<well>_ctc/` containing:
+
+- `mask000.tif` … `mask<T-1>.tif`: one nucleus label image per frame, read from
+  the cache. Each cell's pixel value is its CTC track label.
+- `res_track.txt`: the lineage table, one line `L B E P` per track (label,
+  first frame, last frame, parent label; `0` for a founder). Labels are
+  renumbered `1..N` in order of first frame, matching the masks.
+- `manifest.json`: maps each CTC label back to its CellView `track_id`, with
+  per-frame centroids. Keep it and don't edit it.
+- `README.txt`: these import steps with your paths filled in.
+
+Before a long curation session, **Pin** the plate in the Tracks widget so the
+cache does not [evict](../user-guide/caching.qmd#eviction-and-pinning) it, and
+**Unpin** it afterwards.
+
+## 2. Open the image
+
+In Fiji:
+
+1. **Plugins → Tracking → Mastodon → new from OME-NGFF…**
+2. Paste the path to the well's image group, the multiscale `0` group inside the
+   plate store:
+
+   ```text
+   ~/omero-cache/zarr/plate_<id>.zarr/<row>/<col>/0
+   ```
+
+   for example `~/omero-cache/zarr/plate_4155.zarr/B/2/0`. Don't point at the
+   plate root or the well folder.
+3. Click **Detect datasets**, select the listed row, click **OK**, and save the
+   BDV XML when asked.
+4. The image opens in BigDataViewer. `P` opens the side panel for per-channel
+   contrast, `1` and `2` switch channels, and `F` toggles a fused overlay.
+
+## 3. Import the tracks
+
+In the main Mastodon window choose **File → Import → Import from
+CellTrackingChallenge**. Select the bundle folder and set the file pattern to
+`mask%03d.tif` (three digits, starting at 0). Mastodon reads the parent and
+division links from `res_track.txt`.
+
+## 4. Curate
+
+Click the same group-lock number (e.g. `1`) in both the BigDataViewer and
+TrackScheme windows; double-clicking a spot then moves both views to it. Save
+your work as a `.mastodon` project **outside** the cache, so it survives the
+plate being evicted.
+
+## Bringing corrections back (planned)
+
+Export the corrected tracks with **File → Export → CellTrackingChallenge**.
+Writing them back into CellView is not implemented yet. The plan is to map each
+corrected spot onto its CellView row by per-frame centroid, using
+`manifest.json` as the anchor, and write the result to `track_id` /
+`parent_track_id`, leaving the `_raw` columns as the audit trail.
+
+Until then, the corrected CTC export (kept with its `manifest.json`) and the
+`.mastodon` project are the record of your corrections. On PIP-FUCCI plates,
+the [napari review workflow](review.qmd) already writes corrections back.

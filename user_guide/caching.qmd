@@ -1,0 +1,139 @@
+---
+title: "Local cache"
+---
+
+Fetching pixels from OMERO every time you open a well is slow, and a tiled plate
+would be re-stitched in memory on every view. The napari widgets therefore keep
+a **local cache**. Once a plate is cached, any well, or the whole plate, loads
+from disk in a fraction of a second without a server connection.
+
+For plates analysed in [stitched mode](stitching.qmd), the cache is an
+**OME-Zarr (OME-NGFF) store** holding the stitched whole-well canvas. Napari
+reads only the chunks needed for the current view, so you can pan, zoom and flip
+through every well of a plate at full resolution in bounded memory.
+
+::: {.callout-note}
+napari builds the cache on demand; the analysis pipeline does not.
+`omero-screen --stitch` writes the stitched segmentation to OMERO. The OME-Zarr
+store is created later, when you click **Cache** in the
+[Welldata widget](../napari/user-guide/welldata_widget.html).
+:::
+
+## Two backends
+
+| Backend | Used for | What is stored |
+|---|---|---|
+| **Disk cache** (older) | Plates analysed per field (without `--stitch`) | Raw per-image `TCZYX` pixels (uint16). Any stitching happens in memory when you view. |
+| **OME-Zarr cache** | Stitched plates (`--stitch`) | The stitched whole-well canvas as a multiscale OME-NGFF store, read lazily chunk by chunk. |
+
+The widget picks the backend per plate: OME-Zarr when the OMERO dataset holds
+`_stitched_segmentation` images, the disk cache otherwise. Both can exist side
+by side. The rest of this page is about the OME-Zarr cache.
+
+## On-disk layout
+
+The cache root is `~/omero-cache`. It is a visible folder rather than one hidden
+under `~/.cache`, so external tools such as Fiji/Mastodon can open the stores
+directly. Set `OMERO_SCREEN_CACHE_PATH` to move it.
+
+There is one store per plate, `plate_<id>.zarr`, with wells as `<row>/<col>`
+groups, following the OME-NGFF high-content-screening layout:
+
+```text
+~/omero-cache/
+├── images/                       # disk cache: per-field pixels
+├── plates/                       # disk cache: plate metadata
+└── zarr/                         # OME-Zarr cache
+    ├── registry.json             # per-plate size, last access, pin state
+    └── plate_4155.zarr/
+        ├── .zattrs               # plate metadata, channel names, pixel size
+        └── B/                    # row
+            └── 2/                # well B2
+                └── 0/            # multiscale image group (Mastodon opens this)
+                    ├── 0/        # level 0, full resolution
+                    ├── 1/        # level 1, 2× downsampled
+                    ├── 2/        # level 2, 4× downsampled
+                    └── labels/
+                        ├── nuclei/   # nucleus label mask (uint32), same pyramid
+                        └── cells/    # cell label mask (uint32), if present
+```
+
+Each well image is a `(T, C, Y, X)` array.
+
+- **Pyramid:** three levels, each downsampled 2× from the one before, so the
+  viewer reads the level that suits the current zoom.
+- **Chunks:** `(1, 1, 256, 256)` for images and `(1, 256, 256)` for masks, i.e.
+  one timepoint and one channel per chunk in 256-pixel tiles. Single-cell crops
+  stay cheap to read and each slider step does a bounded amount of work.
+- **Compression:** Blosc/zstd, the ome-zarr default.
+- **Crash safety:** each well is written to a `.tmp` directory and renamed when
+  complete, so an interrupted build leaves only whole wells. Clicking **Cache**
+  again resumes where it stopped.
+
+## Browsing a whole plate
+
+Because the canvas is stitched on disk and stored as a lazy, chunked pyramid,
+napari never holds a whole well, let alone a whole plate, in memory.
+
+- **Lazy reads.** Wells reach napari as dask arrays backed by the store; only
+  the chunks in view, at the current pyramid level, are decompressed.
+- **Well slider.** Loading several wells, or *All*, stacks them on a new leading
+  axis. Napari shows it as a slider, with a metadata overlay for each well.
+- **Warm caches.** Recently decoded chunks stay in memory, so scrubbing the time
+  or well slider and zooming back stay smooth.
+
+The [Welldata widget guide](../napari/user-guide/welldata_widget.html) walks
+through the interface.
+
+## Timelapses
+
+A timelapse uses the same per-plate store: its wells simply have a `T` axis
+longer than one, and the napari time slider steps through frames. To keep long
+multi-channel timelapses within a laptop's RAM, the build stitches and writes a
+few timepoints at a time (`OMERO_SCREEN_CACHE_BLOCK`, default 4).
+
+On a [tracked](../tracking/index.qmd) plate, the cached nucleus mask stores
+each cell's `track_id` as its pixel value. The Tracks widget exports
+[Mastodon bundles](../tracking/mastodon.qmd) from it.
+
+## Configuration
+
+Set these in your `.env.{ENV}` file or the shell.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `OMERO_SCREEN_CACHE_PATH` | `~/omero-cache` | Root for all caches. A fast SSD gives the best interactivity. `~` is expanded. |
+| `OMERO_SCREEN_ZARR_MAX_GB` | `100` | Size cap of the OME-Zarr cache in GiB (integer, minimum 10) |
+| `OMERO_SCREEN_IMAGE_CACHE_SIZE_LIMIT` | 20 GiB | Size cap of the disk cache, in bytes |
+| `OMERO_SCREEN_IMAGE_CACHE_WORKERS` | `3` | Parallel downloads when filling the disk cache |
+| `OMERO_SCREEN_CACHE_BLOCK` | `4` | Timepoints stitched and written per block. Lower it (e.g. `2`) for long timelapses on a 16 GB machine. |
+| `OMERO_SCREEN_CACHE_WORKERS` | `2` | Dask workers during an OME-Zarr build |
+| `OMERO_SCREEN_ZARR_DISPLAY_CACHE_MB` | `1024` | Chunk cache on the store while viewing, in MiB |
+| `OMERO_SCREEN_DASK_CACHE_MB` | `2048` | Cache of decoded results while viewing, in MiB |
+| `OMERO_SCREEN_NAPARI_ASYNC` | `1` | Napari asynchronous slicing; `0` turns it off |
+
+## Eviction and pinning
+
+The OME-Zarr cache manages its own size. `registry.json` records each plate's
+size and last access. When a new build would exceed `OMERO_SCREEN_ZARR_MAX_GB`,
+the least recently used plate is evicted. If a single plate is larger than the
+whole cap, the build stops instead of evicting everything; raise the cap.
+
+Curation can span days in a separate Fiji/Mastodon session, so eviction would
+pull the data out from under you. **Pin** the plate in the
+[Tracks widget](../napari/user-guide/tracks_widget.html) to exempt it; the pin
+survives restarts. **Unpin** it when you are done. Caching a plate does not pin
+it.
+
+::: {.callout-tip}
+The cache is always safe to delete (`rm -rf ~/omero-cache`): every plate
+rebuilds on demand from OMERO. Do so if you suspect orphaned files after a
+crash.
+:::
+
+::: {.callout-note}
+Older versions cached under `~/.cache/omero_screen`. If that folder exists and
+`~/omero-cache` does not, the first run logs a one-time notice. Rebuild your
+plates in the new location and delete the old folder, or set
+`OMERO_SCREEN_CACHE_PATH` to keep using it.
+:::

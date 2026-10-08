@@ -93,7 +93,7 @@ def watched_files(project: Path) -> list[Path]:
         candidate = project / name
         if candidate.is_file():
             found.append(candidate)
-    for folder in ("user_guide", "assets", "custom"):
+    for folder in ("user_guide", "assets", "custom", "cyclic_if", "tracking"):
         directory = project / folder
         if directory.is_dir():
             found.extend(p for p in directory.rglob("*") if p.is_file())
@@ -240,7 +240,8 @@ def main() -> None:
             f"http://localhost:{args.port}\033[0m"
         )
         print(
-            "==> watching index.qmd, great-docs.yml, user_guide/, assets/ "
+            "==> watching index.qmd, great-docs.yml, user_guide/, cyclic_if/, "
+            "tracking/, assets/ "
             "— the browser reloads itself. Ctrl-C to stop.\n"
         )
         try:
