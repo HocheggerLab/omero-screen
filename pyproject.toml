@@ -142,7 +142,7 @@ replace-imports-with-any = ["Ice", "omero.api", "omero.api.**", "omero.model", "
 
 [tool.ty.src]
 exclude = [
-    "tests/",                                 # PR 2 brings tests in
+    "tests/",                                 # not type-checked, by choice
     "src/omero_screen/cellpose3/",            # ported from Cellpose v3
     "skills/",                                # runtime-agnostic skill asset scripts
     "plugins/*/skills/",
