@@ -145,6 +145,12 @@ def _module(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
 
 
+def _check_version() -> Check:
+    from importlib.metadata import version
+
+    return Check("omero-screen", True, version("omero-screen"))
+
+
 def _check_python() -> Check:
     v = sys.version_info
     ok = (3, 12) <= (v.major, v.minor) < (3, 15)
@@ -285,6 +291,7 @@ def _check_cache() -> Check:
 def doctor(offline: bool) -> None:
     """Check the installation and configuration; explain any fix."""
     probes: list[Callable[[], Check | list[Check]]] = [
+        _check_version,
         _check_python,
         _check_ice,
         _check_config,

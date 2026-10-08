@@ -146,3 +146,17 @@ def test_publish_needs_the_sidecar(runner: CliRunner, tmp_path: Path) -> None:
     result = runner.invoke(setup_cli.cli, ["models", "publish", str(pt)])
     assert result.exit_code != 0
     assert ".json" in result.output
+
+
+def test_version_flags() -> None:
+    """``--version`` works on the pipeline and cellclass CLIs (#26)."""
+    from importlib.metadata import version
+
+    from bin.run_omero_screen import cli as pipeline
+    from cellclass.cli import cli as cellclass
+
+    runner = CliRunner()
+    out = runner.invoke(pipeline, ["--version"])
+    assert out.exit_code == 0 and version("omero-screen") in out.output
+    out = runner.invoke(cellclass, ["--version"])
+    assert out.exit_code == 0 and version("cellclass") in out.output

@@ -97,6 +97,7 @@ class ArgparseCompatCommand(click.Command):
     optional_value_options={"--track": TRACK_DEFAULT_MODEL},
     context_settings={"help_option_names": ["-h", "--help"]},
 )
+@click.version_option(package_name="omero-screen", prog_name="omero-screen")
 @click.argument("ids", metavar="ID...", nargs=-1, required=True, type=int)
 @click.option(
     "--env",
