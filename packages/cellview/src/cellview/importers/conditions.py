@@ -236,6 +236,8 @@ class ConditionManager:
             "plate_id",
             "cell_line",
             "timepoint",
+            # Pipeline marker, stored on the repeat (repeats.stitch_mode).
+            "stitch_mode",
         }
         # Exclude measurement readouts that can be constant per well but are
         # not experimental condition variables. Background columns are the

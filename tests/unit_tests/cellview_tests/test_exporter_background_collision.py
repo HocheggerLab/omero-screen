@@ -158,3 +158,19 @@ class TestImportExcludesBackground:
         assert "EdU_background" not in variable_cols
         # Genuine experimental condition is still detected.
         assert "sirna" in variable_cols
+
+    def test_stitch_mode_not_classified_as_variable(self):
+        """The pipeline's ``stitch_mode`` marker is not a condition variable (#4)."""
+        df = pd.DataFrame(
+            {
+                "well": ["A1", "A2"],
+                "well_id": [1, 2],
+                "image_id": [1, 2],
+                "cell_line": ["HeLa", "HeLa"],
+                "sirna": ["ctrl", "p53"],
+                "stitch_mode": [True, True],
+            }
+        )
+        variable_cols = self._make_manager(df)._identify_variable_columns()
+        assert "stitch_mode" not in variable_cols
+        assert "sirna" in variable_cols
