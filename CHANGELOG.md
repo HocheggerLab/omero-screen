@@ -1,3 +1,9 @@
+## omero-screen-v0.8.20 (2026-10-08)
+
+### Fix
+
+- **plots**: cellcycle_stacked no longer crashes with one observation per condition (#62)
+
 ## omero-screen-v0.8.19 (2026-10-08)
 
 ### Fix
