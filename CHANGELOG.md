@@ -1,3 +1,9 @@
+## omero-screen-v0.8.24 (2026-10-08)
+
+### Fix
+
+- **napari**: keep tracks in step with image layers during playback (#66)
+
 ## omero-screen-v0.8.23 (2026-10-08)
 
 ### Fix

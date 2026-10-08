@@ -4,4 +4,4 @@ Cell classification using machine learning models
 
 ## Status
 
-Version: ![version](https://img.shields.io/badge/version-0.8.23-blue)
+Version: ![version](https://img.shields.io/badge/version-0.8.24-blue)
