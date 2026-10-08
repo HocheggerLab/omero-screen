@@ -1,0 +1,17 @@
+{
+  "name": "omero-screen",
+  "owner": {
+    "name": "Hochegger lab",
+    "url": "https://github.com/HocheggerLab"
+  },
+  "metadata": {
+    "description": "Claude plugins for the OMERO-Screen high-content imaging platform."
+  },
+  "plugins": [
+    {
+      "name": "omero-screen",
+      "source": "./plugins/omero-screen",
+      "description": "Skills for running OMERO-Screen with Claude: setup checks, napari, classifier training, CellView analysis and plots."
+    }
+  ]
+}

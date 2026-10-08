@@ -300,6 +300,10 @@ packages/omero-screen-plots/examples/data/sample_plate_data.csv
 # =========================
 # Ignore Claude Code
 *[Cc][Ll][Aa][Uu][Dd][Ee]*
+# ...but keep the Claude plugin marketplace and its docs page.
+!.claude-plugin
+!plugins/*/.claude-plugin
+!user_guide/claude.qmd
 *.csv
 
 

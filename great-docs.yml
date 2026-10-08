@@ -41,12 +41,14 @@ user_guide:
   - section: "Start here"
     contents:
       - installation.qmd
+      - claude.qmd
       - first-plate.qmd
       - try-it.qmd
       - architecture.qmd
   - section: "Running the pipeline"
     contents:
       - pipeline.qmd
+      - models.qmd
       - stitching.qmd
       - hpc.qmd
   - section: "Viewing results"

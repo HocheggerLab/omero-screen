@@ -88,7 +88,7 @@ COPY --from=builder /app /app
 # the agent sees without a rebuild. cellclass-train is deliberately not
 # registered: it drives model training, which is not what these tests exercise.
 RUN mkdir -p /root/.pi/agent/skills \
-    && ln -s /app/skills/omero-screen /root/.pi/agent/skills/omero-screen
+    && ln -s /app/plugins/omero-screen/skills/omero-screen /root/.pi/agent/skills/omero-screen
 
 # A self-contained pi configuration. Nothing is mounted from a host ~/.pi: the
 # container must behave like a fresh install, so what the agent tests exercise

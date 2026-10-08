@@ -2,141 +2,184 @@
 title: "Install & configure"
 ---
 
-Getting OMERO-Screen running takes three things: the code, a Python environment,
-and credentials for your OMERO server. Budget about fifteen minutes the first
-time.
+OMERO-Screen needs three things: the software, a configuration that names your
+OMERO server and user, and your password. One command installs the software
+and walks you through the rest. Budget ten minutes the first time, most of it
+downloading.
 
-## Prerequisites
+## Quick install (macOS and Linux)
 
-- **Python 3.12, 3.13 or 3.14** — the project pins `>=3.12,<3.15`. The OMERO
-  client library (ZeroC Ice 3.6.5) comes as pre-built wheels from
-  [HocheggerLab/ice-wheels](https://github.com/HocheggerLab/ice-wheels);
-  `uv sync` fetches the right one automatically.
-- **[uv](https://docs.astral.sh/uv/)** for dependency management. Never `pip`.
-- **Access to an OMERO server** — a username, password and hostname.
-- **A GPU** is optional but strongly recommended — see below.
+Open **Terminal** and paste:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/HocheggerLab/omero-screen/main/install.sh | sh
+```
+
+The installer:
+
+1. installs [uv](https://docs.astral.sh/uv/), which brings its own Python, if
+   it is missing;
+2. downloads the latest release and installs exactly the tested versions of
+   everything, including napari, CellView, cellclass and the plotting
+   library, into `~/.local/share/omero-screen`;
+3. puts the commands (`omero-screen`, `cellview`, `cellclass`, `napari`, …) in
+   `~/.local/bin` and tells you if that folder is not yet on your `PATH`;
+4. runs `omero-screen setup` and `omero-screen doctor` (below).
+
+Run the same line again to update; your settings and data are kept.
+
+::: {.callout-note}
+If you work with Claude, continue with [Working with Claude](claude.qmd) once
+the installer has finished.
+:::
+
+## Set up your OMERO login
+
+```bash
+omero-screen setup
+```
+
+It asks for:
+
+- the **site profile**: a ready-made description of your server and
+  microscopes. Choose `sussex` for the Hochegger lab OMERO, or `none` to type
+  in a server name;
+- your **OMERO user name** and **password**. The password is checked against
+  the server, then stored in your computer's keychain (macOS Keychain), never
+  in a file.
+
+Your answers are saved in `~/.config/omero-screen/config.toml`. Run `setup`
+again at any time to change them.
+
+## Check the installation
+
+```bash
+omero-screen doctor
+```
+
+`doctor` checks everything OMERO-Screen needs (the software, your login, the
+connection to the server, CellView, napari, the GPU and disk space) and says
+how to fix anything that fails. If something does not work, run it first. A
+failed connection is usually the VPN.
+
+```bash
+omero-screen config show      # the settings in effect, and where each came from
+omero-screen --version        # the installed version
+```
 
 ## Hardware
 
-Segmentation and tracking are the expensive steps. Everything runs on CPU, but
-some combinations are only practical on the right hardware.
+Segmentation and tracking are the expensive steps. Everything runs on a
+laptop; some combinations need the right hardware.
 
 | | Apple silicon (MPS) | NVIDIA (CUDA) | CPU only |
 |---|---|---|---|
-| **Cellpose 3 models** (default) | yes | yes | slow but workable |
-| **Cellpose 4** (`--cp4`, `cpsam`) | not in practice — too slow and too large | yes | impractical |
+| **Default segmentation** | stock Cellpose 3 models (`nuclei`, `cyto3`) | Cellpose 4 (`cpsam`) | stock Cellpose 3, slow |
+| **Cellpose 4** (`--cp4`) | not in practice: too slow and too large | yes | impractical |
 | **Tracking** (`--track`) | falls back to CPU | yes | slow |
 | **Classifier inference** | yes | yes | workable |
 
-Two things are worth knowing before you plan a run:
-
-- **Cellpose 4 needs an NVIDIA GPU in practice.** Nothing in the code blocks
-  `cpsam` on Apple silicon, so it will start — it is simply too slow and too
-  memory-hungry to be useful. Stay on the default Cellpose 3 models on a Mac.
-- **Tracking has no MPS backend.** Trackastra ships CUDA and CPU kernels only,
-  so on Apple silicon `--track` silently runs on the CPU. It still produces
-  correct lineages, just slowly. The log line naming the device tells you which
-  one you got.
+- **Segmentation models.** With no models configured, OMERO-Screen picks the
+  best default for the machine and says so in the log. The stock Cellpose 3
+  models segment most cells reasonably; a model trained on your own cells and
+  microscope does better: see [Make a model for your cells](models.qmd).
+- **The models used are recorded on every plate.** Each run writes the
+  version, settings, device and models onto the plate in OMERO, so you can
+  always tell how a plate was segmented.
+- **Tracking has no MPS backend.** On Apple silicon, `--track` runs on the
+  CPU: correct, but slow.
 
 Device selection is automatic: CUDA if present, then MPS, then CPU. Force CPU
-with `OMERO_SCREEN_USE_GPU=0`, and force the tracking device specifically with
-`--track-device cpu|cuda`.
+with `OMERO_SCREEN_USE_GPU=0`.
 
-## Install
+## The configuration in detail
+
+Settings come from several places. A value set higher up in this list wins:
+
+1. command-line flags (e.g. `--cp4`);
+2. environment variables (`HOST`, `USERNAME`, `OMERO_SCREEN_*`);
+3. a `.env` file in a source checkout (developers, see below);
+4. your **user config**, `~/.config/omero-screen/config.toml`;
+5. the **site profile** it names;
+6. built-in defaults.
+
+A user config written by `setup` looks like this:
+
+```toml
+site = "sussex"
+
+[omero]
+username = "ab123"
+# group = "my-lab-group"          # default: your OMERO default group
+
+[segmentation]
+# model_set = "hocheggerlab"      # the lab's custom models (omero-screen models pull)
+
+[paths]
+# cache = "~/omero-cache"         # downloaded images
+# cellview_db = "~/.cellview/cellview.duckdb"
+
+[env]
+# any OMERO_SCREEN_* variable, e.g.
+# OMERO_SCREEN_USE_GPU = "0"
+```
+
+A **site profile** holds what everyone at a site shares: the OMERO server and
+port, the stitch calibrations of its microscopes, its model sets. `sussex` is
+built in. For another site, write one as a TOML file, set
+`site = "/path/to/your-site.toml"`, and send it to us so it can be included.
+
+On a machine without a keychain (an HPC cluster), put the password in a file
+only you can read and name it in the user config:
 
 ```bash
-# Install uv, if you don't have it
-curl -LsSf https://astral.sh/uv/install.sh | sh      # macOS / Linux
+umask 077 && echo 'your-password' > ~/.omero-password
+```
 
-# Get the code
+```toml
+[omero]
+password_file = "~/.omero-password"
+```
+
+The `PASSWORD` environment variable works too, and takes precedence.
+
+## Working in another user's screens
+
+To analyse plates that belong to someone else, you need at least read access
+to their OMERO group. Your OMERO administrator sets this. Masks and results
+are written to your own `Screens` project.
+
+## Developer install
+
+To work on the code, clone the repository and install the workspace with the
+development tools:
+
+```bash
 git clone https://github.com/HocheggerLab/omero-screen.git
 cd omero-screen
-
-# Create the environment and install all six packages
 uv sync --dev
+uv run omero-screen doctor
 ```
 
-`uv sync` installs the whole workspace — the core pipeline plus `cellview`,
-`omero-screen-plots`, `omero-screen-napari`, `cellclass` and `omero-utils`. You
-do not install them separately.
-
-Verify:
-
-```bash
-uv run omero-screen --help
-uv run cellview --help
-```
-
-## Configure
-
-Configuration lives in environment files at the repository root. Which one is
-loaded depends on the `ENV` variable:
-
-| `ENV` value | File loaded |
-|---|---|
-| unset | `.env.development` (the default) |
-| `development` | `.env.development` |
-| `production` | `.env.production` |
-| `e2etest` | `.env.e2etest` |
-
-If no environment-specific file exists, a plain `.env` is used as a fallback.
-
-### Required variables
-
-Create `.env.development` in the repository root:
+`uv sync` installs all six packages (the core pipeline, `cellview`,
+`omero-screen-plots`, `omero-screen-napari`, `cellclass` and `omero-utils`).
+Configure with `uv run omero-screen setup` as above. A `.env.development` (or
+`.env.production`, selected with `ENV=production`) at the repository root is
+still read and takes precedence over the user config:
 
 ```bash
-# OMERO server
 USERNAME="your-omero-login"
 PASSWORD="your-omero-password"
 HOST="omero.your-institution.ac.uk"
-DATA_PATH="omero-napari-data"
-
-# CellView database
-TEST_DATABASE=false
-DATABASE_PATH=~/cellview_data/cellview.db
 ```
-
-Those six are the minimum. Without them the pipeline cannot connect or store
-results.
-
-### Logging
-
-```bash
-LOG_LEVEL=DEBUG
-LOG_FILE_PATH=logs/app.log
-ENABLE_CONSOLE_LOGGING=False
-ENABLE_FILE_LOGGING=True
-LOG_MAX_BYTES=1048576
-LOG_BACKUP_COUNT=5
-```
-
-### Optional: image cache
-
-The napari widgets cache downloaded images locally, so a plate you have opened
-once loads from disk. The defaults work; set these only to move or resize it.
-
-```bash
-OMERO_SCREEN_CACHE_PATH=~/omero-cache
-OMERO_SCREEN_IMAGE_CACHE_SIZE_LIMIT=4294967296   # 4 GB
-OMERO_SCREEN_IMAGE_CACHE_WORKERS=3
-```
-
-[Local cache](caching.qmd) covers both cache backends and all their settings.
 
 ::: {.callout-warning}
-`.env.*` files hold your OMERO password. They are gitignored — keep it that way,
-and never paste one into an issue or a pull request.
+`.env.*` files hold your password in plain text. They are gitignored; keep it
+that way, and never paste one into an issue or a pull request.
 :::
 
-## Check the connection
-
-```bash
-uv run omero-integration-test e2e_connection
-```
-
-A clean run means credentials, hostname and network path are all good. If it
-fails, the error will usually name which of the three is wrong.
+Run `uv run omero-integration-test e2e_connection` to check the connection to
+a test server.
 
 ## Next
 

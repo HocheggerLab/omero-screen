@@ -1,0 +1,74 @@
+---
+title: "Make a model for your cells"
+---
+
+OMERO-Screen segments nuclei and cells with
+[Cellpose](https://www.cellpose.org). Without further setup it uses a default
+that suits the machine:
+
+| Machine | Default |
+|---|---|
+| NVIDIA GPU (Linux workstation, HPC) | Cellpose 4 (`cpsam`), good on most images |
+| Mac or CPU | the stock Cellpose 3 models: `nuclei` for nuclei, `cyto3` for cells |
+
+The stock Cellpose 3 models segment most fixed cells reasonably. On a 10x DAPI
+plate they found 616 nuclei where a custom lab model found 606 and Cellpose 4
+found 621. They do worse on unusual stains, very dense or very sparse cells,
+other magnifications and live-cell DNA dyes. A model trained on a few of
+**your** images, with **your** microscope, usually fixes that.
+
+Every processed plate records which models were used (map annotation
+`omero-screen/provenance` on the plate), so you can always check.
+
+## Train a model with the Cellpose GUI
+
+Training is done in the Cellpose desktop app, with you correcting its masks
+("human in the loop"). Install it once:
+
+```bash
+uv tool install --python 3.12 "cellpose[gui]<4"
+```
+
+1. **Export a few representative images**, say 5–10 fields covering your
+   conditions, for example from napari (*File → Save Selected Layer*) as TIFF.
+   Use the channel you segment on (DAPI/Hoechst for nuclei).
+2. **Open them**: run `cellpose`, then drag in the first image.
+3. **Start from the closest model.** Choose `nuclei` (or `cyto3`) under
+   *Model zoo*, run it, then correct the masks: delete wrong ones (Ctrl+click on
+   the mask), draw missing ones (right-click, then trace the outline).
+4. **Train**: *Models → Train new model*, start from the same model, keep the
+   defaults. Cellpose saves the new model in a `models` folder next to your
+   images; copy the model file into `~/.cellpose/models/` when you are done.
+5. **Repeat on the next image** with your new model; each round needs fewer
+   corrections. Three or four images are often enough.
+
+The [Cellpose documentation](https://cellpose.readthedocs.io/en/v3.1.1.1/gui.html)
+covers the GUI in detail.
+
+## Use it in OMERO-Screen
+
+Name your model in the user config (`~/.config/omero-screen/config.toml`), per
+role or cell line:
+
+```toml
+[segmentation.models]
+nuclei = "my_nuclei_model"     # file name in ~/.cellpose/models
+RPE = "my_rpe_cells_model"     # cell segmentation for cell lines containing "RPE"
+```
+
+Cell lines are matched by name (exact, then contained in the plate's cell
+line), so `RPE` covers "RPE-1 WT". A cell line without an entry uses the `U2OS`
+entry, or the device default if none is configured. For a single run you can
+also override everything: `omero-screen 1234 --model cp3:my_model`.
+
+## Share models in a lab
+
+Models a whole lab uses can go into the lab's site profile as a **model set**,
+published for download (e.g. on Zenodo). Everyone then gets them with:
+
+```bash
+omero-screen models pull <set-name>
+```
+
+and selects them with `[segmentation] model_set = "<set-name>"`. The Hochegger
+lab's models are the `hocheggerlab` set of the `sussex` profile.
