@@ -71,68 +71,6 @@ class BaseCellCyclePlot(BasePlotBuilder):
             None  # Cell cycle plots use multiple axes
         )
 
-    def create_plot(
-        self,
-        df: pd.DataFrame,
-        conditions: list[str],
-        condition_col: str = "condition",
-        selector_col: str | None = None,
-        selector_val: str | None = None,
-    ) -> tuple[Figure, list[Axes]]:
-        """Create complete cell cycle plot.
-
-        Note: Cell cycle plots create their own 2x2 subplot figure and
-        cannot accept an external axes parameter.
-
-        Args:
-            df: Input dataframe
-            conditions: List of conditions to plot
-            condition_col: Column name containing conditions
-            selector_col: Optional column for filtering
-            selector_val: Value to filter by if selector_col provided
-
-        Returns:
-            Tuple of (Figure, list of Axes) - differs from other plots
-        """
-        # Validate inputs
-        self._validate_common(
-            df,
-            conditions,
-            condition_col,
-            selector_col,
-            selector_val,
-        )
-
-        # Filter and process data
-        processed_data = self._process_data(
-            df,
-            conditions,
-            condition_col,
-            selector_col,
-            selector_val,
-        )
-
-        # Build plot (delegated to subclasses), passing original df for phase detection
-        self.build_plot(
-            processed_data,
-            PlotRequest(
-                conditions=conditions,
-                condition_col=condition_col,
-                original_df=df,  # for M-phase auto-detection
-            ),
-        )
-
-        # Finalize
-        self._finalize_plot(selector_val)
-
-        # Save if configured
-        self.save_figure()
-
-        assert self.fig is not None and self.axes is not None, (
-            "Figure and axes should be created"
-        )
-        return self.fig, self.axes
-
     def _process_data(
         self,
         df: pd.DataFrame,
@@ -298,6 +236,68 @@ class StandardCellCyclePlot(BaseCellCyclePlot):
     def __init__(self, config: StandardCellCyclePlotConfig | None = None):
         """Initialize with standard-specific configuration."""
         super().__init__(config or StandardCellCyclePlotConfig())
+
+    def create_plot(
+        self,
+        df: pd.DataFrame,
+        conditions: list[str],
+        condition_col: str = "condition",
+        selector_col: str | None = None,
+        selector_val: str | None = None,
+    ) -> tuple[Figure, list[Axes]]:
+        """Create complete cell cycle plot.
+
+        Note: Cell cycle plots create their own 2x2 subplot figure and
+        cannot accept an external axes parameter.
+
+        Args:
+            df: Input dataframe
+            conditions: List of conditions to plot
+            condition_col: Column name containing conditions
+            selector_col: Optional column for filtering
+            selector_val: Value to filter by if selector_col provided
+
+        Returns:
+            Tuple of (Figure, list of Axes) - differs from other plots
+        """
+        # Validate inputs
+        self._validate_common(
+            df,
+            conditions,
+            condition_col,
+            selector_col,
+            selector_val,
+        )
+
+        # Filter and process data
+        processed_data = self._process_data(
+            df,
+            conditions,
+            condition_col,
+            selector_col,
+            selector_val,
+        )
+
+        # Build plot (delegated to subclasses), passing original df for phase detection
+        self.build_plot(
+            processed_data,
+            PlotRequest(
+                conditions=conditions,
+                condition_col=condition_col,
+                original_df=df,  # for M-phase auto-detection
+            ),
+        )
+
+        # Finalize
+        self._finalize_plot(selector_val)
+
+        # Save if configured
+        self.save_figure()
+
+        assert self.fig is not None and self.axes is not None, (
+            "Figure and axes should be created"
+        )
+        return self.fig, self.axes
 
     def _setup_subplots(self, n_phases: int) -> None:
         """Setup variable subplot figure for standard cell cycle plot.
@@ -527,7 +527,7 @@ class StandardCellCyclePlot(BaseCellCyclePlot):
                 ]
                 if not cond_plate_data.empty:
                     x_base = cond_idx
-                    y_values = cond_plate_data["percent"].values
+                    y_values = cond_plate_data["percent"].to_numpy()
 
                     # Add jitter for visibility when multiple plates
                     if len(plate_ids) > 1:
@@ -858,12 +858,12 @@ class StackedCellCyclePlot(BaseCellCyclePlot):
         # Plot each phase
         for phase in phases:
             if phase in df_mean.columns:
-                values = df_mean[phase].values
+                values = df_mean[phase].to_numpy()
 
                 # Handle error bars if enabled and we have multiple plates
                 yerr = None
                 if show_error_bars and phase in df_std.columns:
-                    std_values = df_std[phase].values
+                    std_values = df_std[phase].to_numpy()
                     # Only use std if it's not all zeros or NaN
                     if not np.all(np.isnan(std_values)) and not np.all(
                         std_values == 0

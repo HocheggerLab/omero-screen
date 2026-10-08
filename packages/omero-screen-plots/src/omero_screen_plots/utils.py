@@ -1,7 +1,7 @@
 """Utility functions for OMERO screen plots."""
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -133,7 +133,7 @@ def show_repeat_points_grouped(
     for i, condition in enumerate(conditions):
         condition_data = df[df[condition_col] == condition]
         if not condition_data.empty:
-            y_values = condition_data[y_col].values
+            y_values = condition_data[y_col].to_numpy()
             # Add jitter to x-position
             x_jittered = np.random.normal(
                 x_positions[i], jitter_width, size=len(y_values)
@@ -382,7 +382,9 @@ def setup_figure(
     if axes is None:
         fig, ax = plt.subplots(figsize=fig_size_inches)
     else:
-        fig = axes.get_figure()
+        # A caller-supplied Axes always sits on a figure; a SubFigure is
+        # passed through unchanged, as before.
+        fig = cast(Figure, axes.get_figure())
         ax = axes
 
     return fig, ax

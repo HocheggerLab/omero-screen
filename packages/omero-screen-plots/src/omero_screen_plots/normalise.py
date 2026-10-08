@@ -12,8 +12,8 @@ from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
-from matplotlib.axes import Axes
 from scipy.ndimage import gaussian_filter1d
 
 from omero_screen_plots.utils import save_fig
@@ -337,7 +337,7 @@ def plot_normalization_result(
 
 # TODO Rename this here and in `plot_normalization_result`
 def _extracted_from_plot_normalization_result_122(
-    axes: Axes, arg1: int, arg2: str, arg3: str
+    axes: npt.NDArray[np.object_], arg1: int, arg2: str, arg3: str
 ) -> None:
     axes[arg1].set_title(arg2)
     axes[arg1].set_xlabel(arg3)
