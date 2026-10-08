@@ -62,7 +62,7 @@ legend.framealpha: 1
 pdf.fonttype: 42
 ps.fonttype: 42
 font.family: sans-serif
-font.sans-serif: Arial
+font.sans-serif: Arial, Helvetica, Liberation Sans, DejaVu Sans
 
 # Remove box around legend
 # Use 3 scatter points in points legend
