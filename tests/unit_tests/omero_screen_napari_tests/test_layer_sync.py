@@ -105,3 +105,25 @@ def test_detach_restores_slicing() -> None:
     image.loaded = False
     tracks._slice_dims(viewer.dims)
     assert tracks.sliced == [(0.0, 0.0, 0.0)]
+
+
+def test_proxied_viewer_raises_no_private_access_warning() -> None:
+    """Widgets get napari's PublicOnlyProxy; the hold must not trip it."""
+    import warnings
+
+    import numpy as np
+    from napari.components import ViewerModel
+    from napari.utils._proxies import PublicOnlyProxy
+    from omero_screen_napari.layer_sync import hold_until_loaded
+
+    viewer = PublicOnlyProxy(ViewerModel())
+    viewer.add_image(np.zeros((3, 8, 8)))
+    tracks = viewer.add_tracks(
+        np.array([[1, t, 2, 2] for t in range(3)], float)
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        hold = hold_until_loaded(viewer, tracks)
+        viewer.dims.set_current_step(0, 2)
+    assert hold is not None
+    assert hold.layer is tracks.__wrapped__

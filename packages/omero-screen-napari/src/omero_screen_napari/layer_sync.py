@@ -103,6 +103,10 @@ def hold_until_loaded(viewer: Any, layer: Any) -> LayerHold | None:
         The hold, or ``None`` if this napari has no per-layer slicing hook to
         wrap (the layer then behaves as before).
     """
+    # Plugin widgets get napari's PublicOnlyProxy, which warns on every
+    # private attribute access; the hold works on the objects themselves.
+    viewer = getattr(viewer, "__wrapped__", viewer)
+    layer = getattr(layer, "__wrapped__", layer)
     if not callable(getattr(layer, "_slice_dims", None)):
         logger.debug("napari has no Layer._slice_dims; layer sync disabled")
         return None
