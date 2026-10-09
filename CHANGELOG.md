@@ -1,3 +1,9 @@
+## omero-screen-v0.8.26 (2026-10-09)
+
+### Fix
+
+- **napari**: no private-attribute warning when tracks are loaded (#68)
+
 ## omero-screen-v0.8.25 (2026-10-09)
 
 ### Fix

@@ -4,7 +4,7 @@ Interactive [Napari](https://napari.org) widgets for exploring high-content micr
 
 ## Status
 
-Version: ![version](https://img.shields.io/badge/version-0.8.25-blue)
+Version: ![version](https://img.shields.io/badge/version-0.8.26-blue)
 [![Python](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
