@@ -620,30 +620,81 @@ def _channel_contrast(level0_yx: np.ndarray[Any, Any]) -> tuple[int, int]:
 
 
 # ----------------------------------------------------------------------
-# Well metadata HUD (uses napari's text_overlay — no Shapes/Points)
+# Well metadata HUD: two canvas text overlays, no Shapes/Points
 # ----------------------------------------------------------------------
+
+#: Overlay keys in ``viewer.canvas.overlays``. napari stacks overlays that share
+#: a corner outward in insertion order, so the conditions, added first, sit
+#: below the caption.
+_CONDITIONS_OVERLAY = "omero_screen_well_conditions"
+_CAPTION_OVERLAY = "omero_screen_well_caption"
+#: Per-well keys shown in the caption line rather than as conditions.
+_CAPTION_KEYS = ("cell_line",)
 
 
 def _format_well_caption(
     well: str, well_meta: dict[str, dict[str, str]]
 ) -> str:
+    """``B3 | RPE-1``: the well and its cell line."""
     meta = well_meta.get(well, {})
     bits = [well]
-    for key in ("cell_line", "condition", "timepoint"):
-        if val := meta.get(key):
-            bits.append(str(val))
+    bits += [str(meta[k]) for k in _CAPTION_KEYS if meta.get(k)]
     return " | ".join(bits)
+
+
+def _format_well_conditions(
+    well: str, well_meta: dict[str, dict[str, str]]
+) -> str:
+    """``siRNA: Scrm · Abemaciclib: 0``: every other key of the well's metadata.
+
+    Plates name their condition columns freely (``siRNA``, a drug name,
+    ``condition``, ``timepoint``), so all non-caption keys are shown in the
+    order the plate's metadata lists them.
+    """
+    meta = well_meta.get(well, {})
+    return " · ".join(
+        f"{key}: {val}"
+        for key, val in meta.items()
+        if key not in _CAPTION_KEYS and val not in (None, "")
+    )
+
+
+def _well_overlays(viewer: Any) -> tuple[Any, Any]:
+    """The (caption, conditions) overlays, created on the first load."""
+    from napari.components.overlays import TextOverlay
+
+    overlays = viewer.canvas.overlays
+    if _CONDITIONS_OVERLAY not in overlays:
+        for key, size, color in (
+            (_CONDITIONS_OVERLAY, 14, "#f0e68c"),
+            (_CAPTION_OVERLAY, 18, "yellow"),
+        ):
+            overlays[key] = TextOverlay(
+                font_size=size,
+                color=color,
+                position="bottom_right",
+                visible=True,
+            )
+    return overlays[_CAPTION_OVERLAY], overlays[_CONDITIONS_OVERLAY]
+
+
+def _show_well(
+    viewer: Any, well: str, well_meta: dict[str, dict[str, str]], plate_id: int
+) -> None:
+    caption, conditions = _well_overlays(viewer)
+    caption.text = (
+        f"Plate {plate_id} — {_format_well_caption(well, well_meta)}"
+    )
+    conditions.text = _format_well_conditions(well, well_meta)
+    caption.visible = True
+    conditions.visible = bool(conditions.text)
 
 
 def _set_overlay(
     viewer: Any, well: str, info: dict[str, Any], plate_id: int
 ) -> None:
     """Set the static text overlay for a single-well load."""
-    caption = _format_well_caption(well, info.get("well_metadata", {}))
-    viewer.text_overlay.text = f"Plate {plate_id} — {caption}"
-    viewer.text_overlay.visible = True
-    viewer.text_overlay.font_size = 18
-    viewer.text_overlay.color = "yellow"
+    _show_well(viewer, well, info.get("well_metadata", {}), plate_id)
 
 
 def _hook_well_overlay(
@@ -654,15 +705,11 @@ def _hook_well_overlay(
 ) -> None:
     """Wire the text overlay to update as the user moves the well slider."""
     well_meta = info.get("well_metadata", {})
-    viewer.text_overlay.visible = True
-    viewer.text_overlay.font_size = 18
-    viewer.text_overlay.color = "yellow"
 
     def _update(_event: Any = None) -> None:
         idx = int(viewer.dims.current_step[0])
         idx = max(0, min(idx, len(wells) - 1))
-        caption = _format_well_caption(wells[idx], well_meta)
-        viewer.text_overlay.text = f"Plate {plate_id} — {caption}"
+        _show_well(viewer, wells[idx], well_meta, plate_id)
 
     viewer.dims.events.current_step.connect(_update)
     _update()

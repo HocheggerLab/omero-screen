@@ -223,16 +223,6 @@ def test_single_well_is_not_padded(synth_well_data):
     assert pyramid[0].shape[-2:] == (253, 253)
 
 
-def test_overlay_text_includes_metadata(synth_well_data):
-    _build_two_well_plate(304, synth_well_data)
-    v = _mock_viewer()
-    load_plate_to_viewer(v, 304, well_pos_input="A1")
-    # Static overlay set for single-well load
-    text = v.text_overlay.text
-    # Caption built from metadata bits.
-    assert "A1" in text or "U2OS" in text
-
-
 # ----------------------------------------------------------------------
 # Contrast and default visibility
 #
@@ -304,8 +294,7 @@ def test_channels_get_distinct_colormaps(synth_well_data):
     v = _real_viewer()
     load_plate_to_viewer(v, 323, well_pos_input="A1")
     colors = [
-        tuple(map(tuple, layer.colormap.colors))
-        for layer in _image_layers(v)
+        tuple(map(tuple, layer.colormap.colors)) for layer in _image_layers(v)
     ]
     assert len(colors) == 2
     assert colors[0] != colors[1]
@@ -361,10 +350,7 @@ def test_only_the_master_round_is_visible_on_a_4i_plate(synth_well_data):
 
     v = _real_viewer()
     load_plate_to_viewer(v, 330, well_pos_input="A1")
-    visible = {
-        layer.name: layer.visible
-        for layer in _image_layers(v)
-    }
+    visible = {layer.name: layer.visible for layer in _image_layers(v)}
     assert visible == {
         "DAPI_R1": True,
         "Tub_R1": True,
@@ -394,3 +380,52 @@ def test_4i_layers_still_get_the_full_range(synth_well_data):
     load_plate_to_viewer(v, 340, well_pos_input="A1")
     for layer in _image_layers(v):
         assert tuple(layer.contrast_limits_range) == (0, 65535)
+
+
+# ----------------------------------------------------------------------
+# Well caption and conditions overlays
+# ----------------------------------------------------------------------
+
+
+def _overlay_texts(viewer):
+    from omero_screen_napari.zarr_cache import display
+
+    overlays = viewer.canvas.overlays
+    return (
+        overlays[display._CAPTION_OVERLAY].text,
+        overlays[display._CONDITIONS_OVERLAY].text,
+    )
+
+
+def test_conditions_line_lists_every_condition_key():
+    from omero_screen_napari.zarr_cache.display import _format_well_conditions
+
+    meta = {"B3": {"cell_line": "RPE-1", "Abemaciclib": "0.5", "C604": "0.0"}}
+    assert (
+        _format_well_conditions("B3", meta) == "Abemaciclib: 0.5 · C604: 0.0"
+    )
+    assert _format_well_conditions("C1", meta) == ""
+
+
+def test_overlays_show_caption_and_conditions(synth_well_data):
+    _build_two_well_plate(304, synth_well_data)
+    v = _real_viewer()
+    load_plate_to_viewer(v, 304, well_pos_input="A1")
+    caption, conditions = _overlay_texts(v)
+    assert caption == "Plate 304 — A1 | U2OS"
+    assert conditions == "condition: ctrl"
+
+
+def test_conditions_sit_below_the_caption(synth_well_data):
+    """napari stacks a corner's overlays outward in insertion order."""
+    from omero_screen_napari.zarr_cache import display
+
+    _build_two_well_plate(305, synth_well_data)
+    v = _real_viewer()
+    load_plate_to_viewer(v, 305, well_pos_input="A1")
+    load_plate_to_viewer(v, 305, well_pos_input="A1")  # idempotent
+    keys = list(v.canvas.overlays)
+    assert keys.count(display._CAPTION_OVERLAY) == 1
+    assert keys.index(display._CONDITIONS_OVERLAY) < keys.index(
+        display._CAPTION_OVERLAY
+    )
