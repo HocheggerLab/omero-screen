@@ -1,3 +1,9 @@
+## omero-screen-v0.8.27 (2026-10-09)
+
+### Fix
+
+- **docs**: showcase video on the landing page (#69)
+
 ## omero-screen-v0.8.26 (2026-10-09)
 
 ### Fix
