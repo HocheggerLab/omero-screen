@@ -1,6 +1,6 @@
 {
   "name": "omero-screen",
-  "version": "0.8.24",
+  "version": "0.8.25",
   "description": "Work with OMERO-Screen through Claude: check the install, browse plates in napari, collect training data and train cell classifiers, analyse immunofluorescence data with CellView and plot it.",
   "author": {
     "name": "Hochegger lab, University of Sussex",

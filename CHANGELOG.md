@@ -1,3 +1,9 @@
+## omero-screen-v0.8.25 (2026-10-09)
+
+### Fix
+
+- **napari**: show well conditions below the plate and well caption (#67)
+
 ## omero-screen-v0.8.24 (2026-10-08)
 
 ### Fix
