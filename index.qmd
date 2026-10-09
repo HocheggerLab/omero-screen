@@ -2,6 +2,9 @@
 title: ""
 toc: false
 body-classes: "gd-homepage"
+resources:
+  - assets/showcase.mp4
+  - assets/showcase-poster.jpg
 ---
 
 ::: {.column-margin}
@@ -21,6 +24,14 @@ body-classes: "gd-homepage"
 :::
 
 # End to end high content bio-image analysis powered by AI
+
+```{=html}
+<video class="showcase" src="assets/showcase.mp4" poster="assets/showcase-poster.jpg"
+       autoplay muted loop playsinline controls preload="metadata"
+       style="width: 100%; border-radius: 6px; margin: 0.5rem 0 1.5rem;"
+       aria-label="OMERO-Screen in one minute: stitched wells, segmentation, figures, galleries, classifiers, 4i, tracking and agent-driven analysis">
+</video>
+```
 
 **OMERO-Screen** takes a 96-well immunofluorescence plate from an
 [OMERO](https://www.openmicroscopy.org/omero/) server to a publication figure:
@@ -74,24 +85,13 @@ of high-content image analysis data in one well-organised, queryable form, and
 keeps published results reproducible.
 
 
-## See it in action
-
-::: {.callout-note appearance="simple"}
-**Demo video coming soon** — a walkthrough from raw plate to finished figure.
-In the meantime, [try it on your own machine](user-guide/try-it.html).
-:::
-
-<!-- When the recording exists, drop it at assets/showcase.mp4, delete the
-     callout above, and uncomment the line below.
-{{< video assets/showcase.mp4 title="OMERO-Screen: from plate to figure" >}}
--->
-
 ## Start here
 
 - [**Install and configure**](user-guide/installation.html) — prerequisites,
   hardware, OMERO credentials
 - [**Analyse your first plate**](user-guide/first-plate.html) — one continuous
   journey from a plate ID to a figure
+- [**Try it**](user-guide/try-it.html) — run it on your own machine
 - [**How it works**](user-guide/architecture.html) — the pipeline stages, the
   data model, and the six packages
 
