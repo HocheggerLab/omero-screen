@@ -80,8 +80,11 @@ cell, so use `filmstrip` for history. Never use `install_packages`. Use
      before and after.
    - **fragment**: one nucleus in pieces (keep) or two cells (`drop` the
      neighbour's piece)?
-   - **phase_order**: phases running backwards usually means a wrong link or
-     a floating/dying cell over the nucleus. Find the frame.
+   - **geminin_jump**: geminin fell along the track without a split. Geminin
+     only falls in mitosis, so this is usually a wrong link, a merged
+     neighbour, or a floating/dying cell over the nucleus. Find the frame.
+     Do not judge links by per-frame phase calls: a compacting G1 nucleus is
+     briefly brighter in both reporters and gets called G2.
    - **outcome_review**: confirm death / slippage / arrest from the filmstrip.
      Death: shrinking, condensing, fragmenting nucleus. Slippage: geminin
      drops without two daughters.

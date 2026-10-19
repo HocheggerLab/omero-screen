@@ -50,7 +50,7 @@ def test_cycling_cell_divides_after_g1_s_g2() -> None:
     phases = states[states.cell == cell.cell].phase
     runs = phases[phases.ne(phases.shift())].tolist()
     assert runs == ["G1", "S", "G2"]
-    assert "phase_order" not in cell.review_flags
+    assert "geminin_jump" not in cell.review_flags
 
 
 def test_stationary_object_without_reporter_is_debris() -> None:
@@ -86,3 +86,24 @@ def test_brief_both_low_history_is_unclear_not_negative() -> None:
     row = cells.set_index("start_track").loc[70]
     assert row.outcome != "no_reporter"
     assert "reporter_unclear" in row.review_flags
+
+
+def test_geminin_fall_without_split_is_flagged() -> None:
+    """Geminin never falls along one cell outside mitosis: a fall is a bad link."""
+    rows = _rows(5, 0, range(20), 500, G2) + _rows(
+        5, 0, range(20, 41), 500, {"pip": 1000.0, "geminin": 450.0}, x0=300
+    )
+    cells, _ = _walk(rows + _cycling_cell(10, 1500))
+    cell = cells.set_index("start_track").loc[5]
+    assert "geminin_jump" in cell.review_flags
+    assert cell.outcome == "no_mitosis"
+
+
+def test_one_frame_geminin_spike_is_not_an_exit() -> None:
+    """A G1 nucleus that compacts for one frame neither exits nor jumps."""
+    rows = _rows(5, 0, range(41), 500, G1)
+    rows[10]["geminin"] = 900.0
+    cells, _ = _walk(rows + _cycling_cell(10, 1500))
+    cell = cells.set_index("start_track").loc[5]
+    assert cell.outcome == "no_mitosis"
+    assert "geminin_jump" not in cell.review_flags

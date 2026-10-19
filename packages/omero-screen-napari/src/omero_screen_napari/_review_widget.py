@@ -1059,11 +1059,12 @@ def _cell_mask(
     patches = patches or {}
     import dask.array as da
 
-    arr = (
-        da.from_zarr(nuclei)
-        if not isinstance(nuclei, np.ndarray)
-        else da.from_array(nuclei, chunks=(1, *nuclei.shape[1:]))
-    )
+    if isinstance(nuclei, da.Array):  # corrected nuclei are lazy already
+        arr = nuclei
+    elif isinstance(nuclei, np.ndarray):
+        arr = da.from_array(nuclei, chunks=(1, *nuclei.shape[1:]))
+    else:
+        arr = da.from_zarr(nuclei)
 
     def select(block: np.ndarray, block_info: Any = None) -> np.ndarray:
         t0 = block_info[0]["array-location"][0][0]

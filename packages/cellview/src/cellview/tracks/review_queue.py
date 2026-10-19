@@ -43,7 +43,7 @@ QUESTIONS = {
     "link_ambiguous": "A break was bridged with more than one candidate. Is the continuation the same cell?",
     "gap": "Frames without a mask were bridged. Is it the same cell on both sides?",
     "fragment": "Nucleus pieces were merged. One nucleus, or two cells?",
-    "phase_order": "Phases run backwards. Mis-segmented frames, or a wrong link?",
+    "geminin_jump": "Geminin falls without a split. A wrong link, or a mis-segmented frame?",
     "outcome_review": "Automatic outcome needs confirmation. Correct, or which outcome?",
     "refractory": "A second division within 8 h was rejected. One mitosis, or two?",
     "edge": "The cell touches the image edge. Still followable?",

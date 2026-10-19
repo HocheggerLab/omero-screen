@@ -27,8 +27,9 @@ Outcomes:
 ``divided``
     The repaired track ends in a geminin-confirmed mitosis.
 ``mitotic_exit_no_division``
-    Geminin collapses after G2 but one nucleus continues: slippage or failed
-    cytokinesis.
+    Geminin, high for at least ``exit_hold`` frames, collapses but one nucleus
+    continues: slippage or failed cytokinesis. A one-frame geminin spike (a
+    nucleus compacting) is not a high level to exit from.
 ``mitotic_arrest``
     Condensed chromatin (high DNA intensity, small area) for at least
     ``arrest_hours`` with no exit by the window end.
@@ -57,6 +58,14 @@ Outcomes:
 
 Every cell carries review flags (:data:`FLAGS`) that say why a human should
 look at it.
+
+Review flags and outcomes use geminin continuity, not per-frame phase calls.
+Geminin accumulates from S to mitosis and is degraded at anaphase, so along one
+cell it never falls except in mitosis: a fall without a split marks a wrong
+link or a mis-segmented frame (``geminin_jump``). Rises are allowed, because
+geminin builds up fast in S. Phases (``phase``, ``start_phase``,
+``end_phase``) are still reported, but per-frame calls are unreliable when a
+nucleus compacts, and are best made later from the whole track.
 """
 
 from __future__ import annotations
@@ -76,7 +85,7 @@ FLAGS = (
     "gap",  # a bridge skipped at least one frame
     "fragment",  # nucleus pieces were merged during the window
     "refractory",  # the refractory rule removed a second division
-    "phase_order",  # phases ran backwards, e.g. G2 -> G1 without mitosis
+    "geminin_jump",  # geminin fell (or leapt) without a split: wrong link or bad frame
     "outcome_review",  # a rare outcome that decides a phenotype call
     "lost",  # the cell could not be followed to an outcome
     "edge",  # the nucleus came within one diameter of the image border
@@ -84,7 +93,6 @@ FLAGS = (
 )
 
 PHASES = ("G1", "S", "G2")
-_ORDER = {p: i for i, p in enumerate(PHASES)}
 
 
 @dataclass(frozen=True)
@@ -103,9 +111,15 @@ class FateParams:
             equivalent radii.
         area_tol: Allowed area ratio across a bridge (and its inverse).
         marker_tol: Allowed PIP and geminin ratio across a bridge (and inverse).
-        exit_drop: Geminin falling below this fraction of its recent maximum
-            within ``exit_frames`` is a mitotic exit.
+        exit_drop: Geminin falling below this fraction of its level over the
+            preceding ``exit_hold`` frames is a mitotic exit.
         exit_frames: Frames over which that fall must happen.
+        exit_hold: Frames geminin must stay high before an exit.
+        jump_window: Frames on each side of a step whose geminin medians are
+            compared for ``geminin_jump``.
+        jump_drop: Flag a fall of geminin by more than this factor ...
+        jump_rise: ... or a rise by more than this factor. Geminin is clipped
+            at its high threshold first, so G1-level noise never counts.
         condensed_dna: Mitotic chromatin if DNA intensity exceeds this multiple
             of the well median.
         condensed_area: ... and area is below this fraction of the cell's
@@ -134,6 +148,10 @@ class FateParams:
     marker_tol: float = 2.0
     exit_drop: float = 0.5
     exit_frames: int = 3
+    exit_hold: int = 6
+    jump_window: int = 3
+    jump_drop: float = 1.4
+    jump_rise: float = 2.5
     condensed_dna: float = 2.0
     condensed_area: float = 0.6
     arrest_hours: float = 2.0
@@ -192,11 +210,30 @@ def call_phases(
     )
 
 
-def _phase_order_ok(phases: pd.Series) -> bool:
-    """Phases of one cell before its first mitosis must never step backwards."""
-    runs = phases[phases.ne(phases.shift())].tolist()
-    ranks = [_ORDER[p] for p in runs]
-    return all(b >= a for a, b in zip(ranks, ranks[1:], strict=False))
+def _geminin_jump(
+    cell: pd.DataFrame, thr: Thresholds, params: FateParams
+) -> int | None:
+    """First frame where geminin falls (or leaps) between neighbouring windows.
+
+    Compares the median of ``jump_window`` frames before each step with the
+    median after it, on geminin clipped at its high threshold, so G1-level
+    noise and one-frame compaction spikes never count.
+    """
+    gem = (
+        cell["geminin"]
+        .clip(lower=params.gem_high * thr.gem_low)
+        .to_numpy(dtype=float)
+    )
+    frames = cell.index.to_numpy()
+    w = params.jump_window
+    for i in range(w, len(gem) - w + 1):
+        before, after = np.median(gem[i - w : i]), np.median(gem[i : i + w])
+        if (
+            before > params.jump_drop * after
+            or after > params.jump_rise * before
+        ):
+            return int(frames[i])
+    return None
 
 
 def _radius(area: float) -> float:
@@ -257,17 +294,24 @@ class _Index:
 
 
 def _mitotic_exit(
-    cell: pd.DataFrame, phases: pd.Series, params: FateParams
+    cell: pd.DataFrame, thr: Thresholds, params: FateParams
 ) -> int | None:
-    """First frame at which geminin collapses after G2 within one nucleus."""
-    gem = cell["geminin"].to_numpy()
+    """First frame at which sustained high geminin collapses within one nucleus.
+
+    Geminin must have been above its high threshold for the ``exit_hold``
+    frames before the fall, so a one-frame spike is never an exit.
+    """
+    gem = cell["geminin"].to_numpy(dtype=float)
     frames = cell.index.to_numpy()
-    for i in range(1, len(gem) - params.exit_frames + 1):
-        if phases.iloc[i - 1] != "G2":
+    high = params.gem_high * thr.gem_low
+    hold = params.exit_hold
+    for i in range(hold, len(gem) - params.exit_frames + 1):
+        held = gem[i - hold : i]
+        if not (held > high).all():
             continue
-        before = gem[max(0, i - 6) : i].max()
-        after = gem[i : i + params.exit_frames].mean()
-        if before > 0 and after < params.exit_drop * before:
+        before = float(np.median(held))
+        after = float(np.median(gem[i : i + params.exit_frames]))
+        if after < params.exit_drop * before:
             return int(frames[i])
     return None
 
@@ -415,7 +459,7 @@ def follow_cells(
         rows = rows[(rows.index >= start) & (rows.index <= stop)]
         phases = call_phases(rows, thr, params)
 
-        exit_frame = _mitotic_exit(rows, phases, params)
+        exit_frame = _mitotic_exit(rows, thr, params)
         if exit_frame is not None and (
             outcome_frame is None or exit_frame < outcome_frame - 1
         ):
@@ -440,9 +484,15 @@ def follow_cells(
             history[history.index <= stop], thr, params
         )
 
-        before_exit = phases[phases.index < (outcome_frame or stop + 1)]
-        if not _phase_order_ok(before_exit):
-            flags.add("phase_order")
+        # Geminin falls in mitosis itself: judge continuity only before it.
+        cut = (
+            outcome_frame - params.jump_window
+            if outcome in ("divided", "mitotic_exit_no_division")
+            and outcome_frame is not None
+            else stop + 1
+        )
+        if _geminin_jump(rows[rows.index < cut], thr, params) is not None:
+            flags.add("geminin_jump")
         if outcome in ("mitotic_exit_no_division", "mitotic_arrest", "death"):
             flags.add("outcome_review")
         if outcome == "lost":
