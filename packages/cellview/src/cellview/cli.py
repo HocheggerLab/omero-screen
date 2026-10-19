@@ -495,7 +495,13 @@ def review_queue(
     from cellview.tracks.review_queue import QueueSpec, build_queue
 
     spec = QueueSpec(
-        start=start, stop=stop, sample=sample, audit=audit, seed=seed
+        start=start,
+        stop=stop,
+        sample=sample,
+        audit=audit,
+        seed=seed,
+        stationary_warn=stationary_warn,
+        mode=mode,
     )
     try:
         q, s, table = build_queue(
