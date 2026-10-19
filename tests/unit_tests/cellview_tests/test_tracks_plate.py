@@ -2,7 +2,7 @@
 
 import duckdb
 import pytest
-from cellview.tracks.plate import MarkerNotFoundError, repair_plate
+from cellview.tracks.plate import NotPipFucciError, repair_plate
 
 
 @pytest.fixture
@@ -15,6 +15,7 @@ def conn(tmp_path):
         'create table measurements (measurement_id int, condition_id int, timepoint int, '
         'area_nucleus float, "centroid-0-nuc" float, "centroid-1-nuc" float, '
         "intensity_mean_Geminin_nucleus float, Geminin_background float, "
+        "intensity_mean_pip_nucleus float, "
         "track_id int, track_id_raw int, parent_track_id int, parent_track_id_raw int)"
     )
     c.execute("insert into repeats values (1, 5054)")
@@ -24,11 +25,11 @@ def conn(tmp_path):
         nonlocal mid
         for t in frames:
             mid += 1
-            rows.append((mid, 1, t, area, 100.0, x, 1050.0, 50.0, tid, tid, parent, parent))
+            rows.append((mid, 1, t, area, 100.0, x, 1050.0, 50.0, 800.0, tid, tid, parent, parent))
     add(1, 0, range(10), 100.0, 400.0)
     add(2, 1, range(10, 20), 95.0, 200.0)
     add(3, 1, range(10, 12), 105.0, 200.0)
-    c.executemany("insert into measurements values (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    c.executemany("insert into measurements values (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     yield c
     c.close()
 
@@ -50,10 +51,23 @@ def test_repair_writes_curated_columns_and_keeps_raw(conn, tmp_path) -> None:
     assert "fragment" in events.read_text()
 
 
-def test_plate_without_marker_is_refused(conn) -> None:
-    """No geminin channel, no repair."""
-    with pytest.raises(MarkerNotFoundError):
-        repair_plate(conn, 5054, marker="Cdt1")
+def test_plate_without_pip_is_refused(conn) -> None:
+    """Geminin alone is not PIP-FUCCI: no repair."""
+    conn.execute("update measurements set intensity_mean_pip_nucleus = null")
+    with pytest.raises(NotPipFucciError):
+        repair_plate(conn, 5054)
+
+
+def test_pip_column_of_another_plate_does_not_count(conn) -> None:
+    """A pip column with values only for another plate leaves this one non-FUCCI."""
+    conn.execute("update measurements set intensity_mean_pip_nucleus = null")
+    conn.execute("insert into repeats values (2, 9999)")
+    conn.execute("insert into conditions values (2, 2, 'D2')")
+    conn.execute(
+        "insert into measurements values (500,2,0,400,1,1,1000,50,800,1,1,0,0)"
+    )
+    with pytest.raises(NotPipFucciError):
+        repair_plate(conn, 5054)
 
 
 def test_curate_plate_replays_log_and_writes(conn, tmp_path) -> None:
@@ -61,7 +75,7 @@ def test_curate_plate_replays_log_and_writes(conn, tmp_path) -> None:
     from cellview.tracks.edit import EditLog
     from cellview.tracks.plate import curate_plate, well_bases
 
-    conn.execute("insert into measurements values (99,1,25,400,100,300,1050,50,9,9,0,0)")
+    conn.execute("insert into measurements values (99,1,25,400,100,300,1050,50,800,9,9,0,0)")
     base = well_bases(conn, 5054)["C2"][1]
     log = EditLog(tmp_path / "edits.jsonl")
     log.append("link", "C2", {"cell": [0, 1], "frame": 25, "label": 9}, base=base)

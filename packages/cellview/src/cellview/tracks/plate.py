@@ -3,9 +3,11 @@
 The repair reads the immutable ``track_id_raw`` / ``parent_track_id_raw``
 columns and writes the curated ``track_id`` / ``parent_track_id``, so it can be
 re-run at any time with the same result, and never loses the tracker's output.
-It needs a mitotic marker whose nuclear signal collapses at anaphase; with
-PIP-FUCCI that is geminin. Plates without one are refused rather than
-repaired on geometry alone.
+It needs a mitotic marker whose nuclear signal collapses at anaphase: the
+geminin reporter of PIP-FUCCI. Only PIP-FUCCI plates are repaired — a
+timelapse with channels named exactly ``pip`` and ``geminin``
+(:func:`omero_screen.metadata_parser.resolve_pip_fucci`); every other plate
+is refused rather than repaired on geometry alone.
 """
 
 from __future__ import annotations
@@ -18,10 +20,11 @@ import pandas as pd
 
 from cellview.tracks.edit import Curated, EditLog, base_lineage, replay
 from cellview.tracks.repair import RepairParams, repair_lineage
+from omero_screen.metadata_parser import PipFucci, resolve_pip_fucci
 
 
-class MarkerNotFoundError(ValueError):
-    """Raised when the plate has no nuclear measurement for the marker."""
+class NotPipFucciError(ValueError):
+    """Raised for a plate that is not PIP-FUCCI; its tracks are not repaired."""
 
 
 @dataclass(frozen=True)
@@ -39,40 +42,82 @@ def _columns(conn: duckdb.DuckDBPyConnection) -> list[str]:
     return [row[0] for row in conn.execute("DESCRIBE measurements").fetchall()]
 
 
-def marker_columns(
-    conn: duckdb.DuckDBPyConnection, marker: str
-) -> tuple[str, str | None]:
-    """The nuclear mean-intensity column for ``marker`` and its background column.
+def _not_fucci(plate_id: int, where: str = "") -> NotPipFucciError:
+    return NotPipFucciError(
+        f"Plate {plate_id}{where} is not PIP-FUCCI (a timelapse with channels "
+        f"named exactly 'pip' and 'geminin'); its tracks are not repaired."
+    )
 
-    Matching is case-insensitive (``Geminin`` and ``geminin`` both resolve).
+
+def plate_fucci(conn: duckdb.DuckDBPyConnection, plate_id: int) -> PipFucci:
+    """The PIP-FUCCI channels of a plate, as named in CellView.
+
+    Only channels with nuclear values for this plate count, so a column
+    another plate created does not make this one FUCCI.
 
     Raises:
-        MarkerNotFoundError: If no ``intensity_mean_<marker>_nucleus`` column exists.
+        NotPipFucciError: If the plate is not PIP-FUCCI.
     """
-    cols = {c.lower(): c for c in _columns(conn)}
-    mean = cols.get(f"intensity_mean_{marker.lower()}_nucleus")
-    if mean is None:
-        raise MarkerNotFoundError(
-            f"No nuclear '{marker}' measurement in this database. Lineage repair "
-            f"needs a mitotic marker that is degraded at anaphase (geminin in "
-            f"PIP-FUCCI); plates without one are not repaired."
-        )
-    return mean, cols.get(f"{marker.lower()}_background")
+    prefix, suffix = "intensity_mean_", "_nucleus"
+    cols = [
+        c
+        for c in _columns(conn)
+        if c.startswith(prefix) and c.endswith(suffix)
+    ]
+    counts = ", ".join(f'count(m."{c}")' for c in cols)
+    row = conn.execute(
+        f"""
+        select count(distinct m.timepoint){", " + counts if counts else ""}
+        from measurements m
+        join conditions c using (condition_id)
+        join repeats r using (repeat_id)
+        where r.plate_id = ?
+        """,
+        [plate_id],
+    ).fetchone()
+    assert row is not None
+    measured = [
+        c[len(prefix) : -len(suffix)]
+        for c, n in zip(cols, row[1:], strict=True)
+        if n
+    ]
+    fucci = resolve_pip_fucci(measured, int(row[0]))
+    if fucci is None:
+        raise _not_fucci(plate_id)
+    return fucci
+
+
+def pip_fucci_input(
+    det: pd.DataFrame, plate_id: int, well: str
+) -> pd.DataFrame:
+    """A well from :func:`cellview.tracks.cells.load_well`, ready for the repair.
+
+    The geminin reporter becomes the repair's ``marker`` column.
+
+    Raises:
+        NotPipFucciError: If the well is not PIP-FUCCI.
+    """
+    n_t = det["timepoint"].nunique() if "timepoint" in det else 0
+    fucci = resolve_pip_fucci(det.columns, n_t)
+    if fucci is None:
+        raise _not_fucci(plate_id, f" well {well}")
+    return det.rename(columns={fucci.geminin: "marker"})
 
 
 def load_detections(
     conn: duckdb.DuckDBPyConnection,
     plate_id: int,
-    marker: str,
     wells: list[str] | None = None,
 ) -> pd.DataFrame:
     """Tracked detections of a plate in the shape :func:`repair_lineage` expects.
 
     Raises:
-        MarkerNotFoundError: If the marker column is missing, or every value for
-            this plate is NULL (the plate was not imaged with the marker).
+        NotPipFucciError: If the plate is not PIP-FUCCI.
     """
-    mean, bg = marker_columns(conn, marker)
+    gem = plate_fucci(conn, plate_id).geminin
+    cols = {c.lower(): c for c in _columns(conn)}
+    mean = cols[f"intensity_mean_{gem.lower()}_nucleus"]
+    bg = cols.get(f"{gem.lower()}_background")
     marker_sql = f'm."{mean}" - coalesce(m."{bg}", 0)' if bg else f'm."{mean}"'
     df = conn.execute(
         f"""
@@ -93,9 +138,7 @@ def load_detections(
     if df.empty:
         raise ValueError(f"No tracked measurements for plate {plate_id}.")
     if df["marker"].isna().all():
-        raise MarkerNotFoundError(
-            f"Plate {plate_id} has no '{marker}' values; not repaired."
-        )
+        raise _not_fucci(plate_id)
     df["marker"] = df["marker"].clip(lower=0)
     df["parent_track_id_raw"] = df["parent_track_id_raw"].fillna(0)
     return df
@@ -104,7 +147,6 @@ def load_detections(
 def repair_plate(
     conn: duckdb.DuckDBPyConnection,
     plate_id: int,
-    marker: str = "Geminin",
     wells: list[str] | None = None,
     dry_run: bool = False,
     events_path: Path | None = None,
@@ -115,7 +157,6 @@ def repair_plate(
     Args:
         conn: Open CellView connection (read-write unless ``dry_run``).
         plate_id: OMERO plate id.
-        marker: Channel whose nuclear signal drops at anaphase.
         wells: Restrict to these wells.
         dry_run: Report only; write nothing.
         events_path: Write every repair decision to this CSV.
@@ -124,7 +165,7 @@ def repair_plate(
     Returns:
         One summary per well.
     """
-    det = load_detections(conn, plate_id, marker, wells)
+    det = load_detections(conn, plate_id, wells)
     summaries, updates, events = [], [], []
     for well, sub in det.groupby("well", sort=True):
         result = repair_lineage(sub, params)
@@ -186,7 +227,6 @@ def write_tracks(
 def well_bases(
     conn: duckdb.DuckDBPyConnection,
     plate_id: int,
-    marker: str = "Geminin",
     wells: list[str] | None = None,
     params: RepairParams | None = None,
 ) -> dict[str, tuple[pd.DataFrame, Curated]]:
@@ -195,7 +235,7 @@ def well_bases(
     The base is always recomputed from the raw columns, so replaying an edit
     log on it gives the same result however often curated ids were written.
     """
-    det = load_detections(conn, plate_id, marker, wells)
+    det = load_detections(conn, plate_id, wells)
     return {
         str(well): (sub, base_lineage(sub, repair_lineage(sub, params)))
         for well, sub in det.groupby("well", sort=True)
@@ -206,7 +246,6 @@ def curate_plate(
     conn: duckdb.DuckDBPyConnection,
     plate_id: int,
     log: EditLog,
-    marker: str = "Geminin",
     wells: list[str] | None = None,
     write: bool = False,
 ) -> dict[str, Curated]:
@@ -217,7 +256,7 @@ def curate_plate(
     """
     curated = {}
     updates = []
-    for well, (det, base) in well_bases(conn, plate_id, marker, wells).items():
+    for well, (det, base) in well_bases(conn, plate_id, wells).items():
         cur = replay(base, log, well)
         curated[well] = cur
         keys = zip(
@@ -245,7 +284,6 @@ def curated_well(
     plate_id: int,
     well: str,
     log: EditLog | None = None,
-    marker: str = "Geminin",
     params: RepairParams | None = None,
 ) -> tuple[pd.DataFrame, Curated]:
     """One well's detections (all nuclear channels) and its curated lineage.
@@ -254,18 +292,13 @@ def curated_well(
     ``log`` for this well. This is the starting point for following cells.
 
     Raises:
-        MarkerNotFoundError: If the plate has no values for ``marker``.
+        NotPipFucciError: If the plate is not PIP-FUCCI.
     """
     from cellview.tracks.cells import load_well
     from cellview.tracks.debris import drop_debris
 
     det, _ = drop_debris(load_well(conn, plate_id, well))
-    key = marker.lower()
-    if key not in det.columns:
-        raise MarkerNotFoundError(
-            f"Plate {plate_id} well {well} has no '{marker}' values; not repaired."
-        )
-    result = repair_lineage(det.rename(columns={key: "marker"}), params)
+    result = repair_lineage(pip_fucci_input(det, plate_id, well), params)
     from cellview.tracks.cells import apply_extras
 
     base = base_lineage(det, result)

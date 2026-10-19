@@ -2,11 +2,21 @@
 title: "Repair and review (PIP-FUCCI)"
 ---
 
-On plates with a geminin channel (PIP-FUCCI), tracks can be repaired
-automatically and then checked by a reviewer in napari, with an agent's help if
-you like. Nothing edits the tracker's output. Corrections are entries in an
+On PIP-FUCCI plates, tracks can be repaired automatically and then checked
+by a reviewer in napari, with an agent's help if you like. Nothing edits the tracker's output. Corrections are entries in an
 **edit log**, and the curated lineage is always rebuilt from the automatic
 repair plus that log, so it can be reproduced, inspected and undone.
+
+::: {.callout-important}
+## Naming PIP-FUCCI channels
+
+A plate is treated as PIP-FUCCI only if it is a timelapse and has one channel
+named exactly `pip` and one named exactly `geminin` (any case; a `_nucleus` or
+`_cell` role suffix is allowed). Any other name, such as `Geminin_488`, `Cdt1`
+or `pip_mCherry`, means the plate is not FUCCI. Its tracks are then not
+repaired, and the review tools refuse it. Name the channels in the plate's
+metadata before running the pipeline.
+:::
 
 ## 1. Automatic repair
 
@@ -22,8 +32,8 @@ uv run cellview repair-tracks 5054               # write track_id / parent_track
 
 The repair reads `track_id_raw` / `parent_track_id_raw` and writes `track_id` /
 `parent_track_id`, so running it again gives the same result. `--well`
-restricts it to some wells, `--marker` names the mitotic marker channel
-(default `Geminin`), and `--events FILE` writes every repair decision to a CSV.
+restricts it to some wells, and `--events FILE` writes every repair decision
+to a CSV.
 
 ## 2. Review queue
 

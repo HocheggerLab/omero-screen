@@ -31,6 +31,10 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from loguru import logger
+from omero_screen.metadata_parser import (
+    resolve_channel_roles,
+    resolve_pip_fucci,
+)
 from omero_screen.track_correction import (
     CorrectionParams,
     CorrectionResult,
@@ -181,15 +185,6 @@ def cached_channels(plate_id: int, well: str) -> dict[str, CachedChannel]:
     }
 
 
-def _channel(names: list[str], *keys: str) -> str | None:
-    """First channel name containing one of ``keys`` (case-insensitive)."""
-    for key in keys:
-        for name in names:
-            if key in name.lower():
-                return name
-    return None
-
-
 def correct_cached_well(
     plate_id: int,
     well: str,
@@ -205,22 +200,26 @@ def correct_cached_well(
         model: Trackastra model (the pipeline's, for a like-for-like second
             pass).
         params: Correction settings.
-        nucleus_channel: Nucleus channel name; default: the one whose name
-            contains ``nucleus``, ``dapi``, ``hoechst`` or ``dna``.
+        nucleus_channel: Nucleus channel name; default: the nucleus role
+            (:func:`~omero_screen.metadata_parser.resolve_channel_roles`).
+
+    The geminin-gated repair and debris test run only on PIP-FUCCI plates
+    (:func:`~omero_screen.metadata_parser.resolve_pip_fucci`); on any other
+    plate the repair merges fragments only.
     """
     channels = cached_channels(plate_id, well)
     names = list(channels)
-    nucleus_channel = nucleus_channel or _channel(
-        names, "nucleus", "dapi", "hoechst", "dna"
+    nucleus_channel = (
+        nucleus_channel
+        or resolve_channel_roles(dict.fromkeys(names, 0))["nucleus"]
     )
-    if nucleus_channel is None:
-        raise ValueError(f"No nucleus channel among {names}.")
-    signals = {
-        key: channels[name]
-        for key in ("geminin", "pip")
-        if (name := _channel(names, key)) is not None
-    }
     masks = read_well(plate_id, well)["nuclei"][0]
+    fucci = resolve_pip_fucci(names, masks.shape[0])
+    signals = (
+        {"geminin": channels[fucci.geminin], "pip": channels[fucci.pip]}
+        if fucci
+        else {}
+    )
     pass1 = first_pass_lineage(plate_id, well)
     logger.info(f"{well}: measuring first-pass nuclei")
     det = measure_labels(masks, signals)

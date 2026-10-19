@@ -32,6 +32,7 @@ from cellview.tracks.cells import apply_extras, curated_tracks, load_well
 from cellview.tracks.debris import drop_debris
 from cellview.tracks.edit import EditLog, base_lineage, replay
 from cellview.tracks.fate import FateParams, apply_annotations, follow_cells
+from cellview.tracks.plate import pip_fucci_input
 from cellview.tracks.repair import repair_lineage
 
 if TYPE_CHECKING:
@@ -133,18 +134,12 @@ def build_well(
     well: str,
     spec: QueueSpec,
     log: EditLog | None = None,
-    marker: str = "Geminin",
     params: FateParams | None = None,
 ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
     """Sample and queue one well. Returns ``(sample table, queue items)``."""
     raw = load_well(conn, plate_id, well)
     det, debris = drop_debris(raw)
-    key = marker.lower()
-    if key not in det:
-        raise ValueError(
-            f"Plate {plate_id} well {well} has no '{marker}' values."
-        )
-    result = repair_lineage(det.rename(columns={key: "marker"}))
+    result = repair_lineage(pip_fucci_input(det, plate_id, well))
     curated = replay(
         base_lineage(det, result), log if log is not None else [], well
     )
@@ -228,13 +223,12 @@ def build_queue(
     spec: QueueSpec,
     out_dir: Path,
     log_path: Path | None = None,
-    marker: str = "Geminin",
 ) -> tuple[Path, Path, pd.DataFrame]:
     """Build and write ``queue.json`` and ``sample.csv`` for several wells."""
     log = EditLog(log_path) if log_path else None
     samples, items, exclusions = [], [], {}
     for well in wells:
-        s, i = build_well(conn, plate_id, well, spec, log, marker)
+        s, i = build_well(conn, plate_id, well, spec, log)
         exclusions[well] = s.attrs.get("exclusions", {})
         samples.append(s)
         items += i

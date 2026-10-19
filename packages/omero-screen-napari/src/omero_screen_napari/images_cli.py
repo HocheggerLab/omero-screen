@@ -1347,12 +1347,6 @@ def _check_names(names: list[str], available: list[str], hint: str) -> None:
     "--max-tiles", type=click.IntRange(min=1), default=24, show_default=True
 )
 @click.option(
-    "--marker",
-    default="Geminin",
-    show_default=True,
-    help="Mitotic marker for the repair.",
-)
-@click.option(
     "--out",
     "out_dir",
     type=click.Path(file_okay=False, path_type=Path),
@@ -1379,7 +1373,6 @@ def track(
     start: int | None,
     stop: int | None,
     max_tiles: int,
-    marker: str,
     out_dir: Path,
     fmt: str,
 ) -> None:
@@ -1430,9 +1423,7 @@ def track(
     if not targets:
         raise click.UsageError("Nothing to render: give CELLS or --queue.")
 
-    source = CellSource(
-        plate_id, db_path=db_path, log_path=log_path, marker=marker
-    )
+    source = CellSource(plate_id, db_path=db_path, log_path=log_path)
     chans = _split_list(channels) if channels else None
     written, failed = [], {}
     for name, w, anchor in targets:

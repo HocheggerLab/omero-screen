@@ -66,9 +66,10 @@ class CorrectionParams:
     Attributes:
         repair: Thresholds of the FUCCI-gated repair.
         hide_debris: Hide stationary, reporter-negative tracks.
-        marker: Signal used for the mitosis test (geminin with PIP-FUCCI).
-            Without it the repair only merges fragments.
-        pip: Second reporter, used with ``marker`` for the debris test.
+        marker: Signal key of the PIP-FUCCI geminin reporter, used for the
+            mitosis test.
+        pip: Signal key of the PIP reporter. The mitosis and debris tests
+            need both; without them the repair only merges fragments.
         mode: Trackastra linking mode of the second pass.
         batch_size: Trackastra batch size (``None`` = its default).
         window: Trackastra temporal window (``None`` = the model's).
@@ -206,13 +207,11 @@ def _lineage_table(
 
 
 def _repair(det: pd.DataFrame, params: CorrectionParams) -> RepairResult:
-    """Run the repair, using the marker if the detections have it."""
-    if params.marker in det:
+    """Run the repair, geminin-gated only if the detections are PIP-FUCCI."""
+    if {params.marker, params.pip} <= set(det.columns):
         det = det.assign(marker=det[params.marker])
     else:
-        logger.info(
-            f"No '{params.marker}' signal: repair merges fragments only."
-        )
+        logger.info("Not PIP-FUCCI: repair merges fragments only.")
     return repair_lineage(det, params.repair)
 
 
