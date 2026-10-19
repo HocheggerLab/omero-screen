@@ -71,7 +71,13 @@ cell, so use `filmstrip` for history. Never use `install_packages`. Use
 1. `review_goto`, then `filmstrip` for the window, then `cell_trace` if
    numbers matter.
 2. Read the flag (`reason`) and answer its question:
-   - **lost**: where does the cell go after the last frame? Check
+   - **lost**: first, is it at the image border (crops turn black)? Then it
+     left the field: accept. Does the track end on a small dim speck or part
+     of the nucleus while the cell carries on nearby? Link the real nucleus.
+     Automatic death needs a pyknotic end (small and bright for 3+ frames);
+     a cell that rounds, blebs or fragments and then vanishes can be called
+     death by eye with an `event` (dying RPE-1 cells detach and leave no
+     corpse). Where does the cell go after the last frame? Check
      `continuation_candidates` at the break. A good continuation is close
      (RPE-1 moves ~0.5 diameters per frame, occasionally 2–3), has similar area,
      and has continuous PIP/geminin. Propose `link` only if one candidate is

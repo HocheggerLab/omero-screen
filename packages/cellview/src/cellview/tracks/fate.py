@@ -34,7 +34,13 @@ Outcomes:
     Condensed chromatin (high DNA intensity, small area) for at least
     ``arrest_hours`` with no exit by the window end.
 ``death``
-    The track ends inside the window after the nucleus shrinks or condenses.
+    The nucleus ends pyknotic: for at least ``death_frames`` frames at the end
+    of its track it is small and bright (area below ``death_area`` and DNA
+    above ``death_dna`` times the cell's own median), away from the image
+    border, and not at G2 geminin level (a G2 nucleus condensing is entering
+    mitosis). A track that merely ends, or ends shrinking, is ``lost``: on
+    5054 dying cells detach and leave no corpse, and a shrinking mask is far
+    more often a partial mask, a speck or the image border than a death.
 ``no_mitosis``
     The window closes before any of the above; the phase at the end is
     recorded in ``end_phase``.
@@ -125,8 +131,10 @@ class FateParams:
         condensed_area: ... and area is below this fraction of the cell's
             median area.
         arrest_hours: Minimum condensed run for a mitotic arrest.
-        death_area: A track ending after its area fell below this fraction of
-            its median is a death candidate.
+        death_area: Pyknotic if area is below this fraction of the cell's own
+            median ...
+        death_dna: ... and DNA intensity above this multiple of its own median ...
+        death_frames: ... for at least this many frames at the end of the track.
         min_start_area: Start cells smaller than this fraction of the well
             median area are excluded as debris.
         still_px: An object whose median frame-to-frame step over the first
@@ -155,7 +163,9 @@ class FateParams:
     condensed_dna: float = 2.0
     condensed_area: float = 0.6
     arrest_hours: float = 2.0
-    death_area: float = 0.5
+    death_area: float = 0.6
+    death_dna: float = 1.5
+    death_frames: int = 3
     min_start_area: float = 0.7
     reporter_hours: float = 24.0
     still_px: float = 3.0
@@ -373,6 +383,44 @@ def _stationary(cell: pd.DataFrame, params: FateParams) -> bool:
     return bool(steps.median() < params.still_px)
 
 
+def _pyknotic_end(
+    cell: pd.DataFrame,
+    thr: Thresholds,
+    params: FateParams,
+    shape: tuple[int, int] | None,
+) -> int | None:
+    """Onset frame of a pyknotic end of the track, or ``None``.
+
+    The last ``death_frames`` or more frames must be small and bright against
+    the cell's own medians, the end must lie away from the image border, and
+    geminin at the onset must be below its high threshold (a G2 nucleus that
+    condenses is entering mitosis, not dying).
+    """
+    if len(cell) < 2 * params.death_frames:
+        return None
+    pyknotic = (cell["area"] < params.death_area * cell["area"].median()) & (
+        cell["dna"] > params.death_dna * cell["dna"].median()
+    )
+    # Length of the trailing run of pyknotic frames.
+    tail = pyknotic.to_numpy()[::-1]
+    run = len(tail) if tail.all() else int(np.argmin(tail))
+    if run < params.death_frames:
+        return None
+    onset = cell.iloc[-run]
+    if onset["geminin"] > params.gem_high * thr.gem_low:
+        return None
+    if shape is not None:
+        last = cell.iloc[-1]
+        margin = 2 * _radius(thr.area_median)
+        if (
+            min(last.y, last.x) < margin
+            or last.y > shape[0] - margin
+            or last.x > shape[1] - margin
+        ):
+            return None
+    return int(cell.index[-run])
+
+
 def _condensed_run(
     cell: pd.DataFrame, thr: Thresholds, params: FateParams
 ) -> tuple[int, int] | None:
@@ -471,12 +519,10 @@ def follow_cells(
             and run[1] >= params.frames(params.arrest_hours)
         ):
             outcome, outcome_frame = "mitotic_arrest", run[0]
-        if outcome == "lost" and len(rows) > 3:
-            tail = rows.iloc[-3:]
-            shrunk = tail.area.min() < params.death_area * rows.area.median()
-            condensed = tail.dna.max() > params.condensed_dna * thr.dna_median
-            if shrunk or condensed:
-                outcome = "death"
+        if outcome == "lost":
+            onset = _pyknotic_end(rows, thr, params, shape)
+            if onset is not None:
+                outcome, outcome_frame = "death", onset
         if outcome is None:
             outcome, outcome_frame = "no_mitosis", int(rows.index[-1])
         history = pd.concat([idx.rows[s] for s in segments])

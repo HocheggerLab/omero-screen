@@ -107,3 +107,34 @@ def test_one_frame_geminin_spike_is_not_an_exit() -> None:
     cell = cells.set_index("start_track").loc[5]
     assert cell.outcome == "no_mitosis"
     assert "geminin_jump" not in cell.review_flags
+
+
+def _ending(tid, y, tail, x0=1000.0):
+    """A G1 cell followed to t20, then the ``tail`` rows (area, dna) until it ends."""
+    rows = _rows(tid, 0, range(20), y, G1, x0=x0)
+    for i, (area, dna) in enumerate(tail):
+        rows += _rows(tid, 0, [20 + i], y, G1, x0=x0 + 200 + 10 * i, area=area)
+        rows[-1]["dna"] = dna
+    return rows
+
+
+def test_pyknotic_end_is_death() -> None:
+    """Small and bright for three frames at the end: the nucleus died."""
+    rows = _ending(5, 500, [(150.0, 2500.0)] * 4)
+    cells, _ = _walk(rows + _cycling_cell(10, 1500))
+    cell = cells.set_index("start_track").loc[5]
+    assert cell.outcome == "death" and cell.outcome_frame == 20
+
+
+def test_dim_shrinking_end_is_lost_not_death() -> None:
+    """A track ending on a small dim mask (speck, partial mask) is lost."""
+    rows = _ending(5, 500, [(150.0, 400.0)] * 4)
+    cells, _ = _walk(rows + _cycling_cell(10, 1500))
+    assert cells.set_index("start_track").loc[5].outcome == "lost"
+
+
+def test_pyknotic_end_at_the_border_is_lost() -> None:
+    """At the image border a small mask is the nucleus leaving the field."""
+    rows = _ending(5, 10, [(150.0, 2500.0)] * 4)
+    cells, _ = _walk(rows + _cycling_cell(10, 1500))
+    assert cells.set_index("start_track").loc[5].outcome == "lost"
