@@ -156,13 +156,18 @@ class FateParams:
             image border ...
         edge_frames: ... after getting closer to it over this many frames
             has ``left_field``.
-        switch_window: Frames before a step whose medians a nucleus is
-            compared with for ``switch``.
-        switch_area: A step changing area by more than this factor ...
-        switch_marker: ... or PIP or geminin (clipped at their floors) by more
-            than this factor is a jump. It is a *switch* only if another
-            nucleus within ``reach`` continues the cell within ``area_tol`` and
-            ``marker_tol``; otherwise it is a mis-segmented frame.
+        switch_history: Frames before a step whose medians are the cell's
+            recent values for ``switch`` (long enough that a two-frame
+            mis-segmentation does not dominate them).
+        switch_window: Frames from the step on whose medians are compared
+            with them (a switch is permanent; a bad frame is not).
+        switch_area: A step after which area differs by more than this
+            factor, or geminin (clipped at its floor) falls by more than
+            ``jump_drop`` or rises by more than ``jump_rise``, is a jump. PIP
+            is not used: it falls at S entry and climbs in G2 by itself.
+            A jump is a *switch* only if another nucleus within ``reach``
+            continues the cell within ``area_tol`` and ``marker_tol``;
+            otherwise it is a mis-segmented frame.
         daughter_area: Area of a daughter relative to the mother's last
             frame, as ``(low, high)``, for ``daughter_pair``.
     """
@@ -193,9 +198,9 @@ class FateParams:
     reporter_hours: float = 24.0
     still_px: float = 3.0
     still_hours: float = 4.0
+    switch_history: int = 5
     switch_window: int = 3
     switch_area: float = 2.0
-    switch_marker: float = 2.5
     daughter_area: tuple[float, float] = (0.3, 0.75)
 
     def frames(self, hours: float) -> int:
@@ -384,36 +389,58 @@ def _matching_neighbour(
     return best[1] if best else None
 
 
+def _jumped(
+    area_now: float,
+    gem_now: float,
+    ref: tuple[float, float, float],
+    params: FateParams,
+) -> bool:
+    """Whether area or geminin differ from the reference beyond the switch tolerances."""
+    return (
+        area_now > params.switch_area * ref[0]
+        or area_now < ref[0] / params.switch_area
+        or gem_now < ref[2] / params.jump_drop
+        or gem_now > params.jump_rise * ref[2]
+    )
+
+
 def _switch(
     cell: pd.DataFrame, idx: _Index, thr: Thresholds, params: FateParams
 ) -> tuple[int, int] | None:
     """First frame where the track jumps to another nucleus: ``(frame, neighbour)``.
 
-    Within an unbroken track, a step that changes area or a reporter by more
-    than the switch tolerances, while a nucleus nearby continues the cell's
-    recent values, is a tracking switch: the raw track followed the wrong
-    object and the neighbour is the cell. Judged only inside a raw track,
-    because bridges are judged by :meth:`_Index.continuations` and divisions
-    end the track.
+    Within an unbroken track, a step after which area or geminin stays
+    changed (medians of ``switch_history`` frames before against
+    ``switch_window`` frames from the step on), while a nucleus nearby
+    continues the cell's recent values, is a tracking switch: the raw track
+    followed the wrong object and the neighbour is the cell. Comparing
+    windows, not single frames, keeps a one- or two-frame mis-segmentation
+    from counting. Judged only inside a raw track, because bridges are
+    judged by :meth:`_Index.continuations` and divisions end the track.
     """
-    w = params.switch_window
+    w, h = params.switch_window, params.switch_history
     area, pip, gem = _clipped(cell, thr, params)
     tids = cell["track_id"].to_numpy()
     frames = cell.index.to_numpy()
-    tols = (params.switch_area, params.switch_marker, params.switch_marker)
     for i in range(2, len(cell)):
         if frames[i] != frames[i - 1] + 1 or tids[i] != tids[i - 1]:
             continue
-        lo = max(0, i - w)
+        lo, hi = max(0, i - h), min(len(cell), i + w)
         ref = (
             float(np.median(area[lo:i])),
             float(np.median(pip[lo:i])),
             float(np.median(gem[lo:i])),
         )
-        here = (area[i], pip[i], gem[i])
-        if not any(
-            h > tol * r or h < r / tol
-            for h, r, tol in zip(here, ref, tols, strict=True)
+        # The step frame itself must jump (so the switch is dated to the
+        # frame it happens in) and the frames after it must stay jumped.
+        if not (
+            _jumped(float(area[i]), float(gem[i]), ref, params)
+            and _jumped(
+                float(np.median(area[i:hi])),
+                float(np.median(gem[i:hi])),
+                ref,
+                params,
+            )
         ):
             continue
         alt = _matching_neighbour(
