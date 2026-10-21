@@ -91,6 +91,9 @@ class ReviewItem:
     question: str = ""
     outcome: str = ""
     path: tuple[PathPoint, ...] = ()
+    #: Edits the queue builder suggests (walker bridges, switches, daughter
+    #: pairs): ``{"op", "args", "reason", "confidence"}``.
+    proposals: tuple[dict[str, Any], ...] = ()
 
     def point_at(self, t: int) -> PathPoint | None:
         """The path point for frame ``t``, or the nearest earlier one."""
@@ -109,6 +112,8 @@ class Queue:
     items: tuple[ReviewItem, ...]
     focus: str | None = None
     outcomes: tuple[str, ...] = DEFAULT_OUTCOMES
+    #: Hash of the stored track correction the queue was built on, if any.
+    correction: str | None = None
 
     def get(self, item_id: str) -> ReviewItem | None:
         """Look an item up by id."""
@@ -152,6 +157,7 @@ def _item_from_dict(raw: dict[str, Any]) -> ReviewItem:
             question=str(raw.get("question", "")),
             outcome=str(raw.get("outcome", "")),
             path=path,
+            proposals=tuple(dict(p) for p in raw.get("proposals", []) or []),
         )
     except (KeyError, TypeError, ValueError, IndexError) as err:
         raise QueueError(f"Malformed queue item {raw!r}: {err}") from err
@@ -184,6 +190,7 @@ def read_queue(path: Path) -> Queue:
         items=items,
         focus=data.get("focus"),
         outcomes=tuple(data.get("outcomes") or DEFAULT_OUTCOMES),
+        correction=data.get("correction") or None,
     )
 
 
@@ -213,8 +220,13 @@ def write_queue(
         "plate_id": plate_id,
         "items": [
             {
-                **{k: v for k, v in asdict(i).items() if k != "path"},
+                **{
+                    k: v
+                    for k, v in asdict(i).items()
+                    if k not in ("path", "proposals")
+                },
                 "path": [[p.t, p.y, p.x, p.label] for p in i.path],
+                "proposals": list(i.proposals),
             }
             for i in items
         ],
@@ -240,9 +252,15 @@ def read_decisions(path: Path) -> list[Decision]:
     return [Decision(**d) for d in data.get("decisions", [])]
 
 
-def latest_decisions(path: Path) -> dict[str, Decision]:
-    """The most recent decision per item id."""
-    return {d.id: d for d in read_decisions(path)}
+def latest_decisions(
+    path: Path, author: str | None = None
+) -> dict[str, Decision]:
+    """The most recent decision per item id, optionally by one ``author``."""
+    return {
+        d.id: d
+        for d in read_decisions(path)
+        if author is None or d.author == author
+    }
 
 
 def record_decision(path: Path, decision: Decision) -> Decision:

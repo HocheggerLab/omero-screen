@@ -33,6 +33,7 @@ PROPOSABLE = (
     "set_outcome",
     "exclude",
     "note",
+    "separate",
 )
 
 
@@ -76,6 +77,16 @@ def _records(df: Any, cols: list[str] | None = None) -> list[dict[str, Any]]:
     return [_clean(r) for r in sub.to_dict("records")]
 
 
+def active_ui_for(item_id: str) -> Any:
+    """The open widget if it is showing ``item_id``."""
+    from omero_screen_napari.review.session import active_ui
+
+    ui = active_ui()
+    if ui is not None and ui.current is not None and ui.current.id == item_id:
+        return ui
+    return None
+
+
 def register(server: Any, state: Any) -> None:
     """Add the track-review tools to a napari-mcp server."""
     from fastmcp.utilities.types import Image
@@ -107,13 +118,8 @@ def register(server: Any, state: Any) -> None:
             flag: Only items whose reason contains this flag (e.g. "lost").
             status: "open" (no verdict yet), "done", or "all".
         """
-        from omero_screen_napari.review_queue import (
-            decisions_path,
-            latest_decisions,
-        )
-
         session = _session()
-        done = latest_decisions(decisions_path(session.queue_path))
+        done = session.decided()
         out = []
         for it in session.queue.items:
             if well and it.well != well:
@@ -276,14 +282,20 @@ def register(server: Any, state: Any) -> None:
         reason: str,
         confidence: str = "uncertain",
     ) -> dict[str, Any]:
-        """Propose a change. In a human run nothing changes until the reviewer confirms;
-        in an agent run (queue built with --mode agent) it is applied at once.
+        """Propose a change. A "clear" proposal is applied at once and shown to the
+        reviewer as applied (they can revert it); an "uncertain" one waits for
+        their confirmation. In an agent run (queue built with --mode agent)
+        everything is applied at once.
 
         Args:
             item_id: Queue item id.
-            op: One of link, unlink, absorb, drop, event, set_outcome, exclude, note.
+            op: One of link, unlink, absorb, drop, separate, event, set_outcome,
+                exclude, note.
             args: For link {"frame", "label"}; unlink {"frame"}; absorb / drop
-                {"frames": [first, last], "label"}; event
+                {"frames": [first, last], "label"}; separate {"first", "last",
+                "threshold"} (split the cell from a reporter-negative object
+                merged into its mask over those frames; threshold is the
+                fraction of the cell's own reporter level, default 0.5); event
                 {"kind": mitosis|death|slippage, "frame"}; set_outcome
                 {"outcome"}; exclude {"reason"}; note {"text"}.
             reason: Why, in one sentence the reviewer can check on screen.
@@ -313,8 +325,9 @@ def register(server: Any, state: Any) -> None:
     async def agent_verdict(
         item_id: str, verdict: str, outcome: str = "", note: str = ""
     ) -> dict[str, Any]:
-        """Record the agent's own verdict on an item. Only allowed in an agent run
-        (queue built with --mode agent); in a human run the reviewer decides.
+        """Record the agent's verdict on an item. In an agent run (queue built with
+        --mode agent) it is the verdict; in a human run it is stored as the
+        agent's suggestion beside the reviewer's own, so agreement can be scored.
 
         Args:
             item_id: Queue item id.
@@ -323,12 +336,75 @@ def register(server: Any, state: Any) -> None:
             note: One sentence on why.
         """
         session = _session()
-        if session.mode != "agent":
-            raise PermissionError(
-                "Verdicts are the reviewer's in a human run; use propose_edit and let them decide."
-            )
         d = session.verdict(item_id, verdict, outcome, note, author="agent")
         return _cdict(d.__dict__)
+
+    @server.tool()
+    async def preview_edit(
+        item_id: str, op: str, args: dict[str, Any]
+    ) -> dict[str, Any]:
+        """What an edit would change, without writing it: summary lines (frames gained
+        or lost, mother / daughters) and the cell's path after it.
+
+        Args:
+            item_id: Queue item id.
+            op: As for propose_edit.
+            args: As for propose_edit.
+        """
+        session = _session()
+        lines, after = session.preview(item_id, op, args)
+        cols = [
+            c for c in ("timepoint", "label", "y", "x", "gap") if c in after
+        ]
+        return {"changes": lines, "path": _records(after, cols)}
+
+    @server.tool()
+    async def cell_lineage(item_id: str) -> list[dict[str, Any]]:
+        """The cell's curated track with its mother's and daughters': one entry per
+        track with track_id, parent, role (cell / mother / daughter) and frames."""
+        session = _session()
+        out = []
+        for track in session.lineage(item_id):
+            frames = track["frames"]
+            out.append(
+                {
+                    **{k: v for k, v in track.items() if k != "frames"},
+                    "first": int(frames["timepoint"].min()),
+                    "last": int(frames["timepoint"].max()),
+                    "frames": _records(frames),
+                }
+            )
+        return _clean(out)
+
+    @server.tool()
+    async def find_cell(well: str, frame: int, ident: int) -> dict[str, Any]:
+        """The cell that is nucleus label (or curated track) `ident` in `frame`: its queue
+        item if it is queued, else an ad-hoc item (id WELL-tFRAME-LLABEL) the other
+        tools accept."""
+        session = _session()
+        it = session.find(well, int(frame), int(ident))
+        return _cdict(
+            {
+                "id": it.id,
+                "well": it.well,
+                "frame": it.frame,
+                "reason": it.reason,
+                "queued": it.id in {i.id for i in session.queue.items},
+            }
+        )
+
+    @server.tool()
+    async def revert_proposal(
+        proposal_id: str, note: str = ""
+    ) -> dict[str, Any]:
+        """Undo an applied proposal of your own (its edits are reverted in the log)."""
+        session = _session()
+        prop = session.resolve_proposal(proposal_id, False, note=note)
+        ui = active_ui_for(prop.item)
+        if ui is not None:
+            state.gui_execute(ui._redraw)
+            state.gui_execute(ui._refresh_proposals)
+        return _cdict(prop.__dict__)
 
     @server.tool()
     async def proposal_status(
@@ -362,14 +438,9 @@ def register(server: Any, state: Any) -> None:
         """Review progress and agent–human agreement: verdicts, edits by author, proposals confirmed vs rejected."""
         from cellview.tracks.edit import EditLog
 
-        from omero_screen_napari.review_queue import (
-            decisions_path,
-            latest_decisions,
-        )
-
         session = _session()
         verdicts: dict[str, int] = {}
-        for d in latest_decisions(decisions_path(session.queue_path)).values():
+        for d in session.decided().values():
             verdicts[d.verdict] = verdicts.get(d.verdict, 0) + 1
         authors: dict[str, int] = {}
         for e in EditLog(session.edits_path):
@@ -378,7 +449,11 @@ def register(server: Any, state: Any) -> None:
         props: dict[str, int] = {}
         for p in session.proposals():
             props[p.status] = props.get(p.status, 0) + 1
-        resolved = props.get("confirmed", 0) + props.get("rejected", 0)
+        resolved = (
+            props.get("confirmed", 0)
+            + props.get("rejected", 0)
+            + props.get("reverted", 0)
+        )
         return _cdict(
             {
                 **session.status(),

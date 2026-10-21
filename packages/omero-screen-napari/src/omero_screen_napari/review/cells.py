@@ -96,17 +96,15 @@ class CellSource:
         return self.log_path.parent / "masks" if self.log_path else None
 
     def base(self, well: str) -> Any:
-        """The well's automatically repaired lineage, before any edit."""
-        from cellview.tracks.edit import base_lineage
-        from cellview.tracks.plate import pip_fucci_input
-        from cellview.tracks.repair import repair_lineage
+        """The well's lineage as CellView holds it, before any edit.
+
+        CellView holds the stored correction's final tracks, so the base is
+        that lineage as it is; the repair is not run again here.
+        """
+        from cellview.tracks.edit import imported_lineage
 
         if well not in self._bases:
-            det = self.raw(well)
-            self._bases[well] = base_lineage(
-                det,
-                repair_lineage(pip_fucci_input(det, self.plate_id, well)),
-            )
+            self._bases[well] = imported_lineage(self.raw(well))
         return self._bases[well]
 
     def path(

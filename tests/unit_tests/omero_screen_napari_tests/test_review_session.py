@@ -1,18 +1,23 @@
 """ReviewSession: search, lineage and edit previews, on a toy lineage."""
 
+import json
 from pathlib import Path
 
 import pandas as pd
 import pytest
-
 from cellview.tracks.edit import Curated
 from omero_screen_napari.review.session import ReviewSession, _span
-from omero_screen_napari.review_queue import ReviewItem, write_queue
+from omero_screen_napari.review_queue import (
+    QueueError,
+    ReviewItem,
+    write_queue,
+)
 
 
 def _det() -> pd.DataFrame:
     """Track 1 (label 5) t0–3 divides into 2 (label 6) and 3 (label 7) at t4;
-    a neighbour, track 4 (label 9), runs t0–5."""
+    a neighbour, track 4 (label 9), runs t0–5.
+    """
     rows = []
     for t in range(4):
         rows.append((t, 5, 10.0, 10.0 + t))
@@ -116,3 +121,92 @@ def test_span() -> None:
     """Frames compress to runs."""
     assert _span([4]) == "t4"
     assert _span([4, 5, 6, 9]) == "t4–6, t9"
+
+
+def _queue_with_proposals(tmp_path: Path) -> Path:
+    q = tmp_path / "queue.json"
+    item = ReviewItem(
+        id="C2-t0-L5",
+        well="C2",
+        frame=0,
+        proposals=(
+            {
+                "op": "link",
+                "args": {"frame": 4, "label": 6},
+                "reason": "bridge: gap 1, 1 candidate",
+                "confidence": "clear",
+            },
+            {
+                "op": "link",
+                "args": {"frame": 5, "label": 7},
+                "reason": "switch at t5",
+                "confidence": "uncertain",
+            },
+        ),
+    )
+    write_queue(q, 1, [item])
+    return q
+
+
+def test_walker_proposals_are_seeded_once(tmp_path: Path, monkeypatch) -> None:
+    """Clear suggestions from the queue are applied on load, uncertain ones wait;
+    reopening the session does not duplicate them.
+    """
+    applied = []
+    monkeypatch.setattr(
+        ReviewSession,
+        "edit",
+        lambda self, item, op, args, **kw: applied.append((op, args)) or type("E", (), {"id": "e0001"})(),
+    )
+    q = _queue_with_proposals(tmp_path)
+    s = ReviewSession(q)
+    props = s.proposals()
+    assert [p.status for p in props] == ["applied", "pending"]
+    assert all(p.author == "walker" for p in props)
+    assert applied == [("link", {"frame": 4, "label": 6})]
+    assert s.status()["pending_proposals"] == 1
+    ReviewSession(q)
+    assert len(s.proposals()) == 2
+
+
+def test_failed_walker_proposal_is_recorded_not_raised(tmp_path: Path, monkeypatch) -> None:
+    def boom(self, *a, **k):
+        raise ValueError("no such nucleus")
+
+    monkeypatch.setattr(ReviewSession, "edit", boom)
+    s = ReviewSession(_queue_with_proposals(tmp_path))
+    first = s.proposals()[0]
+    assert first.status == "failed" and "no such nucleus" in first.note
+
+
+def test_applied_proposal_can_be_confirmed_or_reverted(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        ReviewSession,
+        "edit",
+        lambda self, item, op, args, **kw: type("E", (), {"id": "e0001"})(),
+    )
+    reverted = []
+    monkeypatch.setattr(ReviewSession, "_revert", lambda self, p: reverted.append(p.id))
+    s = ReviewSession(_queue_with_proposals(tmp_path))
+    applied, pending = s.proposals()
+    assert s.confirm_applied("C2-t0-L5")[0].id == applied.id
+    assert s.proposals()[0].status == "confirmed"
+    s2 = ReviewSession(_queue_with_proposals(tmp_path / "b"))
+    a2 = s2.proposals()[0]
+    assert s2.resolve_proposal(a2.id, False, note="wrong").status == "reverted"
+    assert reverted == [a2.id]
+    with pytest.raises(ValueError, match="already"):
+        s2.resolve_proposal(a2.id, True)
+
+
+def test_queue_on_another_correction_is_refused(tmp_path: Path) -> None:
+    q = tmp_path / "queue.json"
+    write_queue(q, 1, [ReviewItem(id="C2-t0-L5", well="C2", frame=0)])
+    data = json.loads(q.read_text())
+    data["correction"] = "a" * 64
+    q.write_text(json.dumps(data))
+    (tmp_path / "correction.json").write_text(json.dumps({"hash": "b" * 64}))
+    with pytest.raises(QueueError, match="another|new correction"):
+        ReviewSession(q)
+    (tmp_path / "correction.json").write_text(json.dumps({"hash": "a" * 64}))
+    assert ReviewSession(q).queue.correction == "a" * 64

@@ -98,7 +98,6 @@ from omero_screen_napari.review_queue import (
     QueueError,
     ReviewItem,
     decisions_path,
-    latest_decisions,
     read_decisions,
 )
 
@@ -408,7 +407,7 @@ class TrackReviewWidget(QWidget):
 
     def _select_first_open(self) -> None:
         assert self.session is not None
-        done = latest_decisions(decisions_path(self.session.queue_path))
+        done = self.session.decided()
         open_items = [i for i in self._ids() if i not in done]
         if open_items:
             self._select(open_items[0])
@@ -1264,20 +1263,26 @@ class TrackReviewWidget(QWidget):
     # -- agent proposals ------------------------------------------------------------
 
     def _pending(self) -> list[Any]:
+        """Proposals for this cell that still need the reviewer: pending, or applied but unconfirmed."""
         if self.session is None or self.current is None:
             return []
         return [
             p
             for p in self.session.proposals()
-            if p.item == self.current.id and p.status == "pending"
+            if p.item == self.current.id and p.status in ("pending", "applied")
         ]
 
     def _refresh_proposals(self) -> None:
         self.proposal_list.clear()
         for p in self._pending():
-            tag = f"[{p.confidence}] " if p.confidence else ""
+            tag = (
+                f"[{p.status}"
+                + (f", {p.confidence}" if p.confidence else "")
+                + "] "
+            )
+            who = f"{p.author}: " if p.author != "agent" else ""
             self.proposal_list.addItem(
-                f"{tag}{p.id} {p.op} {p.args} — {p.reason}"
+                f"{tag}{p.id} {p.op} {p.args} — {who}{p.reason}"
             )
         if self.proposal_list.count():
             self.proposal_list.setCurrentRow(0)
@@ -1300,14 +1305,23 @@ class TrackReviewWidget(QWidget):
         ):
             return
         p = pending[row]
-        try:
-            lines, after = self.session.preview(self.current.id, p.op, p.args)
-            self._draw_preview(after)
+        if p.status == "pending":
+            try:
+                lines, after = self.session.preview(
+                    self.current.id, p.op, p.args
+                )
+                self._draw_preview(after)
+                entry = self.proposal_list.item(row)
+                if entry is not None:
+                    entry.setToolTip("\n".join(lines))
+            except Exception:  # a proposal that no longer applies
+                pass
+        else:
             entry = self.proposal_list.item(row)
             if entry is not None:
-                entry.setToolTip("\n".join(lines))
-        except Exception:  # a proposal that no longer applies
-            pass
+                entry.setToolTip(
+                    "Applied already; Reject reverts it, Confirm keeps it."
+                )
         frame, label = p.args.get("frame"), p.args.get("label")
         if frame is None:
             return
@@ -1355,12 +1369,15 @@ class TrackReviewWidget(QWidget):
         if self.session is None or self.current is None:
             notifications.show_warning("Select a cell first.")
             return
+        # Accepting the cell as shown confirms whatever was applied to it.
+        self.session.confirm_applied(self.current.id)
         self.session.verdict(
             self.current.id,
             verdict,
             self.outcome.currentText(),
             self.note.text().strip(),
         )
+        self._refresh_proposals()
         self._refresh_list()
         if self.current.id in self._ids():
             self._step(1)
@@ -1437,7 +1454,9 @@ class QueueWindow(QDialog):
         for d in read_decisions(path):
             (agent if d.author == "agent" else human)[d.id] = d
         pending = {
-            p.item for p in session.proposals() if p.status == "pending"
+            p.item
+            for p in session.proposals()
+            if p.status in ("pending", "applied")
         }
         show = self.filter.currentText()
         self._rows, self._notes = [], {}
@@ -1647,10 +1666,14 @@ class RepairWindow(QDialog):
             _row(
                 [
                     button(
-                        "Confirm proposal", lambda: ui.resolve_proposal(True)
+                        "Confirm proposal",
+                        lambda: ui.resolve_proposal(True),
+                        "Write a pending proposal, or keep an applied one",
                     ),
                     button(
-                        "Reject proposal", lambda: ui.resolve_proposal(False)
+                        "Reject proposal",
+                        lambda: ui.resolve_proposal(False),
+                        "Discard a pending proposal, or revert an applied one",
                     ),
                 ]
             )

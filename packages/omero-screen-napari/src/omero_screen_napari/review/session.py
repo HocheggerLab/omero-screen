@@ -11,7 +11,15 @@ Files, all next to ``queue.json``:
 * ``decisions.json``: one verdict per reviewed item (accept / correct /
   reject / unsure) with the reviewer's outcome and note; this is the review
   record, not data;
-* ``proposals.json``: edits the agent proposed and their status.
+* ``proposals.json``: edits the agent (or the queue builder's walker)
+  proposed and their status;
+* ``correction.json``: which stored track correction the edit log names
+  nuclei of (written by ``cellview review-queue``).
+
+**Confidence.** A proposal marked ``clear`` is applied at once, in a human
+run too, and shown as *applied* until the reviewer confirms or reverts it;
+an ``uncertain`` one waits for confirmation. In an ``agent`` run everything
+is applied at once.
 """
 
 from __future__ import annotations
@@ -28,6 +36,7 @@ from omero_screen_napari.review.cells import CellSource, parse_anchor
 from omero_screen_napari.review_queue import (
     Decision,
     Queue,
+    QueueError,
     ReviewItem,
     decisions_path,
     latest_decisions,
@@ -60,7 +69,16 @@ def active_ui() -> Any:
 
 @dataclass
 class Proposal:
-    """An edit the agent suggests; applied only when the reviewer confirms."""
+    """An edit the agent or the walker suggests.
+
+    Attributes:
+        status: ``pending`` (waits for the reviewer), ``applied`` (written,
+            not yet confirmed), ``confirmed``, ``rejected`` (never written),
+            ``reverted`` (written, then undone by the reviewer) or
+            ``failed`` (did not apply to the lineage).
+        edit_ids: Log entries an applied proposal wrote.
+        author: ``agent`` or ``walker`` (the queue builder).
+    """
 
     id: str
     item: str
@@ -68,11 +86,11 @@ class Proposal:
     args: dict[str, Any]
     reason: str
     confidence: str = ""  # clear | uncertain
-    status: str = (
-        "pending"  # pending | confirmed | rejected | applied (agent run)
-    )
+    status: str = "pending"
     note: str = ""
     time: str = ""
+    edit_ids: list[str] = field(default_factory=list)
+    author: str = "agent"
 
 
 @dataclass
@@ -89,9 +107,30 @@ class ReviewSession:
     def __post_init__(self) -> None:
         self.queue_path = Path(self.queue_path)
         self.queue = read_queue(self.queue_path)
+        self._check_correction()
         self.source = CellSource(
             self.queue.plate_id, db_path=self.db_path, log_path=self.edits_path
         )
+        self.seed_proposals()
+
+    def _check_correction(self) -> None:
+        """Refuse a queue whose correction differs from the one the edit log names.
+
+        Raises:
+            QueueError: If ``correction.json`` beside the queue records
+                another hash than the queue carries.
+        """
+        sidecar = self.queue_path.with_name("correction.json")
+        if self.queue.correction is None or not sidecar.exists():
+            return
+        recorded = json.loads(sidecar.read_text()).get("hash")
+        if recorded and recorded != self.queue.correction:
+            raise QueueError(
+                f"{self.queue_path.name} was built on correction "
+                f"{self.queue.correction[:12]}…, but the edits beside it name "
+                f"nuclei of correction {recorded[:12]}…. Start a new review "
+                "directory for the new correction."
+            )
 
     # -- files -------------------------------------------------------------
 
@@ -174,8 +213,15 @@ class ReviewSession:
         spec = json.loads(self.queue_path.read_text()).get("spec", {})
         return int(spec.get("stop", 10**6))
 
+    def decided(self) -> dict[str, Decision]:
+        """The verdict that counts per item: the reviewer's in a human run, the agent's in an agent run."""
+        return latest_decisions(
+            decisions_path(self.queue_path),
+            author="human" if self.mode == "human" else "agent",
+        )
+
     def status(self) -> dict[str, Any]:
-        done = latest_decisions(decisions_path(self.queue_path))
+        done = self.decided()
         per_well: dict[str, list[int]] = {}
         for it in self.queue.items:
             per_well.setdefault(it.well, [0, 0])
@@ -191,6 +237,9 @@ class ReviewSession:
             },
             "pending_proposals": sum(
                 p.status == "pending" for p in self.proposals()
+            ),
+            "applied_proposals": sum(
+                p.status == "applied" for p in self.proposals()
             ),
         }
 
@@ -265,6 +314,14 @@ class ReviewSession:
         it = self.item(item_id)
         anchor = self.anchor(item_id)
         det, curated = self.source.well(it.well)
+        if op == "separate":
+            plan = self._separation_plan(item_id, args)
+            lines = [
+                f"separate t{args['first']}–{args['last']} at reporter > "
+                f"{plan.threshold}: {len(plan.frames)} frames"
+                + (f", {len(plan.skipped)} skipped" if plan.skipped else "")
+            ]
+            return lines, cell_frames(curated, det, anchor)
         full = {"cell": list(anchor), **args}
         after = copy.deepcopy(curated)
         apply_edit(after, Edit(id="preview", op=op, well=it.well, args=full))
@@ -306,6 +363,17 @@ class ReviewSession:
                 f"{after.parents.get(new_tid, 0) or 'none'}"
             )
         return lines or ["no change to this cell's track"], new_path
+
+    def _separation_plan(self, item_id: str, args: dict[str, Any]) -> Any:
+        from omero_screen_napari.review.masks import plan_separation
+
+        return plan_separation(
+            self,
+            item_id,
+            int(args["first"]),
+            int(args["last"]),
+            float(args.get("threshold", 0.5)),
+        )
 
     def breaks(self, item_id: str) -> list[int]:
         from cellview.tracks.cells import track_breaks
@@ -434,7 +502,11 @@ class ReviewSession:
         frames: list[int] | None = None,
         author: str = "human",
     ) -> Decision:
-        """Record a verdict on an item (``author`` is ``agent`` only in an agent run)."""
+        """Record a verdict on an item.
+
+        In a human run an agent's verdict is a suggestion: it is stored with
+        ``author="agent"`` and never counts as the item being reviewed.
+        """
         return record_decision(
             decisions_path(self.queue_path),
             Decision(
@@ -468,12 +540,19 @@ class ReviewSession:
         args: dict[str, Any],
         reason: str,
         confidence: str = "",
+        author: str = "agent",
+        raise_errors: bool = True,
     ) -> Proposal:
-        """Record an agent proposal.
+        """Record a proposal and, if it is clear or this is an agent run, apply it.
 
-        In a ``human`` run it changes nothing until the reviewer confirms it.
-        In an ``agent`` run it is applied at once as an unconfirmed agent edit
-        (status ``applied``).
+        A ``clear`` proposal (or any proposal in an ``agent`` run) is written
+        at once as an unconfirmed agent edit, status ``applied``; the
+        reviewer confirms or reverts it later. An ``uncertain`` one stays
+        ``pending`` until confirmed.
+
+        Args:
+            raise_errors: Raise if applying fails; otherwise record the
+                proposal as ``failed`` with the error as its note.
         """
         self.item(item_id)
         props = self.proposals()
@@ -485,44 +564,126 @@ class ReviewSession:
             reason=reason,
             confidence=confidence,
             time=datetime.now().isoformat(timespec="seconds"),
+            author=author,
         )
-        if self.mode == "agent":
-            self.edit(
-                item_id,
-                op,
-                args,
-                author="agent",
-                confirmed_by=None,
-                reason=reason,
-            )
-            prop.status = "applied"
+        if self.mode == "agent" or confidence == "clear":
+            try:
+                prop.edit_ids = self._apply(prop, confirmed_by=None)
+                prop.status = "applied"
+            except Exception as err:
+                if raise_errors:
+                    raise
+                prop.status, prop.note = "failed", str(err)
         self._save_proposals([*props, prop])
         return prop
+
+    def _apply(self, prop: Proposal, confirmed_by: str | None) -> list[str]:
+        """Write a proposal's edit(s); returns the log entry ids."""
+        reason = (
+            f"{prop.author}: {prop.reason}"
+            if prop.author != "agent"
+            else prop.reason
+        )
+        if prop.op == "separate":
+            from omero_screen_napari.review.masks import commit_separation
+
+            plan = self._separation_plan(prop.item, prop.args)
+            entries = commit_separation(self, plan)
+            return [str(e.id) for e in entries]
+        entry = self.edit(
+            prop.item,
+            prop.op,
+            prop.args,
+            author="agent",
+            confirmed_by=confirmed_by,
+            reason=reason,
+        )
+        return [str(entry.id)]
+
+    def seed_proposals(self) -> list[Proposal]:
+        """Turn the queue's own suggestions (walker bridges, switches, daughter
+        pairs) into proposals, once; clear ones are applied at once."""
+        existing = {
+            (p.item, p.op, json.dumps(p.args, sort_keys=True))
+            for p in self.proposals()
+        }
+        made = []
+        for it in self.queue.items:
+            for p in it.proposals:
+                key = (it.id, p["op"], json.dumps(p["args"], sort_keys=True))
+                if key in existing:
+                    continue
+                existing.add(key)
+                made.append(
+                    self.propose(
+                        it.id,
+                        p["op"],
+                        dict(p["args"]),
+                        str(p.get("reason", "")),
+                        str(p.get("confidence", "uncertain")),
+                        author="walker",
+                        raise_errors=False,
+                    )
+                )
+        return made
 
     def resolve_proposal(
         self, proposal_id: str, confirm: bool, note: str = ""
     ) -> Proposal:
-        """Confirm (apply as an agent edit confirmed by the human) or reject a proposal."""
+        """Confirm or reject a proposal.
+
+        A ``pending`` proposal is written on confirmation (as an agent edit
+        confirmed by the human) or marked rejected. An ``applied`` one is
+        marked confirmed, or reverted (its edits undone in the log).
+        """
         props = self.proposals()
         prop = next((p for p in props if p.id == proposal_id), None)
         if prop is None:
             raise KeyError(f"No proposal {proposal_id!r}.")
-        if prop.status != "pending":
+        if prop.status == "pending":
+            if confirm:
+                prop.edit_ids = self._apply(prop, confirmed_by="human")
+            prop.status = "confirmed" if confirm else "rejected"
+        elif prop.status == "applied":
+            if not confirm:
+                self._revert(prop)
+            prop.status = "confirmed" if confirm else "reverted"
+        else:
             raise ValueError(
                 f"Proposal {proposal_id} is already {prop.status}."
             )
-        if confirm:
-            self.edit(
-                prop.item,
-                prop.op,
-                prop.args,
-                author="agent",
-                confirmed_by="human",
-                reason=prop.reason,
-            )
-        prop.status, prop.note = ("confirmed" if confirm else "rejected"), note
+        prop.note = note
         self._save_proposals(props)
         return prop
+
+    def _revert(self, prop: Proposal) -> None:
+        from cellview.tracks.edit import EditLog
+
+        it = self.item(prop.item)
+        log = EditLog(self.edits_path)
+        base = self.source.base(it.well)
+        for edit_id in reversed(prop.edit_ids):
+            log.append(
+                "revert",
+                it.well,
+                {"target": edit_id},
+                author="human",
+                reason=f"reverted proposal {prop.id}",
+                base=base,
+            )
+        self.refresh(it.well)
+
+    def confirm_applied(self, item_id: str) -> list[Proposal]:
+        """Mark every applied proposal of an item confirmed (the reviewer accepted the cell as shown)."""
+        props = self.proposals()
+        done = []
+        for p in props:
+            if p.item == item_id and p.status == "applied":
+                p.status = "confirmed"
+                done.append(p)
+        if done:
+            self._save_proposals(props)
+        return done
 
 
 def _span(frames: list[int]) -> str:

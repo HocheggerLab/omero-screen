@@ -15,7 +15,11 @@ from omero_screen_napari.review.session import (
     ReviewSession,
     set_active_session,
 )  # noqa: E402
-from omero_screen_napari.review_queue import PathPoint, ReviewItem, write_queue  # noqa: E402
+from omero_screen_napari.review_queue import (  # noqa: E402
+    PathPoint,
+    ReviewItem,
+    write_queue,
+)
 
 
 @pytest.fixture
@@ -78,6 +82,10 @@ def test_tools_are_registered(server) -> None:
         "proposal_status",
         "validate",
         "session_summary",
+        "preview_edit",
+        "cell_lineage",
+        "find_cell",
+        "revert_proposal",
     } <= asyncio.run(names())
 
 
@@ -148,11 +156,45 @@ def test_candidates_are_json_clean(server) -> None:
     ]
 
 
-def test_agent_verdict_only_in_agent_runs(server) -> None:
-    """In a human run the agent cannot record verdicts; bad confidence is refused."""
+def test_agent_verdict_is_a_suggestion_in_human_runs(server) -> None:
+    """In a human run the agent's verdict is stored but does not count as reviewed."""
+    srv, session = server
+    d = _call(srv, "agent_verdict", {"item_id": "C2-t72-L5", "verdict": "accept"})
+    assert d["author"] == "agent"
+    assert session.status()["reviewed"] == 0 and session.decided() == {}
+    assert _call(srv, "review_list", {"status": "open"})[0]["id"] == "C2-t72-L5"
+    session.verdict("C2-t72-L5", "correct", outcome="divided")
+    assert session.status()["reviewed"] == 1
+    assert session.decided()["C2-t72-L5"].verdict == "correct"
+
+
+def test_clear_proposal_is_applied_at_once(server) -> None:
+    """A clear proposal is written immediately and shown as applied; revert undoes it."""
+    srv, session = server
+    entry = MagicMock(id="e0007")
+    with patch.object(ReviewSession, "edit", return_value=entry) as edit:
+        p = _call(
+            srv,
+            "propose_edit",
+            {
+                "item_id": "C2-t72-L5",
+                "op": "link",
+                "args": {"frame": 81, "label": 9},
+                "reason": "same cell",
+                "confidence": "clear",
+            },
+        )
+        edit.assert_called_once()
+    assert p["status"] == "applied" and p["edit_ids"] == ["e0007"]
+    assert session.status()["applied_proposals"] == 1
+    with patch.object(ReviewSession, "_revert") as revert:
+        r = _call(srv, "revert_proposal", {"proposal_id": p["id"], "note": "no"})
+        revert.assert_called_once()
+    assert r["status"] == "reverted" and r["note"] == "no"
+
+
+def test_bad_confidence_is_refused(server) -> None:
     srv, _ = server
-    with pytest.raises(Exception, match="reviewer's"):
-        _call(srv, "agent_verdict", {"item_id": "C2-t72-L5", "verdict": "accept"})
     with pytest.raises(Exception, match="confidence"):
         _call(srv, "propose_edit", {"item_id": "C2-t72-L5", "op": "note", "args": {"text": "x"}, "reason": "x", "confidence": "sure"})
 
