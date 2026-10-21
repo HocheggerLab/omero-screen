@@ -546,10 +546,67 @@ class EditLog:
             fh.write(json.dumps({"v": LOG_VERSION, **asdict(edit)}) + "\n")
         return edit
 
+    def extend(
+        self,
+        items: list[tuple[str, str, dict[str, Any], str]],
+        author: str = "human",
+        confirmed_by: str | None = None,
+        base: Curated | None = None,
+    ) -> list[Edit]:
+        """Validate and append several edits at once (all or none).
+
+        Args:
+            items: ``(op, well, args, reason)`` per edit, in order.
+            author: ``human`` or ``agent``.
+            confirmed_by: Who approved an agent's edits.
+            base: The well's base lineage; if given, the log plus all the new
+                edits is replayed once before anything is written.
+
+        Raises:
+            EditError: If any edit is invalid; nothing is written.
+        """
+        if author not in AUTHORS:
+            raise EditError(f"author must be one of {AUTHORS}.")
+        existing = self.entries()
+        ids = {e.id for e in existing}
+        now = datetime.now().isoformat(timespec="seconds")
+        new: list[Edit] = []
+        for op, well, args, reason in items:
+            if op == "revert":
+                if args.get("target") not in ids:
+                    raise EditError(
+                        f"No entry {args.get('target')!r} to revert."
+                    )
+            elif op not in TRACK_OPS + ANNOTATION_OPS:
+                raise EditError(f"Unknown operation {op!r}.")
+            new.append(
+                Edit(
+                    id=f"e{len(existing) + len(new) + 1:04d}",
+                    op=op,
+                    well=well,
+                    args=args,
+                    author=author,
+                    confirmed_by=confirmed_by,
+                    reason=reason,
+                    time=now,
+                )
+            )
+        if base is not None:
+            for well in {e.well for e in new}:
+                replay(base, [*existing, *new], well)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("a") as fh:
+            for edit in new:
+                fh.write(json.dumps({"v": LOG_VERSION, **asdict(edit)}) + "\n")
+        return new
+
     def undo(
         self, well: str, author: str = "human", base: Curated | None = None
     ) -> Edit:
         """Revert the most recent live edit for ``well``.
+
+        Edits written together with a shared ``args["batch"]`` id (one
+        reviewer action over many frames) are reverted together.
 
         Raises:
             EditError: If there is nothing to undo.
@@ -563,6 +620,18 @@ class EditLog:
         ]
         if not live:
             raise EditError(f"Nothing to undo for well {well}.")
-        return self.append(
-            "revert", well, {"target": live[-1].id}, author=author, base=base
+        batch = live[-1].args.get("batch")
+        targets = (
+            [e for e in live if e.args.get("batch") == batch]
+            if batch
+            else [live[-1]]
         )
+        done = self.extend(
+            [
+                ("revert", well, {"target": e.id}, "")
+                for e in reversed(targets)
+            ],
+            author=author,
+            base=base,
+        )
+        return done[-1]

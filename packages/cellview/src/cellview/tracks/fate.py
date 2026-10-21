@@ -44,6 +44,11 @@ Outcomes:
 ``no_mitosis``
     The window closes before any of the above; the phase at the end is
     recorded in ``end_phase``.
+``left_field``
+    The track ends within ``edge_radii`` nuclear radii of the image border
+    after moving towards it over its last ``edge_frames`` frames: the cell
+    left the imaged field. Censored like ``lost``, but not a tracking failure,
+    so it is not queued for review (only audited).
 ``lost``
     The cell cannot be followed. Treat as censored.
 ``debris``
@@ -144,6 +149,10 @@ class FateParams:
         reporter_hours: Minimum observed time with neither reporter expressed
             before a cell is called reporter-negative (longer than the
             early-S dip, when both reporters are low).
+        edge_radii: A track ending within this many nuclear radii of the
+            image border ...
+        edge_frames: ... after getting closer to it over this many frames
+            has ``left_field``.
     """
 
     interval_minutes: float = 20.0
@@ -166,6 +175,8 @@ class FateParams:
     death_area: float = 0.6
     death_dna: float = 1.5
     death_frames: int = 3
+    edge_radii: float = 3.0
+    edge_frames: int = 3
     min_start_area: float = 0.7
     reporter_hours: float = 24.0
     still_px: float = 3.0
@@ -421,6 +432,32 @@ def _pyknotic_end(
     return int(cell.index[-run])
 
 
+def _border_distance(
+    y: float | pd.Series, x: float | pd.Series, shape: tuple[int, int]
+) -> Any:
+    """Distance to the nearest image border."""
+    return np.minimum(
+        np.minimum(y, x), np.minimum(shape[0] - 1 - y, shape[1] - 1 - x)
+    )
+
+
+def _left_field(
+    cell: pd.DataFrame,
+    thr: Thresholds,
+    params: FateParams,
+    shape: tuple[int, int] | None,
+) -> bool:
+    """Whether a lost track ends at the image border, heading out."""
+    if shape is None or len(cell) < 2:
+        return False
+    d = _border_distance(cell["y"], cell["x"], shape).to_numpy()
+    radius = _radius(thr.area_median)
+    if d[-1] > params.edge_radii * radius:
+        return False
+    back = d[-1 - min(params.edge_frames, len(d) - 1)]
+    return bool(d[-1] < back or d[-1] < radius)
+
+
 def _condensed_run(
     cell: pd.DataFrame, thr: Thresholds, params: FateParams
 ) -> tuple[int, int] | None:
@@ -523,6 +560,8 @@ def follow_cells(
             onset = _pyknotic_end(rows, thr, params, shape)
             if onset is not None:
                 outcome, outcome_frame = "death", onset
+            elif _left_field(rows, thr, params, shape):
+                outcome = "left_field"
         if outcome is None:
             outcome, outcome_frame = "no_mitosis", int(rows.index[-1])
         history = pd.concat([idx.rows[s] for s in segments])
@@ -555,7 +594,8 @@ def follow_cells(
                 | (rows.y > shape[0] - margin)
                 | (rows.x > shape[1] - margin)
             )
-            if near.any():
+            # A cell that left the field has nothing left to review at the edge.
+            if near.any() and outcome != "left_field":
                 flags.add("edge")
         if _stationary(rows, params):
             if reporter == "positive":
@@ -581,7 +621,7 @@ def follow_cells(
                 "outcome_frame": outcome_frame,
                 "end_phase": phases.iloc[-1],
                 "last_frame": int(rows.index[-1]),
-                "censored": outcome in ("lost", "no_mitosis"),
+                "censored": outcome in ("lost", "left_field", "no_mitosis"),
                 "excluded": outcome in ("debris", "stationary", "no_reporter"),
                 "review_flags": " ".join(f for f in FLAGS if f in flags),
                 "n_flags": len(flags),
@@ -654,7 +694,11 @@ def apply_annotations(cells: pd.DataFrame, curated: Any) -> pd.DataFrame:
             out.at[i, "censored"] = False
         if "outcome" in notes:
             out.at[i, "outcome"] = notes["outcome"]
-            out.at[i, "censored"] = notes["outcome"] in ("lost", "no_mitosis")
+            out.at[i, "censored"] = notes["outcome"] in (
+                "lost",
+                "left_field",
+                "no_mitosis",
+            )
         if "excluded" in notes:
             out.at[i, "excluded"] = True
             out.at[i, "outcome"] = notes["excluded"] or "excluded"

@@ -188,7 +188,7 @@ def test_widget_opens_first_item_and_records_verdicts(
 def test_pick_and_candidate_link_go_through_the_session(
     qapp, tmp_path: Path
 ) -> None:
-    """Clicking a nucleus or pressing a candidate number writes a link edit."""
+    """Clicking a nucleus or a candidate number stages a link; Confirm writes it."""
     import numpy as np
     import pandas as pd
 
@@ -199,9 +199,16 @@ def test_pick_and_candidate_link_go_through_the_session(
         nuclei = np.zeros((100, 50, 50), dtype=np.uint32)
         nuclei[85, 30:36, 40:46] = 3132
         widget._nuclei, widget._pixel_size = nuclei, 0.5
-        with patch.object(ReviewSession, "edit") as edit:
+        with (
+            patch.object(ReviewSession, "edit") as edit,
+            patch.object(
+                ReviewSession, "preview", return_value=(["x"], pd.DataFrame())
+            ),
+        ):
             assert widget.pick_at((85, 10.0, 5.0)) == 0  # background
             assert widget.pick_at((85, 33 * 0.5, 43 * 0.5)) == 3132
+            edit.assert_not_called()  # staged, not written
+            widget.confirm_staged()
             edit.assert_called_with(
                 "C2-t72-L1", "link", {"frame": 85, "label": 3132}, reason=""
             )
@@ -215,6 +222,7 @@ def test_pick_and_candidate_link_go_through_the_session(
                 }
             )
             widget.link_candidate(2)
+            widget.confirm_staged()
             edit.assert_called_with(
                 "C2-t72-L1",
                 "link",

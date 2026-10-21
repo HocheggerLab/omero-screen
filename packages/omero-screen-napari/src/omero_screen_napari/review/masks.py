@@ -1,4 +1,5 @@
-"""Reviewer-made nucleus masks: split a nucleus, draw a missed one.
+"""Reviewer-made nucleus masks: split a nucleus, draw a missed one, or
+separate a cell from a reporter-negative object merged with it.
 
 A mask edit never writes the zarr cache. The new mask is saved as a small
 patch (bounding-box origin + boolean array) under ``masks/`` beside the edit
@@ -15,6 +16,8 @@ over its own pixels minus its stored background-subtracted value).
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -126,7 +129,12 @@ def split_mask(
 def channel_map(
     image_channels: list[str], det_columns: list[str]
 ) -> dict[str, int]:
-    """Detection column → image channel index, matched by case-insensitive prefix."""
+    """Detection column → image channel index, matched by case-insensitive prefix.
+
+    CellView stores the nuclear stain as ``dapi`` whatever the dye, so
+    ``dapi`` maps to the channel with the ``_nucleus`` role (or a DNA dye
+    name) when no channel starts with it.
+    """
     lower = [c.lower() for c in image_channels]
     out = {}
     for col in det_columns:
@@ -134,6 +142,13 @@ def channel_map(
             if name == col or name.startswith(col) or col.startswith(name):
                 out[col] = i
                 break
+        if col == "dapi" and col not in out:
+            for i, name in enumerate(lower):
+                if name.endswith("_nucleus") or any(
+                    k in name for k in ("dna", "hoechst", "dapi")
+                ):
+                    out[col] = i
+                    break
     return out
 
 
@@ -371,6 +386,286 @@ def commit_drawn(
         },
         reason=f"drawn nucleus at t{frame}",
     )
+
+
+# -- separation by reporter ---------------------------------------------------
+
+#: Detection columns that are not channels.
+_NOT_CHANNELS = {
+    "measurement_id",
+    "timepoint",
+    "label",
+    "track_id_raw",
+    "parent_track_id_raw",
+    "area",
+    "y",
+    "x",
+}
+
+
+@dataclass
+class FrameSeparation:
+    """How one frame of a merged cell is to be split.
+
+    Attributes:
+        frame: Timepoint.
+        y0, x0: Canvas origin of the masks.
+        cell: Boolean mask of the reporter-positive part (the cell).
+        other: Boolean mask of the rest (the merged object).
+        replaces: Raw labels of the cell in this frame, replaced by ``cell``.
+        score: Median reporter score inside ``cell`` (1 = the cell's own
+            level before the merge).
+    """
+
+    frame: int
+    y0: int
+    x0: int
+    cell: np.ndarray
+    other: np.ndarray
+    replaces: list[int]
+    score: float
+
+
+@dataclass
+class SeparationPlan:
+    """A separation over a range of frames, computed but not yet written."""
+
+    item_id: str
+    frames: list[FrameSeparation]
+    skipped: dict[int, str]
+    reference: dict[str, float]
+    threshold: float
+
+
+def reporter_columns(det: pd.DataFrame) -> list[str]:
+    """The PIP-FUCCI reporter columns present (``pip``, ``marker``/``geminin``)."""
+    return [c for c in ("pip", "geminin", "marker") if c in det.columns]
+
+
+def _cell_region(
+    nuclei: Any,
+    frame: int,
+    labels: list[int],
+    cy: float,
+    cx: float,
+    half: int,
+) -> tuple[int, int, np.ndarray, np.ndarray]:
+    """Crop around ``(cy, cx)``: ``(y0, x0, all labels, union of labels)``."""
+    y0, x0 = max(int(cy) - half, 0), max(int(cx) - half, 0)
+    crop = np.asarray(nuclei[frame, y0 : int(cy) + half, x0 : int(cx) + half])
+    return y0, x0, crop, np.isin(crop, labels)
+
+
+def _reporter_score(
+    image: Any,
+    frame: int,
+    y0: int,
+    x0: int,
+    crop_labels: np.ndarray,
+    channels: dict[str, int],
+    reference: dict[str, float],
+) -> np.ndarray:
+    """Per-pixel reporter level relative to the cell's own (max over reporters).
+
+    Each channel is smoothed, has the crop's background (median of pixels in
+    no nucleus) subtracted and is divided by the cell's reference level.
+    """
+    from scipy import ndimage
+
+    h, w = crop_labels.shape
+    out = np.zeros((h, w), dtype=np.float64)
+    for col, ref in reference.items():
+        crop = np.asarray(
+            image[frame, channels[col], y0 : y0 + h, x0 : x0 + w],
+            dtype=np.float64,
+        )
+        bg = (
+            float(np.median(crop[crop_labels == 0]))
+            if (crop_labels == 0).any()
+            else 0.0
+        )
+        out = np.maximum(
+            out, ndimage.gaussian_filter(crop - bg, 1.5) / max(ref, 1e-6)
+        )
+    return out
+
+
+def plan_separation(
+    session: Any,
+    item_id: str,
+    first: int,
+    last: int,
+    threshold: float = 0.5,
+    reference_frames: int = 3,
+) -> SeparationPlan:
+    """Split the cell from a reporter-negative object merged with it, frame by frame.
+
+    In every frame from ``first`` to ``last`` where the cell has a mask, the
+    pixels whose reporter level (PIP or geminin, relative to the cell's own
+    level in the ``reference_frames`` frames before ``first``) is above
+    ``threshold`` become the cell (largest connected part, holes filled);
+    the rest of the mask is the merged object. Nothing is written.
+
+    Raises:
+        MaskError: If the cell has no frames before ``first`` to take its
+            reporter level from, or no reporter channel is known.
+    """
+    from scipy import ndimage
+
+    item = session.item(item_id)
+    image, nuclei, names = _arrays(session, item.well)
+    det, curated = session.source.well(item.well)
+    tid = curated.resolve(session.anchor(item_id))
+    keys = curated.detections(tid)
+    by_frame: dict[int, list[int]] = {}
+    for t, lab in keys:
+        by_frame.setdefault(t, []).append(lab)
+    reporters = reporter_columns(det)
+    cmap = channel_map(names, reporters)
+    reporters = [c for c in reporters if c in cmap]
+    if not reporters:
+        raise MaskError("No reporter channel (pip / geminin) in the image.")
+    rows = det.set_index(["timepoint", "label"])
+
+    # The cell's own reporter level, from frames before the merge.
+    before = sorted(t for t in by_frame if t < first)[-reference_frames:]
+    if not before:
+        raise MaskError(
+            f"The cell has no frame before t{first} to take its reporter level from."
+        )
+    samples: dict[str, list[float]] = {c: [] for c in reporters}
+    for t in before:
+        labs = by_frame[t]
+        if any((t, lab) in curated.extras for lab in labs):
+            continue
+        r = rows.loc[[(t, lab) for lab in labs]]
+        half = int(np.sqrt(float(r["area"].sum()))) * 2 + 8
+        y0, x0, crop, region = _cell_region(
+            nuclei, t, labs, r["y"].mean(), r["x"].mean(), half
+        )
+        h, w = crop.shape
+        for col in reporters:
+            px = np.asarray(
+                image[t, cmap[col], y0 : y0 + h, x0 : x0 + w],
+                dtype=np.float64,
+            )
+            bg = float(np.median(px[crop == 0])) if (crop == 0).any() else 0
+            samples[col].append(float(np.median(px[region])) - bg)
+    reference = {
+        c: float(np.median(v))
+        for c, v in samples.items()
+        if v and np.median(v) > 0
+    }
+    if not reference:
+        raise MaskError(
+            f"No reporter signal in the cell before t{first}; nothing to separate by."
+        )
+
+    plans, skipped = [], {}
+    for t in range(first, last + 1):
+        labs = by_frame.get(t)
+        if not labs:
+            skipped[t] = "no mask"
+            continue
+        if any((t, lab) in curated.extras for lab in labs):
+            skipped[t] = "already redrawn"
+            continue
+        r = rows.loc[[(t, lab) for lab in labs]]
+        half = int(np.sqrt(float(r["area"].sum()))) * 2 + 8
+        y0, x0, crop, region = _cell_region(
+            nuclei, t, labs, r["y"].mean(), r["x"].mean(), half
+        )
+        score = _reporter_score(image, t, y0, x0, crop, cmap, reference)
+        positive, n = ndimage.label((score > threshold) & region)
+        if n == 0:
+            skipped[t] = "no reporter-positive part"
+            continue
+        sizes = ndimage.sum_labels(
+            np.ones_like(positive), positive, range(1, n + 1)
+        )
+        cell = ndimage.binary_fill_holes(positive == int(np.argmax(sizes)) + 1)
+        cell &= region
+        other = region & ~cell
+        if other.sum() < 0.05 * region.sum():
+            skipped[t] = "nothing merged"
+            continue
+        plans.append(
+            FrameSeparation(
+                frame=t,
+                y0=y0,
+                x0=x0,
+                cell=cell,
+                other=other,
+                replaces=[int(lab) for lab in labs],
+                score=float(np.median(score[cell])),
+            )
+        )
+    return SeparationPlan(item_id, plans, skipped, reference, threshold)
+
+
+def commit_separation(session: Any, plan: SeparationPlan) -> list[Any]:
+    """Write a plan: per frame, the cell's new mask and the merged object's.
+
+    The merged object's parts are joined into one new track. All entries
+    share a ``batch`` id, so one Undo reverts the whole separation.
+    """
+    if not plan.frames:
+        raise MaskError("Nothing to separate.")
+    item = session.item(plan.item_id)
+    image, nuclei, names = _arrays(session, item.well)
+    det, curated = session.source.well(item.well)
+    cols = [c for c in det.columns if c not in _NOT_CHANNELS]
+    cmap = channel_map(names, cols)
+    new = next_label(det, curated)
+    batch = f"separate-{datetime.now().strftime('%Y%m%dT%H%M%S')}"
+    first = plan.frames[0].frame
+    reason = (
+        f"separated from a reporter-negative object, "
+        f"t{first}–{plan.frames[-1].frame} (threshold {plan.threshold})"
+    )
+    items: list[tuple[str, dict[str, Any], str]] = []
+    for fs in plan.frames:
+        t = fs.frame
+        det_frame = det[
+            (det["timepoint"] == t) & ~det["label"].isin(fs.replaces)
+        ]
+        for part, label, extra in (
+            (fs.cell, new, {"replaces": fs.replaces}),
+            (
+                fs.other,
+                new + 1,
+                {
+                    "replaces": [],
+                    "cell": None if t == first else [first, new + 1],
+                },
+            ),
+        ):
+            meas = measure(
+                image, nuclei, det_frame, t, fs.y0, fs.x0, part, cmap
+            )
+            meas["patch"] = save_patch(
+                session.edits_path.parent / "masks",
+                item.well,
+                t,
+                label,
+                fs.y0,
+                fs.x0,
+                part,
+            )
+            items.append(
+                (
+                    "mask_add",
+                    {
+                        "frame": t,
+                        "label": label,
+                        "measurements": meas,
+                        "batch": batch,
+                        **extra,
+                    },
+                    reason,
+                )
+            )
+    return session.edit_many(plan.item_id, items)
 
 
 def describe(entry: Any) -> str:

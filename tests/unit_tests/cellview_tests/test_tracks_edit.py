@@ -193,3 +193,32 @@ def test_mask_add_replaces_raw_labels_and_joins_cell() -> None:
     assert out.set_index("label").loc[900, "pip"] == 10.0
     with pytest.raises(EditError):
         cur.mask_add((0, 1), 5, 900, {"area": 1.0}, [])
+
+
+def test_extend_writes_all_or_nothing_and_batch_undo(tmp_path) -> None:
+    """A batch is validated as a whole; one undo reverts every batch entry."""
+    base = _curated({1: (range(0, 10), 1), 5: (range(0, 20), 5)})
+    log = EditLog(tmp_path / "edits.jsonl")
+    log.append("note", "C2", {"cell": [0, 1], "text": "before"}, base=base)
+    with pytest.raises(EditError):
+        log.extend(
+            [
+                ("unlink", "C2", {"cell": [0, 1], "frame": 5}, ""),
+                ("link", "C2", {"cell": [0, 99], "frame": 12, "label": 5}, ""),
+            ],
+            base=base,
+        )
+    assert len(log.entries()) == 1
+    done = log.extend(
+        [
+            ("unlink", "C2", {"cell": [0, 1], "frame": 5, "batch": "b1"}, "x"),
+            ("unlink", "C2", {"cell": [0, 1], "frame": 3, "batch": "b1"}, "x"),
+        ],
+        base=base,
+    )
+    assert [e.id for e in done] == ["e0002", "e0003"]
+    assert _frames(replay(base, log, "C2"), 1) == [0, 1, 2]
+    log.undo("C2", base=base)
+    assert _frames(replay(base, log, "C2"), 1) == list(range(0, 10))
+    log.undo("C2", base=base)  # the note, written before the batch
+    assert not replay(base, log, "C2").annotations.get(1, {}).get("notes")

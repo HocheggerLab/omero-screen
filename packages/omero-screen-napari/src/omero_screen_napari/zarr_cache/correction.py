@@ -213,7 +213,9 @@ def correct_cached_well(
         nucleus_channel
         or resolve_channel_roles(dict.fromkeys(names, 0))["nucleus"]
     )
-    masks = read_well(plate_id, well)["nuclei"][0]
+    data = read_well(plate_id, well)
+    masks = data["nuclei"][0]
+    cells = data["cells"][0] if data.get("cells") else None
     fucci = resolve_pip_fucci(names, masks.shape[0])
     signals = (
         {"geminin": channels[fucci.geminin], "pip": channels[fucci.pip]}
@@ -222,7 +224,7 @@ def correct_cached_well(
     )
     pass1 = first_pass_lineage(plate_id, well)
     logger.info(f"{well}: measuring first-pass nuclei")
-    det = measure_labels(masks, signals)
+    det = measure_labels(masks, signals, cells=cells)
     result = correct_tracks(
         channels[nucleus_channel], masks, pass1, signals, model, params, det
     )

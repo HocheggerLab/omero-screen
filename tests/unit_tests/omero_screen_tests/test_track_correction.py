@@ -187,3 +187,43 @@ def test_correct_tracks_end_to_end_with_identity_tracker() -> None:
     assert res.debris == {9}
     assert set(res.events["pass"]) <= {1, 2}
     assert res.frame_map(12) == {2: 1, 3: 1, 4: 4, 9: 0}
+
+
+def test_measure_labels_records_the_majority_cell() -> None:
+    """Each nucleus gets the cell mask that covers most of it."""
+    import numpy as np
+
+    from omero_screen.track_correction import measure_labels
+
+    nuclei = np.zeros((1, 10, 10), np.uint32)
+    nuclei[0, 1:4, 1:4] = 5
+    nuclei[0, 6:9, 6:9] = 6
+    cells = np.zeros((1, 10, 10), np.uint32)
+    cells[0, 0:5, 0:3] = 1  # covers 6 of nucleus 5's 9 pixels
+    cells[0, 0:5, 3:5] = 2  # covers 3
+    det = measure_labels(nuclei, {}, cells=cells)
+    assert dict(zip(det.label, det.cell)) == {5: 1, 6: 0}
+
+
+def test_split_apart_never_lets_one_track_hold_distant_nuclei() -> None:
+    """Touching pieces stay together; a distant nucleus gets its own track,
+    the same one in every frame."""
+    import pandas as pd
+
+    from omero_screen.track_correction import split_apart
+
+    rows, tab = [], []
+    for t in range(3):
+        rows += [
+            (t, 1, 100.0, 50.0, 50.0),
+            (t, 2, 100.0, 50.0, 60.0),  # touching 1
+            (t, 3, 100.0, 50.0, 200.0),  # far away
+        ]
+        tab += [(t, 1, 9), (t, 2, 9), (t, 3, 9)]
+    det = pd.DataFrame(rows, columns=["timepoint", "label", "area", "y", "x"])
+    table = pd.DataFrame(tab, columns=["timepoint", "label", "track_id"])
+    out, events = split_apart(table, det)
+    ids = out.groupby("label").track_id.unique().to_dict()
+    assert list(ids[1]) == [9] and list(ids[2]) == [9]
+    assert len(ids[3]) == 1 and ids[3][0] not in (0, 9)
+    assert set(events.rule) == {"apart"} and len(events) == 3

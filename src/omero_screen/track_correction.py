@@ -120,6 +120,7 @@ def measure_labels(
     masks: FrameStack,
     signals: Mapping[str, FrameStack],
     frames: Sequence[int] | None = None,
+    cells: FrameStack | None = None,
 ) -> pd.DataFrame:
     """Area, centroid and mean signals of every labelled object, per frame.
 
@@ -130,10 +131,12 @@ def measure_labels(
         masks: Label stack ``(T, Y, X)``.
         signals: Name to intensity stack of the same shape.
         frames: Frames to measure (default: all).
+        cells: Cell-mask stack; if given, a ``cell`` column holds the cell
+            label covering most of each nucleus (0 if none).
 
     Returns:
-        Columns ``timepoint``, ``label``, ``area``, ``y``, ``x`` and one per
-        signal.
+        Columns ``timepoint``, ``label``, ``area``, ``y``, ``x``, one per
+        signal and, with ``cells``, ``cell``.
     """
     n_frames, height, width = masks.shape[:3]
     yy, xx = np.indices((height, width), dtype=np.float64)
@@ -159,12 +162,157 @@ def measure_labels(
             bg = float(np.median(img[background])) if background.any() else 0.0
             mean = np.bincount(lab, img, n)[present] / area[present]
             cols[name] = np.clip(mean - bg, 0, None)
+        if cells is not None:
+            cols["cell"] = _majority_cell(
+                lab,
+                np.asarray(cells[t]).ravel().astype(np.int64),
+                present,
+                area[present],
+            )
         out.append(pd.DataFrame(cols))
     if not out:
         return pd.DataFrame(
             columns=["timepoint", "label", "area", "y", "x", *signals]
         )
     return pd.concat(out, ignore_index=True)
+
+
+def _majority_cell(
+    nuclei: npt.NDArray[np.int64],
+    cells: npt.NDArray[np.int64],
+    present: npt.NDArray[np.int64],
+    areas: npt.NDArray[np.float64],
+    cover: float = 0.5,
+) -> npt.NDArray[np.int64]:
+    """For each nucleus in ``present``, the cell covering most of it.
+
+    A nucleus less than ``cover`` covered by its best cell gets 0: the cell
+    segmentation missed it, and it is not judged by cell.
+    """
+    both = (nuclei > 0) & (cells > 0)
+    out = np.zeros(present.size, dtype=np.int64)
+    if not both.any():
+        return out
+    pairs, counts = np.unique(
+        np.stack([nuclei[both], cells[both]]), axis=1, return_counts=True
+    )
+    order = np.lexsort((-counts, pairs[0]))
+    pairs, counts = pairs[:, order], counts[order]
+    first = np.r_[True, pairs[0, 1:] != pairs[0, :-1]]
+    best = {
+        int(n): (int(c), int(k))
+        for n, c, k in zip(
+            pairs[0, first], pairs[1, first], counts[first], strict=True
+        )
+    }
+    for i, (n, a) in enumerate(zip(present, areas, strict=True)):
+        cell, k = best.get(int(n), (0, 0))
+        out[i] = cell if k >= cover * a else 0
+    return out
+
+
+def _contact_groups(
+    yx: npt.NDArray[np.float64],
+    radii: npt.NDArray[np.float64],
+    stay_touch: float,
+) -> list[int]:
+    """Group index per object, objects in contact sharing a group (union-find)."""
+    n = len(radii)
+    group = list(range(n))
+
+    def root(i: int) -> int:
+        while group[i] != i:
+            group[i] = group[group[i]]
+            i = group[i]
+        return i
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            dist = float(np.hypot(*(yx[i] - yx[j])))
+            if dist <= stay_touch * (radii[i] + radii[j]):
+                group[root(i)] = root(j)
+    return [root(i) for i in range(n)]
+
+
+def split_apart(
+    table: pd.DataFrame,
+    det: pd.DataFrame,
+    stay_touch: float = 1.5,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Never let one final label cover nuclei that are apart.
+
+    A last guard over whatever the repair decided: in every frame, the
+    first-pass nuclei given the same final track are grouped by contact
+    (centroid distance at most ``stay_touch`` times the sum of their
+    equivalent radii). The group with the most area keeps the track; every
+    other group gets a track of its own, the same one in every frame for the
+    same first-pass nucleus, as a founder.
+
+    Args:
+        table: ``timepoint, label, track_id`` (first-pass label to final track).
+        det: First-pass measurements (``timepoint, label, area, y, x``).
+        stay_touch: Contact threshold.
+
+    Returns:
+        ``(table, events)``; one ``apart`` event per split-off nucleus and frame.
+    """
+    d = table.merge(
+        det[["timepoint", "label", "area", "y", "x"]],
+        on=["timepoint", "label"],
+        how="left",
+    )
+    d = d[d["track_id"] > 0]
+    multi = d[d.duplicated(["timepoint", "track_id"], keep=False)]
+    if multi.empty:
+        return table, pd.DataFrame()
+    next_id = int(table["track_id"].max()) + 1
+    new_ids: dict[tuple[int, int], int] = {}
+    changes: dict[tuple[int, int], int] = {}
+    events = []
+    for (t, tid), g in multi.groupby(["timepoint", "track_id"]):
+        labels = g["label"].to_numpy()
+        r = np.sqrt(g["area"].to_numpy() / np.pi)
+        yx = g[["y", "x"]].to_numpy()
+        n = len(labels)
+        roots = _contact_groups(yx, r, stay_touch)
+        if len(set(roots)) == 1:
+            continue
+        area = g["area"].to_numpy()
+        keep = max(set(roots), key=lambda k: area[np.array(roots) == k].sum())
+        for i, k in enumerate(roots):
+            if k == keep:
+                continue
+            members = [int(labels[m]) for m in range(n) if roots[m] == k]
+            key = (int(tid), min(members))
+            if key not in new_ids:
+                new_ids[key] = next_id
+                next_id += 1
+            changes[(int(t), int(labels[i]))] = new_ids[key]
+            events.append(
+                {
+                    "pass": 3,
+                    "parent": int(tid),
+                    "children": str(new_ids[key]),
+                    "frame": int(t),
+                    "rule": "apart",
+                    "y": float(yx[i][0]),
+                    "x": float(yx[i][1]),
+                }
+            )
+    if not changes:
+        return table, pd.DataFrame()
+    keys = list(zip(table["timepoint"], table["label"], strict=True))
+    out = table.assign(
+        track_id=[
+            changes.get((int(t), int(lab)), tid)
+            for (t, lab), tid in zip(keys, table["track_id"], strict=True)
+        ]
+    )
+    logger.info(
+        f"Guard: {len(changes)} nuclei in {len(new_ids)} groups split off "
+        "a track that also held a distant nucleus"
+    )
+    return out, pd.DataFrame(events)
 
 
 def merge_detections(
@@ -444,10 +592,12 @@ def correct_tracks(
         final, on=["timepoint", "corrected"], how="left"
     )
     table["track_id"] = table["track_id"].fillna(0).astype(np.int64)
+    table, apart = split_apart(table, det, params.repair.stay_touch)
     events = pd.concat(
         [
             first.events.assign(**{"pass": 1}),
             second.events.assign(**{"pass": 2}),
+            apart,
         ],
         ignore_index=True,
     )
@@ -456,9 +606,13 @@ def correct_tracks(
         f"Pass 2: {len(parents2)} Trackastra tracks, {len(second.events)} "
         f"repair events, {n_final} final tracks"
     )
+    parents_out = {int(k): int(v) for k, v in second.parents.items()}
+    for tid in table["track_id"].unique():
+        parents_out.setdefault(int(tid), 0)
+    parents_out.pop(0, None)
     return CorrectionResult(
         table=table[["timepoint", "label", "track_id"]],
-        parents={int(k): int(v) for k, v in second.parents.items()},
+        parents=parents_out,
         events=events,
         debris=debris,
     )

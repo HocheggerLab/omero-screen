@@ -133,8 +133,28 @@ def test_dim_shrinking_end_is_lost_not_death() -> None:
     assert cells.set_index("start_track").loc[5].outcome == "lost"
 
 
-def test_pyknotic_end_at_the_border_is_lost() -> None:
+def test_pyknotic_end_at_the_border_left_the_field() -> None:
     """At the image border a small mask is the nucleus leaving the field."""
     rows = _ending(5, 10, [(150.0, 2500.0)] * 4)
     cells, _ = _walk(rows + _cycling_cell(10, 1500))
-    assert cells.set_index("start_track").loc[5].outcome == "lost"
+    assert cells.set_index("start_track").loc[5].outcome == "left_field"
+
+
+def test_track_heading_out_of_the_field_left_it() -> None:
+    """A track that ends at the border after moving towards it left the
+    field: censored, but not flagged lost or edge, so it is not queued."""
+    out = _rows(60, 0, range(15), 3500, G1, x0=4800, dx=12)  # ends at x 4968
+    cells, _ = _walk(_cycling_cell(10, 500) + out)
+    row = cells.set_index("start_track").loc[60]
+    assert row.outcome == "left_field" and row.censored
+    assert "lost" not in row.review_flags and "edge" not in row.review_flags
+
+
+def test_track_ending_near_the_border_but_not_heading_out_is_lost() -> None:
+    """Moving along the border and then vanishing is a tracking failure."""
+    along = [
+        {**r, "x": 4970.0, "y": 1000.0 + 10 * r["timepoint"]}
+        for r in _rows(60, 0, range(15), 0, G1)
+    ]
+    cells, _ = _walk(_cycling_cell(10, 500) + along)
+    assert cells.set_index("start_track").loc[60].outcome == "lost"

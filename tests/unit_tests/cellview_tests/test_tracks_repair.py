@@ -97,6 +97,37 @@ def test_second_mitosis_inside_refractory_period_is_rejected() -> None:
     assert refractory.refractory.any()
 
 
+def test_touching_cells_that_move_apart_are_not_fragments() -> None:
+    """Two G1 cells pressed together come apart and drift away: no merge.
+
+    They touch at the split and conserve area, but pieces of one nucleus do
+    not move apart, so one cell continues the parent and the other is a
+    founder (``neighbour``), not one label over two distant nuclei.
+    """
+    det = _det(
+        _track(1, 0, range(10), 100, 100, area=400),
+        _track(2, 1, range(10, 20), 100, 92, area=200, dx=-12),
+        _track(3, 1, range(10, 20), 100, 108, area=200, dx=12),
+    )
+    r = repair_lineage(det)
+    assert len(set(r.assignment.values())) == 2
+    ev = r.events.iloc[0]
+    assert ev.rule == "neighbour" and ev.touch <= 1.1 and ev.drift > 1.5
+
+
+def test_cells_that_part_after_a_few_frames_are_not_fragments() -> None:
+    """Touching for four frames, then moving apart, is still two cells."""
+    det = _det(
+        _track(1, 0, range(10), 100, 100, area=400),
+        _track(2, 1, range(10, 14), 100, 92, area=200)
+        + _track(2, 1, range(14, 24), 100, 92, area=200, dx=-12),
+        _track(3, 1, range(10, 24), 100, 108, area=200),
+    )
+    r = repair_lineage(det)
+    assert len(set(r.assignment.values())) == 2
+    assert r.events.iloc[0].rule == "neighbour"
+
+
 def test_without_marker_only_fragments_are_merged() -> None:
     """With no mitotic marker, geometry alone cannot reject a division."""
     det = _det(
@@ -190,3 +221,20 @@ def test_piece_of_a_growing_daughter_is_judged_on_the_area_after() -> None:
     )
     r = repair_lineage(det)
     assert r.assignment[2] == 1
+
+
+def test_daughters_in_different_cell_masks_are_not_fragments() -> None:
+    """Two nuclei that stay touching but sit in two cells are two cells."""
+    det = _det(
+        _track(1, 0, range(10), 100, 100, area=400),
+        _track(2, 1, range(10, 20), 100, 92, area=200),
+        _track(3, 1, range(10, 20), 100, 108, area=200),
+    )
+    det["cell"] = 0
+    det.loc[det.track_id_raw == 2, "cell"] = 7
+    det.loc[det.track_id_raw == 3, "cell"] = 8
+    assert repair_lineage(det).events.iloc[0].rule == "neighbour"
+    det["cell"] = 7  # the same cell: pieces of one nucleus
+    assert repair_lineage(det).events.iloc[0].rule == "fragment"
+    det["cell"] = 0  # no cell masks: distance alone decides
+    assert repair_lineage(det).events.iloc[0].rule == "fragment"

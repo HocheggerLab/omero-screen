@@ -58,6 +58,7 @@ DEFAULT_OUTCOMES = (
     "mitotic_arrest",
     "death",
     "no_mitosis",
+    "left_field",
     "lost",
     "not_a_cell",
     "no_reporter",
