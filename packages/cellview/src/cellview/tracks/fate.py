@@ -81,6 +81,7 @@ nucleus compacts, and are best made later from the whole track.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
@@ -92,6 +93,8 @@ import pandas as pd
 
 #: Reason codes a cell can be flagged with.
 FLAGS = (
+    "switch",  # the track jumps to a different-looking nucleus while a neighbour continues the cell
+    "daughter_pair",  # the track ends with geminin high and two daughter-like nuclei appear: an unlinked division
     "link_ambiguous",  # a bridge had more than one plausible continuation
     "gap",  # a bridge skipped at least one frame
     "fragment",  # nucleus pieces were merged during the window
@@ -153,6 +156,15 @@ class FateParams:
             image border ...
         edge_frames: ... after getting closer to it over this many frames
             has ``left_field``.
+        switch_window: Frames before a step whose medians a nucleus is
+            compared with for ``switch``.
+        switch_area: A step changing area by more than this factor ...
+        switch_marker: ... or PIP or geminin (clipped at their floors) by more
+            than this factor is a jump. It is a *switch* only if another
+            nucleus within ``reach`` continues the cell within ``area_tol`` and
+            ``marker_tol``; otherwise it is a mis-segmented frame.
+        daughter_area: Area of a daughter relative to the mother's last
+            frame, as ``(low, high)``, for ``daughter_pair``.
     """
 
     interval_minutes: float = 20.0
@@ -181,6 +193,10 @@ class FateParams:
     reporter_hours: float = 24.0
     still_px: float = 3.0
     still_hours: float = 4.0
+    switch_window: int = 3
+    switch_area: float = 2.0
+    switch_marker: float = 2.5
+    daughter_area: tuple[float, float] = (0.3, 0.75)
 
     def frames(self, hours: float) -> int:
         """Convert hours to frames."""
@@ -278,6 +294,9 @@ class _Index:
         for tid, g in self.rows.items():
             if not self.parent[tid]:
                 self.starts.setdefault(int(g.index[0]), []).append(tid)
+        self.frames = {
+            int(cast(int, t)): g for t, g in tracks.groupby("timepoint")
+        }
 
     def continuations(
         self, tid: int, params: FateParams, claimed: set[int]
@@ -312,6 +331,147 @@ class _Index:
                 )
                 found.append((float(cost), gap, cand))
         return sorted(found)
+
+
+def _clipped(
+    rows: pd.DataFrame, thr: Thresholds, params: FateParams
+) -> tuple[Any, Any, Any]:
+    """Area, PIP and geminin with the reporters clipped at their floors."""
+    return (
+        rows["area"].to_numpy(dtype=float),
+        rows["pip"].clip(lower=params.pip_low * thr.pip_high).to_numpy(float),
+        rows["geminin"]
+        .clip(lower=params.gem_high * thr.gem_low)
+        .to_numpy(float),
+    )
+
+
+def _matching_neighbour(
+    t: int,
+    last: Any,
+    ref: tuple[float, float, float],
+    exclude: int,
+    idx: _Index,
+    thr: Thresholds,
+    params: FateParams,
+) -> int | None:
+    """A nucleus in frame ``t`` near ``last`` that continues ``ref``, by cost."""
+    here = idx.frames.get(t)
+    if here is None:
+        return None
+    here = here[here["track_id"] != exclude]
+    if here.empty:
+        return None
+    area, pip, gem = _clipped(here, thr, params)
+    dist = np.hypot(
+        here["y"].to_numpy(float) - last.y, here["x"].to_numpy(float) - last.x
+    )
+    tols = (params.area_tol, params.marker_tol, params.marker_tol)
+    best: tuple[float, int] | None = None
+    for k, tid in enumerate(here["track_id"].to_numpy()):
+        if dist[k] > params.reach * (_radius(area[k]) + _radius(last.area)):
+            continue
+        ratios = [area[k] / ref[0], pip[k] / ref[1], gem[k] / ref[2]]
+        if any(
+            r > tol or r < 1 / tol for r, tol in zip(ratios, tols, strict=True)
+        ):
+            continue
+        cost = dist[k] / (_radius(last.area) + 1) + sum(
+            abs(np.log(r)) for r in ratios
+        )
+        if best is None or cost < best[0]:
+            best = (float(cost), int(tid))
+    return best[1] if best else None
+
+
+def _switch(
+    cell: pd.DataFrame, idx: _Index, thr: Thresholds, params: FateParams
+) -> tuple[int, int] | None:
+    """First frame where the track jumps to another nucleus: ``(frame, neighbour)``.
+
+    Within an unbroken track, a step that changes area or a reporter by more
+    than the switch tolerances, while a nucleus nearby continues the cell's
+    recent values, is a tracking switch: the raw track followed the wrong
+    object and the neighbour is the cell. Judged only inside a raw track,
+    because bridges are judged by :meth:`_Index.continuations` and divisions
+    end the track.
+    """
+    w = params.switch_window
+    area, pip, gem = _clipped(cell, thr, params)
+    tids = cell["track_id"].to_numpy()
+    frames = cell.index.to_numpy()
+    tols = (params.switch_area, params.switch_marker, params.switch_marker)
+    for i in range(2, len(cell)):
+        if frames[i] != frames[i - 1] + 1 or tids[i] != tids[i - 1]:
+            continue
+        lo = max(0, i - w)
+        ref = (
+            float(np.median(area[lo:i])),
+            float(np.median(pip[lo:i])),
+            float(np.median(gem[lo:i])),
+        )
+        here = (area[i], pip[i], gem[i])
+        if not any(
+            h > tol * r or h < r / tol
+            for h, r, tol in zip(here, ref, tols, strict=True)
+        ):
+            continue
+        alt = _matching_neighbour(
+            int(frames[i]),
+            cell.iloc[i - 1],
+            ref,
+            int(tids[i]),
+            idx,
+            thr,
+            params,
+        )
+        if alt is not None:
+            return int(frames[i]), alt
+    return None
+
+
+def _daughter_pair(
+    tid: int,
+    idx: _Index,
+    thr: Thresholds,
+    params: FateParams,
+    claimed: set[int],
+) -> tuple[int, list[int]] | None:
+    """Two daughter-like founders after a track ends with geminin high.
+
+    The repair links daughters only when it can; a mitosis whose daughters
+    were never linked leaves a G2 track that just ends and two new founders
+    beside it, each about half its area and with geminin fallen. Returns
+    ``(frame, [daughters])``.
+    """
+    rows = idx.rows[tid]
+    last = rows.iloc[-1]
+    end = int(rows.index[-1])
+    w = params.switch_window
+    gem_high = params.gem_high * thr.gem_low
+    if float(np.median(rows["geminin"].to_numpy(float)[-w:])) < gem_high:
+        return None
+    lo, hi = params.daughter_area
+    for gap in range(1, params.max_gap + 1):
+        found = []
+        for cand in idx.starts.get(end + gap, []):
+            if cand in claimed or cand == tid:
+                continue
+            first = idx.rows[cand].iloc[0]
+            dist = np.hypot(first.y - last.y, first.x - last.x)
+            if dist > params.reach * (
+                _radius(first.area) + _radius(last.area)
+            ):
+                continue
+            if not lo <= first.area / last.area <= hi:
+                continue
+            if first.geminin >= params.exit_drop * last.geminin:
+                continue
+            found.append((float(dist), int(cand)))
+        if len(found) >= 2:
+            found.sort()
+            return end + gap, [found[0][1], found[1][1]]
+    return None
 
 
 def _mitotic_exit(
@@ -518,6 +678,7 @@ def follow_cells(
     for cell_no, tid in enumerate(sorted(present.track_id), start=1):
         flags: set[str] = set()
         segments = [int(tid)]
+        proposals: list[dict[str, Any]] = []
         outcome, outcome_frame = None, None
         cur = int(tid)
         while True:
@@ -529,6 +690,24 @@ def follow_cells(
                 break
             options = idx.continuations(cur, params, claimed)
             if not options:
+                pair = _daughter_pair(cur, idx, thr, params, claimed)
+                if pair is not None:
+                    frame, daughters = pair
+                    outcome, outcome_frame = "divided", frame
+                    flags.add("daughter_pair")
+                    claimed.update(daughters)
+                    for d in daughters:
+                        proposals.append(
+                            {
+                                "op": "set_parent",
+                                "track": d,
+                                "frame": frame,
+                                "parent": int(tid),
+                                "reason": f"daughter pair at t{frame}: the track ends with geminin high and two half-size nuclei appear",
+                                "confidence": "uncertain",
+                            }
+                        )
+                    break
                 outcome, outcome_frame = "lost", end
                 break
             if len(options) > 1:
@@ -538,10 +717,39 @@ def follow_cells(
                 flags.add("gap")
             claimed.add(nxt)
             segments.append(nxt)
+            proposals.append(
+                {
+                    "op": "link",
+                    "track": nxt,
+                    "frame": int(idx.rows[nxt].index[0]),
+                    "reason": f"bridge: gap {gap}, {len(options)} candidate{'s' if len(options) > 1 else ''}",
+                    "confidence": "clear"
+                    if gap == 1 and len(options) == 1
+                    else "uncertain",
+                }
+            )
             cur = nxt
 
         rows = pd.concat([idx.rows[s] for s in segments])
         rows = rows[(rows.index >= start) & (rows.index <= stop)]
+        switched = _switch(rows, idx, thr, params)
+        if switched is not None:
+            # The raw track followed the wrong object from here: nothing after
+            # it is this cell, and the neighbour is the likely continuation.
+            frame, alt = switched
+            rows = rows[rows.index < frame]
+            outcome, outcome_frame = "lost", frame
+            flags.add("switch")
+            proposals = [p for p in proposals if p["frame"] < frame]
+            proposals.append(
+                {
+                    "op": "link",
+                    "track": alt,
+                    "frame": frame,
+                    "reason": f"switch at t{frame}: the track jumps to a different-looking nucleus while track {alt} continues the cell",
+                    "confidence": "uncertain",
+                }
+            )
         phases = call_phases(rows, thr, params)
 
         exit_frame = _mitotic_exit(rows, thr, params)
@@ -556,7 +764,7 @@ def follow_cells(
             and run[1] >= params.frames(params.arrest_hours)
         ):
             outcome, outcome_frame = "mitotic_arrest", run[0]
-        if outcome == "lost":
+        if outcome == "lost" and switched is None:
             onset = _pyknotic_end(rows, thr, params, shape)
             if onset is not None:
                 outcome, outcome_frame = "death", onset
@@ -579,6 +787,8 @@ def follow_cells(
         if _geminin_jump(rows[rows.index < cut], thr, params) is not None:
             flags.add("geminin_jump")
         if outcome in ("mitotic_exit_no_division", "mitotic_arrest", "death"):
+            flags.add("outcome_review")
+        if "daughter_pair" in flags:
             flags.add("outcome_review")
         if outcome == "lost":
             flags.add("lost")
@@ -625,6 +835,7 @@ def follow_cells(
                 "excluded": outcome in ("debris", "stationary", "no_reporter"),
                 "review_flags": " ".join(f for f in FLAGS if f in flags),
                 "n_flags": len(flags),
+                "proposals": json.dumps(proposals),
             }
         )
         st = rows[

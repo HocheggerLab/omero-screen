@@ -29,16 +29,17 @@ import numpy as np
 import pandas as pd
 
 from cellview.tracks.cells import apply_extras, curated_tracks, load_well
+from cellview.tracks.corrections import correction_hash, load_stored
 from cellview.tracks.debris import drop_debris
-from cellview.tracks.edit import EditLog, base_lineage, replay
+from cellview.tracks.edit import EditLog, imported_lineage, replay
 from cellview.tracks.fate import FateParams, apply_annotations, follow_cells
-from cellview.tracks.plate import pip_fucci_input
-from cellview.tracks.repair import repair_lineage
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
 QUESTIONS = {
+    "switch": "The track jumps to a different-looking nucleus while a neighbour continues the cell. Which nucleus is the cell from here?",
+    "daughter_pair": "The track ends with geminin high and two half-size nuclei appear beside it. A division whose daughters were not linked?",
     "lost": "The track ends without an outcome. Where does the cell go? Pick its continuation, or mark death.",
     "link_ambiguous": "A break was bridged with more than one candidate. Is the continuation the same cell?",
     "gap": "Frames without a mask were bridged. Is it the same cell on both sides?",
@@ -139,20 +140,22 @@ def build_well(
     """Sample and queue one well. Returns ``(sample table, queue items)``."""
     raw = load_well(conn, plate_id, well)
     det, debris = drop_debris(raw)
-    result = repair_lineage(pip_fucci_input(det, plate_id, well))
+    # CellView holds the stored correction's final lineage; start from it as
+    # it is, so the review, the widget's masks and the fate table agree.
     curated = replay(
-        base_lineage(det, result), log if log is not None else [], well
+        imported_lineage(det), log if log is not None else [], well
     )
     det = apply_extras(det, curated)
     tracks = curated_tracks(curated, det)
     shape = (int(det["y"].max()) + 1, int(det["x"].max()) + 1)
+    stored = load_stored(plate_id, well)
     cells, states = follow_cells(
         tracks,
         spec.start,
         spec.stop,
         params,
-        result.events,
-        result.assignment,
+        stored.events if stored is not None else None,
+        {} if stored is not None else None,  # event ids are final track ids
         shape,
     )
     cells = apply_annotations(cells, curated)
@@ -190,6 +193,12 @@ def build_well(
     queued = sampled[sampled["queued"]]
     for row in cast("Iterable[Any]", queued.itertuples()):
         first_flag = str(row.reason).split()[0]
+        proposals = _proposals(
+            json.loads(getattr(row, "proposals", "[]") or "[]"),
+            labels,
+            spec.start,
+            int(row.label),
+        )
         frame = (
             int(row.outcome_frame)
             if pd.notna(row.outcome_frame) and row.outcome != "no_mitosis"
@@ -211,9 +220,87 @@ def build_well(
                 "question": QUESTIONS.get(first_flag, QUESTIONS["audit"]),
                 "outcome": row.outcome,
                 "path": path,
+                "proposals": proposals,
             }
         )
     return sampled, items
+
+
+def _proposals(
+    walker: list[dict[str, Any]],
+    labels: pd.Series,
+    start: int,
+    mother_label: int,
+) -> list[dict[str, Any]]:
+    """The walker's bridges, switches and daughter pairs as edits to propose.
+
+    The walker names curated tracks; an edit names nuclei by raw label, so
+    each is translated to the largest raw label of that track in that frame.
+    """
+    out = []
+    for p in walker:
+        label = labels.get((int(p["track"]), int(p["frame"])))
+        if label is None:
+            continue
+        if p["op"] == "link":
+            args: dict[str, Any] = {
+                "frame": int(p["frame"]),
+                "label": int(label),
+            }
+        elif p["op"] == "set_parent":
+            args = {
+                "cell": [int(p["frame"]), int(label)],
+                "parent": [start, mother_label],
+            }
+        else:
+            continue
+        out.append(
+            {
+                "op": p["op"],
+                "args": args,
+                "reason": p["reason"],
+                "confidence": p["confidence"],
+            }
+        )
+    return out
+
+
+def correction_path(directory: Path) -> Path:
+    """The sidecar that records which correction a directory's edit log was built on."""
+    return Path(directory) / "correction.json"
+
+
+def check_correction(directory: Path, digest: str | None) -> None:
+    """Refuse to replay an edit log built on another correction.
+
+    Raises:
+        ValueError: If ``directory/correction.json`` names a different hash.
+    """
+    path = correction_path(directory)
+    if digest is None or not path.exists():
+        return
+    recorded = json.loads(path.read_text()).get("hash")
+    if recorded and recorded != digest:
+        raise ValueError(
+            f"The edit log in {directory} was made on correction {recorded[:12]}…, "
+            f"but the stored correction is now {digest[:12]}…. Its anchors name "
+            "nuclei of the old correction; start a new review directory."
+        )
+
+
+def record_correction(
+    directory: Path, plate_id: int, wells: list[str], digest: str
+) -> None:
+    """Write (or confirm) the correction sidecar of a review directory."""
+    check_correction(directory, digest)
+    path = correction_path(directory)
+    if not path.exists():
+        path.write_text(
+            json.dumps(
+                {"plate_id": plate_id, "wells": sorted(wells), "hash": digest},
+                indent=1,
+            )
+        )
 
 
 def build_queue(
@@ -226,6 +313,9 @@ def build_queue(
 ) -> tuple[Path, Path, pd.DataFrame]:
     """Build and write ``queue.json`` and ``sample.csv`` for several wells."""
     log = EditLog(log_path) if log_path else None
+    digest = correction_hash(plate_id, wells)
+    if log_path is not None:
+        check_correction(log_path.parent, digest)
     samples, items, exclusions = [], [], {}
     for well in wells:
         s, i = build_well(conn, plate_id, well, spec, log)
@@ -247,11 +337,14 @@ def build_queue(
                 "spec": spec.__dict__,
                 "exclusions": exclusions,
                 "log": str(log_path) if log_path else None,
+                "correction": digest,
                 "items": items,
             },
             indent=1,
         )
     )
+    if digest is not None:
+        record_correction(out_dir, plate_id, wells, digest)
     sample = pd.concat(samples, ignore_index=True)
     sample.attrs["exclusions"] = exclusions
     sample_path = out_dir / "sample.csv"

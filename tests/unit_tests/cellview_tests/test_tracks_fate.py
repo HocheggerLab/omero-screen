@@ -38,7 +38,9 @@ def _cycling_cell(tid, y):
 
 
 def _walk(rows, **kw):
-    return follow_cells(pd.DataFrame(rows), 0, 40, FateParams(**kw), shape=(5000, 5000))
+    return follow_cells(
+        pd.DataFrame(rows), 0, 40, FateParams(**kw), shape=(5000, 5000)
+    )
 
 
 def test_cycling_cell_divides_after_g1_s_g2() -> None:
@@ -55,7 +57,9 @@ def test_cycling_cell_divides_after_g1_s_g2() -> None:
 
 def test_stationary_object_without_reporter_is_debris() -> None:
     """Debris neither moves nor expresses a reporter."""
-    debris = _rows(99, 0, range(41), 3000, {"pip": 0.0, "geminin": 0.0}, dx=0.0)
+    debris = _rows(
+        99, 0, range(41), 3000, {"pip": 0.0, "geminin": 0.0}, dx=0.0
+    )
     cells, _ = _walk(_cycling_cell(10, 500) + _cycling_cell(20, 1500) + debris)
     row = cells.set_index("start_track").loc[99]
     assert row.outcome == "debris" and row.excluded and row.review_flags == ""
@@ -63,7 +67,9 @@ def test_stationary_object_without_reporter_is_debris() -> None:
 
 def test_short_gap_is_bridged_and_flagged() -> None:
     """A track that breaks for one frame continues on its matching founder."""
-    broken = _rows(50, 0, range(15), 2500, G1) + _rows(51, 0, range(17, 41), 2500, G1, x0=270)
+    broken = _rows(50, 0, range(15), 2500, G1) + _rows(
+        51, 0, range(17, 41), 2500, G1, x0=270
+    )
     cells, _ = _walk(_cycling_cell(10, 500) + _cycling_cell(20, 1500) + broken)
     row = cells.set_index("start_track").loc[50]
     assert row.segments == "50 51"
@@ -76,7 +82,9 @@ def test_track_ending_with_nothing_nearby_is_lost() -> None:
     lost = _rows(60, 0, range(15), 3500, G1)
     cells, _ = _walk(_cycling_cell(10, 500) + _cycling_cell(20, 1500) + lost)
     row = cells.set_index("start_track").loc[60]
-    assert row.outcome == "lost" and row.censored and "lost" in row.review_flags
+    assert (
+        row.outcome == "lost" and row.censored and "lost" in row.review_flags
+    )
 
 
 def test_brief_both_low_history_is_unclear_not_negative() -> None:
@@ -158,3 +166,89 @@ def test_track_ending_near_the_border_but_not_heading_out_is_lost() -> None:
     ]
     cells, _ = _walk(_cycling_cell(10, 500) + along)
     assert cells.set_index("start_track").loc[60].outcome == "lost"
+
+
+def test_switch_onto_a_neighbour_is_flagged_and_proposed() -> None:
+    """A raw track that jumps onto a small dim object while the real nucleus
+    carries on under a new id is cut at the jump, and the neighbour proposed."""
+    import json
+
+    # Track 70: a G1 nucleus for 10 frames, then (same raw id) a quarter-size,
+    # PIP-dark object. Track 71 appears at frame 10 next to where 70 was,
+    # with 70's area and reporters, and runs to the end.
+    good = _rows(70, 0, range(10), 2000, G1, area=600.0)
+    wrong = _rows(
+        70,
+        0,
+        range(10, 41),
+        2000,
+        {"pip": 50.0, "geminin": 100.0},
+        x0=200,
+        area=150.0,
+    )
+    real = _rows(71, 0, range(10, 41), 2010, G1, x0=200, area=600.0)
+    cells, states = _walk(
+        _cycling_cell(10, 500) + _cycling_cell(20, 1500) + good + wrong + real
+    )
+    row = cells.set_index("start_track").loc[70]
+    assert "switch" in row.review_flags
+    assert row.outcome == "lost" and row.outcome_frame == 10
+    assert states[states.cell == row.cell].timepoint.max() == 9
+    props = json.loads(row.proposals)
+    assert props[-1]["op"] == "link" and props[-1]["track"] == 71
+    assert props[-1]["frame"] == 10 and props[-1]["confidence"] == "uncertain"
+
+
+def test_mis_segmented_frame_without_a_neighbour_is_not_a_switch() -> None:
+    """A one-frame shrink with nothing else nearby is not a switch."""
+    rows = _rows(80, 0, range(12), 2500, G1, area=600.0)
+    rows[6]["area"] = 150.0
+    rows += _rows(80, 0, range(12, 41), 2500, G1, x0=220, area=600.0)
+    cells, _ = _walk(_cycling_cell(10, 500) + _cycling_cell(20, 1500) + rows)
+    row = cells.set_index("start_track").loc[80]
+    assert "switch" not in row.review_flags and row.outcome == "no_mitosis"
+
+
+def test_unlinked_daughters_make_a_division() -> None:
+    """A G2 track that ends beside two new half-size, geminin-low founders divided."""
+    import json
+
+    mother = _rows(90, 0, range(20), 3200, G2, area=800.0)
+    d1 = _rows(91, 0, range(21, 41), 3185, G1, x0=300, area=380.0)
+    d2 = _rows(92, 0, range(21, 41), 3215, G1, x0=300, area=380.0)
+    cells, _ = _walk(
+        _cycling_cell(10, 500) + _cycling_cell(20, 1500) + mother + d1 + d2
+    )
+    row = cells.set_index("start_track").loc[90]
+    assert row.outcome == "divided" and row.outcome_frame == 21
+    assert (
+        "daughter_pair" in row.review_flags
+        and "outcome_review" in row.review_flags
+    )
+    props = json.loads(row.proposals)
+    assert {p["track"] for p in props if p["op"] == "set_parent"} == {91, 92}
+
+
+def test_bridges_are_proposed_with_confidence() -> None:
+    """A direct restart with one candidate is a clear bridge proposal; a
+    skipped frame makes it uncertain."""
+    import json
+
+    restart = _rows(50, 0, range(15), 2500, G1) + _rows(
+        51, 0, range(15, 41), 2500, G1, x0=250
+    )
+    cells, _ = _walk(
+        _cycling_cell(10, 500) + _cycling_cell(20, 1500) + restart
+    )
+    (p,) = json.loads(cells.set_index("start_track").loc[50].proposals)
+    assert p["op"] == "link" and p["track"] == 51 and p["frame"] == 15
+    assert p["confidence"] == "clear"
+
+    skipped = _rows(50, 0, range(15), 2500, G1) + _rows(
+        51, 0, range(17, 41), 2500, G1, x0=270
+    )
+    cells, _ = _walk(
+        _cycling_cell(10, 500) + _cycling_cell(20, 1500) + skipped
+    )
+    (p,) = json.loads(cells.set_index("start_track").loc[50].proposals)
+    assert p["frame"] == 17 and p["confidence"] == "uncertain"

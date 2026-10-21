@@ -160,3 +160,45 @@ def test_queue_records_exclusions(fake_well, tmp_path) -> None:
     # The stationary, reporter-negative object is hidden before the walker.
     assert data["exclusions"]["C2"]["debris_hidden"] == 1
     assert table.attrs["exclusions"]["C2"]["start_cells"] == 6
+
+
+def test_queue_carries_walker_proposals_as_raw_label_edits(
+    monkeypatch,
+) -> None:
+    """A bridged gap becomes a link proposal naming the raw label of the next track."""
+    det = _det(n_cells=3)
+    # Break cell 2's track: frames 10-29 get a new raw id, 50, with frame 10 missing.
+    broken = det["track_id_raw"].eq(2) & det["timepoint"].ge(10)
+    det.loc[broken, ["track_id_raw", "label"]] = 50
+    det = det[~(det["label"].eq(50) & det["timepoint"].eq(10))]
+    monkeypatch.setattr(rq, "load_well", lambda conn, plate, well: det)
+    _, items = rq.build_well(
+        None, 1, "C2", rq.QueueSpec(start=5, stop=25, sample=10, audit=0.0)
+    )
+    (item,) = [i for i in items if i["id"] == "C2-t5-L2"]
+    assert "gap" in item["reason"]
+    (p,) = item["proposals"]
+    assert p["op"] == "link" and p["args"] == {"frame": 11, "label": 50}
+    assert p["confidence"] == "uncertain"  # a gap of 2 frames
+
+
+def test_edit_log_on_another_correction_is_refused(tmp_path) -> None:
+    """The correction sidecar guards an edit log against a re-run correction."""
+    rq.record_correction(tmp_path, 1, ["C2"], "a" * 64)
+    rq.check_correction(tmp_path, "a" * 64)
+    with pytest.raises(ValueError, match="another correction|old correction"):
+        rq.check_correction(tmp_path, "b" * 64)
+    rq.check_correction(
+        tmp_path, None
+    )  # no stored correction: nothing to compare
+
+
+def test_imported_lineage_is_the_identity() -> None:
+    """The review starts from the lineage CellView holds, parents included."""
+    from cellview.tracks.edit import imported_lineage
+
+    det = _det(n_cells=2)
+    det.loc[det["label"].eq(2), "parent_track_id_raw"] = 1
+    cur = imported_lineage(det)
+    assert cur.tracks[(3, 2)] == 2 and cur.parents == {1: 0, 2: 1, 99: 0}
+    assert cur.next_id == 100

@@ -383,6 +383,32 @@ def base_lineage(det: pd.DataFrame, result: RepairResult) -> Curated:
     return Curated(tracks=tracks, parents=parents, next_id=next_id)
 
 
+def imported_lineage(det: pd.DataFrame) -> Curated:
+    """The lineage CellView holds, as a :class:`Curated` starting point.
+
+    After a stored correction is imported, every detection's ``track_id_raw``
+    is its final track id and ``parent_track_id_raw`` its parent, so the
+    curated lineage starts as the identity: no repair is run again.
+
+    Args:
+        det: Detections with ``timepoint``, ``label`` (= ``track_id_raw``) and
+            ``parent_track_id_raw``.
+    """
+    tracks = {
+        (int(t), int(lab)): int(lab)
+        for t, lab in zip(det["timepoint"], det["label"], strict=True)
+    }
+    by_track = det.groupby("label")["parent_track_id_raw"].max().fillna(0)
+    parents = {
+        int(tid): int(parent)
+        for tid, parent in zip(
+            by_track.index.to_numpy(), by_track.to_numpy(), strict=True
+        )
+    }
+    next_id = max([*parents, 0]) + 1
+    return Curated(tracks=tracks, parents=parents, next_id=next_id)
+
+
 def _anchor(value: Any) -> Anchor:
     try:
         frame, label = value
