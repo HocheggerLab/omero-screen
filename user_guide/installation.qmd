@@ -23,10 +23,14 @@ The installer:
    everything, including napari, CellView, cellclass and the plotting
    library, into `~/.local/share/omero-screen`;
 3. puts the commands (`omero-screen`, `cellview`, `cellclass`, `napari`, …) in
-   `~/.local/bin` and tells you if that folder is not yet on your `PATH`;
+   uv's command directory (normally `~/.local/bin`) and adds that directory to
+   your shell `PATH` automatically if needed;
 4. runs `omero-screen setup` and `omero-screen doctor` (below).
 
-Run the same line again to update; your settings and data are kept.
+Run the same line again to update; your settings and data are kept. If the
+installer says it updated your `PATH`, open a new Terminal window once before
+running the commands. You do not need to edit `.zshrc` or another shell file
+manually.
 
 ::: {.callout-note}
 If you work with Claude, continue with [Working with Claude](claude.qmd) once
