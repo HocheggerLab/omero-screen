@@ -46,38 +46,18 @@ def _run_plate_image(omero_conn, size_z, size_t):
         image_dict = {str(k): np.ones((size, size)) for k in df["Sheet1"]["Channels"]}
         upload_images(omero_conn, dataset, image_name, image_dict)
 
-        # Mock CellposeModel to avoid downloading models
-        with patch("cellpose.models.CellposeModel") as MockCellposeModel:
-            # Setup the mock to return a dummy model
+        # Mock the pipeline's model factory so this test never downloads
+        # Cellpose weights. Patching cellpose.models.CellposeModel does not
+        # intercept the vendored Cellpose 3 implementation.
+        def mock_segmentation_model(_model_name):
             mock_model = MagicMock()
-            MockCellposeModel.return_value = mock_model
+            mock_model.get_type.return_value = "cellpose3"
 
-            # Setup eval method to return dummy masks, flows, styles
             def side_effect_eval(x, **kwargs):
-                # Return a mask of the same shape as input image (minus channels)
-                # x is typically (C, Y, X) or (Y, X) or list of images
-                # Check if input has multiple channels (cell segmentation)
-                is_cell_seg = False
-                if isinstance(x, list):
-                    if len(x) > 1:
-                        is_cell_seg = True
-                    shape = x[0].shape[-2:]
-                else:
-                    # Check for (C, Y, X)
-                    if x.ndim == 3 and x.shape[0] < 5:
-                        is_cell_seg = True
-                        shape = x.shape[-2:]
-                    # Check for (Y, X, C) created by dstack
-                    elif x.ndim == 3 and x.shape[2] < 5:
-                        is_cell_seg = True
-                        shape = x.shape[:2]
-                    else:
-                        shape = x.shape[-2:]
-
-                # Create a simple dummy mask with a few labels
+                shape = x.shape[-2:]
                 mask = np.zeros(shape, dtype=np.uint16)
 
-                if is_cell_seg:
+                if x.shape[0] > 1:
                     # Larger cells
                     mask[5:35, 5:35] = 1
                     mask[35:65, 35:65] = 2
@@ -86,14 +66,26 @@ def _run_plate_image(omero_conn, size_z, size_t):
                     mask[10:30, 10:30] = 1
                     mask[40:60, 40:60] = 2
 
-                return mask, None, None
+                return mask
 
             mock_model.eval.side_effect = side_effect_eval
+            return mock_model
 
+        with patch(
+            "omero_screen.image_analysis._get_segmentation_model",
+            side_effect=mock_segmentation_model,
+        ):
             # run OMERO screen
-            df_final, df_final_cc, df_quality_control, dict_gallery = plate_loop(omero_conn, plate_id)
+            df_final, df_final_cc, df_quality_control, dict_gallery = (
+                plate_loop(omero_conn, plate_id)
+            )
             # check the final results
-            assert np.all([x in df_final.columns.values for x in ["plate_id", "well", "image_id", "label"]])
+            assert np.all(
+                [
+                    x in df_final.columns.values
+                    for x in ["plate_id", "well", "image_id", "label"]
+                ]
+            )
 
     finally:
         # Clean up
