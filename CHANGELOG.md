@@ -1,3 +1,9 @@
+## omero-screen-v0.8.28 (2026-10-22)
+
+### Fix
+
+- **install**: configure command path automatically (#70)
+
 ## omero-screen-v0.8.27 (2026-10-09)
 
 ### Fix
