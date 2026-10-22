@@ -8,7 +8,7 @@
 #   OMERO_SCREEN_VERSION   release tag (default: the highest omero-screen-v* tag)
 #   OMERO_SCREEN_BRANCH    install a branch instead of a release (for testing)
 #   OMERO_SCREEN_HOME      install location (default: ~/.local/share/omero-screen)
-#   OMERO_SCREEN_BIN       where commands are linked (default: ~/.local/bin)
+#   OMERO_SCREEN_BIN       where commands are linked (default: uv's tool bin dir)
 #   OMERO_SCREEN_NO_SETUP  set to 1 to skip `omero-screen setup` at the end
 #
 # Running it again with a newer version updates the install; your settings
@@ -17,7 +17,6 @@ set -eu
 
 REPO="HocheggerLab/omero-screen"
 HOME_DIR="${OMERO_SCREEN_HOME:-$HOME/.local/share/omero-screen}"
-BIN_DIR="${OMERO_SCREEN_BIN:-$HOME/.local/bin}"
 # Commands linked onto the PATH.
 COMMANDS="omero-screen omero-screen-export omero-screen-images omero-train cellview cellclass cellclass-train cellclass-dataset cellclass-extract napari"
 
@@ -38,6 +37,8 @@ if ! command -v uv >/dev/null 2>&1; then
     PATH="$HOME/.local/bin:$PATH"
     export PATH
 fi
+UV_BIN_DIR=$(uv tool dir --bin 2>/dev/null || printf '%s' "$HOME/.local/bin")
+BIN_DIR="${OMERO_SCREEN_BIN:-$UV_BIN_DIR}"
 
 # 2. The release (or a branch, for testing)
 if [ -n "${OMERO_SCREEN_BRANCH:-}" ]; then
@@ -76,8 +77,20 @@ for cmd in $COMMANDS; do
 done
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
-    *) say "Add $BIN_DIR to your PATH (e.g. in ~/.zshrc): export PATH=\"$BIN_DIR:\$PATH\""
-       PATH="$BIN_DIR:$PATH"; export PATH ;;
+    *)
+        PATH="$BIN_DIR:$PATH"
+        export PATH
+        if [ -z "${OMERO_SCREEN_BIN:-}" ]; then
+            say "Adding $BIN_DIR to your shell PATH"
+            if uv tool update-shell; then
+                say "PATH updated automatically; open a new terminal window before using the commands"
+            else
+                say "Could not update your shell PATH automatically; run: uv tool update-shell"
+            fi
+        else
+            say "$BIN_DIR is not on your PATH; add it in your shell configuration"
+        fi
+        ;;
 esac
 say "Installed $VERSION in $TARGET"
 
