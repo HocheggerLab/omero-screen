@@ -337,6 +337,8 @@ def cli(
       omero-screen doctor          check the installation
       omero-screen config show     show the settings in effect
       omero-screen models pull SET / models publish MODEL.pt
+      omero-screen self update     install the latest release
+      omero-screen self uninstall  remove omero-screen
     """  # noqa: D301 - \b is Click's no-rewrap marker
     if track_correct and not track:
         raise click.UsageError("--track-correct requires --track.")
@@ -481,14 +483,14 @@ def _run(
 
 
 #: Subcommands of ``omero-screen`` that are not a pipeline run.
-SETUP_COMMANDS = ("setup", "doctor", "config", "models")
+SETUP_COMMANDS = ("setup", "doctor", "config", "models", "self")
 
 
 def main() -> None:
     """Entry point for the ``omero-screen`` console script.
 
-    ``omero-screen setup | doctor | config | models`` configure and check the
-    install and manage models;
+    ``omero-screen setup | doctor | config | models | self`` configure, check,
+    update and uninstall the install and manage models;
     anything else is a pipeline run on plate or screen ids.
     """
     if len(sys.argv) > 1 and sys.argv[1] in SETUP_COMMANDS:
@@ -496,6 +498,8 @@ def main() -> None:
 
         run(sys.argv[1:])
         return
+    from omero_screen.stock_models import ModelDownloadError
+
     try:
         cli.main(standalone_mode=False)
     except click.exceptions.Abort:
@@ -505,6 +509,9 @@ def main() -> None:
         sys.exit(e.exit_code)
     except click.exceptions.Exit as e:
         sys.exit(e.exit_code)
+    except ModelDownloadError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

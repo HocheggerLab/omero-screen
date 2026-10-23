@@ -25,17 +25,59 @@ The installer:
 3. puts the commands (`omero-screen`, `cellview`, `cellclass`, `napari`, …) in
    uv's command directory (normally `~/.local/bin`) and adds that directory to
    your shell `PATH` automatically if needed;
-4. runs `omero-screen setup` and `omero-screen doctor` (below).
+4. downloads the stock Cellpose segmentation models, so a network problem
+   shows up now rather than in the middle of your first plate;
+5. runs `omero-screen setup` and `omero-screen doctor` (below).
 
-Run the same line again to update; your settings and data are kept. If the
-installer says it updated your `PATH`, open a new Terminal window once before
-running the commands. You do not need to edit `.zshrc` or another shell file
-manually.
+If the installer says it updated your `PATH`, open a new Terminal window once
+before running the commands. You do not need to edit `.zshrc` or another shell
+file manually.
+
+If the download fails (`could not download …`), check the network (VPN,
+proxy) and run the same line again; it picks up where it stopped.
 
 ::: {.callout-note}
 If you work with Claude, continue with [Working with Claude](claude.qmd) once
 the installer has finished.
 :::
+
+## Update
+
+```bash
+omero-screen self update            # install the latest release
+omero-screen self update --check    # only say whether there is one
+```
+
+Your settings and data are kept. `omero-screen doctor` also tells you when a
+newer release is out. Running the install line again does the same as
+`self update`.
+
+The previous release stays on disk, so you can go back if a new one causes
+trouble; older releases are removed (each takes several GB):
+
+```bash
+omero-screen self update --version 0.8.27
+```
+
+## Uninstall
+
+```bash
+omero-screen self uninstall           # remove the software and its commands
+omero-screen self uninstall --purge   # also your settings and keychain password
+```
+
+The uninstaller removes `~/.local/share/omero-screen` and only those commands
+in `~/.local/bin` that belong to it; a `napari` you installed yourself stays.
+It never deletes your data: the CellView database (`~/.cellview`), the image
+cache (`~/omero-cache`) and the Cellpose models (`~/.cellpose/models`). It
+lists where they are so you can delete them yourself. uv stays installed too
+(`uv self uninstall` removes it).
+
+If the `omero-screen` command no longer works, uninstall from the web:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/HocheggerLab/omero-screen/main/install.sh | sh -s -- --uninstall
+```
 
 ## Set up your OMERO login
 
