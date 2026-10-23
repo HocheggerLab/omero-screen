@@ -50,6 +50,7 @@ QUESTIONS = {
     "edge": "The cell touches the image edge. Still followable?",
     "reporter_unclear": "Both reporters stay low. Early S, or no reporter?",
     "audit": "Random check of an automatically accepted cell. Is the whole track right?",
+    "final_audit": "Final check after correction. Follow the cell from the window start to its outcome: is every link, mask and the outcome right?",
 }
 
 
@@ -263,6 +264,71 @@ def _proposals(
             }
         )
     return out
+
+
+def build_audit(
+    conn: duckdb.DuckDBPyConnection,
+    plate_id: int,
+    wells: list[str],
+    n: int,
+    out_path: Path,
+    log_path: Path | None = None,
+    start: int = 72,
+    stop: int = 168,
+    seed: int = 0,
+) -> Path:
+    """Write a final-audit queue: ``n`` random analysed cells, end to end.
+
+    Run after the review and corrections are finished. Cells are drawn
+    uniformly (fixed ``seed``) from the non-excluded cells of ``wells`` on
+    the curated lineage (CellView's tracks plus ``log_path``); excluded cells
+    are not drawn because they leave the analysis. Items carry no walker
+    proposals: nothing is applied automatically. Write the queue into the
+    review directory (e.g. ``<dir>/audit.json``) so fixes go to the same
+    edit log, while verdicts go to ``audit_decisions.json``.
+
+    Raises:
+        ValueError: If the log was made on another correction.
+    """
+    log = EditLog(log_path) if log_path else None
+    digest = correction_hash(plate_id, wells)
+    if log_path is not None:
+        check_correction(log_path.parent, digest)
+    spec = QueueSpec(
+        start=start, stop=stop, sample=10**9, audit=1.0, seed=seed
+    )
+    pool: list[dict[str, Any]] = []
+    for well in wells:
+        _, items = build_well(conn, plate_id, well, spec, log)
+        pool += items
+    rng = np.random.default_rng([seed, n])
+    pick = sorted(rng.choice(len(pool), size=min(n, len(pool)), replace=False))
+    items = []
+    for k in pick:
+        it = dict(pool[k])
+        it.update(
+            frame=start,
+            reason="final_audit",
+            question=QUESTIONS["final_audit"],
+            proposals=[],
+        )
+        items.append(it)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "plate_id": plate_id,
+                "mode": "human",
+                "spec": {**spec.__dict__, "audit_n": n, "wells": wells},
+                "log": str(log_path) if log_path else None,
+                "correction": digest,
+                "items": items,
+            },
+            indent=1,
+        )
+    )
+    return out_path
 
 
 def correction_path(directory: Path) -> Path:

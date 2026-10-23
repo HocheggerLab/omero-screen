@@ -238,9 +238,23 @@ def write_queue(
     _atomic_write(path, payload)
 
 
+def sidecar_path(queue_path: Path, name: str) -> Path:
+    """A queue's sidecar file: ``name`` for ``queue.json``, ``<stem>_name`` otherwise.
+
+    A second queue in the same review directory (an ``audit.json``, say)
+    shares the directory's edit log, so its fixes curate the same tracks,
+    but keeps its own verdicts, proposals and drafts, so they never overwrite
+    the review's for the same cells.
+    """
+    queue_path = Path(queue_path)
+    if queue_path.name == "queue.json":
+        return queue_path.with_name(name)
+    return queue_path.with_name(f"{queue_path.stem}_{name}")
+
+
 def decisions_path(queue_path: Path) -> Path:
     """Where decisions for ``queue_path`` are stored."""
-    return Path(queue_path).with_name("decisions.json")
+    return sidecar_path(queue_path, "decisions.json")
 
 
 def read_decisions(path: Path) -> list[Decision]:
@@ -286,7 +300,7 @@ def record_decision(path: Path, decision: Decision) -> Decision:
 
 def drafts_path(queue_path: Path) -> Path:
     """Where unfinished work for ``queue_path`` is kept."""
-    return Path(queue_path).with_name("drafts.json")
+    return sidecar_path(queue_path, "drafts.json")
 
 
 def read_drafts(path: Path) -> dict[str, dict[str, Any]]:

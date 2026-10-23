@@ -202,3 +202,26 @@ def test_imported_lineage_is_the_identity() -> None:
     cur = imported_lineage(det)
     assert cur.tracks[(3, 2)] == 2 and cur.parents == {1: 0, 2: 1, 99: 0}
     assert cur.next_id == 100
+
+
+def test_audit_queue_draws_n_analysed_cells_without_proposals(
+    fake_well, tmp_path
+) -> None:
+    """The final audit is N random non-excluded cells, end to end, nothing auto-applied."""
+    out = rq.build_audit(
+        None, 1, ["C2"], 3, tmp_path / "audit.json", start=5, stop=25, seed=4
+    )
+    data = json.loads(out.read_text())
+    items = data["items"]
+    assert len(items) == 3 and len({i["id"] for i in items}) == 3
+    assert all(
+        i["reason"] == "final_audit" and i["proposals"] == [] for i in items
+    )
+    assert all(i["frame"] == 5 for i in items)
+    assert "C2-t5-L99" not in {i["id"] for i in items}  # debris never drawn
+    again = json.loads(
+        rq.build_audit(
+            None, 1, ["C2"], 3, tmp_path / "b.json", start=5, stop=25, seed=4
+        ).read_text()
+    )
+    assert [i["id"] for i in again["items"]] == [i["id"] for i in items]

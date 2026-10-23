@@ -42,6 +42,7 @@ from omero_screen_napari.review_queue import (
     latest_decisions,
     read_queue,
     record_decision,
+    sidecar_path,
 )
 
 #: The session the open widget is using; agent tools act on it.
@@ -140,7 +141,7 @@ class ReviewSession:
 
     @property
     def proposals_path(self) -> Path:
-        return self.queue_path.with_name("proposals.json")
+        return sidecar_path(self.queue_path, "proposals.json")
 
     @property
     def mode(self) -> str:

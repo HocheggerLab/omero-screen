@@ -156,7 +156,8 @@ def test_walker_proposals_are_seeded_once(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(
         ReviewSession,
         "edit",
-        lambda self, item, op, args, **kw: applied.append((op, args)) or type("E", (), {"id": "e0001"})(),
+        lambda self, item, op, args, **kw: applied.append((op, args))
+        or type("E", (), {"id": "e0001"})(),
     )
     q = _queue_with_proposals(tmp_path)
     s = ReviewSession(q)
@@ -169,7 +170,9 @@ def test_walker_proposals_are_seeded_once(tmp_path: Path, monkeypatch) -> None:
     assert len(s.proposals()) == 2
 
 
-def test_failed_walker_proposal_is_recorded_not_raised(tmp_path: Path, monkeypatch) -> None:
+def test_failed_walker_proposal_is_recorded_not_raised(
+    tmp_path: Path, monkeypatch
+) -> None:
     def boom(self, *a, **k):
         raise ValueError("no such nucleus")
 
@@ -179,14 +182,18 @@ def test_failed_walker_proposal_is_recorded_not_raised(tmp_path: Path, monkeypat
     assert first.status == "failed" and "no such nucleus" in first.note
 
 
-def test_applied_proposal_can_be_confirmed_or_reverted(tmp_path: Path, monkeypatch) -> None:
+def test_applied_proposal_can_be_confirmed_or_reverted(
+    tmp_path: Path, monkeypatch
+) -> None:
     monkeypatch.setattr(
         ReviewSession,
         "edit",
         lambda self, item, op, args, **kw: type("E", (), {"id": "e0001"})(),
     )
     reverted = []
-    monkeypatch.setattr(ReviewSession, "_revert", lambda self, p: reverted.append(p.id))
+    monkeypatch.setattr(
+        ReviewSession, "_revert", lambda self, p: reverted.append(p.id)
+    )
     s = ReviewSession(_queue_with_proposals(tmp_path))
     applied, pending = s.proposals()
     assert s.confirm_applied("C2-t0-L5")[0].id == applied.id
@@ -210,3 +217,40 @@ def test_queue_on_another_correction_is_refused(tmp_path: Path) -> None:
         ReviewSession(q)
     (tmp_path / "correction.json").write_text(json.dumps({"hash": "a" * 64}))
     assert ReviewSession(q).queue.correction == "a" * 64
+
+
+def test_second_queue_keeps_its_own_verdicts(tmp_path: Path) -> None:
+    """An audit queue beside the review shares the edit log but not the verdicts."""
+    from omero_screen_napari.review_queue import (
+        decisions_path,
+        latest_decisions,
+    )
+
+    write_queue(
+        tmp_path / "queue.json",
+        1,
+        [ReviewItem(id="C2-t0-L5", well="C2", frame=0)],
+    )
+    write_queue(
+        tmp_path / "audit.json",
+        1,
+        [ReviewItem(id="C2-t0-L5", well="C2", frame=0)],
+    )
+    review, audit = (
+        ReviewSession(tmp_path / "queue.json"),
+        ReviewSession(tmp_path / "audit.json"),
+    )
+    assert review.edits_path == audit.edits_path
+    assert audit.proposals_path.name == "audit_proposals.json"
+    review.verdict("C2-t0-L5", "correct", outcome="divided")
+    audit.verdict("C2-t0-L5", "accept", outcome="divided")
+    assert (
+        decisions_path(tmp_path / "audit.json").name == "audit_decisions.json"
+    )
+    assert (
+        latest_decisions(decisions_path(tmp_path / "queue.json"))[
+            "C2-t0-L5"
+        ].verdict
+        == "correct"
+    )
+    assert audit.decided()["C2-t0-L5"].verdict == "accept"

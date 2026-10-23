@@ -9,6 +9,7 @@ documentation discovery do not pull in DuckDB, pandas or the OMERO stack.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -403,6 +404,80 @@ def _parse_anchor(
         return [int(frame), int(label)]
     except ValueError as err:
         raise click.BadParameter("use FRAME:LABEL, e.g. 72:524") from err
+
+
+@cli.command("audit-queue")
+@click.argument("plate_id", metavar="ID", type=int)
+@click.option(
+    "--well",
+    "wells",
+    multiple=True,
+    required=True,
+    help="Well to draw from (repeatable).",
+)
+@click.option(
+    "--n",
+    "n",
+    type=click.IntRange(min=1),
+    default=10,
+    show_default=True,
+    help="Cells to draw.",
+)
+@click.option("--start", type=int, default=72, show_default=True)
+@click.option("--stop", type=int, default=168, show_default=True)
+@click.option("--seed", type=int, default=0, show_default=True)
+@click.option(
+    "--log",
+    "log_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    required=True,
+    help="The review directory's edit log (the curated tracks to audit).",
+)
+@click.option(
+    "--out",
+    "out_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Queue file (default: audit.json beside the log).",
+)
+@click.pass_obj
+def audit_queue(
+    obj: Context,
+    plate_id: int,
+    wells: tuple[str, ...],
+    n: int,
+    start: int,
+    stop: int,
+    seed: int,
+    log_path: Path,
+    out_path: Path | None,
+) -> None:
+    """Draw N random analysed cells for an end-to-end check after correction.
+
+    Open the written queue in the Track Review widget. Fixes go to the
+    review's edit log; verdicts to audit_decisions.json beside it.
+    """
+    from cellview.tracks.review_queue import build_audit
+
+    out = out_path or log_path.with_name("audit.json")
+    try:
+        path = build_audit(
+            obj.conn,
+            plate_id,
+            list(wells),
+            n,
+            out,
+            log_path,
+            start,
+            stop,
+            seed,
+        )
+    except ValueError as err:
+        raise click.ClickException(str(err)) from err
+    items = json.loads(path.read_text())["items"]
+    click.echo(f"{path}: {len(items)} cells")
+    for it in items:
+        click.echo(f"  {it['id']}  automatic outcome {it['outcome']}")
 
 
 @cli.command("review-queue")
