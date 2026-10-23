@@ -629,7 +629,11 @@ class ReviewSession:
         return made
 
     def resolve_proposal(
-        self, proposal_id: str, confirm: bool, note: str = ""
+        self,
+        proposal_id: str,
+        confirm: bool,
+        note: str = "",
+        author: str = "human",
     ) -> Proposal:
         """Confirm or reject a proposal.
 
@@ -647,7 +651,7 @@ class ReviewSession:
             prop.status = "confirmed" if confirm else "rejected"
         elif prop.status == "applied":
             if not confirm:
-                self._revert(prop)
+                self._revert(prop, author=author)
             prop.status = "confirmed" if confirm else "reverted"
         else:
             raise ValueError(
@@ -657,7 +661,7 @@ class ReviewSession:
         self._save_proposals(props)
         return prop
 
-    def _revert(self, prop: Proposal) -> None:
+    def _revert(self, prop: Proposal, author: str = "human") -> None:
         from cellview.tracks.edit import EditLog
 
         it = self.item(prop.item)
@@ -668,7 +672,7 @@ class ReviewSession:
                 "revert",
                 it.well,
                 {"target": edit_id},
-                author="human",
+                author=author,
                 reason=f"reverted proposal {prop.id}",
                 base=base,
             )

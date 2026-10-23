@@ -399,7 +399,9 @@ def register(server: Any, state: Any) -> None:
     ) -> dict[str, Any]:
         """Undo an applied proposal of your own (its edits are reverted in the log)."""
         session = _session()
-        prop = session.resolve_proposal(proposal_id, False, note=note)
+        prop = session.resolve_proposal(
+            proposal_id, False, note=note, author="agent"
+        )
         ui = active_ui_for(prop.item)
         if ui is not None:
             state.gui_execute(ui._redraw)
