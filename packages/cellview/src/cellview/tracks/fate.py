@@ -93,7 +93,8 @@ import pandas as pd
 
 #: Reason codes a cell can be flagged with.
 FLAGS = (
-    "switch",  # the track jumps to a different-looking nucleus while a neighbour continues the cell
+    "switch",  # the track jumps to a different-looking nucleus while a NEW label continues the cell
+    "jump_suspect",  # as switch, but the matching neighbour already existed: flagged, not acted on
     "daughter_pair",  # the track ends with geminin high and two daughter-like nuclei appear: an unlinked division
     "link_ambiguous",  # a bridge had more than one plausible continuation
     "gap",  # a bridge skipped at least one frame
@@ -457,6 +458,13 @@ def _switch(
     return None
 
 
+def _new_label(switched: tuple[int, int], idx: _Index) -> bool:
+    """Whether the switch's neighbour is a track that starts at the switch (±1 frame)."""
+    frame, alt = switched
+    rows = idx.rows.get(alt)
+    return rows is not None and abs(int(rows.index[0]) - frame) <= 1
+
+
 def _daughter_pair(
     tid: int,
     idx: _Index,
@@ -760,9 +768,17 @@ def follow_cells(
         rows = pd.concat([idx.rows[s] for s in segments])
         rows = rows[(rows.index >= start) & (rows.index <= stop)]
         switched = _switch(rows, idx, thr, params)
+        if switched is not None and not _new_label(switched, idx):
+            # A matching neighbour that already existed is usually a
+            # neighbour (on 5054, 19 of 19 such relinks in C4 were wrong: the
+            # cell's own geminin fall, an exit, read as a jump). Flag it for
+            # review; leave the track and propose nothing.
+            flags.add("jump_suspect")
+            switched = None
         if switched is not None:
             # The raw track followed the wrong object from here: nothing after
-            # it is this cell, and the neighbour is the likely continuation.
+            # it is this cell, and the new label is the likely continuation
+            # (the tracker gives the real nucleus a fresh label when it jumps).
             frame, alt = switched
             rows = rows[rows.index < frame]
             outcome, outcome_frame = "lost", frame

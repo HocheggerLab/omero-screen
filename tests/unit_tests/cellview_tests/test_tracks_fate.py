@@ -252,3 +252,35 @@ def test_bridges_are_proposed_with_confidence() -> None:
     )
     (p,) = json.loads(cells.set_index("start_track").loc[50].proposals)
     assert p["frame"] == 17 and p["confidence"] == "uncertain"
+
+
+def test_jump_onto_a_pre_existing_neighbour_is_flagged_not_acted_on() -> None:
+    """A matching neighbour that already existed before the step is only a
+    suspect: the track is not cut and no relink is proposed."""
+    import json
+
+    good = _rows(70, 0, range(10), 2000, G1, area=600.0)
+    wrong = _rows(
+        70,
+        0,
+        range(10, 41),
+        2000,
+        {"pip": 50.0, "geminin": 100.0},
+        x0=200,
+        area=150.0,
+    )
+    neighbour = _rows(71, 0, range(0, 41), 2010, G1, x0=100, area=600.0)
+    cells, states = _walk(
+        _cycling_cell(10, 500)
+        + _cycling_cell(20, 1500)
+        + good
+        + wrong
+        + neighbour
+    )
+    row = cells.set_index("start_track").loc[70]
+    assert (
+        "jump_suspect" in row.review_flags
+        and "switch" not in row.review_flags.split()
+    )
+    assert states[states.cell == row.cell].timepoint.max() == 40
+    assert all(p["op"] != "link" for p in json.loads(row.proposals))

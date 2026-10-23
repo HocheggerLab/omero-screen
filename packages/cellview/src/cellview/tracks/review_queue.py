@@ -38,7 +38,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 QUESTIONS = {
-    "switch": "The track jumps to a different-looking nucleus while a neighbour continues the cell. Which nucleus is the cell from here?",
+    "switch": "The track jumps to a different-looking nucleus while a new label continues the cell. Which nucleus is the cell from here?",
+    "jump_suspect": "Area or geminin changes abruptly while a neighbour that already existed looks like the cell. A real change in this cell (e.g. an exit), or a jump onto the neighbour?",
     "daughter_pair": "The track ends with geminin high and two half-size nuclei appear beside it. A division whose daughters were not linked?",
     "lost": "The track ends without an outcome. Where does the cell go? Pick its continuation, or mark death.",
     "link_ambiguous": "A break was bridged with more than one candidate. Is the continuation the same cell?",
