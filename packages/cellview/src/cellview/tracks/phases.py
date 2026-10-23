@@ -67,6 +67,11 @@ _N = len(PHASES)
 #: re-accumulation (Rob's convention, the end of replication), not where PIP
 #: is already back up.
 FEATURES = ("pip_n", "ratio", "gem_n", "gem_slope", "pip_rise", "pip_fall")
+#: Emission entries (phase, feature) that EM does not refit: they encode the
+#: S/G2 convention (Rob's: S ends at the first return of PIP), so a well's
+#: data must not loosen or tighten them. Refitted, S's PIP spread shrank until
+#: noise alone ended S at its minimum length.
+_FIXED = ((1, 0), (1, 4))  # (S, pip_n), (S, pip_rise)
 
 
 @dataclass(frozen=True)
@@ -276,19 +281,24 @@ def _build_model(params: PhaseParams) -> _Model:
         pi[idx] = 1.0 / (3 * len(idx))
     with np.errstate(divide="ignore"):
         log_a, log_pi = np.log(a), np.log(pi)
+    # S/G2 follows Rob's convention (decided 2026-10-23): S ends at the first
+    # return of PIP, the switch of the ratio's derivative. S's PIP emission is
+    # therefore tight at the floor and allows no rise; on 5054 C2 the model's
+    # G2 entry then sits a median 1 frame from Rob's rule (was ~7 frames
+    # with a loose S emission).
     # Starting values, refined by EM. Columns follow FEATURES:
     # pip_n, ratio, gem_n, gem_slope, pip_rise, pip_fall.
     # fmt: off
     mean = np.array([
         [1.0, -0.8, 0.03, 0.0, 0.0, 0.0],     # G1
-        [0.05, 0.9, 0.4, 0.08, 0.0, -0.05],   # S: PIP degraded, geminin rising
+        [0.02, 0.9, 0.4, 0.08, 0.0, -0.05],   # S: PIP degraded, geminin rising
         [0.4, 0.4, 0.9, 0.0, 0.08, 0.0],      # G2: PIP climbing back
         [0.6, 0.0, 0.4, -0.15, 0.1, 0.0],     # E: geminin degraded, PIP back
         [1.0, -0.8, 0.03, 0.0, 0.0, 0.0],     # X: as G1
     ])
     sd = np.array([
         [0.3, 0.25, 0.1, 0.04, 0.03, 0.03],
-        [0.08, 0.2, 0.25, 0.06, 0.01, 0.2],   # S: no rising PIP, falling allowed
+        [0.03, 0.2, 0.25, 0.06, 0.005, 0.2],  # S: PIP at floor, no rise
         [0.3, 0.35, 0.3, 0.08, 0.08, 0.03],
         [0.35, 0.5, 0.3, 0.1, 0.1, 0.05],
         [0.3, 0.25, 0.1, 0.04, 0.03, 0.03],
@@ -403,8 +413,11 @@ def fit_emissions(
             v = (scatter + k * (sd0[p] ** 2 + (mu0[p] - m) ** 2)) / (
                 den[p] + k
             )
+            keep = [f for (q, f) in _FIXED if q == p]
+            new_sd = np.sqrt(np.clip(v, params.min_sd**2, None))
+            m[keep], new_sd[keep] = mu0[p, keep], sd0[p, keep]
             model.mean[p] = m
-            model.sd[p] = np.sqrt(np.clip(v, params.min_sd**2, None))
+            model.sd[p] = new_sd
         model.mean[_X], model.sd[_X] = model.mean[_G1], model.sd[_G1]
     return model
 

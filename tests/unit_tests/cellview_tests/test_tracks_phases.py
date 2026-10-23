@@ -25,10 +25,18 @@ def _signals(phases: list[tuple[str, int]], rng, noise: float = 0.06):
             if name == "G1":
                 p, g = PIP_HIGH, GEM_FLOOR
             elif name == "X":
-                # Exit: geminin decays over ~10 frames while PIP returns.
+                # Exit straight from S: geminin decays over ~10 frames while
+                # PIP is still degraded; PIP returns only once geminin is gone.
                 f = min(1.0, (i + 1) / 10)
-                p = (0.12 + 0.88 * f) * PIP_HIGH
+                p = (
+                    0.12 if i < 10 else 0.12 + 0.88 * min(1.0, (i - 9) / 6)
+                ) * PIP_HIGH
                 g = 0.7 * GEM_HIGH * (1 - f) + GEM_FLOOR * f
+            elif name == "XG2":
+                # Exit after G2 entry: PIP already back, geminin decays.
+                f = min(1.0, (i + 1) / 10)
+                p = 0.8 * PIP_HIGH
+                g = GEM_HIGH * (1 - f) + GEM_FLOOR * f
             elif name == "S":
                 p = 0.12 * PIP_HIGH
                 g = GEM_FLOOR + (0.7 * GEM_HIGH - GEM_FLOOR) * (i + 1) / n
@@ -137,7 +145,7 @@ def test_track_starting_in_s_is_left_censored() -> None:
 
 
 def test_exit_from_s_is_x_not_g2() -> None:
-    """Geminin lost from S in one continuing nucleus is an exit, not G2.
+    """Geminin lost while PIP is still degraded is an exit from S, not G2.
 
     The exit is timed at the onset of the geminin decay.
     """
@@ -148,6 +156,19 @@ def test_exit_from_s_is_x_not_g2() -> None:
     assert row.exit_state == "inside" and abs(row.exit - onset) <= 3
     assert row.g2_entry_state != "inside"
     assert "G2" not in set(st[st.cell == 97].phase)
+
+
+def test_exit_after_pip_returns_passes_through_g2() -> None:
+    """Under Rob's convention, PIP back before geminin is lost means G2 first."""
+    cells, states = _cycling_well(
+        {95: [("G1", 15), ("S", 24), ("G2", 12), ("XG2", 30)]}
+    )
+    out, _, _ = annotate_phases(cells, states)
+    row = out.set_index("cell").loc[95]
+    assert (
+        row.g2_entry_state == "inside" and abs(row.g2_entry - (72 + 39)) <= 3
+    )
+    assert row.exit_state == "inside" and abs(row.exit - (72 + 51)) <= 3
 
 
 def test_one_frame_spike_does_not_make_an_s_phase() -> None:
