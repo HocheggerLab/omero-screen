@@ -192,7 +192,9 @@ def test_applied_proposal_can_be_confirmed_or_reverted(
     )
     reverted = []
     monkeypatch.setattr(
-        ReviewSession, "_revert", lambda self, p: reverted.append(p.id)
+        ReviewSession,
+        "_revert",
+        lambda self, p, author="human": reverted.append(p.id),
     )
     s = ReviewSession(_queue_with_proposals(tmp_path))
     applied, pending = s.proposals()
