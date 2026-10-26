@@ -34,6 +34,13 @@ items use the same form (``C2-t72-L524`` is anchor ``(72, 524)`` in well C2).
                 ``measurements`` (taken from the image when it was committed)
                 and the raw labels it ``replaces`` in that frame. It joins the
                 anchored cell if ``cell`` is given, else starts a new track.
+                A split writes two, sharing a ``batch``: if the cut nucleus
+                belonged to another cell, the other part comes first,
+                anchored on the cut nucleus (``cell = [frame, label]``), so it
+                stays in that cell's track; then the reviewed cell's part
+                replaces the raw label. Older logs wrote the other part
+                second with ``cell = None`` (a new track); both replay as
+                written.
 
 **Annotations** (no change to the lineage): ``event`` (``mitosis``,
 ``death``, ``slippage`` at a frame), ``set_outcome``, ``exclude``, ``note``.
@@ -49,7 +56,7 @@ counted.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -537,6 +544,46 @@ def confirmed_frames(
     return out
 
 
+def concerns_cell(curated: Curated, anchor: Anchor) -> Callable[[Edit], bool]:
+    """A predicate: does an edit concern the cell at ``anchor``?
+
+    True when one of the edit's anchors (``cell``, ``other``, ``parent``)
+    equals ``anchor`` or resolves, on ``curated`` (the lineage after replay),
+    to the same curated track as ``anchor``. A ``mask_add`` that joined the
+    cell is therefore included; one that started a new track or joined a
+    neighbour is not on its own, but is reverted with its batch (see
+    :meth:`EditLog.undo`). Anchors that no longer resolve only match by
+    equality.
+    """
+    key = (int(anchor[0]), int(anchor[1]))
+    try:
+        tid: int | None = curated.resolve(key)
+    except EditError:
+        tid = None
+
+    def concerns(edit: Edit) -> bool:
+        for name in ("cell", "other", "parent"):
+            value = edit.args.get(name)
+            if value is None:
+                continue
+            try:
+                other = _anchor(value)
+            except EditError:
+                continue
+            if other == key:
+                return True
+            if tid is None:
+                continue
+            try:
+                if curated.resolve(other) == tid:
+                    return True
+            except EditError:
+                continue
+        return False
+
+    return concerns
+
+
 class EditLog:
     """An append-only JSON-lines edit log on disk."""
 
@@ -665,12 +712,26 @@ class EditLog:
         return new
 
     def undo(
-        self, well: str, author: str = "human", base: Curated | None = None
+        self,
+        well: str,
+        author: str = "human",
+        base: Curated | None = None,
+        concerns: Callable[[Edit], bool] | None = None,
     ) -> Edit:
         """Revert the most recent live edit for ``well``.
 
         Edits written together with a shared ``args["batch"]`` id (one
         reviewer action over many frames) are reverted together.
+
+        Args:
+            well: Well to undo in.
+            author: Who undoes.
+            base: The well's base lineage, to validate the reverted log.
+            concerns: If given, only live edits for which it is true are
+                candidates (e.g. :func:`concerns_cell`): the most recent of
+                them is reverted, with every live entry of its batch, even
+                entries the predicate rejects. There is no fallback to the
+                whole well.
 
         Raises:
             EditError: If there is nothing to undo.
@@ -682,13 +743,21 @@ class EditLog:
             for e in entries
             if e.well == well and e.op != "revert" and e.id not in reverted
         ]
-        if not live:
-            raise EditError(f"Nothing to undo for well {well}.")
-        batch = live[-1].args.get("batch")
+        candidates = (
+            [e for e in live if concerns(e)] if concerns is not None else live
+        )
+        if not candidates:
+            raise EditError(
+                "Nothing to undo for this cell."
+                if concerns is not None
+                else f"Nothing to undo for well {well}."
+            )
+        latest = candidates[-1]
+        batch = latest.args.get("batch")
         targets = (
             [e for e in live if e.args.get("batch") == batch]
             if batch
-            else [live[-1]]
+            else [latest]
         )
         done = self.extend(
             [

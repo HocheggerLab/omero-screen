@@ -241,3 +241,178 @@ def test_confirmed_frames_are_live_links_and_swaps_on_the_replayed_lineage() -> 
     ]
     cur = replay(base, edits, "C2")
     assert confirmed_frames(cur, edits, "C2") == {1: {10}, 2: {20}, 3: {20}}
+
+
+def _merged_neighbour() -> Curated:
+    """Cell (track 1, label 1) t0–9; neighbour (track 2, label 2) t0–9. At t5 the
+    neighbour's mask 2 also covers the cell, which has no own mask there.
+    """
+    base = _curated({1: (range(10), 1), 2: (range(10), 2)})
+    del base.tracks[(5, 1)]
+    return base
+
+
+def test_split_old_form_replays_with_the_other_part_orphaned() -> None:
+    """Old logs: part 1 replaces, part 2 (cell None, replaces []) is a new track;
+    the neighbour's track loses t5. Replayed exactly as before.
+    """
+    base = _merged_neighbour()
+    edits = [
+        Edit(
+            "e0001",
+            "mask_add",
+            "C2",
+            {
+                "cell": [0, 1],
+                "frame": 5,
+                "label": 900,
+                "measurements": {"area": 1.0},
+                "replaces": [2],
+            },
+        ),
+        Edit(
+            "e0002",
+            "mask_add",
+            "C2",
+            {
+                "cell": None,
+                "frame": 5,
+                "label": 901,
+                "measurements": {"area": 1.0},
+                "replaces": [],
+            },
+        ),
+    ]
+    cur = replay(base, edits, "C2")
+    assert cur.tracks[(5, 900)] == 1
+    orphan = cur.tracks[(5, 901)]
+    assert orphan not in (1, 2) and cur.parents[orphan] == 0
+    assert 5 not in _frames(cur, 2)
+
+
+def test_split_new_form_keeps_the_other_part_in_its_owner() -> None:
+    """New logs: part 2 first, anchored on the cut nucleus, joins the neighbour;
+    part 1 then replaces it in the cell. The neighbour's track is unbroken.
+    """
+    base = _merged_neighbour()
+    edits = [
+        Edit(
+            "e0001",
+            "mask_add",
+            "C2",
+            {
+                "cell": [5, 2],
+                "frame": 5,
+                "label": 901,
+                "measurements": {"area": 1.0},
+                "replaces": [],
+                "batch": "s",
+            },
+        ),
+        Edit(
+            "e0002",
+            "mask_add",
+            "C2",
+            {
+                "cell": [0, 1],
+                "frame": 5,
+                "label": 900,
+                "measurements": {"area": 1.0},
+                "replaces": [2],
+                "batch": "s",
+            },
+        ),
+    ]
+    cur = replay(base, edits, "C2")
+    assert cur.tracks[(5, 900)] == 1 and cur.tracks[(5, 901)] == 2
+    assert _frames(cur, 2) == list(range(10)) and _frames(cur, 1) == list(
+        range(10)
+    )
+    assert (5, 2) in cur.removed and (5, 2) not in cur.tracks
+
+
+def test_cell_scoped_undo_skips_other_cells_and_reverts_the_batch(
+    tmp_path,
+) -> None:
+    """Undo with ``concerns_cell`` reverts the cell's latest edit (and its whole
+    batch), never another cell's; with nothing left it refuses, no fallback.
+    """
+    from cellview.tracks.edit import concerns_cell
+
+    base = _merged_neighbour()
+    base.tracks.update({(t, 3): 3 for t in range(10)})
+    base.parents[3] = 0
+    base.next_id = 4
+    log = EditLog(tmp_path / "edits.jsonl")
+    log.extend(
+        [
+            (
+                "mask_add",
+                "C2",
+                {
+                    "cell": [5, 2],
+                    "frame": 5,
+                    "label": 901,
+                    "measurements": {"area": 1.0},
+                    "replaces": [],
+                    "batch": "s",
+                },
+                "",
+            ),
+            (
+                "mask_add",
+                "C2",
+                {
+                    "cell": [0, 1],
+                    "frame": 5,
+                    "label": 900,
+                    "measurements": {"area": 1.0},
+                    "replaces": [2],
+                    "batch": "s",
+                },
+                "",
+            ),
+        ],
+        base=base,
+    )
+    log.append("note", "C2", {"cell": [0, 3], "text": "other cell"}, base=base)
+    log.append("unlink", "C2", {"cell": [0, 3], "frame": 7}, base=base)
+
+    def undo_cell(anchor):
+        return log.undo(
+            "C2",
+            base=base,
+            concerns=concerns_cell(replay(base, log, "C2"), anchor),
+        )
+
+    # The cell (anchor at t2, a frame other than its edits' anchor) reaches its split.
+    undo_cell((2, 1))
+    cur = replay(base, log, "C2")
+    assert (
+        not cur.extras and _frames(cur, 3)[-1] == 6
+    )  # cell 3's unlink untouched
+    with pytest.raises(EditError, match="Nothing to undo for this cell"):
+        undo_cell((2, 1))
+    undo_cell((0, 3))  # the unlink, then the note
+    undo_cell((0, 3))
+    assert not replay(base, log, "C2").annotations.get(3, {}).get("notes")
+    # Without a predicate the whole well is still the scope.
+    with pytest.raises(EditError, match="well C2"):
+        log.undo("C2", base=base)
+
+
+def test_concerns_cell_matches_anchors_that_resolve_to_the_cell() -> None:
+    """Anchors equal to the cell's or resolving to its track concern it."""
+    from cellview.tracks.edit import concerns_cell
+
+    cur = _curated({1: (range(10), 1), 2: (range(10), 2)})
+    concerns = concerns_cell(cur, (0, 1))
+    assert concerns(Edit("e1", "note", "C2", {"cell": [7, 1], "text": ""}))
+    assert concerns(
+        Edit("e2", "swap", "C2", {"cell": [0, 2], "other": [3, 1], "frame": 4})
+    )
+    assert not concerns(Edit("e3", "note", "C2", {"cell": [0, 2], "text": ""}))
+    assert not concerns(
+        Edit("e4", "mask_add", "C2", {"cell": None, "frame": 1, "label": 5})
+    )
+    assert concerns(Edit("e5", "note", "C2", {"cell": [0, 1], "text": ""}))
