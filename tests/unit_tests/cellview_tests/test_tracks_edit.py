@@ -416,3 +416,66 @@ def test_concerns_cell_matches_anchors_that_resolve_to_the_cell() -> None:
         Edit("e4", "mask_add", "C2", {"cell": None, "frame": 1, "label": 5})
     )
     assert concerns(Edit("e5", "note", "C2", {"cell": [0, 1], "text": ""}))
+
+
+def _mask(cell, frame, label, replaces, batch):
+    return {
+        "cell": cell,
+        "frame": frame,
+        "label": label,
+        "measurements": {"area": 1.0},
+        "replaces": replaces,
+        "batch": batch,
+    }
+
+
+def test_split_part_cut_again_leaves_extras_and_undo_restores_it(
+    tmp_path,
+) -> None:
+    """A part of a split (an extra) can be split again: the second split replaces
+    the extra, which leaves ``extras`` (not ``removed``); anchors naming it still
+    resolve; undoing the second split brings the first split's parts back.
+    """
+    from cellview.tracks.edit import concerns_cell
+
+    base = _merged_neighbour()
+    log = EditLog(tmp_path / "edits.jsonl")
+    first = [
+        ("mask_add", "C2", _mask([5, 2], 5, 901, [], "s1"), ""),
+        ("mask_add", "C2", _mask([0, 1], 5, 900, [2], "s1"), ""),
+    ]
+    log.extend(first, base=base)
+    # The cell's part 900 was still two nuclei: cut it, the rest a new track.
+    second = [
+        ("mask_add", "C2", _mask([0, 1], 5, 902, [900], "s2"), ""),
+        ("mask_add", "C2", _mask(None, 5, 903, [], "s2"), ""),
+    ]
+    log.extend(second, base=base)
+    cur = replay(base, log, "C2")
+    assert set(cur.extras) == {(5, 901), (5, 902), (5, 903)}
+    assert (5, 900) not in cur.removed and (5, 900) not in cur.tracks
+    assert cur.tracks[(5, 902)] == 1 and cur.tracks[(5, 901)] == 2
+    assert cur.tracks[(5, 903)] not in (1, 2)
+    assert cur.resolve((5, 900)) == 1  # aliased to the new part
+    assert _frames(cur, 1) == list(range(10))
+
+    # Cutting the neighbour's part: its other part stays in the neighbour.
+    third = [
+        ("mask_add", "C2", _mask([5, 901], 5, 905, [], "s3"), ""),
+        ("mask_add", "C2", _mask([0, 1], 5, 904, [901], "s3"), ""),
+    ]
+    log.extend(third, base=base)
+    cur = replay(base, log, "C2")
+    assert (5, 901) not in cur.extras
+    assert cur.tracks[(5, 905)] == 2 and cur.tracks[(5, 904)] == 1
+    assert _frames(cur, 2) == list(range(10))
+
+    for _ in range(2):  # the third split, then the second
+        log.undo(
+            "C2",
+            base=base,
+            concerns=concerns_cell(replay(base, log, "C2"), (0, 1)),
+        )
+    cur = replay(base, log, "C2")
+    assert set(cur.extras) == {(5, 900), (5, 901)}
+    assert cur.tracks[(5, 900)] == 1 and cur.tracks[(5, 901)] == 2

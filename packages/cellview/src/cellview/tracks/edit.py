@@ -40,7 +40,8 @@ items use the same form (``C2-t72-L524`` is anchor ``(72, 524)`` in well C2).
                 stays in that cell's track; then the reviewed cell's part
                 replaces the raw label. Older logs wrote the other part
                 second with ``cell = None`` (a new track); both replay as
-                written.
+                written. ``replaces`` may name an earlier reviewer mask
+                (a split part cut again): it leaves ``extras``.
 
 **Annotations** (no change to the lineage): ``event`` (``mitosis``,
 ``death``, ``slippage`` at a frame), ``set_outcome``, ``exclude``, ``note``.
@@ -319,7 +320,14 @@ class Curated:
         measurements: dict[str, Any],
         replaces: list[int],
     ) -> None:
-        """Add a reviewer-made nucleus; it replaces raw ``replaces`` labels in ``frame``."""
+        """Add a reviewer-made nucleus; it replaces ``replaces`` labels in ``frame``.
+
+        A replaced label is usually a raw detection (recorded in ``removed``).
+        It may also be an earlier reviewer mask (a part of a previous split,
+        cut again): that one is dropped from ``extras`` instead, so it is
+        neither painted nor measured any more. Both leave an alias, so
+        anchors naming the replaced mask still resolve.
+        """
         key = (int(frame), int(label))
         if key in self.tracks or key in self.extras:
             raise EditError(f"Label {label} already exists in frame {frame}.")
@@ -327,7 +335,10 @@ class Curated:
         for old in replaces:
             old_key = (int(frame), int(old))
             owner = self.tracks.pop(old_key, None)
-            self.removed.add(old_key)
+            if old_key in self.extras:
+                del self.extras[old_key]
+            else:
+                self.removed.add(old_key)
             if owner is not None and (tid is None or owner == tid):
                 # The new mask takes the replaced nucleus's place in its cell.
                 self.aliases.setdefault(old_key, key)
