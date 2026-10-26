@@ -984,7 +984,7 @@ class TrackReviewWidget(QWidget):
             0 <= y < self._nuclei.shape[-2] and 0 <= x < self._nuclei.shape[-1]
         ):
             return 0
-        label = int(np.asarray(self._nuclei[t, y, x]))
+        label = self._label_at(t, y, x)
         if label == 0:
             notifications.show_warning(
                 "No nucleus under the cursor — click inside one."
@@ -1016,6 +1016,23 @@ class TrackReviewWidget(QWidget):
         self._mode, self._seeds = None, []
         self.mode_label.setText("")
 
+    def _label_at(self, t: int, y: int, x: int) -> int:
+        """Nucleus label shown at canvas ``(t, y, x)``, reviewer masks included.
+
+        The raw label array still holds a nucleus a split or drawn mask
+        replaced; reading it would hand back the replaced label.
+        """
+        from omero_screen_napari.review.masks import paint_patches
+
+        raw = np.asarray(self._nuclei[t, y : y + 1, x : x + 1])
+        if self.session is None or self.current is None:
+            return int(raw[0, 0])
+        _, curated = self.session.source.well(self.current.well)
+        shown = paint_patches(
+            raw, t, y, x, curated, self.session.edits_path.parent
+        )
+        return int(shown[0, 0])
+
     def _canvas(self, position: tuple[float, ...]) -> tuple[int, int, int]:
         t = int(self.viewer.dims.current_step[0])
         return (
@@ -1034,7 +1051,7 @@ class TrackReviewWidget(QWidget):
             return
         t, y, x = self._canvas(position)
         label = (
-            int(np.asarray(self._nuclei[t, y, x]))
+            self._label_at(t, y, x)
             if 0 <= y < self._nuclei.shape[-2]
             and 0 <= x < self._nuclei.shape[-1]
             else 0
