@@ -33,10 +33,14 @@ Layers:
 
 **Split** cuts a nucleus along a line: click two points on the boundary
 between the two nuclei; the mask is divided by the infinite line through
-them. The part nearest the cell's position in its nearest earlier frame
-(else later) stays with the cell; the other part stays with the track that
-owned the nucleus, or becomes a new track if that was this cell. The preview
-gives both areas; Shift-Enter writes it.
+them. The part nearest the cell's position in the nearest earlier frame
+where it was a single nucleus of normal size (else later; see
+``masks.normal_frame``) stays with the cell; the other part stays with the
+track that owned the nucleus, or becomes a new track if that was this cell.
+The preview gives both areas; **F** (or *Flip*) swaps which part is the
+cell; Shift-Enter writes it. A part of an earlier split (a reviewer mask)
+can be split again the same way. Mask edits repaint the nuclei layer and
+the cell outline in place.
 
 **Separate by reporter** (Repair window) splits the cell from a
 reporter-negative object merged into its mask, such as a dead cell it has
@@ -55,6 +59,7 @@ Shift-F      toggle follow cell
 Shift-L      link: click the nucleus that is this cell
 1…9          link to numbered candidate
 Shift-X      unlink at current frame
+F            flip a staged split: the other part is the cell
 Shift-Enter  confirm the staged change
 Shift-Z      undo last edit of this cell
 ===========  ==========================================
@@ -206,7 +211,7 @@ class TrackReviewWidget(QWidget):
         self.hide_debris.setToolTip(
             "Blank stationary, reporter-negative objects in the nuclei layer (data untouched)"
         )
-        self.hide_debris.toggled.connect(lambda _: self._apply_debris())
+        self.hide_debris.toggled.connect(lambda _: self._apply_nuclei())
         self.isolate = QCheckBox("Isolate")
         self.isolate.toggled.connect(lambda _: self._update_isolation())
         self.zoom = QSpinBox()
@@ -247,6 +252,12 @@ class TrackReviewWidget(QWidget):
         self.confirm_btn.clicked.connect(self.confirm_staged)
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.clicked.connect(self.cancel_staged)
+        self.flip_btn = QPushButton("Flip")
+        self.flip_btn.setToolTip(
+            "Staged split: swap which part is this cell (F)"
+        )
+        self.flip_btn.clicked.connect(self.flip_split)
+        self.flip_btn.setEnabled(False)
         self.proposal_list = QListWidget()
         self.proposal_list.setMaximumHeight(90)
         self.proposal_list.currentRowChanged.connect(
@@ -306,6 +317,7 @@ class TrackReviewWidget(QWidget):
             "Shift-X": self.unlink_here,
             "Shift-Z": self.undo,
             "Shift-Enter": self.confirm_staged,
+            "F": self.flip_split,
         }
         for n in range(1, 10):
             # Plain digits: Qt reports Shift-digit as the shifted symbol (!, @,
@@ -498,7 +510,7 @@ class TrackReviewWidget(QWidget):
         if NUCLEI_LAYER in self.viewer.layers:
             self.viewer.layers[NUCLEI_LAYER].visible = True
         self._loaded = (plate_id, well)
-        self._apply_debris()
+        self._apply_nuclei()
 
     def go_to(self, item: ReviewItem, frame: int | None = None) -> None:
         """Load the item's well, draw the cell and jump to ``frame`` (default: the item's)."""
@@ -535,6 +547,9 @@ class TrackReviewWidget(QWidget):
             if name in self.viewer.layers:
                 self.viewer.layers.remove(self.viewer.layers[name])
         self.cands = None
+        # Mask edits change the label image itself: repaint it in place, so
+        # a split or its undo shows in the current frame at once.
+        self._apply_nuclei()
         self._draw_path()
         self._show_details()
         self._refresh_log()
@@ -634,7 +649,9 @@ class TrackReviewWidget(QWidget):
         if self._nuclei is not None:
             self.viewer.add_labels(  # ty: ignore[unresolved-attribute]
                 _cell_mask(
-                    self._nuclei, {t: lab for t, _, _, lab in pts if lab}
+                    self._nuclei,
+                    {t: lab for t, _, _, lab in pts if lab},
+                    self._patches(pts),
                 ),
                 name=CELL_LAYER,
                 scale=scale,
@@ -733,26 +750,44 @@ class TrackReviewWidget(QWidget):
         self._centre(later[0] - 1)
         self.show_candidates()
 
-    def _apply_debris(self) -> None:
-        """Show the nuclei layer with debris labels blanked, or the original."""
+    def _apply_nuclei(self) -> None:
+        """Show the nuclei layer as curated: debris hidden, reviewer masks painted.
+
+        Raw labels replaced by a reviewer mask (a split, a drawn nucleus) are
+        cleared and the masks painted with their labels, at every pyramid
+        level, so the layer shows what the edit log says; it is rebuilt after
+        every edit and undo. Debris labels are blanked when *Hide debris* is
+        on.
+        """
         if NUCLEI_LAYER not in self.viewer.layers or not getattr(
             self, "_nuclei_levels", None
         ):
             return
         layer: Any = self.viewer.layers[NUCLEI_LAYER]
         ids: set[int] = set()
-        if (
-            self.hide_debris.isChecked()
-            and self.session is not None
-            and self._loaded is not None
-        ):
+        removed: dict[int, set[int]] = {}
+        patches: dict[int, list[tuple[int, np.ndarray, np.ndarray]]] = {}
+        if self.session is not None and self._loaded is not None:
+            well = self._loaded[1]
+            if self.hide_debris.isChecked():
+                try:
+                    ids = self.session.source.debris(well)
+                except Exception as err:
+                    notifications.show_warning(
+                        f"Could not classify debris: {err}"
+                    )
             try:
-                ids = self.session.source.debris(self._loaded[1])
+                removed, patches = _curated_overrides(
+                    self.session.source.well(well)[1],
+                    self.session.edits_path.parent,
+                )
             except Exception as err:
-                notifications.show_warning(f"Could not classify debris: {err}")
+                logger.warning(
+                    f"Track review: reviewer masks not shown: {err}"
+                )
         layer.data = (
-            _hide_labels(self._nuclei_levels, ids)
-            if ids
+            _overlay_labels(self._nuclei_levels, ids, removed, patches)
+            if ids or removed or patches
             else self._nuclei_levels
         )
         self.status.setToolTip(
@@ -806,6 +841,11 @@ class TrackReviewWidget(QWidget):
     def _set_staged_enabled(self, on: bool) -> None:
         self.confirm_btn.setEnabled(on)
         self.cancel_btn.setEnabled(on)
+        self.flip_btn.setEnabled(
+            on
+            and self._staged is not None
+            and self._staged.get("kind") == "split"
+        )
 
     def _clear_staged(self) -> None:
         self._staged = None
@@ -1039,27 +1079,48 @@ class TrackReviewWidget(QWidget):
         except (MaskError, EditError, KeyError, ValueError) as err:
             notifications.show_warning(f"Split: {err}")
             return
+        self._show_split(plan)
+
+    def _show_split(self, plan: Any) -> None:
+        """Draw a split plan and stage it (also after a flip)."""
+        if SEPARATION_LAYER in self.viewer.layers:
+            self.viewer.layers.remove(self.viewer.layers[SEPARATION_LAYER])
         cell_px, other_px = int(plan.cell.sum()), int(plan.other.sum())
+        what = "mask" if plan.from_extra else "nucleus"
         title = (
-            f"Split {plan.label} at t{t}: cell {cell_px} px / other "
-            f"{other_px} px — Shift-Enter to confirm"
+            f"Split {what} {plan.label} at t{plan.frame}: cell {cell_px} px / "
+            f"other {other_px} px — F to flip, Shift-Enter to confirm"
         )
+        if plan.flipped:
+            how = "chosen by you (flipped)"
+        elif plan.reference is None:
+            how = "the larger part (the cell has no other frame)"
+        else:
+            how = (
+                f"nearest the cell at t{plan.reference_frame}"
+                if plan.reference_frame is not None
+                else "nearest the cell in its nearest other frame"
+            )
         lines = [
-            "cell part (1): "
-            + (
-                "nearest the cell's position in its nearest other frame"
-                if plan.reference is not None
-                else "the larger part (the cell has no other frame)"
-            ),
+            f"cell part (1): {how}",
             "other part (2): "
             + (
-                f"stays with the track that owned nucleus {plan.label}"
+                f"stays with the track that owned {what} {plan.label}"
                 if plan.other_cell is not None
                 else "becomes a new track"
             ),
         ]
         self._draw_separation(plan)
-        self._stage({"kind": "split", "frame": t, "plan": plan}, title, lines)
+        self._stage(
+            {"kind": "split", "frame": plan.frame, "plan": plan}, title, lines
+        )
+
+    def flip_split(self) -> None:
+        """Swap which part of the staged split is this cell (F)."""
+        staged = self._staged
+        if staged is None or staged.get("kind") != "split":
+            return
+        self._show_split(staged["plan"].flip())
 
     def start_drawing(self) -> None:
         """Add an empty paint layer for the current frame; paint the missed nucleus."""
@@ -1684,7 +1745,7 @@ class RepairWindow(QDialog):
         scroll.setMinimumHeight(70)
         scroll.setMaximumHeight(220)
         lay.addWidget(scroll)
-        lay.addLayout(_row([ui.confirm_btn, ui.cancel_btn]))
+        lay.addLayout(_row([ui.confirm_btn, ui.flip_btn, ui.cancel_btn]))
         agent = QGroupBox("Agent proposals")
         lay = QVBoxLayout(agent)
         lay.addWidget(ui.proposal_list)
@@ -1777,24 +1838,91 @@ def _separation_mask(
     return out, (y0, x0)
 
 
-def _hide_labels(levels: list[Any], ids: set[int]) -> list[Any]:
-    """Lazy copies of a label pyramid with ``ids`` set to background."""
+def _curated_overrides(
+    curated: Any, base_dir: Path
+) -> tuple[dict[int, set[int]], dict[int, list[tuple[int, Any, Any]]]]:
+    """Reviewer-mask changes to the raw label image, by frame.
+
+    Returns:
+        ``(removed, patches)``: raw labels replaced in each frame, and each
+        frame's reviewer masks as ``(label, ys, xs)`` canvas pixel indices.
+        A reviewer mask replaced by a later one (a split part cut again) is
+        no longer in ``curated.extras`` and so not painted.
+    """
+    from omero_screen_napari.review.masks import load_patch
+
+    removed: dict[int, set[int]] = {}
+    for t, lab in curated.removed:
+        removed.setdefault(int(t), set()).add(int(lab))
+    patches: dict[int, list[tuple[int, Any, Any]]] = {}
+    for (t, lab), meas in sorted(curated.extras.items()):
+        if "patch" not in meas:
+            continue
+        py, px, mask = load_patch(base_dir, meas["patch"])
+        ys, xs = np.nonzero(mask)
+        patches.setdefault(int(t), []).append((int(lab), ys + py, xs + px))
+    return removed, patches
+
+
+def _overlay_labels(
+    levels: list[Any],
+    ids: set[int],
+    removed: dict[int, set[int]],
+    patches: dict[int, list[tuple[int, Any, Any]]],
+) -> list[Any]:
+    """Lazy copies of a label pyramid as curated.
+
+    ``ids`` (debris) are blanked in every frame; in each frame, the raw
+    labels in ``removed`` are blanked and the ``patches`` (level-0 canvas
+    pixels) painted, scaled to each level by its shape.
+    """
     import dask.array as da
 
     lut = np.array(sorted(ids), dtype=np.int64)
-
-    def blank(block: np.ndarray) -> np.ndarray:
-        out = block.copy()
-        out[np.isin(block, lut)] = 0
-        return out
-
-    return [
+    arrs = [
         (
             da.from_zarr(lv)
             if not isinstance(lv, np.ndarray | da.Array)
             else da.asarray(lv)
-        ).map_blocks(blank, dtype=lv.dtype)
+        )
         for lv in levels
+    ]
+    full_y, full_x = arrs[0].shape[-2:]
+
+    def paint(
+        block: np.ndarray, fy: float, fx: float, block_info: Any = None
+    ) -> np.ndarray:
+        loc = block_info[0]["array-location"] if block_info else None
+        t0, y_off, x_off = (
+            (loc[0][0], loc[1][0], loc[2][0]) if loc else (0, 0, 0)
+        )
+        out = block.copy()
+        if lut.size:
+            out[np.isin(block, lut)] = 0
+        for i in range(block.shape[0]):
+            t = t0 + i
+            if t in removed:
+                out[i][np.isin(block[i], list(removed[t]))] = 0
+            for lab, ys, xs in patches.get(t, []):
+                yy = (ys / fy).astype(np.int64) - y_off
+                xx = (xs / fx).astype(np.int64) - x_off
+                ok = (
+                    (yy >= 0)
+                    & (yy < block.shape[1])
+                    & (xx >= 0)
+                    & (xx < block.shape[2])
+                )
+                out[i, yy[ok], xx[ok]] = lab
+        return out
+
+    return [
+        a.map_blocks(
+            paint,
+            full_y / a.shape[-2],
+            full_x / a.shape[-1],
+            dtype=a.dtype,
+        )
+        for a in arrs
     ]
 
 

@@ -400,3 +400,164 @@ def test_split_line_missing_the_nucleus_is_refused(
     with pytest.raises(MaskError):
         masks.plan_split(session, "C2-t0-L1", 2, (50, 0), (50, 10))
     assert not session.edits_path.exists()
+
+
+def test_normal_frame_skips_merged_frames() -> None:
+    """Plate 5054 C3: the cell is ~700 px alone but merged (1600 px) at t150
+    and t152; splitting at t153 takes t151 as the reference, not t152.
+    """
+    from omero_screen_napari.review.masks import normal_frame
+
+    areas = {t: 700.0 + (t % 3) * 20 for t in range(140, 152)}
+    areas.update({150: 1600.0, 152: 1638.0, 154: 1700.0, 157: 690.0})
+    assert normal_frame(areas, 153) == 151
+    # Merged in most frames before (6 of 10): the band still comes from the
+    # normal ones, since merges only make the area larger.
+    merged = {t: 700.0 for t in range(143, 147)} | {
+        t: 1650.0 for t in range(147, 153)
+    }
+    assert normal_frame(merged, 153) == 146
+    # No frame before: the nearest normal frame after.
+    later = {155: 720.0, 156: 3000.0, 157: 700.0}
+    assert normal_frame(later, 153) == 155
+    assert normal_frame({153: 700.0}, 153) is None
+
+
+def test_reference_detection_uses_reviewer_masks_and_falls_back() -> None:
+    """Areas of reviewer masks count; with no normal frame, the nearest earlier."""
+    from cellview.tracks.edit import Curated
+    from omero_screen_napari.review.masks import reference_detection
+
+    det = pd.DataFrame(
+        {
+            "timepoint": [0, 1, 2, 3],
+            "label": [1, 1, 1, 1],
+            "y": [0.0, 10.0, 50.0, 90.0],
+            "x": [0.0, 10.0, 50.0, 90.0],
+            "area": [100.0, 100.0, 400.0, 100.0],
+        }
+    )
+    # t2 is a merged raw mask, but at t3 a reviewer mask (area 100) is the cell.
+    cur = Curated(
+        tracks={(0, 1): 1, (1, 1): 1, (2, 1): 1, (3, 900): 1},
+        parents={1: 0},
+        extras={(3, 900): {"area": 100.0, "y": 70.0, "x": 70.0}},
+    )
+    assert reference_detection(det, cur, 1, 4) == (3, (70.0, 70.0))
+    assert reference_detection(det, cur, 1, 3) == (1, (10.0, 10.0))
+    odd = Curated(tracks={(1, 1): 1, (2, 1): 1}, parents={1: 0})
+    det2 = det.assign(area=[10.0, 10.0, 1000.0, 100.0])
+    # t1 (10 px) and t2 (1000 px): neither is within the band of their median.
+    assert reference_detection(det2, odd, 1, 3) == (2, (50.0, 50.0))
+
+
+def test_flipped_split_gives_the_cell_the_other_part(
+    tmp_path, monkeypatch
+) -> None:
+    """Flip swaps the parts (twice is the identity); commit writes the flip."""
+    from cellview.tracks.edit import EditLog, replay
+    from omero_screen_napari.review import masks
+
+    session, curated = _split_session(tmp_path, monkeypatch)
+    plan = masks.plan_split(session, "C2-t0-L1", 2, (15, 37), (45, 37))
+    flipped = plan.flip()
+    assert flipped.flipped and not flipped.flip().flipped
+    assert (flipped.cell == plan.other).all() and (
+        flipped.other == plan.cell
+    ).all()
+    assert flipped.other_cell == plan.other_cell == [2, 2]
+    entries = masks.commit_split(session, flipped)
+    cell_entry = entries[-1]
+    assert cell_entry.args["cell"] == [0, 1]
+    assert cell_entry.args["measurements"]["area"] == float(plan.other.sum())
+    assert "chosen by the reviewer" in cell_entry.reason
+    after = replay(curated, EditLog(session.edits_path), "C2")
+    py, px, mask = load_patch(
+        session.edits_path.parent, cell_entry.args["measurements"]["patch"]
+    )
+    full = np.zeros((60, 80), bool)
+    full[py : py + mask.shape[0], px : px + mask.shape[1]] = mask
+    assert full[30, 44] and not full[30, 30]  # the right part, as flipped
+    assert after.tracks[(2, cell_entry.args["label"])] == 1
+
+
+def test_a_split_part_can_be_split_again(tmp_path, monkeypatch) -> None:
+    """Cut the merged mask, then cut the cell's part again: the second cut is
+    found under the line on the curated labels, read from the patch, replaces
+    the part; replay paints only the new parts; undo restores the first cut.
+    """
+    from cellview.tracks.edit import EditLog, replay
+    from omero_screen_napari.review import masks
+
+    session, curated = _split_session(tmp_path, monkeypatch)
+    first = masks.commit_split(
+        session, masks.plan_split(session, "C2-t0-L1", 2, (15, 37), (45, 37))
+    )
+    part = first[-1].args["label"]  # the cell's (left) part
+    plan = masks.plan_split(session, "C2-t0-L1", 2, (15, 30), (45, 30))
+    assert plan.label == part and plan.from_extra
+    assert plan.other_cell is None  # the cell's own mask: rest is a new track
+    assert (
+        plan.cell.sum() + plan.other.sum()
+        == first[-1].args["measurements"]["area"]
+    )
+    second = masks.commit_split(session, plan)
+    assert second[0].args["replaces"] == [part]
+    assert "reviewer mask" in second[0].reason
+    after = replay(curated, EditLog(session.edits_path), "C2")
+    new_cell, new_other = second[0].args["label"], second[1].args["label"]
+    assert (2, part) not in after.extras
+    assert after.tracks[(2, new_cell)] == 1
+    assert after.tracks[(2, new_other)] not in (1, 2, 9)
+    assert after.tracks[(2, first[0].args["label"])] == 2  # neighbour's part
+    labels = masks.paint_patches(
+        np.asarray(masks._arrays(None, "")[1][2]),
+        2,
+        0,
+        0,
+        after,
+        session.edits_path.parent,
+    )
+    assert part not in labels and 2 not in labels
+    assert {new_cell, new_other} <= set(np.unique(labels))
+    # The measurement background came from a raw nucleus, not a reviewer mask.
+    assert second[0].args["measurements"]["dna"] == pytest.approx(500.0)
+
+    session.undo("C2-t0-L1")
+    back = replay(curated, EditLog(session.edits_path), "C2")
+    assert set(back.extras) == {(2, part), (2, first[0].args["label"])}
+    assert back.tracks[(2, part)] == 1
+
+
+def test_nuclei_layer_shows_reviewer_masks_at_every_level(tmp_path) -> None:
+    """The nuclei layer is repainted as curated: replaced raw labels cleared,
+    live reviewer masks painted (scaled per pyramid level), debris blanked; a
+    mask replaced by a later split is not painted.
+    """
+    from cellview.tracks.edit import Curated
+    from omero_screen_napari._review_widget import (
+        _curated_overrides,
+        _overlay_labels,
+    )
+
+    full = np.zeros((2, 8, 8), np.uint32)
+    full[1, 0:4, 0:8] = 5  # merged raw nucleus at t1
+    full[:, 6:8, 6:8] = 7  # debris
+    left = np.zeros((4, 4), bool)
+    left[:, :] = True
+    right = left.copy()
+    rel_a = save_patch(tmp_path / "masks", "C2", 1, 10, 0, 0, left)
+    rel_b = save_patch(tmp_path / "masks", "C2", 1, 11, 0, 4, right)
+    cur = Curated(
+        tracks={(1, 10): 1, (1, 11): 2},
+        parents={1: 0, 2: 0},
+        extras={(1, 10): {"patch": rel_a}, (1, 11): {"patch": rel_b}},
+        removed={(1, 5)},
+    )
+    removed, patches = _curated_overrides(cur, tmp_path)
+    levels = [full, full[:, ::2, ::2]]
+    out = [np.asarray(lv) for lv in _overlay_labels(levels, {7}, removed, patches)]
+    assert out[0][1, 0, 0] == 10 and out[0][1, 0, 7] == 11
+    assert 5 not in out[0] and 7 not in out[0] and 7 not in out[1]
+    assert out[1][1, 0, 0] == 10 and out[1][1, 1, 3] == 11
+    assert (out[0][0] == 0).all()  # t0: only debris, blanked

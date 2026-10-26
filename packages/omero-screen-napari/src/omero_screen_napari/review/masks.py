@@ -16,7 +16,7 @@ over its own pixels minus its stored background-subtracted value).
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -202,44 +202,129 @@ def cell_part(
     return 0 if d[0] <= d[1] else 1
 
 
-def reference_position(
-    det: pd.DataFrame, curated: Any, tid: int, frame: int
-) -> tuple[float, float] | None:
-    """Where curated track ``tid`` is in the frame nearest ``frame``.
+#: Frames before the split whose areas set the cell's normal size.
+NORMAL_WINDOW = 10
+#: A frame is "normal" when its area is within this factor band of the
+#: cell's typical area.
+NORMAL_BAND = (0.6, 1.4)
 
-    The nearest earlier frame the track has a detection in; if none, the
-    nearest later one; ``None`` if the track has no other frame. Several
-    detections in that frame give their area-weighted centroid; reviewer
-    masks are placed by their stored measurements.
+
+def cell_areas(
+    det: pd.DataFrame, curated: Any, tid: int
+) -> dict[int, tuple[float, float, float]]:
+    """``frame -> (area, y, x)`` of curated track ``tid``.
+
+    Reviewer masks count by their stored measurements, raw detections by
+    their row in ``det``. Several detections in one frame sum their areas
+    and give their area-weighted centroid.
     """
-    keys = [k for k in curated.detections(tid) if k[0] != frame]
-    if not keys:
-        return None
-    earlier = [t for t, _ in keys if t < frame]
-    t_ref = max(earlier) if earlier else min(t for t, _ in keys)
     rows = det.set_index(["timepoint", "label"])
-    pts = []
-    for t, lab in keys:
-        if t != t_ref:
-            continue
+    by_frame: dict[int, list[tuple[float, float, float]]] = {}
+    for t, lab in curated.detections(tid):
         if (t, lab) in curated.extras:
             m = curated.extras[(t, lab)]
-            pts.append(
-                (float(m["y"]), float(m["x"]), float(m.get("area", 1.0)))
-            )
+            pt = (float(m.get("area", 1.0)), float(m["y"]), float(m["x"]))
         elif (t, lab) in rows.index:
             r = rows.loc[(t, lab)]
             if isinstance(r, pd.DataFrame):
                 r = r.iloc[0]
-            pts.append((float(r["y"]), float(r["x"]), float(r["area"])))
-    if not pts:
+            pt = (float(r["area"]), float(r["y"]), float(r["x"]))
+        else:
+            continue
+        by_frame.setdefault(int(t), []).append(pt)
+    out = {}
+    for t, pts in by_frame.items():
+        a = np.array([p[0] for p in pts])
+        w = a if a.sum() > 0 else np.ones_like(a)
+        out[t] = (
+            float(a.sum()),
+            float(np.average([p[1] for p in pts], weights=w)),
+            float(np.average([p[2] for p in pts], weights=w)),
+        )
+    return out
+
+
+def normal_frame(
+    areas: dict[int, float],
+    frame: int,
+    window: int = NORMAL_WINDOW,
+    band: tuple[float, float] = NORMAL_BAND,
+) -> int | None:
+    """The nearest frame where the cell is a single nucleus of normal size.
+
+    Rule (simple, robust to a run of merged frames):
+
+    1. Take the cell's last ``window`` frames before ``frame`` (if it has
+       none, its first ``window`` frames after). ``m0`` is the **lower
+       quartile** of their areas, not the median: merges (the error a
+       split corrects) only ever make the area larger, and a cell about to
+       be split is often merged in half the frames before it, so the
+       median would be a merged size. The **typical area** is the median
+       of the window's areas within ``band`` × ``m0`` (``m0`` itself if
+       none is).
+    2. The answer is the nearest earlier frame whose area is within
+       ``band`` × the typical area; else the nearest such later frame;
+       else ``None``.
+
+    On plate 5054 C3 (a ~700 px nucleus merged at t147, t150, t152–156)
+    this gives t151 (696 px) for a split at t153–155, where the nearest
+    earlier frame, t152, is itself merged (1638 px).
+
+    Args:
+        areas: ``frame -> area`` of the cell (``frame`` itself is ignored).
+        frame: The frame being split.
+        window: How many neighbouring frames set the typical area.
+        band: ``(low, high)`` factors of the typical area that count as normal.
+    """
+    earlier = sorted(t for t in areas if t < frame)
+    later = sorted(t for t in areas if t > frame)
+    ref = earlier[-window:] or later[:window]
+    if not ref:
         return None
-    w = np.array([p[2] for p in pts])
-    w = w if w.sum() > 0 else np.ones_like(w)
-    return (
-        float(np.average([p[0] for p in pts], weights=w)),
-        float(np.average([p[1] for p in pts], weights=w)),
-    )
+    m0 = float(np.percentile([areas[t] for t in ref], 25))
+    inside = [
+        areas[t] for t in ref if band[0] * m0 <= areas[t] <= band[1] * m0
+    ]
+    typical = float(np.median(inside)) if inside else m0
+    lo, hi = band[0] * typical, band[1] * typical
+    for t in [*reversed(earlier), *later]:
+        if lo <= areas[t] <= hi:
+            return t
+    return None
+
+
+def reference_detection(
+    det: pd.DataFrame, curated: Any, tid: int, frame: int
+) -> tuple[int, tuple[float, float]] | None:
+    """``(frame, (y, x))`` of the cell where it best shows which part it is.
+
+    The cell's position in :func:`normal_frame` (nearest earlier frame where
+    it is a single nucleus of normal size, else nearest later); if no frame
+    passes that test, the nearest earlier frame it has a detection in, else
+    the nearest later one; ``None`` if the track has no other frame.
+    """
+    found = {
+        t: v for t, v in cell_areas(det, curated, tid).items() if t != frame
+    }
+    if not found:
+        return None
+    t_ref = normal_frame({t: v[0] for t, v in found.items()}, frame)
+    if t_ref is None:
+        earlier = [t for t in found if t < frame]
+        t_ref = max(earlier) if earlier else min(found)
+    _, y, x = found[t_ref]
+    return t_ref, (y, x)
+
+
+def reference_position(
+    det: pd.DataFrame, curated: Any, tid: int, frame: int
+) -> tuple[float, float] | None:
+    """Where curated track ``tid`` is in its reference frame for ``frame``.
+
+    See :func:`reference_detection`; ``None`` if the track has no other frame.
+    """
+    found = reference_detection(det, curated, tid, frame)
+    return None if found is None else found[1]
 
 
 def label_on_segment(
@@ -423,7 +508,7 @@ def commit_drawn(
             "x",
         }
     ]
-    det_frame = det[(det["timepoint"] == frame) & ~det["label"].isin(replaces)]
+    det_frame = _measured_rows(det, curated, frame, replaces)
     meas = measure(
         image,
         nuclei,
@@ -695,9 +780,7 @@ def commit_separation(session: Any, plan: SeparationPlan) -> list[Any]:
     items: list[tuple[str, dict[str, Any], str]] = []
     for fs in plan.frames:
         t = fs.frame
-        det_frame = det[
-            (det["timepoint"] == t) & ~det["label"].isin(fs.replaces)
-        ]
+        det_frame = _measured_rows(det, curated, t, fs.replaces)
         for part, label, extra in (
             (fs.cell, new, {"replaces": fs.replaces}),
             (
@@ -747,7 +830,8 @@ class SplitPlan:
     Attributes:
         item_id: Review item whose cell keeps ``cell``.
         frame: Timepoint.
-        label: Raw label of the nucleus that is cut.
+        label: Label of the mask that is cut: a raw label, or a reviewer
+            mask (``from_extra``) such as a part of an earlier split.
         y0, x0: Canvas origin of the masks.
         cell: Boolean mask of the part that is the reviewed cell.
         other: Boolean mask of the other part.
@@ -755,8 +839,11 @@ class SplitPlan:
             ``label`` before the cut when that is not the reviewed cell (the
             other part stays in it), else ``None`` (the other part becomes a
             new track).
-        reference: The cell's position in the nearest other frame that
-            decided which part is the cell (``None``: the larger part).
+        reference: The cell's position in the reference frame that decided
+            which part is the cell (``None``: the larger part).
+        reference_frame: That frame (see :func:`reference_detection`).
+        flipped: The reviewer swapped the automatic choice of the cell's part.
+        from_extra: ``label`` is a reviewer mask, cut from its patch.
     """
 
     item_id: str
@@ -768,6 +855,19 @@ class SplitPlan:
     other: np.ndarray
     other_cell: list[int] | None
     reference: tuple[float, float] | None
+    reference_frame: int | None = None
+    flipped: bool = False
+    from_extra: bool = False
+
+    def flip(self) -> SplitPlan:
+        """The same cut with the parts swapped: the other part is the cell.
+
+        Ownership of the cut mask (``other_cell``) does not change: whichever
+        part is not the cell stays with that owner.
+        """
+        return replace(
+            self, cell=self.other, other=self.cell, flipped=not self.flipped
+        )
 
     @property
     def frames(self) -> list[FrameSeparation]:
@@ -785,6 +885,42 @@ class SplitPlan:
         ]
 
 
+def curated_labels(
+    nuclei: Any,
+    frame: int,
+    y0: int,
+    x0: int,
+    y1: int,
+    x1: int,
+    curated: Any,
+    base_dir: Path | None,
+) -> np.ndarray:
+    """Labels of ``frame`` in the box ``[y0:y1, x0:x1]`` as curated.
+
+    Raw labels replaced by reviewer masks are cleared and the reviewer
+    masks painted in (:func:`paint_patches`), so what is under a click is
+    what the reviewer sees.
+    """
+    y0, x0 = max(y0, 0), max(x0, 0)
+    crop = np.asarray(nuclei[frame, y0:y1, x0:x1])
+    return paint_patches(crop, frame, y0, x0, curated, base_dir)
+
+
+def _measured_rows(
+    det: pd.DataFrame, curated: Any, frame: int, exclude: list[int]
+) -> pd.DataFrame:
+    """Detections of ``frame`` the pipeline measured (no reviewer masks).
+
+    :func:`measure` recovers the frame's background from one of these, by
+    reading its pixels from the raw label array, so a reviewer mask (whose
+    label is not in that array) must not be offered as the reference.
+    """
+    extra = [lab for t, lab in curated.extras if t == frame]
+    return det[
+        (det["timepoint"] == frame) & ~det["label"].isin([*exclude, *extra])
+    ]
+
+
 def plan_split(
     session: Any,
     item_id: str,
@@ -796,9 +932,12 @@ def plan_split(
     """Cut the nucleus between two canvas clicks along the line through them.
 
     The nucleus is ``label`` or, if not given, the one the segment between
-    the clicks crosses most. Which side is the reviewed cell is decided by
-    :func:`reference_position` (the cell in its nearest earlier frame, else
-    nearest later) and :func:`cell_part`. Nothing is written.
+    the clicks crosses most, as curated: a reviewer mask (e.g. a part of an
+    earlier split) is found and cut from its patch, so a cut can be refined
+    by cutting again. Which side is the reviewed cell is decided by
+    :func:`reference_detection` (the cell where it was last a single nucleus
+    of normal size) and :func:`cell_part`; :meth:`SplitPlan.flip` swaps it.
+    Nothing is written.
 
     Raises:
         MaskError: If no nucleus is under the line or the line does not cut it.
@@ -806,11 +945,14 @@ def plan_split(
     item = session.item(item_id)
     _, nuclei, _ = _arrays(session, item.well)
     det, curated = session.source.well(item.well)
+    base_dir = session.edits_path.parent
     if label is None:
         my, mx = (p1[0] + p2[0]) // 2, (p1[1] + p2[1]) // 2
         r = int(np.hypot(p2[0] - p1[0], p2[1] - p1[1])) // 2 + 2
         ly0, lx0 = max(my - r, 0), max(mx - r, 0)
-        crop = np.asarray(nuclei[frame, ly0 : my + r + 1, lx0 : mx + r + 1])
+        crop = curated_labels(
+            nuclei, frame, ly0, lx0, my + r + 1, mx + r + 1, curated, base_dir
+        )
         label = label_on_segment(
             crop, (p1[0] - ly0, p1[1] - lx0), (p2[0] - ly0, p2[1] - lx0)
         )
@@ -819,29 +961,40 @@ def plan_split(
                 "No nucleus under the cut line; click two points on the "
                 "boundary between the nuclei."
             )
-    row = det[(det["timepoint"] == frame) & (det["label"] == label)]
-    if row.empty:
-        raise MaskError(f"No nucleus {label} in frame {frame}.")
-    half = int(np.sqrt(float(row["area"].iloc[0]))) * 2 + 8
-    cy, cx = (
-        int(round(float(row["y"].iloc[0]))),
-        int(round(float(row["x"].iloc[0]))),
-    )
-    y0, x0 = max(cy - half, 0), max(cx - half, 0)
-    region = np.asarray(nuclei[frame, y0 : cy + half, x0 : cx + half]) == label
+    key = (int(frame), int(label))
+    meas = curated.extras.get(key)
+    if meas is not None:
+        if "patch" not in meas:
+            raise MaskError(f"Mask {label} at t{frame} has no stored pixels.")
+        y0, x0, region = load_patch(base_dir, meas["patch"])
+        region = region.astype(bool)
+    else:
+        row = det[(det["timepoint"] == frame) & (det["label"] == label)]
+        if row.empty:
+            raise MaskError(f"No nucleus {label} in frame {frame}.")
+        half = int(np.sqrt(float(row["area"].iloc[0]))) * 2 + 8
+        cy, cx = (
+            int(round(float(row["y"].iloc[0]))),
+            int(round(float(row["x"].iloc[0]))),
+        )
+        y0, x0 = max(cy - half, 0), max(cx - half, 0)
+        region = (
+            np.asarray(nuclei[frame, y0 : cy + half, x0 : cx + half]) == label
+        )
     parts = cut_mask(
         region, (p1[0] - y0, p1[1] - x0), (p2[0] - y0, p2[1] - x0)
     )
     tid = curated.resolve(session.anchor(item_id))
-    reference = reference_position(det, curated, tid, frame)
+    found = reference_detection(det, curated, tid, frame)
+    reference = None if found is None else found[1]
     i = cell_part(parts, y0, x0, reference)
-    owner = curated.tracks.get((int(frame), int(label)))
+    owner = curated.tracks.get(key)
     return SplitPlan(
         item_id=item_id,
         frame=int(frame),
         label=int(label),
-        y0=y0,
-        x0=x0,
+        y0=int(y0),
+        x0=int(x0),
         cell=parts[i],
         other=parts[1 - i],
         other_cell=(
@@ -850,6 +1003,8 @@ def plan_split(
             else None
         ),
         reference=reference,
+        reference_frame=None if found is None else found[0],
+        from_extra=meas is not None,
     )
 
 
@@ -860,10 +1015,14 @@ def commit_split(session: Any, plan: SplitPlan) -> list[Any]:
     If the cut nucleus belonged to another cell's curated track, the other
     part is written **first**, anchored on the cut nucleus itself
     (``cell = [frame, label]``), so it joins that track before the cell's
-    part replaces the raw label: the neighbour's track continues through
+    part replaces the cut label: the neighbour's track continues through
     the split frame. If the nucleus was the reviewed cell's own (or no
     track's), the other part becomes a new track (``cell = None``), as
     before — the reviewer then links it where it belongs.
+
+    The cut label may be a reviewer mask (a part of an earlier split); the
+    cell's part then replaces it, and replay drops it from the extras.
+    Both parts are measured afresh from the image.
 
     Returns:
         The written entries, the cell's part last.
@@ -874,15 +1033,16 @@ def commit_split(session: Any, plan: SplitPlan) -> list[Any]:
     cmap = channel_map(
         names, [c for c in det.columns if c not in _NOT_CHANNELS]
     )
-    det_frame = det[
-        (det["timepoint"] == plan.frame) & (det["label"] != plan.label)
-    ]
+    det_frame = _measured_rows(det, curated, plan.frame, [plan.label])
     new = next_label(det, curated)
     batch = (
         f"split-t{plan.frame}-L{plan.label}-"
         f"{datetime.now().strftime('%Y%m%dT%H%M%S')}"
     )
-    reason = f"split nucleus {plan.label} at t{plan.frame} along a line"
+    what = "reviewer mask" if plan.from_extra else "nucleus"
+    reason = f"split {what} {plan.label} at t{plan.frame} along a line"
+    if plan.flipped:
+        reason += " (cell part chosen by the reviewer)"
     parts = [
         (plan.cell, new, {"replaces": [plan.label]}),
         (plan.other, new + 1, {"replaces": [], "cell": plan.other_cell}),
