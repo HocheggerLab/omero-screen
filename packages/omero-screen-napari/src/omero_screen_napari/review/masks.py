@@ -123,6 +123,148 @@ def split_mask(
     return out
 
 
+def cut_mask(
+    region: np.ndarray, p1: tuple[float, float], p2: tuple[float, float]
+) -> tuple[np.ndarray, np.ndarray]:
+    """Divide a boolean nucleus mask by the infinite line through two points.
+
+    The reviewer clicks two points on the boundary between two touching
+    nuclei; the line through them is the cut. Unlike :func:`split_mask`
+    (a watershed on the distance transform, which cuts wherever the outline
+    is thinnest), the cut goes exactly where the reviewer put it, which is
+    what is wanted when two nuclei touch broadly and there is no neck.
+
+    Rules:
+
+    * The points need not lie inside the mask, only on the line wanted.
+    * Pixels exactly on the line go to the side that is smaller without
+      them (to the first side on a tie), so the cut never favours the
+      bigger part.
+    * A side is kept whole even if the line leaves it in several connected
+      pieces (a concave outline): every piece on one side of the line is
+      one part. Nothing is discarded, so the two parts always cover the
+      mask exactly.
+
+    Args:
+        region: Boolean mask of the nucleus (crop coordinates).
+        p1, p2: ``(y, x)`` points on the cut line, crop coordinates.
+
+    Returns:
+        ``(side_a, side_b)``: ``side_a`` is left of the direction p1 → p2
+        (positive cross product in ``(y, x)``), ``side_b`` the other side.
+
+    Raises:
+        MaskError: If the points coincide or one side of the cut is empty.
+    """
+    (y1, x1), (y2, x2) = p1, p2
+    dy, dx = float(y2) - float(y1), float(x2) - float(x1)
+    if dy == 0 and dx == 0:
+        raise MaskError("The two points of the cut line coincide.")
+    yy, xx = np.indices(region.shape, dtype=np.float64)
+    side = dy * (xx - float(x1)) - dx * (yy - float(y1))
+    a = region & (side > 0)
+    b = region & (side < 0)
+    on = region & (side == 0)
+    if a.sum() <= b.sum():
+        a = a | on
+    else:
+        b = b | on
+    if not a.any() or not b.any():
+        raise MaskError(
+            "The cut line does not cross the nucleus; click two points on "
+            "the boundary between the nuclei."
+        )
+    return a, b
+
+
+def cell_part(
+    parts: tuple[np.ndarray, np.ndarray],
+    y0: int,
+    x0: int,
+    reference: tuple[float, float] | None,
+) -> int:
+    """Index (0 or 1) of the part of a cut that belongs to the cell.
+
+    The part whose centroid (canvas coordinates; crop origin ``y0, x0``) is
+    nearest ``reference``, the cell's position in a neighbouring frame. With
+    no reference (a cell seen in no other frame) the larger part is the cell.
+    """
+    if reference is None:
+        return 0 if parts[0].sum() >= parts[1].sum() else 1
+    d = []
+    for part in parts:
+        ys, xs = np.nonzero(part)
+        d.append(
+            np.hypot(
+                ys.mean() + y0 - reference[0], xs.mean() + x0 - reference[1]
+            )
+        )
+    return 0 if d[0] <= d[1] else 1
+
+
+def reference_position(
+    det: pd.DataFrame, curated: Any, tid: int, frame: int
+) -> tuple[float, float] | None:
+    """Where curated track ``tid`` is in the frame nearest ``frame``.
+
+    The nearest earlier frame the track has a detection in; if none, the
+    nearest later one; ``None`` if the track has no other frame. Several
+    detections in that frame give their area-weighted centroid; reviewer
+    masks are placed by their stored measurements.
+    """
+    keys = [k for k in curated.detections(tid) if k[0] != frame]
+    if not keys:
+        return None
+    earlier = [t for t, _ in keys if t < frame]
+    t_ref = max(earlier) if earlier else min(t for t, _ in keys)
+    rows = det.set_index(["timepoint", "label"])
+    pts = []
+    for t, lab in keys:
+        if t != t_ref:
+            continue
+        if (t, lab) in curated.extras:
+            m = curated.extras[(t, lab)]
+            pts.append(
+                (float(m["y"]), float(m["x"]), float(m.get("area", 1.0)))
+            )
+        elif (t, lab) in rows.index:
+            r = rows.loc[(t, lab)]
+            if isinstance(r, pd.DataFrame):
+                r = r.iloc[0]
+            pts.append((float(r["y"]), float(r["x"]), float(r["area"])))
+    if not pts:
+        return None
+    w = np.array([p[2] for p in pts])
+    w = w if w.sum() > 0 else np.ones_like(w)
+    return (
+        float(np.average([p[0] for p in pts], weights=w)),
+        float(np.average([p[1] for p in pts], weights=w)),
+    )
+
+
+def label_on_segment(
+    labels: np.ndarray, p1: tuple[int, int], p2: tuple[int, int]
+) -> int:
+    """The nucleus a cut between two clicks is meant for.
+
+    The most frequent non-zero label sampled along the segment p1 → p2
+    (the clicks sit on the boundary, so either may miss the mask); 0 if the
+    segment crosses no nucleus.
+    """
+    n = int(max(abs(p2[0] - p1[0]), abs(p2[1] - p1[1]))) + 1
+    ys = np.rint(np.linspace(p1[0], p2[0], n)).astype(int)
+    xs = np.rint(np.linspace(p1[1], p2[1], n)).astype(int)
+    ok = (
+        (ys >= 0) & (ys < labels.shape[0]) & (xs >= 0) & (xs < labels.shape[1])
+    )
+    vals = np.asarray(labels[ys[ok], xs[ok]]).astype(np.int64)
+    vals = vals[vals > 0]
+    if vals.size == 0:
+        return 0
+    found, counts = np.unique(vals, return_counts=True)
+    return int(found[np.argmax(counts)])
+
+
 # -- measurement --------------------------------------------------------------
 
 
@@ -236,79 +378,6 @@ def _arrays(session: Any, well: str) -> tuple[Any, Any, list[str]]:
 
     nuclei = tracked_nuclei(session.queue.plate_id, well, list(data["nuclei"]))
     return data["image"][0], nuclei[0], data["channel_names"]
-
-
-def commit_split(
-    session: Any,
-    item_id: str,
-    frame: int,
-    label: int,
-    seeds: list[tuple[int, int]],
-) -> list[Any]:
-    """Split raw nucleus ``label`` in ``frame`` at canvas ``seeds``; part 1 stays with the cell.
-
-    Returns the two ``mask_add`` edit-log entries.
-    """
-    item = session.item(item_id)
-    image, nuclei, names = _arrays(session, item.well)
-    det, curated = session.source.well(item.well)
-    row = det[(det["timepoint"] == frame) & (det["label"] == label)]
-    if row.empty:
-        raise MaskError(f"No nucleus {label} in frame {frame}.")
-    half = int(np.sqrt(float(row["area"].iloc[0]))) * 2 + 8
-    cy, cx = (
-        int(round(float(row["y"].iloc[0]))),
-        int(round(float(row["x"].iloc[0]))),
-    )
-    y0, x0 = max(cy - half, 0), max(cx - half, 0)
-    region = np.asarray(nuclei[frame, y0 : cy + half, x0 : cx + half]) == label
-    parts = split_mask(region, [(y - y0, x - x0) for y, x in seeds])
-    cols = [
-        c
-        for c in det.columns
-        if c
-        not in {
-            "measurement_id",
-            "timepoint",
-            "label",
-            "track_id_raw",
-            "parent_track_id_raw",
-            "area",
-            "y",
-            "x",
-        }
-    ]
-    cmap = channel_map(names, cols)
-    det_frame = det[(det["timepoint"] == frame) & (det["label"] != label)]
-    entries, new = [], next_label(det, curated)
-    for i, part in enumerate(parts):
-        meas = measure(image, nuclei, det_frame, frame, y0, x0, part, cmap)
-        meas["patch"] = save_patch(
-            session.edits_path.parent / "masks",
-            item.well,
-            frame,
-            new + i,
-            y0,
-            x0,
-            part,
-        )
-        args = {
-            "frame": frame,
-            "label": new + i,
-            "measurements": meas,
-            "replaces": [label] if i == 0 else [],
-        }
-        if i > 0:
-            args["cell"] = None
-        entries.append(
-            session.edit(
-                item_id,
-                "mask_add",
-                args,
-                reason=f"split nucleus {label} at t{frame}",
-            )
-        )
-    return entries
 
 
 def commit_drawn(
@@ -665,6 +734,188 @@ def commit_separation(session: Any, plan: SeparationPlan) -> list[Any]:
                     reason,
                 )
             )
+    return session.edit_many(plan.item_id, items)
+
+
+# -- split along a line ------------------------------------------------------
+
+
+@dataclass
+class SplitPlan:
+    """A nucleus cut in two along a reviewer's line, computed but not written.
+
+    Attributes:
+        item_id: Review item whose cell keeps ``cell``.
+        frame: Timepoint.
+        label: Raw label of the nucleus that is cut.
+        y0, x0: Canvas origin of the masks.
+        cell: Boolean mask of the part that is the reviewed cell.
+        other: Boolean mask of the other part.
+        other_cell: Anchor ``[frame, label]`` of the curated track that owned
+            ``label`` before the cut when that is not the reviewed cell (the
+            other part stays in it), else ``None`` (the other part becomes a
+            new track).
+        reference: The cell's position in the nearest other frame that
+            decided which part is the cell (``None``: the larger part).
+    """
+
+    item_id: str
+    frame: int
+    label: int
+    y0: int
+    x0: int
+    cell: np.ndarray
+    other: np.ndarray
+    other_cell: list[int] | None
+    reference: tuple[float, float] | None
+
+    @property
+    def frames(self) -> list[FrameSeparation]:
+        """The plan as one :class:`FrameSeparation` (for drawing a preview)."""
+        return [
+            FrameSeparation(
+                self.frame,
+                self.y0,
+                self.x0,
+                self.cell,
+                self.other,
+                [self.label],
+                float("nan"),
+            )
+        ]
+
+
+def plan_split(
+    session: Any,
+    item_id: str,
+    frame: int,
+    p1: tuple[int, int],
+    p2: tuple[int, int],
+    label: int | None = None,
+) -> SplitPlan:
+    """Cut the nucleus between two canvas clicks along the line through them.
+
+    The nucleus is ``label`` or, if not given, the one the segment between
+    the clicks crosses most. Which side is the reviewed cell is decided by
+    :func:`reference_position` (the cell in its nearest earlier frame, else
+    nearest later) and :func:`cell_part`. Nothing is written.
+
+    Raises:
+        MaskError: If no nucleus is under the line or the line does not cut it.
+    """
+    item = session.item(item_id)
+    _, nuclei, _ = _arrays(session, item.well)
+    det, curated = session.source.well(item.well)
+    if label is None:
+        my, mx = (p1[0] + p2[0]) // 2, (p1[1] + p2[1]) // 2
+        r = int(np.hypot(p2[0] - p1[0], p2[1] - p1[1])) // 2 + 2
+        ly0, lx0 = max(my - r, 0), max(mx - r, 0)
+        crop = np.asarray(nuclei[frame, ly0 : my + r + 1, lx0 : mx + r + 1])
+        label = label_on_segment(
+            crop, (p1[0] - ly0, p1[1] - lx0), (p2[0] - ly0, p2[1] - lx0)
+        )
+        if not label:
+            raise MaskError(
+                "No nucleus under the cut line; click two points on the "
+                "boundary between the nuclei."
+            )
+    row = det[(det["timepoint"] == frame) & (det["label"] == label)]
+    if row.empty:
+        raise MaskError(f"No nucleus {label} in frame {frame}.")
+    half = int(np.sqrt(float(row["area"].iloc[0]))) * 2 + 8
+    cy, cx = (
+        int(round(float(row["y"].iloc[0]))),
+        int(round(float(row["x"].iloc[0]))),
+    )
+    y0, x0 = max(cy - half, 0), max(cx - half, 0)
+    region = np.asarray(nuclei[frame, y0 : cy + half, x0 : cx + half]) == label
+    parts = cut_mask(
+        region, (p1[0] - y0, p1[1] - x0), (p2[0] - y0, p2[1] - x0)
+    )
+    tid = curated.resolve(session.anchor(item_id))
+    reference = reference_position(det, curated, tid, frame)
+    i = cell_part(parts, y0, x0, reference)
+    owner = curated.tracks.get((int(frame), int(label)))
+    return SplitPlan(
+        item_id=item_id,
+        frame=int(frame),
+        label=int(label),
+        y0=y0,
+        x0=x0,
+        cell=parts[i],
+        other=parts[1 - i],
+        other_cell=(
+            [int(frame), int(label)]
+            if owner is not None and owner != tid
+            else None
+        ),
+        reference=reference,
+    )
+
+
+def commit_split(session: Any, plan: SplitPlan) -> list[Any]:
+    """Write a split: the cell's part joins the cell, the other part its owner.
+
+    Two ``mask_add`` entries sharing a ``batch`` id (one Undo reverts both).
+    If the cut nucleus belonged to another cell's curated track, the other
+    part is written **first**, anchored on the cut nucleus itself
+    (``cell = [frame, label]``), so it joins that track before the cell's
+    part replaces the raw label: the neighbour's track continues through
+    the split frame. If the nucleus was the reviewed cell's own (or no
+    track's), the other part becomes a new track (``cell = None``), as
+    before — the reviewer then links it where it belongs.
+
+    Returns:
+        The written entries, the cell's part last.
+    """
+    item = session.item(plan.item_id)
+    image, nuclei, names = _arrays(session, item.well)
+    det, curated = session.source.well(item.well)
+    cmap = channel_map(
+        names, [c for c in det.columns if c not in _NOT_CHANNELS]
+    )
+    det_frame = det[
+        (det["timepoint"] == plan.frame) & (det["label"] != plan.label)
+    ]
+    new = next_label(det, curated)
+    batch = (
+        f"split-t{plan.frame}-L{plan.label}-"
+        f"{datetime.now().strftime('%Y%m%dT%H%M%S')}"
+    )
+    reason = f"split nucleus {plan.label} at t{plan.frame} along a line"
+    parts = [
+        (plan.cell, new, {"replaces": [plan.label]}),
+        (plan.other, new + 1, {"replaces": [], "cell": plan.other_cell}),
+    ]
+    if plan.other_cell is not None:
+        parts.reverse()
+    items: list[tuple[str, dict[str, Any], str]] = []
+    for part, label, extra in parts:
+        meas = measure(
+            image, nuclei, det_frame, plan.frame, plan.y0, plan.x0, part, cmap
+        )
+        meas["patch"] = save_patch(
+            session.edits_path.parent / "masks",
+            item.well,
+            plan.frame,
+            label,
+            plan.y0,
+            plan.x0,
+            part,
+        )
+        items.append(
+            (
+                "mask_add",
+                {
+                    "frame": plan.frame,
+                    "label": label,
+                    "measurements": meas,
+                    "batch": batch,
+                    **extra,
+                },
+                reason,
+            )
+        )
     return session.edit_many(plan.item_id, items)
 
 

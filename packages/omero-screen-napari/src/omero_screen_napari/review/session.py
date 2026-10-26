@@ -470,12 +470,27 @@ class ReviewSession:
         self.refresh(it.well)
         return entries
 
-    def undo(self, item_id: str) -> Any:
-        from cellview.tracks.edit import EditLog
+    def undo(self, item_id: str, whole_well: bool = False) -> Any:
+        """Revert the latest live edit that concerns this item's cell.
+
+        An edit concerns the cell if one of its anchors is the cell's anchor
+        or resolves to the cell's curated track (see
+        :func:`~cellview.tracks.edit.concerns_cell`); its whole batch is
+        reverted with it. Edits of other cells in the well are never
+        reached, and there is no fallback to them: with nothing for this
+        cell, :class:`~cellview.tracks.edit.EditError` says so.
+        ``whole_well=True`` restores the old behaviour (latest edit in the
+        well).
+        """
+        from cellview.tracks.edit import EditLog, concerns_cell
 
         it = self.item(item_id)
+        concerns = None
+        if not whole_well:
+            _, curated = self.source.well(it.well)
+            concerns = concerns_cell(curated, self.anchor(item_id))
         entry = EditLog(self.edits_path).undo(
-            it.well, base=self.source.base(it.well)
+            it.well, base=self.source.base(it.well), concerns=concerns
         )
         self.refresh(it.well)
         return entry

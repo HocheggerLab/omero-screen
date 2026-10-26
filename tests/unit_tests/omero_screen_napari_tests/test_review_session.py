@@ -256,3 +256,19 @@ def test_second_queue_keeps_its_own_verdicts(tmp_path: Path) -> None:
         == "correct"
     )
     assert audit.decided()["C2-t0-L5"].verdict == "accept"
+
+
+def test_undo_reverts_only_this_cells_edits(session, monkeypatch) -> None:
+    """Shift-Z walks back through the cell's own edits, never a neighbour's."""
+    from cellview.tracks.edit import EditError, EditLog
+
+    monkeypatch.setattr(session.source, "base", lambda well: _curated())
+    session.edit("C2-t0-L5", "note", {"text": "mine"})
+    session.find("C2", 0, 9)
+    session.edit("C2-t0-L9", "note", {"text": "neighbour"})
+    entry = session.undo("C2-t0-L5")
+    assert entry.args["target"] == "e0001"
+    with pytest.raises(EditError, match="Nothing to undo for this cell"):
+        session.undo("C2-t0-L5")
+    live = {e.args.get("target") for e in EditLog(session.edits_path)}
+    assert "e0002" not in live

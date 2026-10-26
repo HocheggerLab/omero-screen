@@ -28,8 +28,15 @@ Layers:
 * ``review candidates``: numbered nuclei that could continue the cell;
 * ``review proposal``: where a pending agent proposal points;
 * ``review preview``: the cell's path after a staged change;
-* ``review separation``: a staged separation, the cell (1) and the merged
-  object (2) in every frame of the range.
+* ``review separation``: a staged separation or split, the cell (1) and the
+  other part (2) in every frame of the range.
+
+**Split** cuts a nucleus along a line: click two points on the boundary
+between the two nuclei; the mask is divided by the infinite line through
+them. The part nearest the cell's position in its nearest earlier frame
+(else later) stays with the cell; the other part stays with the track that
+owned the nucleus, or becomes a new track if that was this cell. The preview
+gives both areas; Shift-Enter writes it.
 
 **Separate by reporter** (Repair window) splits the cell from a
 reporter-negative object merged into its mask, such as a dead cell it has
@@ -49,7 +56,7 @@ Shift-L      link: click the nucleus that is this cell
 1…9          link to numbered candidate
 Shift-X      unlink at current frame
 Shift-Enter  confirm the staged change
-Shift-Z      undo last edit for this well
+Shift-Z      undo last edit of this cell
 ===========  ==========================================
 """
 
@@ -882,13 +889,7 @@ class TrackReviewWidget(QWidget):
                     f"Separated in {len(entries) // 2} frames (one Undo reverts all)."
                 )
             elif staged["kind"] == "split":
-                commit_split(
-                    self.session,
-                    self.current.id,
-                    t,
-                    staged["label"],
-                    staged["seeds"],
-                )
+                commit_split(self.session, staged["plan"])
             else:
                 commit_drawn(self.session, self.current.id, t, staged["mask"])
                 if DRAW_LAYER in self.viewer.layers:
@@ -965,7 +966,8 @@ class TrackReviewWidget(QWidget):
             {
                 "absorb": "Click the nucleus to add to this cell.",
                 "drop": "Click the nucleus to remove from its track.",
-                "split": "Click seed 1: the part that is this cell.",
+                "split": "Click two points on the boundary between the "
+                "nuclei (point 1 of 2).",
             }[mode]
         )
         self.show_repair()
@@ -1010,31 +1012,54 @@ class TrackReviewWidget(QWidget):
             )
             self._stage_edit(mode, {"frames": [t, t], "label": label}, title)
             return
-        # split: collect two seeds on the same raw label
+        # split: two clicks on the boundary between the nuclei = the cut line
         self._seeds.append((y, x))
         if len(self._seeds) == 1:
-            self._split_label = label
-            self.mode_label.setText("Click seed 2: the other part.")
+            self.mode_label.setText(
+                "Click the second point on the boundary between the nuclei."
+            )
             return
-        seeds, split_label = self._seeds, getattr(self, "_split_label", 0)
+        p1, p2 = self._seeds
         self._disarm()
-        if not split_label:
-            notifications.show_warning("Seed 1 was not on a nucleus.")
+        self.stage_split(t, p1, p2)
+
+    def stage_split(
+        self, t: int, p1: tuple[int, int], p2: tuple[int, int]
+    ) -> None:
+        """Preview cutting the nucleus under the line through two canvas points."""
+        if self.session is None or self.current is None:
             return
+        from cellview.tracks.edit import EditError
+
+        from omero_screen_napari.review.masks import MaskError, plan_split
+
         self._clear_staged()
-        self._stage(
-            {
-                "kind": "split",
-                "frame": t,
-                "label": split_label,
-                "seeds": seeds,
-            },
-            f"Split nucleus {split_label} at t{t}",
-            [
-                "the part at seed 1 stays with this cell",
-                "the part at seed 2 becomes a new nucleus",
-            ],
+        try:
+            plan = plan_split(self.session, self.current.id, t, p1, p2)
+        except (MaskError, EditError, KeyError, ValueError) as err:
+            notifications.show_warning(f"Split: {err}")
+            return
+        cell_px, other_px = int(plan.cell.sum()), int(plan.other.sum())
+        title = (
+            f"Split {plan.label} at t{t}: cell {cell_px} px / other "
+            f"{other_px} px — Shift-Enter to confirm"
         )
+        lines = [
+            "cell part (1): "
+            + (
+                "nearest the cell's position in its nearest other frame"
+                if plan.reference is not None
+                else "the larger part (the cell has no other frame)"
+            ),
+            "other part (2): "
+            + (
+                f"stays with the track that owned nucleus {plan.label}"
+                if plan.other_cell is not None
+                else "becomes a new track"
+            ),
+        ]
+        self._draw_separation(plan)
+        self._stage({"kind": "split", "frame": t, "plan": plan}, title, lines)
 
     def start_drawing(self) -> None:
         """Add an empty paint layer for the current frame; paint the missed nucleus."""
@@ -1239,7 +1264,7 @@ class TrackReviewWidget(QWidget):
         )
 
     def undo(self) -> None:
-        """Revert the last edit in this cell's well."""
+        """Revert the last edit that concerns this cell (with its batch)."""
         if self.session is None or self.current is None:
             return
         from cellview.tracks.edit import EditError
@@ -1569,7 +1594,8 @@ class RepairWindow(QDialog):
                     button(
                         "Split",
                         lambda: ui.arm("split"),
-                        "Click two seeds: this cell's part, then the other",
+                        "Click two points on the boundary between the "
+                        "nuclei: the nucleus is cut along that line",
                     ),
                 ]
             )
@@ -1685,7 +1711,7 @@ class RepairWindow(QDialog):
             button(
                 "Undo last edit",
                 ui.undo,
-                "Revert the last edit in this well (Shift-Z)",
+                "Revert the last edit of this cell (Shift-Z)",
             )
         )
 
