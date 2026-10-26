@@ -406,7 +406,11 @@ def _jumped(
 
 
 def _switch(
-    cell: pd.DataFrame, idx: _Index, thr: Thresholds, params: FateParams
+    cell: pd.DataFrame,
+    idx: _Index,
+    thr: Thresholds,
+    params: FateParams,
+    confirmed: set[int] | frozenset[int] = frozenset(),
 ) -> tuple[int, int] | None:
     """First frame where the track jumps to another nucleus: ``(frame, neighbour)``.
 
@@ -418,6 +422,16 @@ def _switch(
     windows, not single frames, keeps a one- or two-frame mis-segmentation
     from counting. Judged only inside a raw track, because bridges are
     judged by :meth:`_Index.continuations` and divisions end the track.
+
+    Steps within one frame of a ``confirmed`` frame ``f`` are skipped: a
+    reviewer fixed the cell's identity there (a ``link`` or ``swap`` in the
+    edit log), so the jump is theirs, not the tracker's. One frame either
+    side, because the reviewer links at the frame they see the right nucleus,
+    which can be a frame off the step the medians date (the same tolerance as
+    :func:`_new_label`). Later steps are judged against the cell's values
+    from ``f + 1`` on only: the frames before it are, by the reviewer's
+    word, the same cell looking different, and would make every following
+    step read as the same jump again.
     """
     w, h = params.switch_window, params.switch_history
     area, pip, gem = _clipped(cell, thr, params)
@@ -426,7 +440,15 @@ def _switch(
     for i in range(2, len(cell)):
         if frames[i] != frames[i - 1] + 1 or tids[i] != tids[i - 1]:
             continue
+        t = int(frames[i])
+        if any(abs(t - f) <= 1 for f in confirmed):
+            continue
         lo, hi = max(0, i - h), min(len(cell), i + w)
+        since = [f + 1 for f in confirmed if f + 1 < t]
+        if since:
+            lo = max(lo, int(np.searchsorted(frames, max(since))))
+            if i - lo < 2:
+                continue
         ref = (
             float(np.median(area[lo:i])),
             float(np.median(pip[lo:i])),
@@ -681,6 +703,7 @@ def follow_cells(
     repair_events: pd.DataFrame | None = None,
     assignment: dict[int, int] | None = None,
     shape: tuple[int, int] | None = None,
+    confirmed: dict[int, set[int]] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Follow every cell present at ``start`` until its first outcome or ``stop``.
 
@@ -695,6 +718,10 @@ def follow_cells(
         assignment: :attr:`RepairResult.assignment`, mapping event track ids to
             final ones.
         shape: Image height and width in pixels, for the ``edge`` flag.
+        confirmed: Curated track id to the frames at which a reviewer fixed
+            its identity (:func:`~cellview.tracks.edit.confirmed_frames`).
+            A switch there is the reviewer's, so it neither cuts the track
+            nor is flagged or proposed.
 
     Returns:
         ``(cells, states)``: one row per cell with its outcome and flags, and
@@ -767,7 +794,8 @@ def follow_cells(
 
         rows = pd.concat([idx.rows[s] for s in segments])
         rows = rows[(rows.index >= start) & (rows.index <= stop)]
-        switched = _switch(rows, idx, thr, params)
+        fixed = {f for s in segments for f in (confirmed or {}).get(s, ())}
+        switched = _switch(rows, idx, thr, params, fixed)
         if switched is not None and not _new_label(switched, idx):
             # A matching neighbour that already existed is usually a
             # neighbour (on 5054, 19 of 19 such relinks in C4 were wrong: the

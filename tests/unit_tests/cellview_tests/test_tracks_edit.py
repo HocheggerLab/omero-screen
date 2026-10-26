@@ -6,9 +6,11 @@ import pandas as pd
 import pytest
 from cellview.tracks.edit import (
     Curated,
+    Edit,
     EditError,
     EditLog,
     base_lineage,
+    confirmed_frames,
     replay,
 )
 from cellview.tracks.repair import repair_lineage
@@ -222,3 +224,20 @@ def test_extend_writes_all_or_nothing_and_batch_undo(tmp_path) -> None:
     assert _frames(replay(base, log, "C2"), 1) == list(range(0, 10))
     log.undo("C2", base=base)  # the note, written before the batch
     assert not replay(base, log, "C2").annotations.get(1, {}).get("notes")
+
+
+def test_confirmed_frames_are_live_links_and_swaps_on_the_replayed_lineage() -> None:
+    """Links (the anchored cell) and swaps (both cells) of the well, human or
+    agent, give their frame; reverted edits, other ops and wells do not.
+    """
+    base = _curated({1: (range(10), 1), 5: (range(10, 30), 5), 2: (range(30), 2), 3: (range(30), 3)})
+    edits = [
+        Edit("e0001", "link", "C2", {"cell": [0, 1], "frame": 10, "label": 5}, author="agent"),
+        Edit("e0002", "swap", "C2", {"cell": [0, 2], "other": [0, 3], "frame": 20}),
+        Edit("e0003", "link", "C2", {"cell": [0, 2], "frame": 25, "label": 5}),
+        Edit("e0004", "revert", "C2", {"target": "e0003"}),
+        Edit("e0005", "unlink", "C2", {"cell": [0, 3], "frame": 28}),
+        Edit("e0006", "link", "C3", {"cell": [0, 1], "frame": 12, "label": 5}),
+    ]
+    cur = replay(base, edits, "C2")
+    assert confirmed_frames(cur, edits, "C2") == {1: {10}, 2: {20}, 3: {20}}

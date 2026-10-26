@@ -284,3 +284,64 @@ def test_jump_onto_a_pre_existing_neighbour_is_flagged_not_acted_on() -> None:
     )
     assert states[states.cell == row.cell].timepoint.max() == 40
     assert all(p["op"] != "link" for p in json.loads(row.proposals))
+
+
+def _switching_cell():
+    """Track 70 jumps at frame 10 onto a small dark object while new track
+    71 carries the cell on (the setting of the switch test above).
+    """
+    good = _rows(70, 0, range(10), 2000, G1, area=600.0)
+    wrong = _rows(
+        70,
+        0,
+        range(10, 41),
+        2000,
+        {"pip": 50.0, "geminin": 100.0},
+        x0=200,
+        area=150.0,
+    )
+    real = _rows(71, 0, range(10, 41), 2010, G1, x0=200, area=600.0)
+    return _cycling_cell(10, 500) + _cycling_cell(20, 1500) + good + wrong + real
+
+
+def _walk_confirmed(rows, confirmed):
+    return follow_cells(
+        pd.DataFrame(rows),
+        0,
+        40,
+        FateParams(),
+        shape=(5000, 5000),
+        confirmed=confirmed,
+    )
+
+
+def test_unconfirmed_switch_still_cuts() -> None:
+    """A reviewer edit at another frame does not protect the switch."""
+    cells, states = _walk_confirmed(_switching_cell(), {70: {30}})
+    row = cells.set_index("start_track").loc[70]
+    assert "switch" in row.review_flags.split()
+    assert row.outcome == "lost" and row.outcome_frame == 10
+    assert states[states.cell == row.cell].timepoint.max() == 9
+
+
+def test_switch_at_a_reviewer_link_does_not_cut() -> None:
+    """A switch where the reviewer fixed the cell's identity (within one
+    frame) is theirs: the track is kept whole, nothing is flagged or proposed.
+    """
+    import json
+
+    for frame in (9, 10, 11):
+        cells, states = _walk_confirmed(_switching_cell(), {70: {frame}})
+        row = cells.set_index("start_track").loc[70]
+        flags = row.review_flags.split()
+        assert "switch" not in flags and "jump_suspect" not in flags
+        assert row.outcome != "lost" and row.last_frame == 40
+        assert states[states.cell == row.cell].timepoint.max() == 40
+        assert all(p["op"] != "link" for p in json.loads(row.proposals))
+
+
+def test_switch_two_frames_from_a_reviewer_link_still_cuts() -> None:
+    """The tolerance is one frame."""
+    cells, _ = _walk_confirmed(_switching_cell(), {70: {12}})
+    row = cells.set_index("start_track").loc[70]
+    assert "switch" in row.review_flags.split() and row.outcome_frame == 10

@@ -499,6 +499,44 @@ def replay(base: Curated, edits: Iterable[Edit], well: str) -> Curated:
     return cur
 
 
+def confirmed_frames(
+    curated: Curated, edits: Iterable[Edit], well: str
+) -> dict[int, set[int]]:
+    """Frames at which a reviewer fixed a cell's identity, per curated track.
+
+    Every live ``link`` (its anchored cell) and ``swap`` (both cells) of
+    ``well``, by a human or an agent, contributes its ``frame``. Anchors are
+    resolved on ``curated``, the lineage *after* replay, so the ids are the
+    ones the fate walker follows. An anchor that no longer resolves is
+    skipped. Feed the result to
+    :func:`~cellview.tracks.fate.follow_cells` (``confirmed``).
+
+    Args:
+        curated: :func:`replay` of ``edits`` for ``well``.
+        edits: The edit log.
+        well: Well to read.
+    """
+    edits = list(edits)
+    reverted = {e.args.get("target") for e in edits if e.op == "revert"}
+    out: dict[int, set[int]] = {}
+    for edit in edits:
+        if edit.well != well or edit.id in reverted:
+            continue
+        if edit.op == "link":
+            anchors = [edit.args.get("cell")]
+        elif edit.op == "swap":
+            anchors = [edit.args.get("cell"), edit.args.get("other")]
+        else:
+            continue
+        for anchor in anchors:
+            try:
+                tid = curated.resolve(_anchor(anchor))
+            except EditError:
+                continue
+            out.setdefault(tid, set()).add(int(edit.args["frame"]))
+    return out
+
+
 class EditLog:
     """An append-only JSON-lines edit log on disk."""
 

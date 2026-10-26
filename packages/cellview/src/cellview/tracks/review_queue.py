@@ -31,7 +31,12 @@ import pandas as pd
 from cellview.tracks.cells import apply_extras, curated_tracks, load_well
 from cellview.tracks.corrections import correction_hash, load_stored
 from cellview.tracks.debris import drop_debris
-from cellview.tracks.edit import EditLog, imported_lineage, replay
+from cellview.tracks.edit import (
+    EditLog,
+    confirmed_frames,
+    imported_lineage,
+    replay,
+)
 from cellview.tracks.fate import FateParams, apply_annotations, follow_cells
 
 if TYPE_CHECKING:
@@ -144,9 +149,8 @@ def build_well(
     det, debris = drop_debris(raw)
     # CellView holds the stored correction's final lineage; start from it as
     # it is, so the review, the widget's masks and the fate table agree.
-    curated = replay(
-        imported_lineage(det), log if log is not None else [], well
-    )
+    edits = list(log) if log is not None else []
+    curated = replay(imported_lineage(det), edits, well)
     det = apply_extras(det, curated)
     tracks = curated_tracks(curated, det)
     shape = (int(det["y"].max()) + 1, int(det["x"].max()) + 1)
@@ -159,6 +163,7 @@ def build_well(
         stored.events if stored is not None else None,
         {} if stored is not None else None,  # event ids are final track ids
         shape,
+        confirmed_frames(curated, edits, well),
     )
     cells = apply_annotations(cells, curated)
     summary = exclusion_summary(cells, spec.stationary_warn)
