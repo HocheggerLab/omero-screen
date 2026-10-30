@@ -76,6 +76,39 @@ cell you can:
 the cell centred. Edits go to `review/edits.jsonl` and verdicts to
 `review/decisions.json`.
 
+### Track view
+
+**Track view** (in the widget, beside *Filmstrip*) docks a lineage overview of
+the well, in the manner of Mastodon's TrackScheme: one column per curated
+track, time running down in hours, daughters forking from their mother at the
+division, one node per frame with a mask and a dashed edge across frames
+without one.
+
+- **Colour** by phase, the track's verdict or outcome, frame flags (reviewer
+  mask, a link or swap a reviewer confirmed, another edit, first frame after
+  a gap) or edit density (edits per hour of track).
+- **Align** on the absolute frame, the window start, the division, mitotic
+  exit, G2 entry or S entry. Each lineage tree is shifted as a whole; trees
+  without the event are hidden or, with *Unaligned* on, parked on the right.
+- **Sort** by track id, length, outcome, event time or edit density.
+- **Filter** by verdict (*accepted* = accept or correct), outcome, who
+  reviewed the cell (agent, human, both), audited or flagged cells only, and
+  a minimum length. A kept cell brings its daughters if they are long enough.
+
+Mouse: wheel zooms, drag pans, right-drag zooms the axes separately. Zoomed
+out, each track is a line in the mode's colours; zoomed in, nodes become
+markers and then tracks get labels (review id, length, outcome, verdict,
+reviewer, audit). Hovering a node shows its frame, label, area, PIP, geminin
+and phase; **clicking it opens that cell in the Track Review widget at that
+frame** (the queue item if the cell is queued, otherwise an ad-hoc item). The
+cell open in the widget is highlighted in the view, and the view rebuilds
+whenever `edits.jsonl` or a `*decisions.json` changes.
+
+Phases start as the fate walker's per-frame G1/S/G2 calls and are replaced by
+the HMM's G1/S/G2/E/X calls once those are fitted in the background (about ten
+seconds per well). The HMM is fitted on the well alone here; the fate build,
+which fits it on the whole plate, is the reference.
+
 ## Working with an agent
 
 With [napari-mcp](https://github.com/HocheggerLab/napari-mcp/tree/plugin-tools)

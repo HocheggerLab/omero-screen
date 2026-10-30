@@ -38,7 +38,10 @@ dependencies = [
 # >= 2.39 (aarch64), newer than some clusters and the container's base image,
 # so headless installs must not pull it. Named explicitly rather than via
 # napari[all] so the binding is a visible choice.
-qt = ["napari[pyqt6,optional]>=0.9.2"]
+qt = [
+    "napari[pyqt6,optional]>=0.9.2",
+    "pyqtgraph>=0.14.0",
+]
 
 [project.entry-points."napari.manifest"]
 omero-screen-napari = "omero_screen_napari:napari.yaml"

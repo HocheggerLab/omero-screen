@@ -8,6 +8,12 @@ field, navigation, the verdict and a note. Two windows open from it:
 * **Repair**: the edits (link, unlink, add / remove / split / draw a nucleus,
   events, exclude), the agent's proposals and the cell's edit log.
 
+**Track view** docks a lineage overview of the well beside this widget
+(:mod:`omero_screen_napari.review.track_view`): every curated track as a
+column over time, coloured by phase, verdict, outcome, flags or edit density.
+Clicking a node opens that cell here at that frame; the cell open here is
+highlighted there, and the view rebuilds after every edit.
+
 Search takes ``85 327`` (frame, then the nucleus label shown in the viewer or
 a curated track id), ``327`` (at the current frame) or a review id
 ``C2-t72-L327``. A cell found by search that is not in the queue opens as an
@@ -193,6 +199,14 @@ class TrackReviewWidget(QWidget):
         repair_btn.clicked.connect(self.show_repair)
         strip = QPushButton("Filmstrip")
         strip.clicked.connect(self.show_filmstrip)
+        view_btn = QPushButton("Track view")
+        view_btn.setToolTip(
+            "Dock a lineage overview of the well; click a node to open that cell"
+        )
+        view_btn.clicked.connect(self.show_track_view)
+        self.track_view: Any = None
+        self._track_dock: Any = None
+        self._track_session: ReviewSession | None = None
 
         self.details = QLabel("No queue loaded.")
         self.details.setWordWrap(True)
@@ -271,7 +285,7 @@ class TrackReviewWidget(QWidget):
         layout = QVBoxLayout(self)
         for row in (
             [self.search, go],
-            [queue_btn, repair_btn, strip],
+            [queue_btn, repair_btn, strip, view_btn],
         ):
             layout.addLayout(_row(row))
         layout.addWidget(self.details)
@@ -346,6 +360,72 @@ class TrackReviewWidget(QWidget):
         """Open (or raise) the Repair window."""
         self.repair_window.show()
         self.repair_window.raise_()
+
+    def show_track_view(self) -> None:
+        """Dock (or show again) the lineage overview of the session's wells."""
+        if self.session is None:
+            notifications.show_warning("Load a review queue first.")
+            return
+        from omero_screen_napari.review import track_view_model as tvm
+        from omero_screen_napari.review.track_view import TrackViewWidget
+
+        wells = sorted({it.well for it in self.session.queue.items})
+        well = self.current.well if self.current else None
+        loader = tvm.session_loader(self.session)
+        watch = tvm.watch_paths(self.session)
+        if self.track_view is not None:
+            try:
+                if self._track_session is not self.session:
+                    self.track_view.set_source(wells, loader, watch, well)
+                    self._track_session = self.session
+                self._track_dock.show()
+                self._track_dock.raise_()
+            except RuntimeError:  # closed: napari deleted the dock
+                self.track_view = self._track_dock = None
+        if self.track_view is None:
+            self.track_view = TrackViewWidget(
+                wells,
+                loader,
+                on_pick=self.open_from_view,
+                watch=watch,
+                well=well,
+            )
+            self._track_dock = self.viewer.window.add_dock_widget(
+                self.track_view, name="Track view", area="right"
+            )
+            self._track_session = self.session
+        self._sync_track_view()
+
+    def open_from_view(self, well: str, frame: int, label: int) -> None:
+        """Open the cell of a node clicked in the track view, at that frame."""
+        if self.session is None:
+            return
+        try:
+            self._ensure_well(self.session.queue.plate_id, well)
+            item = self.session.find(well, frame, label)
+        except (KeyError, QueueError) as err:
+            notifications.show_warning(str(err).strip("'\""))
+            return
+        if item.id in self._ids():
+            self._queue_pos = self._ids().index(item.id)
+        self.go_to(item, frame=frame)
+
+    def _sync_track_view(self) -> None:
+        """Highlight the open cell in the track view, if one is docked."""
+        view = self.track_view
+        if view is None or self.current is None:
+            return
+        tid = None
+        if self.path_df is not None and len(self.path_df):
+            tid = int(self.path_df.track_id.iloc[0])
+        try:
+            view.highlight(
+                self.current.well, tid, int(self.viewer.dims.current_step[0])
+            )
+            if tid is not None and self.current.well == view.well:
+                view.centre_on(tid)
+        except RuntimeError:  # the dock was closed and its widget deleted
+            self.track_view = self._track_dock = None
 
     # -- queue -----------------------------------------------------------------
 
@@ -554,6 +634,7 @@ class TrackReviewWidget(QWidget):
         self._show_details()
         self._refresh_log()
         self._update_isolation()
+        self._sync_track_view()
 
     def _points(self) -> list[tuple[int, float, float, int]]:
         if self.path_df is not None and len(self.path_df):
@@ -736,6 +817,13 @@ class TrackReviewWidget(QWidget):
     def _on_frame(self) -> None:
         if self.follow.isChecked() and self.current is not None:
             self._centre(int(self.viewer.dims.current_step[0]))
+        if self.track_view is not None:
+            try:
+                self.track_view.set_frame(
+                    int(self.viewer.dims.current_step[0])
+                )
+            except RuntimeError:  # the dock was closed and its widget deleted
+                self.track_view = self._track_dock = None
 
     def next_break(self) -> None:
         """Jump to the next frame after the current one where the track is interrupted."""
