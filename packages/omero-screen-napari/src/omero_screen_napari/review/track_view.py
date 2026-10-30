@@ -222,7 +222,7 @@ class TrackViewWidget(QWidget):
         self.verdict_box = QComboBox()
         self.verdict_box.addItems(list(tvm.VERDICT_FILTERS))
         self.outcome_box = QComboBox()
-        self.outcome_box.addItem("all")
+        self.outcome_box.addItem("all", "all")
         self.reviewer_box = QComboBox()
         self.reviewer_box.addItems(list(tvm.REVIEWER_FILTERS))
         self.audited = QCheckBox("Audited")
@@ -539,20 +539,24 @@ class TrackViewWidget(QWidget):
     def _fill_outcomes(self) -> None:
         if self.table is None:
             return
-        current = self.outcome_box.currentText()
+        current = self.outcome_box.currentData()
         found = sorted(o for o in set(self.table.tracks["outcome"]) if o)
         self.outcome_box.blockSignals(True)
         self.outcome_box.clear()
-        self.outcome_box.addItems(["all", *found])
+        self.outcome_box.addItem("all", "all")
+        for key in found:
+            self.outcome_box.addItem(tvm.display_name(key), key)
         if current in found:
-            self.outcome_box.setCurrentText(current)
+            self.outcome_box.setCurrentIndex(
+                self.outcome_box.findData(current)
+            )
         self.outcome_box.blockSignals(False)
 
     def filters(self) -> tvm.Filters:
         """The filters set in the toolbar."""
         return tvm.Filters(
             verdict=self.verdict_box.currentText(),
-            outcome=self.outcome_box.currentText() or "all",
+            outcome=self.outcome_box.currentData() or "all",
             reviewed_by=self.reviewer_box.currentText(),
             audited_only=self.audited.isChecked(),
             flagged_only=self.flagged.isChecked(),
@@ -668,7 +672,7 @@ class TrackViewWidget(QWidget):
         for cat, colour in tvm.PALETTES[mode].items():
             if cat not in present:
                 continue
-            name = cat or "none"
+            name = tvm.display_name(cat) if cat else "none"
             parts.append(
                 f"<span style='color:{colour}'>■</span>&nbsp;{html.escape(name)}"
             )
@@ -882,7 +886,7 @@ class TrackViewWidget(QWidget):
             + (f" · {tr['item_id']}" if tr["item_id"] else ""),
             f"area {_num(n['area'])} · PIP {_num(n['pip'])} · "
             f"geminin {_num(n['geminin'])}",
-            f"phase {n['phase'] or '–'}"
+            f"phase {tvm.display_name(n['phase']) if n['phase'] else '–'}"
             + (
                 f" (walker {n['phase_walker']})"
                 if self.table.has_hmm and n["phase_walker"] != n["phase"]
@@ -1075,7 +1079,7 @@ def track_label(
     hours = row["n_frames"] * interval_minutes / 60
     lines = [name, f"{int(row['n_frames'])} fr / {hours:.1f} h"]
     if row["outcome"]:
-        lines.append(str(row["outcome"]).replace("_", " "))
+        lines.append(tvm.display_name(str(row["outcome"])))
     review = " ".join(
         str(v) for v in (row["verdict"], row["reviewed_by"]) if v
     )

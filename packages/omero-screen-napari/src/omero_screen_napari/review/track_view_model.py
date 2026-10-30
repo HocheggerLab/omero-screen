@@ -53,10 +53,26 @@ ALIGNMENTS = {
     "frame": "absolute frame",
     "window": "window start",
     "division": "division",
-    "exit": "mitotic exit",
+    "exit": "G2 exit",
     "g2": "G2 entry",
     "s": "S entry",
 }
+#: Display names of stored keys that are not shown verbatim. PIP-FUCCI shows
+#: APC/C activation (geminin falls) without a division and no sign of mitosis,
+#: so the paper calls it G2 exit; the stored outcome key
+#: ``mitotic_exit_no_division`` stays because saved verdicts use it.
+DISPLAY_NAMES = {
+    "E": "G2 exit",
+    "X": "G1-like after exit",
+    "mitotic_exit_no_division": "G2 exit without division",
+}
+
+
+def display_name(key: str) -> str:
+    """User-facing name of a phase, outcome or other category key."""
+    return DISPLAY_NAMES.get(key, key.replace("_", " "))
+
+
 #: Sort keys offered by :func:`layout`.
 SORTS = ("track", "length", "outcome", "event", "edits")
 #: Colour modes offered by :func:`node_categories`.
@@ -77,7 +93,7 @@ REVIEWER_FILTERS = ("all", "agent", "human", "both", "any", "none")
 
 _GREY = "#bdbcb7"
 #: Category → colour per mode. Phases as in the tracking figure (lab
-#: palette: G1 pink, S light blue, G2 yellow, exit purple, after exit
+#: palette: G1 pink, S light blue, G2 yellow, G2 exit purple, after exit
 #: lavender); outcomes as in its outcome bars.
 PALETTES: dict[str, dict[str, str]] = {
     "phase": {
