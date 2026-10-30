@@ -84,6 +84,21 @@ track, time running down in hours, daughters forking from their mother at the
 division, one node per frame with a mask and a dashed edge across frames
 without one.
 
+A track counts as divided only if the reviewer's outcome, a curated mitosis
+or the fate walker says so (for a track the walker did not follow: at least
+two tracker daughters of six frames or more). Other tracker parent links,
+mostly short fragments, are drawn as faint dotted *splits* and are not used
+for division alignment.
+
+**Wells.** The well box lists every tracked well of the plate. Each well is
+read from its own review directory, found among the siblings of the open
+queue's directory (a directory with `edits.jsonl` and `correction.json` or
+`queue.json` for that plate and well; the one reviewed most recently wins,
+and the *review* box picks another or *CellView only*). Only the Track Review
+session's own wells are interactive. In any other well a click moves the
+viewer to the cell if that well's images are loaded, and otherwise only
+describes it; it never opens the cell, whose edits belong to another log.
+
 - **Colour** by phase, the track's verdict or outcome, frame flags (reviewer
   mask, a link or swap a reviewer confirmed, another edit, first frame after
   a gap) or edit density (edits per hour of track).
@@ -105,9 +120,11 @@ cell open in the widget is highlighted in the view, and the view rebuilds
 whenever `edits.jsonl` or a `*decisions.json` changes.
 
 Phases start as the fate walker's per-frame G1/S/G2 calls and are replaced by
-the HMM's G1/S/G2/E/X calls once those are fitted in the background (about ten
-seconds per well). The HMM is fitted on the well alone here; the fate build,
-which fits it on the whole plate, is the reference.
+the HMM's G1/S/G2/E/X calls once those are computed in a background process
+(about ten seconds per well). As in the fate build, the HMM uses a phase
+reference fitted once on every tracked well of the plate (cached in
+`~/.cache/omero-screen/track_view/`) and is called on the analysis window;
+outside it, and on tracks shorter than six frames, the walker's call stays.
 
 ## Working with an agent
 

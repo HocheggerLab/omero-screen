@@ -61,10 +61,8 @@ def _edits() -> list[Edit]:
     ]
 
 
-@pytest.fixture
-def table() -> m.LineageTable:
-    det, curated = _toy()
-    records = {
+def _records() -> dict[str, m.ReviewRecord]:
+    return {
         "C2-t0-L5": m.ReviewRecord(
             verdict="accept",
             outcome="divided",
@@ -79,6 +77,13 @@ def table() -> m.LineageTable:
             time="2026-10-01T10:00:00",
         ),
     }
+
+
+@pytest.fixture
+def table() -> m.LineageTable:
+    """The toy well with verdicts, queue items and edits."""
+    det, curated = _toy()
+    records = _records()
     queue = {
         "C2-t0-L5": {"reason": "lost", "outcome": "lost"},
         "C2-t2-L11": {"reason": "", "outcome": "lost"},
@@ -106,11 +111,21 @@ def test_nodes_one_per_track_and_frame(table) -> None:
     assert not nodes.loc[(4, 2), "is_extra"]
 
 
-def test_gap_and_division_edges(table) -> None:
+def test_gap_and_division_edges(table, monkeypatch) -> None:
     """A missing frame is a gap edge; daughters hang off the mother's last frame."""
     e = table.edges
     gap = e[e["kind"] == "gap"]
     assert gap[["track", "f0", "f1"]].values.tolist() == [[3, 6, 8]]
+    # The reviewer says divided, but the daughters (4 frames) are too short
+    # to be drawn as branches.
+    assert set(e.loc[e["track"].isin([2, 3]) & (e["f0"] == 4), "kind"]) == {
+        "split"
+    }
+    monkeypatch.setattr(m, "MIN_DAUGHTER_FRAMES", 4)
+    det, curated = _toy()
+    e = m.build_lineage_table(
+        det, curated, well="C2", records=_records()
+    ).edges
     div = e[e["kind"] == "division"].sort_values("track")
     assert div[["track", "source", "f0", "f1"]].values.tolist() == [
         [2, 1, 4, 5],
@@ -206,7 +221,7 @@ def test_slow_annotations_replace_phases_and_outcomes(table) -> None:
     assert t2.has_hmm
     nodes = t2.nodes.set_index(["track", "frame"])
     assert nodes.loc[(4, 0), "phase"] == "E"
-    assert nodes.loc[(4, 5), "phase"] == ""  # not called by the HMM
+    assert nodes.loc[(4, 5), "phase"] == "S"  # not called by the HMM: walker
     assert nodes.loc[(4, 5), "phase_walker"] == "S"
     assert t2.tracks.loc[2, "outcome"] == "death"
     assert t2.tracks.loc[2, "flags"] == "edge"
@@ -227,7 +242,7 @@ def test_layout_mother_centred_over_daughters(table) -> None:
     assert len({x[1], x[4], x[10]}) == 3
     n = lay.nodes.set_index(["track", "frame"])
     assert n.loc[(3, 8), "y"] == 8  # absolute frame
-    div = lay.edges[lay.edges["kind"] == "division"]
+    div = lay.edges[lay.edges["kind"].isin(["division", "split"])]
     assert set(div["x0"]) == {x[1]}
     assert set(div["x1"]) == {x[2], x[3]}
 
@@ -317,6 +332,7 @@ def test_sort_orders_trees_and_is_stable(table) -> None:
 
 
 def test_unknown_options_raise(table) -> None:
+    """Unknown alignment, sort or colour mode is an error."""
     with pytest.raises(ValueError, match="alignment"):
         m.layout(table, align="mitosis")
     with pytest.raises(ValueError, match="sort"):
@@ -336,17 +352,18 @@ def test_node_categories(table) -> None:
         assert len(cats) == len(nodes)
         assert set(cats) <= set(m.PALETTES[mode])
     key = list(zip(nodes["track"], nodes["frame"], strict=True))
-    flags = dict(zip(key, m.node_categories(nodes, tracks, "flags")))
+    flags = dict(zip(key, m.node_categories(nodes, tracks, "flags"), strict=False))
     assert flags[(4, 3)] == "mask"
     assert flags[(3, 8)] == "after gap"
     assert flags[(1, 0)] == ""
-    verdict = dict(zip(key, m.node_categories(nodes, tracks, "verdict")))
+    verdict = dict(zip(key, m.node_categories(nodes, tracks, "verdict"), strict=False))
     assert verdict[(1, 0)] == "accept" and verdict[(2, 5)] == ""
-    edits = dict(zip(key, m.node_categories(nodes, tracks, "edits")))
+    edits = dict(zip(key, m.node_categories(nodes, tracks, "edits"), strict=False))
     assert edits[(4, 0)] == "≤1/h" and edits[(1, 0)] == "0"
 
 
 def test_edit_density_bins() -> None:
+    """Densities fall in the palette's bins, in order."""
     assert [
         m.edit_density_bin(v) for v in (0, 0.2, 0.9, 1.5, 3)
     ] == list(m.PALETTES["edits"])
@@ -387,3 +404,166 @@ def test_review_records_merge_queues(tmp_path: Path) -> None:
     assert rec["C2-t0-L9"].outcome == "lost"
     assert rec["C2-t0-L9"].reviewed_by == "agent"
     assert m.review_records(tmp_path / "missing") == {}
+
+
+# -- divisions ----------------------------------------------------------------------
+
+
+def _fates(segments: str, outcome: str, frame: float) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "segments": [segments],
+            "outcome": [outcome],
+            "outcome_frame": [frame],
+            "excluded": [False],
+            "review_flags": [""],
+        }
+    )
+
+
+def test_tracker_link_is_no_division_if_the_walker_says_so() -> None:
+    """A parent link the walker does not call a division is a faint split."""
+    det, curated = _toy()
+    slow = m.SlowAnnotations(fates=_fates("1", "no_mitosis", 9.0))
+    t = m.build_lineage_table(det, curated, well="C2", slow=slow)
+    assert not t.tracks.loc[1, "divided"]
+    assert np.isnan(t.tracks.loc[1, "ev_division"])
+    assert t.tracks.loc[1, "outcome"] == "no_mitosis"
+    assert set(t.edges.loc[t.edges["track"] != t.edges["source"], "kind"]) == {"split"}
+    lay = m.layout(t, align="division", park=False)
+    assert lay.tracks.empty  # nothing to align on
+
+
+def test_walker_division_dates_and_draws_the_division(monkeypatch) -> None:
+    """The walker's division is dated at the mother's last frame."""
+    monkeypatch.setattr(m, "MIN_DAUGHTER_FRAMES", 4)
+    det, curated = _toy()
+    slow = m.SlowAnnotations(fates=_fates("1", "divided", 5.0))
+    t = m.build_lineage_table(det, curated, well="C2", slow=slow)
+    assert t.tracks.loc[1, "divided"]
+    assert t.tracks.loc[1, "ev_division"] == 4
+    assert set(t.edges.loc[t.edges["track"] != t.edges["source"], "kind"]) == {"division"}
+
+
+def test_walker_outcome_belongs_to_the_last_segment(monkeypatch) -> None:
+    """A cell followed through 4 then 1: only 1 divided."""
+    monkeypatch.setattr(m, "MIN_DAUGHTER_FRAMES", 4)
+    det, curated = _toy()
+    slow = m.SlowAnnotations(fates=_fates("4 1", "divided", 5.0))
+    t = m.build_lineage_table(det, curated, well="C2", slow=slow)
+    assert t.tracks.loc[1, "divided"] and not t.tracks.loc[4, "divided"]
+
+
+def test_unfollowed_tracks_need_two_long_daughters(monkeypatch) -> None:
+    """Without a walker call a link counts if two daughters are long enough."""
+    det, curated = _toy()
+    t = m.build_lineage_table(det, curated, well="C2")
+    assert not t.tracks.loc[1, "divided"]  # daughters of 4 frames
+    monkeypatch.setattr(m, "MIN_DAUGHTER_FRAMES", 4)
+    t = m.build_lineage_table(det, curated, well="C2")
+    assert t.tracks.loc[1, "divided"]
+    assert t.tracks.loc[1, "outcome"] == "divided"
+
+
+def test_pooled_reference_is_used(table) -> None:
+    """A reference passed in is used as is, and reported as pooled."""
+    from cellview.tracks.phases import WellReference
+
+    det, curated = _toy()
+    ref = WellReference(bleed=0.0, pip_high=10.0, gem_high=20.0)
+    inputs = m.WellInputs(
+        det=det,
+        curated=curated,
+        well="C2",
+        edits=[],
+        records={},
+        queue={},
+        window=(0, 9),
+        interval_minutes=20.0,
+        reference=ref,
+    )
+    slow = m.slow_annotations(inputs, walker=False, min_frames=6)
+    assert slow.pooled and slow.reference is ref
+    assert slow.phases is not None
+    assert set(slow.phases["track"]) == {4}  # the only track of ≥ 6 frames
+    t = m.table_from_inputs(inputs, slow)
+    assert t.pooled and t.has_hmm
+
+
+def test_hmm_only_inside_the_window() -> None:
+    """HMM phases are called on the analysis window only."""
+    det, curated = _toy()
+    inputs = m.WellInputs(
+        det=det,
+        curated=curated,
+        well="C2",
+        edits=[],
+        records={},
+        queue={},
+        window=(0, 6),
+        interval_minutes=20.0,
+    )
+    slow = m.slow_annotations(inputs, walker=False, min_frames=6)
+    assert not slow.pooled  # no plate: fitted on the well
+    assert slow.phases is not None and slow.phases["frame"].max() <= 6
+
+
+# -- review directories ----------------------------------------------------------------
+
+
+def _review_dir(
+    path: Path, wells: list[str], plate: int = 5054, decided: float = 0
+) -> Path:
+    path.mkdir(parents=True)
+    (path / "edits.jsonl").write_text("")
+    (path / "correction.json").write_text(
+        json.dumps({"plate_id": plate, "wells": wells, "hash": "x"})
+    )
+    if decided:
+        d = path / "decisions.json"
+        d.write_text(json.dumps({"decisions": []}))
+        import os
+
+        os.utime(d, (decided, decided))
+    return path
+
+
+def test_discover_review_dirs(tmp_path: Path) -> None:
+    """Siblings of the plate, newest review first per well; one level only."""
+    c2 = _review_dir(tmp_path / "review_agent", ["C2"], decided=200)
+    _review_dir(tmp_path / "review", ["C2"], decided=100)
+    c3 = _review_dir(tmp_path / "review_agent_c3", ["C3"], decided=50)
+    _review_dir(tmp_path / "other_plate", ["C3"], plate=1, decided=900)
+    _review_dir(c2 / "_superseded", ["C4"], decided=999)
+    (tmp_path / "not_a_review").mkdir()
+    found = m.discover_review_dirs(c3, 5054)
+    assert [d.path.name for d in found["C2"]] == ["review_agent", "review"]
+    assert [d.path for d in found["C3"]] == [c3]
+    assert "C4" not in found
+
+
+def test_plate_loader_choices(tmp_path: Path) -> None:
+    """The session's well is interactive; others read-only, from their dirs."""
+    from types import SimpleNamespace
+
+    from omero_screen_napari.review_queue import ReviewItem
+
+    _review_dir(tmp_path / "review_agent", ["C2"], decided=200)
+    c3 = _review_dir(tmp_path / "review_agent_c3", ["C3"], decided=50)
+    session = SimpleNamespace(
+        queue_path=c3 / "queue.json",
+        queue=SimpleNamespace(
+            items=(ReviewItem(id="C3-t72-L1", well="C3", frame=72),)
+        ),
+    )
+    loader = m.PlateLoader(
+        5054, session=session, wells=["C2", "C3", "C4"]  # ty: ignore[invalid-argument-type]
+    )
+    assert loader.interactive("C3")
+    assert not loader.interactive("C2")
+    assert loader.review_dir("C2") == tmp_path / "review_agent"
+    assert loader.review_dir("C4") is None
+    assert loader.watch_paths("C4") == []
+    loader.set_review_dir("C3", None)
+    assert not loader.interactive("C3")
+    assert loader.review_dir("C3") is None

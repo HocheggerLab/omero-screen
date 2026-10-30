@@ -26,6 +26,7 @@ WELL = "C2"
 
 @pytest.fixture(scope="module")
 def qapp():
+    """One offscreen QApplication for the module."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from qtpy.QtWidgets import QApplication
 
@@ -113,6 +114,7 @@ def test_builds_and_draws(qapp) -> None:
 
 
 def test_division_alignment_puts_divisions_on_row_zero(qapp) -> None:
+    """Every division node lands on y = 0; unaligned trees can be hidden."""
     w = _view(qapp)
     w.align_box.setCurrentIndex(list(tvm.ALIGNMENTS).index("division"))
     lay = w.lay
@@ -126,6 +128,7 @@ def test_division_alignment_puts_divisions_on_row_zero(qapp) -> None:
 
 
 def test_filters_from_the_toolbar(qapp) -> None:
+    """Toolbar filters reach the layout."""
     w = _view(qapp)
     w.min_len.setValue(40)
     assert (w.lay.tracks["n_frames"] >= 40).all()
@@ -151,6 +154,7 @@ def test_zoom_shows_markers_then_labels(qapp) -> None:
 
 
 def test_pick_calls_back_and_highlights(qapp) -> None:
+    """A picked node opens the cell and is highlighted."""
     picked = []
     w = _view(qapp, on_pick=lambda *a: picked.append(a))
     n = w.lay.nodes
@@ -168,6 +172,7 @@ def test_pick_calls_back_and_highlights(qapp) -> None:
 
 
 def test_click_on_canvas_finds_the_node(qapp) -> None:
+    """A click within a few pixels of a node selects it."""
     picked = []
     w = _view(qapp, on_pick=lambda *a: picked.append(a))
     w.zoom_to(-0.5, 3.5, 0, 20)
@@ -276,8 +281,10 @@ def test_real_well_smoke(qapp, tmp_path: Path) -> None:
     lay = w.lay
     assert lay is not None
     aligned = lay.tracks[~lay.tracks["parked"]]
-    divs = aligned[aligned["ev_division"].notna()]
-    assert ((divs["end"] - divs["offset"]) == 0).all()
+    # Every aligned founder that divides has its division on row 0.
+    roots = aligned[aligned["parent"] == 0]
+    divs = roots[roots["ev_division"].notna()]
+    assert ((divs["ev_division"] - divs["offset"]) == 0).all()
     w.zoom_to(-0.5, 5.5, -30, 15)
     qapp.processEvents()
     w.grab().save(str(out / f"{tag}_accepted_division_zoom.png"))
@@ -348,3 +355,34 @@ def test_review_widget_docks_view_and_opens_picked_cell(
     finally:
         for p in patches:
             p.stop()
+
+
+class _ReadOnlyLoader:
+    """A loader for a well the review session does not edit."""
+
+    def __call__(self, well: str) -> tvm.WellInputs:
+        return _inputs()
+
+    def interactive(self, well: str) -> bool:
+        return False
+
+
+def test_read_only_well_navigates_but_never_opens(qapp) -> None:
+    """A node of another well moves the viewer at most; the cell is described."""
+    from omero_screen_napari.review.track_view import TrackViewWidget
+
+    picked, moved = [], []
+    w = TrackViewWidget(
+        [WELL],
+        _ReadOnlyLoader(),
+        slow=None,
+        worker="inline",
+        on_pick=lambda *a: picked.append(a),
+        on_navigate=lambda *a: moved.append(a) or False,
+    )
+    w.pick(3)
+    assert not picked
+    assert len(moved) == 1 and moved[0][0] == WELL
+    assert "Read-only well" in w.status.text()
+    assert "load well" in w.status.text()
+    w.close()

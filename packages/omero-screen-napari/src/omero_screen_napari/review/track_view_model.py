@@ -32,6 +32,7 @@ until then phases are the walker's per-frame G1/S/G2 calls.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -124,7 +125,13 @@ PALETTES: dict[str, dict[str, str]] = {
     },
 }
 
-_EDGE_KINDS = ("link", "gap", "division")
+#: Edge kinds: a frame to the next, across frames without a mask, a real
+#: division (mother → daughter), and a tracker parent link that is not one.
+EDGE_KINDS = ("link", "gap", "division", "split")
+#: Frames with a mask a daughter needs to be drawn as a branch of a division.
+MIN_DAUGHTER_FRAMES = 6
+#: Shortest track (frames with a mask) given HMM phases.
+MIN_HMM_FRAMES = 6
 _NODE_COLUMNS = [
     "track",
     "frame",
@@ -134,8 +141,11 @@ _NODE_COLUMNS = [
     "area",
     "pip",
     "geminin",
+    "y",
+    "x",
     "phase",
     "phase_walker",
+    "phase_hmm",
     "edited",
     "confirmed",
     "after_gap",
@@ -177,22 +187,26 @@ class LineageTable:
     Attributes:
         nodes: One row per track and frame with a mask: ``track, frame,
             label`` (raw label of the largest piece), ``is_extra``
-            (a reviewer mask), ``n_pieces, area, pip, geminin``, ``phase``
-            (HMM if fitted, else the walker's call), ``phase_walker``,
+            (a reviewer mask), ``n_pieces, area, pip, geminin, y, x``,
+            ``phase`` (the HMM's call where it made one, else the walker's),
+            ``phase_walker``, ``phase_hmm``,
             ``edited`` (an edit names this frame of this track),
             ``confirmed`` (a link or swap by a reviewer at this frame),
             ``after_gap`` (the previous frame of the track had no mask).
         edges: ``track`` (the track the edge belongs to; the daughter for a
-            division), ``source`` (the track at ``f0``), ``f0, f1, kind``.
+            division), ``source`` (the track at ``f0``), ``f0, f1, kind``
+            (one of :data:`EDGE_KINDS`).
         tracks: Indexed by track id: ``parent, start, end, n_frames,
             n_gaps, hours, item_id, queued, flags, outcome, verdict,
-            reviewed_by, audit, excluded, edits, edits_per_h`` and the event
+            reviewed_by, audit, excluded, edits, edits_per_h, divided`` and
+            the event
             frames ``ev_window, ev_division, ev_exit, ev_g2, ev_s`` (NaN if
             the track has no such event).
         well: The well.
         interval_minutes: Time between frames.
         window: ``(start, stop)`` frames of the analysis window.
         has_hmm: Whether ``phase`` comes from the HMM.
+        pooled: Whether the HMM used the plate-pooled reference.
     """
 
     nodes: pd.DataFrame
@@ -202,6 +216,7 @@ class LineageTable:
     interval_minutes: float = 20.0
     window: tuple[int, int] = (0, 0)
     has_hmm: bool = False
+    pooled: bool = False
 
     def hours(self, frames: float) -> float:
         """Frames to hours."""
@@ -263,12 +278,17 @@ class SlowAnnotations:
             ``outcome_frame``, ``excluded``, ``review_flags``).
         phases: ``track, frame, phase`` from the HMM.
         boundaries: Per track ``s_entry, g2_entry, exit`` median frames.
+        reference: The phase reference used (pass it back in
+            :class:`WellInputs` to skip refitting it).
+        pooled: Whether ``reference`` was fitted on the whole plate.
         errors: What could not be computed, and why.
     """
 
     fates: pd.DataFrame | None = None
     phases: pd.DataFrame | None = None
     boundaries: pd.DataFrame | None = None
+    reference: Any = None
+    pooled: bool = False
     errors: list[str] = field(default_factory=list)
 
 
@@ -469,7 +489,7 @@ def build_lineage_table(
 
     # -- nodes: detections onto (track, frame) ---------------------------------
     d = det[["timepoint", "label", "area"]].copy()
-    for ch in ("pip", "geminin"):
+    for ch in ("pip", "geminin", "y", "x"):
         d[ch] = det.get(ch, np.nan)
     d["track"] = [
         curated.tracks.get((int(t), int(lab)), 0)
@@ -478,12 +498,13 @@ def build_lineage_table(
     d = d[d["track"] > 0]
     d["frame"] = d["timepoint"].astype(int)
     d["area"] = d["area"].astype(float)
-    for ch in ("pip", "geminin"):
+    weighted = ("pip", "geminin", "y", "x")
+    for ch in weighted:
         d[ch] = d[ch].astype(float) * d["area"]
     grouped = d.groupby(["track", "frame"], sort=True)
-    nodes = grouped[["area", "pip", "geminin"]].sum(min_count=1)
-    nodes["pip"] = nodes["pip"] / nodes["area"]
-    nodes["geminin"] = nodes["geminin"] / nodes["area"]
+    nodes = grouped[["area", *weighted]].sum(min_count=1)
+    for ch in weighted:
+        nodes[ch] = nodes[ch] / nodes["area"]
     nodes["n_pieces"] = grouped.size()
     nodes["label"] = (
         d.sort_values("area").groupby(["track", "frame"])["label"].last()
@@ -502,14 +523,18 @@ def build_lineage_table(
         nodes.loc[nodes["pip"].isna(), "phase_walker"] = ""
     else:
         nodes["phase_walker"] = ""
-    nodes["phase"] = nodes["phase_walker"]
+    nodes["phase_hmm"] = ""
     has_hmm = slow.phases is not None and not slow.phases.empty
     if has_hmm:
         assert slow.phases is not None
         hmm = slow.phases.set_index(["track", "frame"])["phase"]
         key = pd.MultiIndex.from_arrays([nodes["track"], nodes["frame"]])
         mapped = pd.Series(hmm.reindex(key).to_numpy(), index=nodes.index)
-        nodes["phase"] = mapped.fillna("").astype(str)
+        nodes["phase_hmm"] = mapped.fillna("").astype(str)
+    # The HMM's call where it made one (inside the window, long tracks).
+    nodes["phase"] = nodes["phase_hmm"].where(
+        nodes["phase_hmm"] != "", nodes["phase_walker"]
+    )
 
     prev = nodes.groupby("track")["frame"].shift()
     nodes["after_gap"] = prev.notna() & (nodes["frame"] - prev > 1)
@@ -610,17 +635,51 @@ def build_lineage_table(
     walker: dict[int, dict[str, Any]] = {}
     if slow.fates is not None and not slow.fates.empty:
         for row in slow.fates.itertuples():
-            for seg in str(getattr(row, "segments", "")).split():
-                walker[int(seg)] = {
+            segs = [int(x) for x in str(getattr(row, "segments", "")).split()]
+            for seg in segs:
+                walker[seg] = {
                     "outcome": str(row.outcome),
                     "frame": getattr(row, "outcome_frame", np.nan),
                     "excluded": bool(getattr(row, "excluded", False)),
                     "flags": str(getattr(row, "review_flags", "") or ""),
+                    # The outcome happens at the end of the last segment.
+                    "last": seg == segs[-1],
                 }
     children: dict[int, list[int]] = {}
     for t, p in zip(tracks.index, tracks["parent"], strict=True):
         if p:
             children.setdefault(int(p), []).append(int(t))
+    n_frames_of = dict(
+        zip(
+            tracks.index.to_numpy().tolist(),
+            tracks["n_frames"].tolist(),
+            strict=True,
+        )
+    )
+
+    def really_divided(tid: int, rec: ReviewRecord, notes: dict) -> bool:
+        """The reviewer's outcome, a curated event, else the walker's.
+
+        A track the walker did not follow (a daughter, a cell born after
+        the window start) counts as divided if at least two of its
+        tracker daughters are long enough to be cells.
+        """
+        if rec.verdict in ("accept", "correct") and rec.outcome:
+            return rec.outcome == "divided"
+        kinds = {e["kind"] for e in notes.get("events", [])}
+        if "mitosis" in kinds or notes.get("outcome") == "divided":
+            return True
+        if notes.get("outcome") or "excluded" in notes:
+            return False
+        w = walker.get(tid)
+        if w is not None:
+            return w["outcome"] == "divided" and w["last"]
+        long_kids = [
+            k
+            for k in children.get(tid, [])
+            if n_frames_of[k] >= MIN_DAUGHTER_FRAMES
+        ]
+        return len(long_kids) >= 2
 
     outcome, verdict, by, audit, excluded, flags, item_ids = (
         [],
@@ -631,11 +690,13 @@ def build_lineage_table(
         [],
         [],
     )
+    divided: dict[int, bool] = {}
     for tid in tracks.index:
         tid = int(tid)
         rec = rec_of.get(tid, ReviewRecord())
         notes = curated.annotations.get(tid, {})
         w = walker.get(tid, {})
+        divided[tid] = really_divided(tid, rec, notes)
         out = ""
         if rec.verdict in ("accept", "correct") and rec.outcome:
             out = rec.outcome
@@ -654,7 +715,7 @@ def build_lineage_table(
             out = w["outcome"]
         elif tid in auto_outcome:
             out = auto_outcome[tid]
-        elif tid in children:
+        elif divided[tid]:
             out = "divided"
         outcome.append(out)
         verdict.append(rec.verdict)
@@ -679,6 +740,7 @@ def build_lineage_table(
     tracks["reviewed_by"] = by
     tracks["audit"] = audit
     tracks["excluded"] = excluded
+    tracks["divided"] = [divided[int(t)] for t in tracks.index]
 
     # -- events ------------------------------------------------------------------
     start, stop = window or (
@@ -712,12 +774,16 @@ def build_lineage_table(
         notes = curated.annotations.get(tid, {})
         events = {e["kind"]: int(e["frame"]) for e in notes.get("events", [])}
         g = by_track[tid]
-        if tid in children:
-            div = float(end_of[tid])
-        elif "mitosis" in events:
-            div = float(events["mitosis"])
-        else:
-            div = float("nan")
+        div = float("nan")
+        if divided[tid]:
+            w_frame = walker.get(tid, {}).get("frame", np.nan)
+            if "mitosis" in events:
+                div = float(events["mitosis"])
+            elif tid not in children and np.isfinite(w_frame):
+                # The walker dates a division the frame after the mother.
+                div = float(min(w_frame - 1, end_of[tid]))
+            else:
+                div = float(end_of[tid])
         ph = g["phase"].to_numpy()
         fr = g["frame"].to_numpy()
         exit_ = float("nan")
@@ -753,13 +819,14 @@ def build_lineage_table(
             )
     for parent, kids in children.items():
         for kid in kids:
+            real = divided[parent] and n_frames_of[kid] >= MIN_DAUGHTER_FRAMES
             rows.append(
                 (
                     kid,
                     parent,
                     end_of[parent],
                     start_of[kid],
-                    "division",
+                    "division" if real else "split",
                 )
             )
     edges = pd.DataFrame(rows, columns=["track", "source", "f0", "f1", "kind"])
@@ -771,6 +838,7 @@ def build_lineage_table(
         interval_minutes=interval_minutes,
         window=(int(start), int(stop)),
         has_hmm=has_hmm,
+        pooled=slow.pooled,
     )
 
 
@@ -1052,7 +1120,14 @@ class WellInputs:
 
     The objects are never modified after they are read (an edit makes the
     session replay into a new :class:`~cellview.tracks.edit.Curated`), so a
-    worker thread may compute :func:`slow_annotations` from them.
+    worker may compute :func:`slow_annotations` from them.
+
+    Attributes:
+        plate_id: Plate, for the plate-pooled phase reference (``None``:
+            fit the reference on this well).
+        db_path: CellView database the plate is read from.
+        reference: A phase reference already fitted for the plate.
+        review_dir: The review directory the curation comes from, if any.
     """
 
     det: pd.DataFrame
@@ -1063,43 +1138,71 @@ class WellInputs:
     queue: dict[str, dict[str, str]]
     window: tuple[int, int]
     interval_minutes: float
+    plate_id: int | None = None
+    db_path: Path | None = None
+    reference: Any = None
+    review_dir: Path | None = None
+
+
+def _spec(queue_path: Path | None) -> dict[str, Any]:
+    if queue_path is None or not Path(queue_path).exists():
+        return {}
+    try:
+        return json.loads(Path(queue_path).read_text()).get("spec", {}) or {}
+    except (OSError, json.JSONDecodeError):
+        return {}
 
 
 def read_inputs(
-    source: CellSource, queue_path: Path, queue: Queue, well: str
+    source: CellSource,
+    queue_path: Path | None,
+    queue: Queue | None,
+    well: str,
+    window: tuple[int, int] | None = None,
 ) -> WellInputs:
     """Read one well's curated lineage and review records.
 
     Args:
         source: The plate's cached curated lineages (its ``log_path`` is
-            the review directory's edit log).
+            the review directory's edit log, or ``None``: CellView's
+            lineage as it is).
         queue_path: The queue file; its directory holds the decisions.
+            ``None`` for a well without a review.
         queue: The parsed queue (items give flags and automatic outcomes).
         well: The well.
+        window: Analysis window if the queue does not name one.
     """
     from cellview.tracks.edit import EditLog
 
     det, curated = source.well(well)
-    spec = json.loads(Path(queue_path).read_text()).get("spec", {}) or {}
-    start = int(spec.get("start", det["timepoint"].min()))
-    stop = int(spec.get("stop", det["timepoint"].max()))
+    spec = _spec(queue_path)
+    default = window or (
+        int(det["timepoint"].min()),
+        int(det["timepoint"].max()),
+    )
+    start = int(spec.get("start", default[0]))
+    stop = int(spec.get("stop", default[1]))
     interval = float(spec.get("interval_minutes", 20.0))
     log = source.log_path
     edits = EditLog(log).entries() if log and log.exists() else []
     items = {
         it.id: {"reason": it.reason, "outcome": it.outcome}
-        for it in queue.items
+        for it in (queue.items if queue else ())
         if it.well == well
     }
+    review_dir = Path(queue_path).parent if queue_path else None
     return WellInputs(
         det=det,
         curated=curated,
         well=well,
         edits=edits,
-        records=review_records(Path(queue_path).parent),
+        records=review_records(review_dir) if review_dir else {},
         queue=items,
         window=(start, stop),
         interval_minutes=interval,
+        plate_id=source.plate_id,
+        db_path=source.db_path,
+        review_dir=review_dir,
     )
 
 
@@ -1135,25 +1238,145 @@ def lineage_from_session(
     return table_from_inputs(session_inputs(session, well), slow)
 
 
+# -- plate-pooled phase reference ----------------------------------------------------
+
+
+def cache_dir() -> Path:
+    """Where the track view keeps derived data (never in a review directory)."""
+    base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    return Path(base) / "omero-screen" / "track_view"
+
+
+def tracked_wells(plate_id: int, db_path: Path | None = None) -> list[str]:
+    """Wells of a plate with tracked detections in CellView, in plate order."""
+    import duckdb
+
+    from omero_screen_napari.review.cells import default_db_path
+
+    conn = duckdb.connect(str(db_path or default_db_path()), read_only=True)
+    try:
+        rows = conn.execute(
+            """
+            select distinct c.well from measurements m
+            join conditions c using (condition_id)
+            join repeats r using (repeat_id)
+            where r.plate_id = ? and m.track_id_raw is not null
+            """,
+            [plate_id],
+        ).fetchall()
+    finally:
+        conn.close()
+    return sorted((str(r[0]) for r in rows), key=_well_key)
+
+
+def _well_key(well: str) -> tuple[str, int]:
+    row = "".join(c for c in well if c.isalpha())
+    col = "".join(c for c in well if c.isdigit())
+    return row, int(col or 0)
+
+
+def plate_reference(
+    plate_id: int,
+    db_path: Path | None,
+    window: tuple[int, int],
+    params: Any = None,
+) -> Any:
+    """The phase reference fitted once on every tracked well of the plate.
+
+    As in the fate build, the bleed-through factor and the PIP / geminin
+    scales come from all wells together, so a phase means the same reporter
+    state in every well; fitted on a knockdown well alone, few S/G2 cells
+    give a low geminin scale that turns noise into spurious S, G2 or exit
+    calls. Detections in the analysis window, debris hidden, are pooled.
+    Cached in :func:`cache_dir`, keyed by the database file's size and time.
+
+    Returns:
+        A :class:`cellview.tracks.phases.WellReference`.
+    """
+    import duckdb
+    from cellview.tracks.cells import load_well
+    from cellview.tracks.debris import drop_debris
+    from cellview.tracks.phases import (
+        PhaseParams,
+        WellReference,
+        fit_reference,
+    )
+
+    from omero_screen_napari.review.cells import default_db_path
+
+    params = params or PhaseParams()
+    db = Path(db_path or default_db_path())
+    stat = db.stat()
+    key = {
+        "plate": plate_id,
+        "db": str(db.resolve()),
+        "db_size": stat.st_size,
+        "db_mtime": stat.st_mtime,
+        "window": list(window),
+        "quantiles": [
+            params.bleed_pip_quantile,
+            params.bleed_quantile,
+            params.pip_ref_quantile,
+            params.gem_ref_quantile,
+        ],
+    }
+    path = cache_dir() / f"phase_reference_plate{plate_id}.json"
+    if path.exists():
+        try:
+            cached = json.loads(path.read_text())
+            if cached.get("key") == key:
+                return WellReference(**cached["reference"])
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+    wells = tracked_wells(plate_id, db)
+    conn = duckdb.connect(str(db), read_only=True)
+    try:
+        frames = []
+        for well in wells:
+            det, _ = drop_debris(load_well(conn, plate_id, well))
+            if not {"pip", "geminin"} <= set(det.columns):
+                continue
+            inside = det["timepoint"].between(window[0], window[1])
+            frames.append(det.loc[inside, ["pip", "geminin"]])
+    finally:
+        conn.close()
+    if not frames:
+        raise ValueError(f"No PIP / geminin data on plate {plate_id}.")
+    ref = fit_reference(pd.concat(frames, ignore_index=True), params)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {"key": key, "wells": wells, "reference": ref.__dict__},
+                indent=1,
+            )
+        )
+    except OSError:
+        pass
+    return ref
+
+
 def slow_annotations(
     inputs: WellInputs,
     walker: bool = True,
     hmm: bool = True,
-    min_frames: int = 6,
+    min_frames: int = MIN_HMM_FRAMES,
 ) -> SlowAnnotations:
     """Fate-walker outcomes and HMM phases for one well (seconds; run off the UI thread).
 
-    The HMM is fitted on this well's tracks alone (``annotate_phases`` is
-    meant to be fitted on a whole plate); a knockdown well with few S/G2
-    cells may show spurious S, G2 or exit calls. The fate build's phases
-    are the reference.
+    Phases are called as the fate build calls them: with the plate-pooled
+    reference (:func:`plate_reference`) and on the analysis window only, so
+    S entry, G2 entry and exit match the fate tables. Without a plate (a
+    toy well) the reference is fitted on the well itself
+    (``SlowAnnotations.pooled`` is then ``False``).
 
     Args:
-        inputs: The well's snapshot (:func:`session_inputs`).
+        inputs: The well's snapshot (:func:`read_inputs`).
         walker: Run :func:`~cellview.tracks.fate.follow_cells` over the
             window.
-        hmm: Fit :func:`~cellview.tracks.phases.annotate_phases`.
-        min_frames: Shortest track (frames with a mask) given HMM phases.
+        hmm: Call phases with :func:`~cellview.tracks.phases.annotate_phases`.
+        min_frames: Shortest track (frames with a mask in the window) given
+            HMM phases.
     """
     from cellview.tracks.cells import curated_tracks
 
@@ -1188,17 +1411,35 @@ def slow_annotations(
         except Exception as err:
             out.errors.append(f"fate walker: {err}")
     if hmm and have_reporters:
-        from cellview.tracks.phases import PhaseParams, annotate_phases
+        from cellview.tracks.phases import (
+            PhaseParams,
+            annotate_phases,
+            fit_reference,
+        )
 
+        params = PhaseParams(n_samples=1)
         try:
-            n = tracks.groupby("track_id")["timepoint"].transform("size")
+            inside = tracks["timepoint"].between(*inputs.window)
             st = tracks.loc[
-                n >= min_frames, ["track_id", "timepoint", "pip", "geminin"]
+                inside, ["track_id", "timepoint", "pip", "geminin"]
             ].rename(columns={"track_id": "cell"})
+            n = st.groupby("cell")["timepoint"].transform("size")
+            st = st[n >= min_frames]
+            ref = inputs.reference
+            if ref is None and inputs.plate_id is not None:
+                try:
+                    ref = plate_reference(
+                        inputs.plate_id, inputs.db_path, inputs.window, params
+                    )
+                except Exception as err:
+                    out.errors.append(f"plate reference: {err}")
+            out.pooled = ref is not None
+            if ref is None and not st.empty:
+                ref = fit_reference(st, params)
+            out.reference = ref
             if not st.empty:
-                cells_df = st[["cell"]].drop_duplicates()
                 oc, os_, _ = annotate_phases(
-                    cells_df, st, PhaseParams(n_samples=1)
+                    st[["cell"]].drop_duplicates(), st, params, reference=ref
                 )
                 out.phases = os_.rename(
                     columns={"cell": "track", "timepoint": "frame"}
@@ -1211,6 +1452,9 @@ def slow_annotations(
     elif hmm:
         out.errors.append("phases: no PIP / geminin channels")
     return out
+
+
+# -- loaders ---------------------------------------------------------------------------
 
 
 def _reloading(
@@ -1271,12 +1515,236 @@ def directory_loader(
 
 def watch_paths(session: ReviewSession) -> list[Path]:
     """Files and directories whose change should rebuild the view."""
-    review_dir = session.queue_path.parent
+    return review_watch_paths(session.queue_path.parent)
+
+
+def review_watch_paths(review_dir: Path | None) -> list[Path]:
+    """A review directory, its edit log and its decisions files."""
+    if review_dir is None:
+        return []
+    review_dir = Path(review_dir)
     return [
         review_dir,
-        session.edits_path,
+        review_dir / "edits.jsonl",
         *sorted(review_dir.glob("*decisions.json")),
     ]
+
+
+# -- review directories of a plate -----------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ReviewDir:
+    """A review directory found beside another.
+
+    Attributes:
+        path: The directory.
+        plate_id: Its plate.
+        wells: Wells its curation is for.
+        newest: Time of its newest ``*decisions.json`` (else of its edit
+            log): the most recently reviewed directory wins a well.
+    """
+
+    path: Path
+    plate_id: int
+    wells: tuple[str, ...]
+    newest: float
+
+
+def read_review_dir(path: Path) -> ReviewDir | None:
+    """Describe ``path`` if it is a review directory (``edits.jsonl`` plus
+    ``correction.json`` or ``queue.json``), else ``None``."""
+    path = Path(path)
+    edits = path / "edits.jsonl"
+    correction, queue = path / "correction.json", path / "queue.json"
+    if not edits.exists() or not (correction.exists() or queue.exists()):
+        return None
+    plate: int | None = None
+    wells: set[str] = set()
+    try:
+        if correction.exists():
+            data = json.loads(correction.read_text())
+            plate = data.get("plate_id")
+            wells.update(str(w) for w in data.get("wells", []))
+        if queue.exists():
+            data = json.loads(queue.read_text())
+            plate = plate if plate is not None else data.get("plate_id")
+            if not wells:
+                wells.update(str(it["well"]) for it in data.get("items", []))
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        return None
+    if plate is None or not wells:
+        return None
+    stamps = [p.stat().st_mtime for p in path.glob("*decisions.json")]
+    return ReviewDir(
+        path=path,
+        plate_id=int(plate),
+        wells=tuple(sorted(wells, key=_well_key)),
+        newest=max(stamps) if stamps else edits.stat().st_mtime,
+    )
+
+
+def discover_review_dirs(
+    review_dir: Path, plate_id: int
+) -> dict[str, list[ReviewDir]]:
+    """Review directories of a plate beside ``review_dir``, per well.
+
+    ``review_dir`` and its sibling directories are read (one level, so the
+    ``_superseded_*`` folders inside a review directory are not). For each
+    well the directories are listed newest review first.
+    """
+    review_dir = Path(review_dir)
+    parent = review_dir.parent
+    candidates = [review_dir]
+    if parent.is_dir():
+        candidates += sorted(
+            p for p in parent.iterdir() if p.is_dir() and p != review_dir
+        )
+    found: dict[str, list[ReviewDir]] = {}
+    for path in candidates:
+        rd = read_review_dir(path)
+        if rd is None or rd.plate_id != plate_id:
+            continue
+        for well in rd.wells:
+            found.setdefault(well, []).append(rd)
+    for dirs in found.values():
+        dirs.sort(key=lambda d: -d.newest)
+    return found
+
+
+class PlateLoader:
+    """Loads any well of a plate for the track view.
+
+    The Track Review session's wells, from its own review directory, are
+    read through the session (so its edits show at once and clicking a node
+    may open the cell). Every other well is read from the review directory
+    found for it beside the session's (:func:`discover_review_dirs`; the
+    user may choose another, or none), read-only, or from CellView alone.
+
+    Args:
+        plate_id: The plate.
+        db_path: CellView database.
+        session: The open review session, if any.
+        review_dir: Where to look for review directories (default: the
+            session's).
+        wells: Wells to offer (default: every tracked well of the plate).
+    """
+
+    def __init__(
+        self,
+        plate_id: int,
+        db_path: Path | None = None,
+        session: ReviewSession | None = None,
+        review_dir: Path | None = None,
+        wells: list[str] | None = None,
+    ) -> None:
+        self.plate_id = plate_id
+        self.db_path = db_path
+        self.session = session
+        self.home = (
+            Path(review_dir)
+            if review_dir
+            else session.queue_path.parent
+            if session
+            else None
+        )
+        self.dirs = (
+            discover_review_dirs(self.home, plate_id) if self.home else {}
+        )
+        session_wells = (
+            {it.well for it in session.queue.items} if session else set()
+        )
+        if wells is None:
+            try:
+                wells = tracked_wells(plate_id, db_path)
+            except Exception:  # no database: what the reviews name
+                wells = []
+            wells = sorted({*wells, *self.dirs, *session_wells}, key=_well_key)
+        self.wells = wells
+        self.choice: dict[str, Path | None] = {}
+        for well in session_wells:
+            if self.home is not None:
+                self.choice[well] = self.home
+        self.reference: Any = None
+        self._sources: dict[Path | None, CellSource] = {}
+        self._loaders: dict[tuple[str, Path | None], Callable] = {}
+        spec = _spec(self.home / "queue.json") if self.home else {}
+        self.window = (
+            (int(spec["start"]), int(spec["stop"]))
+            if "start" in spec and "stop" in spec
+            else None
+        )
+
+    def candidates(self, well: str) -> list[Path]:
+        """Review directories found for ``well``, newest review first."""
+        return [d.path for d in self.dirs.get(well, [])]
+
+    def review_dir(self, well: str) -> Path | None:
+        """The review directory ``well`` is read from (``None``: CellView only)."""
+        if well in self.choice:
+            return self.choice[well]
+        found = self.candidates(well)
+        return found[0] if found else None
+
+    def set_review_dir(self, well: str, path: Path | None) -> None:
+        """Read ``well`` from another review directory (``None``: none)."""
+        self.choice[well] = Path(path) if path else None
+
+    def interactive(self, well: str) -> bool:
+        """Whether ``well`` is shown from the review session (cells can be opened)."""
+        return (
+            self.session is not None
+            and self.home is not None
+            and self.review_dir(well) == self.home
+            and any(it.well == well for it in self.session.queue.items)
+        )
+
+    def watch_paths(self, well: str) -> list[Path]:
+        """What to watch for ``well``."""
+        return review_watch_paths(self.review_dir(well))
+
+    def _source(self, review_dir: Path | None) -> CellSource:
+        from omero_screen_napari.review.cells import CellSource
+
+        if review_dir not in self._sources:
+            log = review_dir / "edits.jsonl" if review_dir else None
+            self._sources[review_dir] = CellSource(
+                self.plate_id, db_path=self.db_path, log_path=log
+            )
+        return self._sources[review_dir]
+
+    def __call__(self, well: str) -> WellInputs:
+        """Read ``well``."""
+        from omero_screen_napari.review_queue import read_queue
+
+        review_dir = self.review_dir(well)
+        key = (well, review_dir)
+        if key not in self._loaders:
+            if self.interactive(well):
+                assert self.session is not None
+                self._loaders[key] = session_loader(self.session)
+            else:
+                source = self._source(review_dir)
+                qpath = review_dir / "queue.json" if review_dir else None
+                queue = read_queue(qpath) if qpath and qpath.exists() else None
+                window = self.window
+
+                def read(
+                    w: str,
+                    source: CellSource = source,
+                    qpath: Path | None = qpath,
+                    queue: Queue | None = queue,
+                ) -> WellInputs:
+                    return read_inputs(source, qpath, queue, w, window)
+
+                self._loaders[key] = _reloading(source, read)
+        inputs = self._loaders[key](well)
+        return replace(inputs, reference=self.reference)
+
+    def remember(self, slow: SlowAnnotations) -> None:
+        """Keep the plate's phase reference from a finished run."""
+        if slow.pooled and slow.reference is not None:
+            self.reference = slow.reference
 
 
 def run_slow_annotations_subprocess(

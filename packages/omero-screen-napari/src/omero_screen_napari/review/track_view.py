@@ -70,16 +70,22 @@ PICK_PX = 10.0
 
 HELP = """<b>Track view</b><br>
 One column per curated track, time running down; daughters fork from
-their mother at the division; dashed: frames without a mask.<br><br>
+their mother at a division (reviewer or fate walker); dotted: a tracker
+parent link that is not a division; dashed: frames without a mask.<br><br>
 <b>Mouse</b><br>
 wheel: zoom &nbsp;·&nbsp; drag: pan &nbsp;·&nbsp;
 right-drag: zoom x and y separately<br>
-click a node: open that cell in Track Review at that frame<br>
+click a node: open that cell in Track Review at that frame (the review
+session's wells; in other wells the viewer only moves there, if that well
+is loaded)<br>
 hover a node: frame, label, area, PIP, geminin, phase<br>
 <b>Fit</b>: show everything again<br><br>
 <b>Zoom</b>: zoomed out, a track is a line in the colours of the mode;
 zoomed in, nodes become markers, then tracks get labels.<br><br>
-<b>Colour</b>: phase (HMM once fitted, else the walker's G1/S/G2),
+<b>Well / review</b>: any tracked well of the plate, read from the review
+directory found for it (or picked here, or CellView only).<br>
+<b>Colour</b>: phase (HMM with the plate-pooled reference in the analysis
+window, else the walker's G1/S/G2),
 the track's verdict or outcome, frame flags (reviewer mask, a link or
 swap a reviewer confirmed, another edit, first frame after a gap), or edit
 density (edits per hour of track).<br>
@@ -87,9 +93,7 @@ density (edits per hour of track).<br>
 event has it at 0 h; trees without the event are hidden, or parked on the
 right with <i>Unaligned</i> on.<br>
 <b>Filters</b>: <i>accepted</i> = verdict accept or correct. A kept cell
-brings its daughters.<br><br>
-The HMM is fitted on this well alone; the fate build's phases (fitted on
-the plate) are the reference."""
+brings its daughters if they are long enough."""
 
 
 class HourAxis(pg.AxisItem):
@@ -145,8 +149,15 @@ class TrackViewWidget(QWidget):
             (default :func:`~track_view_model.run_slow_annotations_subprocess`,
             which runs :func:`~track_view_model.slow_annotations` in a
             child process); ``None`` disables it.
-        on_pick: Called with ``(well, frame, label)`` when a node is clicked.
-        watch: Files or directories whose change rebuilds the view.
+        on_pick: Called with ``(well, frame, label)`` when a node of a well
+            the review session edits is clicked: opens the cell there.
+        on_navigate: Called with ``(well, frame, y, x)`` when a node of
+            any other well is clicked; returns whether the viewer could go
+            there (that well's images are loaded). Never opens the cell in
+            the review session, whose edit log is another well's.
+        watch: Files or directories whose change rebuilds the view, if the
+            loader does not say (a
+            :class:`~track_view_model.PlateLoader` names them per well).
         well: Well to show first.
         worker: Where ``slow`` is called: ``thread`` (a worker thread, which
             for the default ``slow`` only waits on the child process) or
@@ -162,6 +173,7 @@ class TrackViewWidget(QWidget):
         slow: Callable[[tvm.WellInputs], tvm.SlowAnnotations]
         | None = tvm.run_slow_annotations_subprocess,
         on_pick: Callable[[str, int, int], Any] | None = None,
+        on_navigate: Callable[[str, int, float, float], bool] | None = None,
         watch: Sequence[Path] = (),
         well: str | None = None,
         worker: str = "thread",
@@ -172,6 +184,7 @@ class TrackViewWidget(QWidget):
         self.loader = loader
         self.slow_fn = slow
         self.on_pick = on_pick
+        self.on_navigate = on_navigate
         self.worker = worker
         self.table: tvm.LineageTable | None = None
         self.lay: tvm.Layout | None = None
@@ -188,6 +201,12 @@ class TrackViewWidget(QWidget):
 
         # -- controls --------------------------------------------------------
         self.well_box = QComboBox()
+        self.well_box.setToolTip("Well (any tracked well of the plate)")
+        self.dir_box = QComboBox()
+        self.dir_box.setToolTip(
+            "Review directory the well's curation and verdicts are read from"
+        )
+        self.dir_box.setMaximumWidth(190)
         self.colour_box = QComboBox()
         self.colour_box.addItems(list(tvm.COLOUR_MODES))
         self.align_box = QComboBox()
@@ -255,6 +274,12 @@ class TrackViewWidget(QWidget):
         self.div_item = pg.PlotDataItem(
             pen=pg.mkPen(DIVISION_PEN, width=1), connect="pairs"
         )
+        self.split_item = pg.PlotDataItem(
+            pen=pg.mkPen(
+                (150, 150, 150, 110), width=1, style=Qt.PenStyle.DotLine
+            ),
+            connect="pairs",
+        )
         self.track_hl = pg.PlotDataItem(
             pen=pg.mkPen((255, 230, 0, 90), width=12)
         )
@@ -281,6 +306,7 @@ class TrackViewWidget(QWidget):
             self.track_hl,
             self.gap_item,
             self.div_item,
+            self.split_item,
             self.zero_line,
             self.park_line,
         ):
@@ -314,6 +340,7 @@ class TrackViewWidget(QWidget):
         self.watcher.fileChanged.connect(self._on_watched)
         self.watcher.directoryChanged.connect(self._on_watched)
         self._watch: list[Path] = []
+        self._static_watch: list[Path] = []
 
         # -- layout ----------------------------------------------------------
         layout = QVBoxLayout(self)
@@ -324,9 +351,12 @@ class TrackViewWidget(QWidget):
         rows = [
             [
                 self.well_box,
+                _labelled("review", self.dir_box),
+                self.park,
+            ],
+            [
                 _labelled("colour", self.colour_box),
                 _labelled("align", self.align_box),
-                self.park,
             ],
             [
                 _labelled("sort", self.sort_box),
@@ -357,9 +387,8 @@ class TrackViewWidget(QWidget):
         layout.addWidget(self.status)
 
         self.set_source(wells, loader, watch=watch, well=well)
-        self.well_box.currentTextChanged.connect(
-            lambda _: self.reload(keep_view=False)
-        )
+        self.well_box.currentTextChanged.connect(self._on_well)
+        self.dir_box.currentIndexChanged.connect(self._on_dir)
         self.colour_box.currentTextChanged.connect(lambda _: self.redraw())
         for box in (
             self.align_box,
@@ -389,19 +418,70 @@ class TrackViewWidget(QWidget):
         """Show another session's wells (drops cached annotations)."""
         self.loader = loader
         self._slow.clear()
-        if self.watcher.files() or self.watcher.directories():
-            paths = self.watcher.files() + self.watcher.directories()
-            self.watcher.removePaths(paths)
-        self._watch = [Path(p) for p in watch]
-        self._add_watches()
+        self._static_watch = [Path(p) for p in watch]
         self.well_box.blockSignals(True)
         self.well_box.clear()
         self.well_box.addItems(list(wells))
         if well and well in wells:
             self.well_box.setCurrentText(well)
         self.well_box.blockSignals(False)
+        self._fill_dirs()
+        self._rewatch()
         if wells:
             self.reload(keep_view=False)
+
+    def _on_well(self, _well: str) -> None:
+        self._fill_dirs()
+        self._rewatch()
+        self.reload(keep_view=False)
+
+    def _fill_dirs(self) -> None:
+        """Offer the review directories found for the well (and none)."""
+        self.dir_box.blockSignals(True)
+        self.dir_box.clear()
+        candidates = getattr(self.loader, "candidates", None)
+        chosen = getattr(self.loader, "review_dir", None)
+        if candidates is None or chosen is None:
+            self.dir_box.addItem("(as loaded)", None)
+            self.dir_box.setEnabled(False)
+        else:
+            current = chosen(self.well)
+            paths = list(candidates(self.well))
+            if current is not None and current not in paths:
+                paths.insert(0, current)
+            for path in paths:
+                self.dir_box.addItem(path.name, str(path))
+            self.dir_box.addItem("CellView only", None)
+            index = paths.index(current) if current in paths else len(paths)
+            self.dir_box.setCurrentIndex(index)
+            self.dir_box.setEnabled(True)
+        self.dir_box.blockSignals(False)
+
+    def _on_dir(self, _index: int) -> None:
+        setter = getattr(self.loader, "set_review_dir", None)
+        if setter is None:
+            return
+        data = self.dir_box.currentData()
+        setter(self.well, Path(data) if data else None)
+        self._slow.pop(self.well, None)
+        self._rewatch()
+        self.reload(keep_view=False)
+
+    def _rewatch(self) -> None:
+        """Watch the current well's review directory."""
+        paths = self.watcher.files() + self.watcher.directories()
+        if paths:
+            self.watcher.removePaths(paths)
+        per_well = getattr(self.loader, "watch_paths", None)
+        self._watch = (
+            list(per_well(self.well)) if per_well else self._static_watch
+        )
+        self._add_watches()
+
+    def interactive(self, well: str | None = None) -> bool:
+        """Whether a click opens the cell in the review session."""
+        check = getattr(self.loader, "interactive", None)
+        return True if check is None else bool(check(well or self.well))
 
     @property
     def well(self) -> str:
@@ -505,7 +585,12 @@ class TrackViewWidget(QWidget):
     def _clear(self) -> None:
         for it in self.edge_items.values():
             it.setData([], [])
-        for it in (self.gap_item, self.div_item, self.track_hl):
+        for it in (
+            self.gap_item,
+            self.div_item,
+            self.split_item,
+            self.track_hl,
+        ):
             it.setData([], [])
         self.nodes.clear()
         self.node_hl.clear()
@@ -565,6 +650,7 @@ class TrackViewWidget(QWidget):
             self.edge_items[cat].setData([], [])
         self.gap_item.setData(*_pairs(edges[edges["kind"] == "gap"]))
         self.div_item.setData(*_pairs(edges[edges["kind"] == "division"]))
+        self.split_item.setData(*_pairs(edges[edges["kind"] == "split"]))
 
         self.zero_line.setVisible(self.align != "frame")
         if lay.parked_from is not None:
@@ -588,8 +674,14 @@ class TrackViewWidget(QWidget):
             )
         note = ""
         if mode == "phase" and self.table is not None:
+            t0, t1 = self.table.window
+            hmm = (
+                "HMM, plate-pooled"
+                if self.table.pooled
+                else "HMM, this well only"
+            )
             note = (
-                " &nbsp;<i>(HMM, this well)</i>"
+                f" &nbsp;<i>({hmm}, t{t0}–t{t1}; walker G1/S/G2 elsewhere)</i>"
                 if self.table.has_hmm
                 else " &nbsp;<i>(walker G1/S/G2; HMM pending)</i>"
                 if self.slow_fn is not None
@@ -722,7 +814,12 @@ class TrackViewWidget(QWidget):
             self.pick(i)
 
     def pick(self, i: int) -> None:
-        """Select node ``i`` of the layout and tell the review widget."""
+        """Select node ``i`` of the layout and tell the review widget.
+
+        In a well the review session edits, the cell opens there. In any
+        other well the viewer only moves to the cell (if that well's images
+        are loaded); the cell is described here instead.
+        """
         assert self.lay is not None
         row = self.lay.nodes.iloc[i]
         track, frame, label = (
@@ -731,13 +828,31 @@ class TrackViewWidget(QWidget):
             int(row["label"]),
         )
         self.highlight(self.well, track, frame)
-        if self.on_pick is not None:
-            try:
-                self.on_pick(self.well, frame, label)
-            except Exception as err:
-                self.status.setText(
-                    f"<span style='color:#e06c6c'>{html.escape(str(err))}</span>"
+        try:
+            if self.interactive():
+                if self.on_pick is not None:
+                    self.on_pick(self.well, frame, label)
+                return
+            moved = bool(
+                self.on_navigate is not None
+                and self.on_navigate(
+                    self.well, frame, float(row["y"]), float(row["x"])
                 )
+            )
+        except Exception as err:
+            self.status.setText(
+                f"<span style='color:#e06c6c'>{html.escape(str(err))}</span>"
+            )
+            return
+        where = (
+            "viewer moved there"
+            if moved
+            else f"load well {html.escape(self.well)} in napari to go there"
+        )
+        self.status.setText(
+            f"<b>Read-only well</b> (not the review session's; {where}).<br>"
+            + self.describe(i)
+        )
 
     def _on_move(self, pos: QPointF) -> None:
         if self.lay is None:
@@ -881,6 +996,9 @@ class TrackViewWidget(QWidget):
         self, generation: int, well: str, result: tvm.SlowAnnotations
     ) -> None:
         self._slow[well] = result
+        remember = getattr(self.loader, "remember", None)
+        if remember is not None:
+            remember(result)
         if generation != self._generation or well != self.well:
             return  # stale: a newer rebuild has started its own
         self._build_table()
@@ -903,13 +1021,18 @@ class TrackViewWidget(QWidget):
         self.status.setText(
             f"{self.well}: {len(tr)} of {len(self.table.tracks)} tracks · "
             f"{len(self.lay.nodes)} nodes · "
-            f"{int((tr['parent'] > 0).sum())} daughters"
+            f"{int(tr['divided'].sum())} divisions"
             + (
                 f" · {int(tr['parked'].sum())} unaligned"
                 if tr["parked"].any()
                 else ""
             )
             + extra
+            + (
+                ""
+                if self.interactive()
+                else " · <i>read-only: not the review session's well</i>"
+            )
         )
 
     # -- misc --------------------------------------------------------------------

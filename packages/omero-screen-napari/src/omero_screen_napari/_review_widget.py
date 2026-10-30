@@ -369,10 +369,14 @@ class TrackReviewWidget(QWidget):
         from omero_screen_napari.review import track_view_model as tvm
         from omero_screen_napari.review.track_view import TrackViewWidget
 
-        wells = sorted({it.well for it in self.session.queue.items})
         well = self.current.well if self.current else None
-        loader = tvm.session_loader(self.session)
-        watch = tvm.watch_paths(self.session)
+        loader = tvm.PlateLoader(
+            self.session.queue.plate_id,
+            db_path=self.session.source.db_path,
+            session=self.session,
+        )
+        wells = loader.wells
+        watch: list[Path] = []
         if self.track_view is not None:
             try:
                 if self._track_session is not self.session:
@@ -387,6 +391,7 @@ class TrackReviewWidget(QWidget):
                 wells,
                 loader,
                 on_pick=self.open_from_view,
+                on_navigate=self.navigate_from_view,
                 watch=watch,
                 well=well,
             )
@@ -409,6 +414,26 @@ class TrackReviewWidget(QWidget):
         if item.id in self._ids():
             self._queue_pos = self._ids().index(item.id)
         self.go_to(item, frame=frame)
+
+    def navigate_from_view(
+        self, well: str, frame: int, y: float, x: float
+    ) -> bool:
+        """Move the viewer to a cell of a well the session does not edit.
+
+        Only if that well's images are loaded; the cell is not opened (its
+        curation lives in another review directory).
+        """
+        if self.session is None or self._loaded != (
+            self.session.queue.plate_id,
+            well,
+        ):
+            return False
+        self.viewer.dims.set_current_step(0, frame)
+        self.viewer.scene.camera.center = (
+            y * self._pixel_size,
+            x * self._pixel_size,
+        )
+        return True
 
     def _sync_track_view(self) -> None:
         """Highlight the open cell in the track view, if one is docked."""
