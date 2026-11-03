@@ -27,16 +27,28 @@ Outcomes:
 ``divided``
     The repaired track ends in a geminin-confirmed mitosis.
 ``mitotic_exit_no_division``
-    Geminin collapses after G2 but one nucleus continues: slippage or failed
-    cytokinesis.
+    Geminin, high for at least ``exit_hold`` frames, collapses but one nucleus
+    continues: slippage or failed cytokinesis. A one-frame geminin spike (a
+    nucleus compacting) is not a high level to exit from.
 ``mitotic_arrest``
     Condensed chromatin (high DNA intensity, small area) for at least
     ``arrest_hours`` with no exit by the window end.
 ``death``
-    The track ends inside the window after the nucleus shrinks or condenses.
+    The nucleus ends pyknotic: for at least ``death_frames`` frames at the end
+    of its track it is small and bright (area below ``death_area`` and DNA
+    above ``death_dna`` times the cell's own median), away from the image
+    border, and not at G2 geminin level (a G2 nucleus condensing is entering
+    mitosis). A track that merely ends, or ends shrinking, is ``lost``: on
+    5054 dying cells detach and leave no corpse, and a shrinking mask is far
+    more often a partial mask, a speck or the image border than a death.
 ``no_mitosis``
     The window closes before any of the above; the phase at the end is
     recorded in ``end_phase``.
+``left_field``
+    The track ends within ``edge_radii`` nuclear radii of the image border
+    after moving towards it over its last ``edge_frames`` frames: the cell
+    left the imaged field. Censored like ``lost``, but not a tracking failure,
+    so it is not queued for review (only audited).
 ``lost``
     The cell cannot be followed. Treat as censored.
 ``debris``
@@ -57,10 +69,19 @@ Outcomes:
 
 Every cell carries review flags (:data:`FLAGS`) that say why a human should
 look at it.
+
+Review flags and outcomes use geminin continuity, not per-frame phase calls.
+Geminin accumulates from S to mitosis and is degraded at anaphase, so along one
+cell it never falls except in mitosis: a fall without a split marks a wrong
+link or a mis-segmented frame (``geminin_jump``). Rises are allowed, because
+geminin builds up fast in S. Phases (``phase``, ``start_phase``,
+``end_phase``) are still reported, but per-frame calls are unreliable when a
+nucleus compacts, and are best made later from the whole track.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
@@ -72,11 +93,14 @@ import pandas as pd
 
 #: Reason codes a cell can be flagged with.
 FLAGS = (
+    "switch",  # the track jumps to a different-looking nucleus while a NEW label continues the cell
+    "jump_suspect",  # as switch, but the matching neighbour already existed: flagged, not acted on
+    "daughter_pair",  # the track ends with geminin high and two daughter-like nuclei appear: an unlinked division
     "link_ambiguous",  # a bridge had more than one plausible continuation
     "gap",  # a bridge skipped at least one frame
     "fragment",  # nucleus pieces were merged during the window
     "refractory",  # the refractory rule removed a second division
-    "phase_order",  # phases ran backwards, e.g. G2 -> G1 without mitosis
+    "geminin_jump",  # geminin fell (or leapt) without a split: wrong link or bad frame
     "outcome_review",  # a rare outcome that decides a phenotype call
     "lost",  # the cell could not be followed to an outcome
     "edge",  # the nucleus came within one diameter of the image border
@@ -84,7 +108,6 @@ FLAGS = (
 )
 
 PHASES = ("G1", "S", "G2")
-_ORDER = {p: i for i, p in enumerate(PHASES)}
 
 
 @dataclass(frozen=True)
@@ -103,16 +126,24 @@ class FateParams:
             equivalent radii.
         area_tol: Allowed area ratio across a bridge (and its inverse).
         marker_tol: Allowed PIP and geminin ratio across a bridge (and inverse).
-        exit_drop: Geminin falling below this fraction of its recent maximum
-            within ``exit_frames`` is a mitotic exit.
+        exit_drop: Geminin falling below this fraction of its level over the
+            preceding ``exit_hold`` frames is a mitotic exit.
         exit_frames: Frames over which that fall must happen.
+        exit_hold: Frames geminin must stay high before an exit.
+        jump_window: Frames on each side of a step whose geminin medians are
+            compared for ``geminin_jump``.
+        jump_drop: Flag a fall of geminin by more than this factor ...
+        jump_rise: ... or a rise by more than this factor. Geminin is clipped
+            at its high threshold first, so G1-level noise never counts.
         condensed_dna: Mitotic chromatin if DNA intensity exceeds this multiple
             of the well median.
         condensed_area: ... and area is below this fraction of the cell's
             median area.
         arrest_hours: Minimum condensed run for a mitotic arrest.
-        death_area: A track ending after its area fell below this fraction of
-            its median is a death candidate.
+        death_area: Pyknotic if area is below this fraction of the cell's own
+            median ...
+        death_dna: ... and DNA intensity above this multiple of its own median ...
+        death_frames: ... for at least this many frames at the end of the track.
         min_start_area: Start cells smaller than this fraction of the well
             median area are excluded as debris.
         still_px: An object whose median frame-to-frame step over the first
@@ -122,6 +153,24 @@ class FateParams:
         reporter_hours: Minimum observed time with neither reporter expressed
             before a cell is called reporter-negative (longer than the
             early-S dip, when both reporters are low).
+        edge_radii: A track ending within this many nuclear radii of the
+            image border ...
+        edge_frames: ... after getting closer to it over this many frames
+            has ``left_field``.
+        switch_history: Frames before a step whose medians are the cell's
+            recent values for ``switch`` (long enough that a two-frame
+            mis-segmentation does not dominate them).
+        switch_window: Frames from the step on whose medians are compared
+            with them (a switch is permanent; a bad frame is not).
+        switch_area: A step after which area differs by more than this
+            factor, or geminin (clipped at its floor) falls by more than
+            ``jump_drop`` or rises by more than ``jump_rise``, is a jump. PIP
+            is not used: it falls at S entry and climbs in G2 by itself.
+            A jump is a *switch* only if another nucleus within ``reach``
+            continues the cell within ``area_tol`` and ``marker_tol``;
+            otherwise it is a mis-segmented frame.
+        daughter_area: Area of a daughter relative to the mother's last
+            frame, as ``(low, high)``, for ``daughter_pair``.
     """
 
     interval_minutes: float = 20.0
@@ -134,14 +183,26 @@ class FateParams:
     marker_tol: float = 2.0
     exit_drop: float = 0.5
     exit_frames: int = 3
+    exit_hold: int = 6
+    jump_window: int = 3
+    jump_drop: float = 1.4
+    jump_rise: float = 2.5
     condensed_dna: float = 2.0
     condensed_area: float = 0.6
     arrest_hours: float = 2.0
-    death_area: float = 0.5
+    death_area: float = 0.6
+    death_dna: float = 1.5
+    death_frames: int = 3
+    edge_radii: float = 3.0
+    edge_frames: int = 3
     min_start_area: float = 0.7
     reporter_hours: float = 24.0
     still_px: float = 3.0
     still_hours: float = 4.0
+    switch_history: int = 5
+    switch_window: int = 3
+    switch_area: float = 2.0
+    daughter_area: tuple[float, float] = (0.3, 0.75)
 
     def frames(self, hours: float) -> int:
         """Convert hours to frames."""
@@ -192,11 +253,30 @@ def call_phases(
     )
 
 
-def _phase_order_ok(phases: pd.Series) -> bool:
-    """Phases of one cell before its first mitosis must never step backwards."""
-    runs = phases[phases.ne(phases.shift())].tolist()
-    ranks = [_ORDER[p] for p in runs]
-    return all(b >= a for a, b in zip(ranks, ranks[1:], strict=False))
+def _geminin_jump(
+    cell: pd.DataFrame, thr: Thresholds, params: FateParams
+) -> int | None:
+    """First frame where geminin falls (or leaps) between neighbouring windows.
+
+    Compares the median of ``jump_window`` frames before each step with the
+    median after it, on geminin clipped at its high threshold, so G1-level
+    noise and one-frame compaction spikes never count.
+    """
+    gem = (
+        cell["geminin"]
+        .clip(lower=params.gem_high * thr.gem_low)
+        .to_numpy(dtype=float)
+    )
+    frames = cell.index.to_numpy()
+    w = params.jump_window
+    for i in range(w, len(gem) - w + 1):
+        before, after = np.median(gem[i - w : i]), np.median(gem[i : i + w])
+        if (
+            before > params.jump_drop * after
+            or after > params.jump_rise * before
+        ):
+            return int(frames[i])
+    return None
 
 
 def _radius(area: float) -> float:
@@ -220,6 +300,9 @@ class _Index:
         for tid, g in self.rows.items():
             if not self.parent[tid]:
                 self.starts.setdefault(int(g.index[0]), []).append(tid)
+        self.frames = {
+            int(cast(int, t)): g for t, g in tracks.groupby("timepoint")
+        }
 
     def continuations(
         self, tid: int, params: FateParams, claimed: set[int]
@@ -256,18 +339,217 @@ class _Index:
         return sorted(found)
 
 
-def _mitotic_exit(
-    cell: pd.DataFrame, phases: pd.Series, params: FateParams
+def _clipped(
+    rows: pd.DataFrame, thr: Thresholds, params: FateParams
+) -> tuple[Any, Any, Any]:
+    """Area, PIP and geminin with the reporters clipped at their floors."""
+    return (
+        rows["area"].to_numpy(dtype=float),
+        rows["pip"].clip(lower=params.pip_low * thr.pip_high).to_numpy(float),
+        rows["geminin"]
+        .clip(lower=params.gem_high * thr.gem_low)
+        .to_numpy(float),
+    )
+
+
+def _matching_neighbour(
+    t: int,
+    last: Any,
+    ref: tuple[float, float, float],
+    exclude: int,
+    idx: _Index,
+    thr: Thresholds,
+    params: FateParams,
 ) -> int | None:
-    """First frame at which geminin collapses after G2 within one nucleus."""
-    gem = cell["geminin"].to_numpy()
-    frames = cell.index.to_numpy()
-    for i in range(1, len(gem) - params.exit_frames + 1):
-        if phases.iloc[i - 1] != "G2":
+    """A nucleus in frame ``t`` near ``last`` that continues ``ref``, by cost."""
+    here = idx.frames.get(t)
+    if here is None:
+        return None
+    here = here[here["track_id"] != exclude]
+    if here.empty:
+        return None
+    area, pip, gem = _clipped(here, thr, params)
+    dist = np.hypot(
+        here["y"].to_numpy(float) - last.y, here["x"].to_numpy(float) - last.x
+    )
+    tols = (params.area_tol, params.marker_tol, params.marker_tol)
+    best: tuple[float, int] | None = None
+    for k, tid in enumerate(here["track_id"].to_numpy()):
+        if dist[k] > params.reach * (_radius(area[k]) + _radius(last.area)):
             continue
-        before = gem[max(0, i - 6) : i].max()
-        after = gem[i : i + params.exit_frames].mean()
-        if before > 0 and after < params.exit_drop * before:
+        ratios = [area[k] / ref[0], pip[k] / ref[1], gem[k] / ref[2]]
+        if any(
+            r > tol or r < 1 / tol for r, tol in zip(ratios, tols, strict=True)
+        ):
+            continue
+        cost = dist[k] / (_radius(last.area) + 1) + sum(
+            abs(np.log(r)) for r in ratios
+        )
+        if best is None or cost < best[0]:
+            best = (float(cost), int(tid))
+    return best[1] if best else None
+
+
+def _jumped(
+    area_now: float,
+    gem_now: float,
+    ref: tuple[float, float, float],
+    params: FateParams,
+) -> bool:
+    """Whether area or geminin differ from the reference beyond the switch tolerances."""
+    return (
+        area_now > params.switch_area * ref[0]
+        or area_now < ref[0] / params.switch_area
+        or gem_now < ref[2] / params.jump_drop
+        or gem_now > params.jump_rise * ref[2]
+    )
+
+
+def _switch(
+    cell: pd.DataFrame,
+    idx: _Index,
+    thr: Thresholds,
+    params: FateParams,
+    confirmed: set[int] | frozenset[int] = frozenset(),
+) -> tuple[int, int] | None:
+    """First frame where the track jumps to another nucleus: ``(frame, neighbour)``.
+
+    Within an unbroken track, a step after which area or geminin stays
+    changed (medians of ``switch_history`` frames before against
+    ``switch_window`` frames from the step on), while a nucleus nearby
+    continues the cell's recent values, is a tracking switch: the raw track
+    followed the wrong object and the neighbour is the cell. Comparing
+    windows, not single frames, keeps a one- or two-frame mis-segmentation
+    from counting. Judged only inside a raw track, because bridges are
+    judged by :meth:`_Index.continuations` and divisions end the track.
+
+    Steps within one frame of a ``confirmed`` frame ``f`` are skipped: a
+    reviewer fixed the cell's identity there (a ``link`` or ``swap`` in the
+    edit log), so the jump is theirs, not the tracker's. One frame either
+    side, because the reviewer links at the frame they see the right nucleus,
+    which can be a frame off the step the medians date (the same tolerance as
+    :func:`_new_label`). Later steps are judged against the cell's values
+    from ``f + 1`` on only: the frames before it are, by the reviewer's
+    word, the same cell looking different, and would make every following
+    step read as the same jump again.
+    """
+    w, h = params.switch_window, params.switch_history
+    area, pip, gem = _clipped(cell, thr, params)
+    tids = cell["track_id"].to_numpy()
+    frames = cell.index.to_numpy()
+    for i in range(2, len(cell)):
+        if frames[i] != frames[i - 1] + 1 or tids[i] != tids[i - 1]:
+            continue
+        t = int(frames[i])
+        if any(abs(t - f) <= 1 for f in confirmed):
+            continue
+        lo, hi = max(0, i - h), min(len(cell), i + w)
+        since = [f + 1 for f in confirmed if f + 1 < t]
+        if since:
+            lo = max(lo, int(np.searchsorted(frames, max(since))))
+            if i - lo < 2:
+                continue
+        ref = (
+            float(np.median(area[lo:i])),
+            float(np.median(pip[lo:i])),
+            float(np.median(gem[lo:i])),
+        )
+        # The step frame itself must jump (so the switch is dated to the
+        # frame it happens in) and the frames after it must stay jumped.
+        if not (
+            _jumped(float(area[i]), float(gem[i]), ref, params)
+            and _jumped(
+                float(np.median(area[i:hi])),
+                float(np.median(gem[i:hi])),
+                ref,
+                params,
+            )
+        ):
+            continue
+        alt = _matching_neighbour(
+            int(frames[i]),
+            cell.iloc[i - 1],
+            ref,
+            int(tids[i]),
+            idx,
+            thr,
+            params,
+        )
+        if alt is not None:
+            return int(frames[i]), alt
+    return None
+
+
+def _new_label(switched: tuple[int, int], idx: _Index) -> bool:
+    """Whether the switch's neighbour is a track that starts at the switch (±1 frame)."""
+    frame, alt = switched
+    rows = idx.rows.get(alt)
+    return rows is not None and abs(int(rows.index[0]) - frame) <= 1
+
+
+def _daughter_pair(
+    tid: int,
+    idx: _Index,
+    thr: Thresholds,
+    params: FateParams,
+    claimed: set[int],
+) -> tuple[int, list[int]] | None:
+    """Two daughter-like founders after a track ends with geminin high.
+
+    The repair links daughters only when it can; a mitosis whose daughters
+    were never linked leaves a G2 track that just ends and two new founders
+    beside it, each about half its area and with geminin fallen. Returns
+    ``(frame, [daughters])``.
+    """
+    rows = idx.rows[tid]
+    last = rows.iloc[-1]
+    end = int(rows.index[-1])
+    w = params.switch_window
+    gem_high = params.gem_high * thr.gem_low
+    if float(np.median(rows["geminin"].to_numpy(float)[-w:])) < gem_high:
+        return None
+    lo, hi = params.daughter_area
+    for gap in range(1, params.max_gap + 1):
+        found = []
+        for cand in idx.starts.get(end + gap, []):
+            if cand in claimed or cand == tid:
+                continue
+            first = idx.rows[cand].iloc[0]
+            dist = np.hypot(first.y - last.y, first.x - last.x)
+            if dist > params.reach * (
+                _radius(first.area) + _radius(last.area)
+            ):
+                continue
+            if not lo <= first.area / last.area <= hi:
+                continue
+            if first.geminin >= params.exit_drop * last.geminin:
+                continue
+            found.append((float(dist), int(cand)))
+        if len(found) >= 2:
+            found.sort()
+            return end + gap, [found[0][1], found[1][1]]
+    return None
+
+
+def _mitotic_exit(
+    cell: pd.DataFrame, thr: Thresholds, params: FateParams
+) -> int | None:
+    """First frame at which sustained high geminin collapses within one nucleus.
+
+    Geminin must have been above its high threshold for the ``exit_hold``
+    frames before the fall, so a one-frame spike is never an exit.
+    """
+    gem = cell["geminin"].to_numpy(dtype=float)
+    frames = cell.index.to_numpy()
+    high = params.gem_high * thr.gem_low
+    hold = params.exit_hold
+    for i in range(hold, len(gem) - params.exit_frames + 1):
+        held = gem[i - hold : i]
+        if not (held > high).all():
+            continue
+        before = float(np.median(held))
+        after = float(np.median(gem[i : i + params.exit_frames]))
+        if after < params.exit_drop * before:
             return int(frames[i])
     return None
 
@@ -329,6 +611,70 @@ def _stationary(cell: pd.DataFrame, params: FateParams) -> bool:
     return bool(steps.median() < params.still_px)
 
 
+def _pyknotic_end(
+    cell: pd.DataFrame,
+    thr: Thresholds,
+    params: FateParams,
+    shape: tuple[int, int] | None,
+) -> int | None:
+    """Onset frame of a pyknotic end of the track, or ``None``.
+
+    The last ``death_frames`` or more frames must be small and bright against
+    the cell's own medians, the end must lie away from the image border, and
+    geminin at the onset must be below its high threshold (a G2 nucleus that
+    condenses is entering mitosis, not dying).
+    """
+    if len(cell) < 2 * params.death_frames:
+        return None
+    pyknotic = (cell["area"] < params.death_area * cell["area"].median()) & (
+        cell["dna"] > params.death_dna * cell["dna"].median()
+    )
+    # Length of the trailing run of pyknotic frames.
+    tail = pyknotic.to_numpy()[::-1]
+    run = len(tail) if tail.all() else int(np.argmin(tail))
+    if run < params.death_frames:
+        return None
+    onset = cell.iloc[-run]
+    if onset["geminin"] > params.gem_high * thr.gem_low:
+        return None
+    if shape is not None:
+        last = cell.iloc[-1]
+        margin = 2 * _radius(thr.area_median)
+        if (
+            min(last.y, last.x) < margin
+            or last.y > shape[0] - margin
+            or last.x > shape[1] - margin
+        ):
+            return None
+    return int(cell.index[-run])
+
+
+def _border_distance(
+    y: float | pd.Series, x: float | pd.Series, shape: tuple[int, int]
+) -> Any:
+    """Distance to the nearest image border."""
+    return np.minimum(
+        np.minimum(y, x), np.minimum(shape[0] - 1 - y, shape[1] - 1 - x)
+    )
+
+
+def _left_field(
+    cell: pd.DataFrame,
+    thr: Thresholds,
+    params: FateParams,
+    shape: tuple[int, int] | None,
+) -> bool:
+    """Whether a lost track ends at the image border, heading out."""
+    if shape is None or len(cell) < 2:
+        return False
+    d = _border_distance(cell["y"], cell["x"], shape).to_numpy()
+    radius = _radius(thr.area_median)
+    if d[-1] > params.edge_radii * radius:
+        return False
+    back = d[-1 - min(params.edge_frames, len(d) - 1)]
+    return bool(d[-1] < back or d[-1] < radius)
+
+
 def _condensed_run(
     cell: pd.DataFrame, thr: Thresholds, params: FateParams
 ) -> tuple[int, int] | None:
@@ -357,6 +703,7 @@ def follow_cells(
     repair_events: pd.DataFrame | None = None,
     assignment: dict[int, int] | None = None,
     shape: tuple[int, int] | None = None,
+    confirmed: dict[int, set[int]] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Follow every cell present at ``start`` until its first outcome or ``stop``.
 
@@ -371,6 +718,10 @@ def follow_cells(
         assignment: :attr:`RepairResult.assignment`, mapping event track ids to
             final ones.
         shape: Image height and width in pixels, for the ``edge`` flag.
+        confirmed: Curated track id to the frames at which a reviewer fixed
+            its identity (:func:`~cellview.tracks.edit.confirmed_frames`).
+            A switch there is the reviewer's, so it neither cuts the track
+            nor is flagged or proposed.
 
     Returns:
         ``(cells, states)``: one row per cell with its outcome and flags, and
@@ -389,6 +740,7 @@ def follow_cells(
     for cell_no, tid in enumerate(sorted(present.track_id), start=1):
         flags: set[str] = set()
         segments = [int(tid)]
+        proposals: list[dict[str, Any]] = []
         outcome, outcome_frame = None, None
         cur = int(tid)
         while True:
@@ -400,6 +752,24 @@ def follow_cells(
                 break
             options = idx.continuations(cur, params, claimed)
             if not options:
+                pair = _daughter_pair(cur, idx, thr, params, claimed)
+                if pair is not None:
+                    frame, daughters = pair
+                    outcome, outcome_frame = "divided", frame
+                    flags.add("daughter_pair")
+                    claimed.update(daughters)
+                    for d in daughters:
+                        proposals.append(
+                            {
+                                "op": "set_parent",
+                                "track": d,
+                                "frame": frame,
+                                "parent": int(tid),
+                                "reason": f"daughter pair at t{frame}: the track ends with geminin high and two half-size nuclei appear",
+                                "confidence": "uncertain",
+                            }
+                        )
+                    break
                 outcome, outcome_frame = "lost", end
                 break
             if len(options) > 1:
@@ -409,13 +779,51 @@ def follow_cells(
                 flags.add("gap")
             claimed.add(nxt)
             segments.append(nxt)
+            proposals.append(
+                {
+                    "op": "link",
+                    "track": nxt,
+                    "frame": int(idx.rows[nxt].index[0]),
+                    "reason": f"bridge: gap {gap}, {len(options)} candidate{'s' if len(options) > 1 else ''}",
+                    "confidence": "clear"
+                    if gap == 1 and len(options) == 1
+                    else "uncertain",
+                }
+            )
             cur = nxt
 
         rows = pd.concat([idx.rows[s] for s in segments])
         rows = rows[(rows.index >= start) & (rows.index <= stop)]
+        fixed = {f for s in segments for f in (confirmed or {}).get(s, ())}
+        switched = _switch(rows, idx, thr, params, fixed)
+        if switched is not None and not _new_label(switched, idx):
+            # A matching neighbour that already existed is usually a
+            # neighbour (on 5054, 19 of 19 such relinks in C4 were wrong: the
+            # cell's own geminin fall, an exit, read as a jump). Flag it for
+            # review; leave the track and propose nothing.
+            flags.add("jump_suspect")
+            switched = None
+        if switched is not None:
+            # The raw track followed the wrong object from here: nothing after
+            # it is this cell, and the new label is the likely continuation
+            # (the tracker gives the real nucleus a fresh label when it jumps).
+            frame, alt = switched
+            rows = rows[rows.index < frame]
+            outcome, outcome_frame = "lost", frame
+            flags.add("switch")
+            proposals = [p for p in proposals if p["frame"] < frame]
+            proposals.append(
+                {
+                    "op": "link",
+                    "track": alt,
+                    "frame": frame,
+                    "reason": f"switch at t{frame}: the track jumps to a different-looking nucleus while track {alt} continues the cell",
+                    "confidence": "uncertain",
+                }
+            )
         phases = call_phases(rows, thr, params)
 
-        exit_frame = _mitotic_exit(rows, phases, params)
+        exit_frame = _mitotic_exit(rows, thr, params)
         if exit_frame is not None and (
             outcome_frame is None or exit_frame < outcome_frame - 1
         ):
@@ -427,12 +835,12 @@ def follow_cells(
             and run[1] >= params.frames(params.arrest_hours)
         ):
             outcome, outcome_frame = "mitotic_arrest", run[0]
-        if outcome == "lost" and len(rows) > 3:
-            tail = rows.iloc[-3:]
-            shrunk = tail.area.min() < params.death_area * rows.area.median()
-            condensed = tail.dna.max() > params.condensed_dna * thr.dna_median
-            if shrunk or condensed:
-                outcome = "death"
+        if outcome == "lost" and switched is None:
+            onset = _pyknotic_end(rows, thr, params, shape)
+            if onset is not None:
+                outcome, outcome_frame = "death", onset
+            elif _left_field(rows, thr, params, shape):
+                outcome = "left_field"
         if outcome is None:
             outcome, outcome_frame = "no_mitosis", int(rows.index[-1])
         history = pd.concat([idx.rows[s] for s in segments])
@@ -440,10 +848,18 @@ def follow_cells(
             history[history.index <= stop], thr, params
         )
 
-        before_exit = phases[phases.index < (outcome_frame or stop + 1)]
-        if not _phase_order_ok(before_exit):
-            flags.add("phase_order")
+        # Geminin falls in mitosis itself: judge continuity only before it.
+        cut = (
+            outcome_frame - params.jump_window
+            if outcome in ("divided", "mitotic_exit_no_division")
+            and outcome_frame is not None
+            else stop + 1
+        )
+        if _geminin_jump(rows[rows.index < cut], thr, params) is not None:
+            flags.add("geminin_jump")
         if outcome in ("mitotic_exit_no_division", "mitotic_arrest", "death"):
+            flags.add("outcome_review")
+        if "daughter_pair" in flags:
             flags.add("outcome_review")
         if outcome == "lost":
             flags.add("lost")
@@ -459,7 +875,8 @@ def follow_cells(
                 | (rows.y > shape[0] - margin)
                 | (rows.x > shape[1] - margin)
             )
-            if near.any():
+            # A cell that left the field has nothing left to review at the edge.
+            if near.any() and outcome != "left_field":
                 flags.add("edge")
         if _stationary(rows, params):
             if reporter == "positive":
@@ -485,10 +902,11 @@ def follow_cells(
                 "outcome_frame": outcome_frame,
                 "end_phase": phases.iloc[-1],
                 "last_frame": int(rows.index[-1]),
-                "censored": outcome in ("lost", "no_mitosis"),
+                "censored": outcome in ("lost", "left_field", "no_mitosis"),
                 "excluded": outcome in ("debris", "stationary", "no_reporter"),
                 "review_flags": " ".join(f for f in FLAGS if f in flags),
                 "n_flags": len(flags),
+                "proposals": json.dumps(proposals),
             }
         )
         st = rows[
@@ -558,7 +976,11 @@ def apply_annotations(cells: pd.DataFrame, curated: Any) -> pd.DataFrame:
             out.at[i, "censored"] = False
         if "outcome" in notes:
             out.at[i, "outcome"] = notes["outcome"]
-            out.at[i, "censored"] = notes["outcome"] in ("lost", "no_mitosis")
+            out.at[i, "censored"] = notes["outcome"] in (
+                "lost",
+                "left_field",
+                "no_mitosis",
+            )
         if "excluded" in notes:
             out.at[i, "excluded"] = True
             out.at[i, "outcome"] = notes["excluded"] or "excluded"

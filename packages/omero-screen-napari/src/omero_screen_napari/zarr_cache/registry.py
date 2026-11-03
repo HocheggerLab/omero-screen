@@ -125,7 +125,8 @@ def _save_registry(entries: dict[int, ZarrPlateEntry]) -> None:
             str(plate_id): asdict(entry) for plate_id, entry in entries.items()
         }
     }
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    # One temp file per process: concurrent writers must not share it.
+    tmp = path.with_suffix(f"{path.suffix}.{os.getpid()}.tmp")
     with tmp.open("w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2, sort_keys=True)
     os.replace(tmp, path)

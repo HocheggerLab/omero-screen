@@ -34,6 +34,14 @@ items use the same form (``C2-t72-L524`` is anchor ``(72, 524)`` in well C2).
                 ``measurements`` (taken from the image when it was committed)
                 and the raw labels it ``replaces`` in that frame. It joins the
                 anchored cell if ``cell`` is given, else starts a new track.
+                A split writes two, sharing a ``batch``: if the cut nucleus
+                belonged to another cell, the other part comes first,
+                anchored on the cut nucleus (``cell = [frame, label]``), so it
+                stays in that cell's track; then the reviewed cell's part
+                replaces the raw label. Older logs wrote the other part
+                second with ``cell = None`` (a new track); both replay as
+                written. ``replaces`` may name an earlier reviewer mask
+                (a split part cut again): it leaves ``extras``.
 
 **Annotations** (no change to the lineage): ``event`` (``mitosis``,
 ``death``, ``slippage`` at a frame), ``set_outcome``, ``exclude``, ``note``.
@@ -49,7 +57,7 @@ counted.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -312,7 +320,14 @@ class Curated:
         measurements: dict[str, Any],
         replaces: list[int],
     ) -> None:
-        """Add a reviewer-made nucleus; it replaces raw ``replaces`` labels in ``frame``."""
+        """Add a reviewer-made nucleus; it replaces ``replaces`` labels in ``frame``.
+
+        A replaced label is usually a raw detection (recorded in ``removed``).
+        It may also be an earlier reviewer mask (a part of a previous split,
+        cut again): that one is dropped from ``extras`` instead, so it is
+        neither painted nor measured any more. Both leave an alias, so
+        anchors naming the replaced mask still resolve.
+        """
         key = (int(frame), int(label))
         if key in self.tracks or key in self.extras:
             raise EditError(f"Label {label} already exists in frame {frame}.")
@@ -320,7 +335,10 @@ class Curated:
         for old in replaces:
             old_key = (int(frame), int(old))
             owner = self.tracks.pop(old_key, None)
-            self.removed.add(old_key)
+            if old_key in self.extras:
+                del self.extras[old_key]
+            else:
+                self.removed.add(old_key)
             if owner is not None and (tid is None or owner == tid):
                 # The new mask takes the replaced nucleus's place in its cell.
                 self.aliases.setdefault(old_key, key)
@@ -380,6 +398,32 @@ def base_lineage(det: pd.DataFrame, result: RepairResult) -> Curated:
     # a raw track that the repair absorbed into another.
     labels = [label for _, label in tracks]
     next_id = max([*labels, *tracks.values(), *parents.keys(), 0]) + 1
+    return Curated(tracks=tracks, parents=parents, next_id=next_id)
+
+
+def imported_lineage(det: pd.DataFrame) -> Curated:
+    """The lineage CellView holds, as a :class:`Curated` starting point.
+
+    After a stored correction is imported, every detection's ``track_id_raw``
+    is its final track id and ``parent_track_id_raw`` its parent, so the
+    curated lineage starts as the identity: no repair is run again.
+
+    Args:
+        det: Detections with ``timepoint``, ``label`` (= ``track_id_raw``) and
+            ``parent_track_id_raw``.
+    """
+    tracks = {
+        (int(t), int(lab)): int(lab)
+        for t, lab in zip(det["timepoint"], det["label"], strict=True)
+    }
+    by_track = det.groupby("label")["parent_track_id_raw"].max().fillna(0)
+    parents = {
+        int(tid): int(parent)
+        for tid, parent in zip(
+            by_track.index.to_numpy(), by_track.to_numpy(), strict=True
+        )
+    }
+    next_id = max([*parents, 0]) + 1
     return Curated(tracks=tracks, parents=parents, next_id=next_id)
 
 
@@ -473,6 +517,84 @@ def replay(base: Curated, edits: Iterable[Edit], well: str) -> Curated:
     return cur
 
 
+def confirmed_frames(
+    curated: Curated, edits: Iterable[Edit], well: str
+) -> dict[int, set[int]]:
+    """Frames at which a reviewer fixed a cell's identity, per curated track.
+
+    Every live ``link`` (its anchored cell) and ``swap`` (both cells) of
+    ``well``, by a human or an agent, contributes its ``frame``. Anchors are
+    resolved on ``curated``, the lineage *after* replay, so the ids are the
+    ones the fate walker follows. An anchor that no longer resolves is
+    skipped. Feed the result to
+    :func:`~cellview.tracks.fate.follow_cells` (``confirmed``).
+
+    Args:
+        curated: :func:`replay` of ``edits`` for ``well``.
+        edits: The edit log.
+        well: Well to read.
+    """
+    edits = list(edits)
+    reverted = {e.args.get("target") for e in edits if e.op == "revert"}
+    out: dict[int, set[int]] = {}
+    for edit in edits:
+        if edit.well != well or edit.id in reverted:
+            continue
+        if edit.op == "link":
+            anchors = [edit.args.get("cell")]
+        elif edit.op == "swap":
+            anchors = [edit.args.get("cell"), edit.args.get("other")]
+        else:
+            continue
+        for anchor in anchors:
+            try:
+                tid = curated.resolve(_anchor(anchor))
+            except EditError:
+                continue
+            out.setdefault(tid, set()).add(int(edit.args["frame"]))
+    return out
+
+
+def concerns_cell(curated: Curated, anchor: Anchor) -> Callable[[Edit], bool]:
+    """A predicate: does an edit concern the cell at ``anchor``?
+
+    True when one of the edit's anchors (``cell``, ``other``, ``parent``)
+    equals ``anchor`` or resolves, on ``curated`` (the lineage after replay),
+    to the same curated track as ``anchor``. A ``mask_add`` that joined the
+    cell is therefore included; one that started a new track or joined a
+    neighbour is not on its own, but is reverted with its batch (see
+    :meth:`EditLog.undo`). Anchors that no longer resolve only match by
+    equality.
+    """
+    key = (int(anchor[0]), int(anchor[1]))
+    try:
+        tid: int | None = curated.resolve(key)
+    except EditError:
+        tid = None
+
+    def concerns(edit: Edit) -> bool:
+        for name in ("cell", "other", "parent"):
+            value = edit.args.get(name)
+            if value is None:
+                continue
+            try:
+                other = _anchor(value)
+            except EditError:
+                continue
+            if other == key:
+                return True
+            if tid is None:
+                continue
+            try:
+                if curated.resolve(other) == tid:
+                    return True
+            except EditError:
+                continue
+        return False
+
+    return concerns
+
+
 class EditLog:
     """An append-only JSON-lines edit log on disk."""
 
@@ -546,10 +668,81 @@ class EditLog:
             fh.write(json.dumps({"v": LOG_VERSION, **asdict(edit)}) + "\n")
         return edit
 
+    def extend(
+        self,
+        items: list[tuple[str, str, dict[str, Any], str]],
+        author: str = "human",
+        confirmed_by: str | None = None,
+        base: Curated | None = None,
+    ) -> list[Edit]:
+        """Validate and append several edits at once (all or none).
+
+        Args:
+            items: ``(op, well, args, reason)`` per edit, in order.
+            author: ``human`` or ``agent``.
+            confirmed_by: Who approved an agent's edits.
+            base: The well's base lineage; if given, the log plus all the new
+                edits is replayed once before anything is written.
+
+        Raises:
+            EditError: If any edit is invalid; nothing is written.
+        """
+        if author not in AUTHORS:
+            raise EditError(f"author must be one of {AUTHORS}.")
+        existing = self.entries()
+        ids = {e.id for e in existing}
+        now = datetime.now().isoformat(timespec="seconds")
+        new: list[Edit] = []
+        for op, well, args, reason in items:
+            if op == "revert":
+                if args.get("target") not in ids:
+                    raise EditError(
+                        f"No entry {args.get('target')!r} to revert."
+                    )
+            elif op not in TRACK_OPS + ANNOTATION_OPS:
+                raise EditError(f"Unknown operation {op!r}.")
+            new.append(
+                Edit(
+                    id=f"e{len(existing) + len(new) + 1:04d}",
+                    op=op,
+                    well=well,
+                    args=args,
+                    author=author,
+                    confirmed_by=confirmed_by,
+                    reason=reason,
+                    time=now,
+                )
+            )
+        if base is not None:
+            for well in {e.well for e in new}:
+                replay(base, [*existing, *new], well)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("a") as fh:
+            for edit in new:
+                fh.write(json.dumps({"v": LOG_VERSION, **asdict(edit)}) + "\n")
+        return new
+
     def undo(
-        self, well: str, author: str = "human", base: Curated | None = None
+        self,
+        well: str,
+        author: str = "human",
+        base: Curated | None = None,
+        concerns: Callable[[Edit], bool] | None = None,
     ) -> Edit:
         """Revert the most recent live edit for ``well``.
+
+        Edits written together with a shared ``args["batch"]`` id (one
+        reviewer action over many frames) are reverted together.
+
+        Args:
+            well: Well to undo in.
+            author: Who undoes.
+            base: The well's base lineage, to validate the reverted log.
+            concerns: If given, only live edits for which it is true are
+                candidates (e.g. :func:`concerns_cell`): the most recent of
+                them is reverted, with every live entry of its batch, even
+                entries the predicate rejects. There is no fallback to the
+                whole well.
 
         Raises:
             EditError: If there is nothing to undo.
@@ -561,8 +754,28 @@ class EditLog:
             for e in entries
             if e.well == well and e.op != "revert" and e.id not in reverted
         ]
-        if not live:
-            raise EditError(f"Nothing to undo for well {well}.")
-        return self.append(
-            "revert", well, {"target": live[-1].id}, author=author, base=base
+        candidates = (
+            [e for e in live if concerns(e)] if concerns is not None else live
         )
+        if not candidates:
+            raise EditError(
+                "Nothing to undo for this cell."
+                if concerns is not None
+                else f"Nothing to undo for well {well}."
+            )
+        latest = candidates[-1]
+        batch = latest.args.get("batch")
+        targets = (
+            [e for e in live if e.args.get("batch") == batch]
+            if batch
+            else [latest]
+        )
+        done = self.extend(
+            [
+                ("revert", well, {"target": e.id}, "")
+                for e in reversed(targets)
+            ],
+            author=author,
+            base=base,
+        )
+        return done[-1]

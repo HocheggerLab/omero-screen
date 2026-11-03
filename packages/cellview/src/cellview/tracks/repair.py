@@ -24,12 +24,25 @@ Each two-daughter event is classified, in this order:
     keeps it. A track born by mitosis less than ``refractory_hours`` earlier
     cannot divide again, which removes one mitosis called twice.
 ``fragment``
-    The daughters touch and together hold the parent's area: two pieces of one
-    nucleus. They are merged back into the parent.
+    The daughters touch, stay touching for as long as both exist, and
+    together hold the parent's area: two pieces of one
+    nucleus. They are merged back into the parent. Two cells that touch when
+    they come apart and then move away from each other (a doublet of G1
+    cells, say) are not pieces: merging them would give two distant nuclei
+    one label. If the detections carry the ``cell`` mask each nucleus sits
+    in, daughters that lie in different cells in most of the frames where
+    both have one are two cells as well, however close they stay.
 ``neighbour``
     Anything else that is not a mitosis: a separate cell was linked in as a
     daughter. The daughter that continues the parent's position is merged into
     it and the other becomes a founder.
+
+Before each pass over the divisions, a short unparented track that touches
+one nucleus in every frame of its life (``piece``) is folded into it: a
+nucleus cut in two for a frame or two, typically around mitosis, whose piece
+started its own track and so was never a daughter. When the piece was handed
+the daughters of a nucleus split at metaphase, they pass to the host, and its
+division is then judged like any other.
 
 After a pass over the divisions, an unparented track that starts where exactly
 one childless track ended in the previous frame is joined to it (``restart``):
@@ -88,6 +101,17 @@ class RepairParams:
         area_hi: Upper bound on the same ratio.
         restart_reach: A restart joins a track that ended within this multiple
             of the sum of their equivalent radii.
+        piece_frames: An unparented track of at most this many frames that
+            touches one nucleus throughout is a piece of it (``piece``).
+        stay_frames: Shared frames, from the split, over which fragment
+            daughters must stay together (``None``: all of them; pieces of
+            one nucleus never separate, while two cells that touch at first
+            may part after a few frames).
+        stay_touch: Largest touch ratio (as ``touch``) the daughters may
+            reach over ``stay_frames`` and still be fragments.
+        cells_apart: Daughters in different cell masks in more than this
+            fraction of their shared frames are not fragments (needs a
+            ``cell`` column; frames without a cell mask are not judged).
         max_passes: Safety bound on repair passes.
     """
 
@@ -100,6 +124,10 @@ class RepairParams:
     area_lo: float = 0.8
     area_hi: float = 1.25
     restart_reach: float = 1.0
+    piece_frames: int = 3
+    stay_frames: int | None = None
+    stay_touch: float = 1.5
+    cells_apart: float = 0.5
     max_passes: int = 50
 
     @property
@@ -134,6 +162,7 @@ class _Track:
     children: set[int] = field(default_factory=set)
     resolved: bool = False
     mitotic_birth: int | None = None
+    cells: dict[int, set[int]] = field(default_factory=dict)
 
     @property
     def begin(self) -> int:
@@ -175,13 +204,20 @@ class _Lineage:
         )
         tids = det["track_id_raw"].to_numpy()
         ts = det["timepoint"].to_numpy()
-        for tid, t, row in zip(tids, ts, stacked, strict=True):
+        cells = (
+            det["cell"].fillna(0).to_numpy(dtype=np.int64)
+            if "cell" in det.columns
+            else np.zeros(len(det), dtype=np.int64)
+        )
+        for tid, t, row, cell in zip(tids, ts, stacked, cells, strict=True):
             tid, t = int(tid), int(t)
             track = self.tracks.setdefault(tid, _Track(frames={}))
             if t in track.frames:
                 track.frames[t] = track.frames[t] + row
             else:
                 track.frames[t] = row.copy()
+            if cell:
+                track.cells.setdefault(t, set()).add(int(cell))
             self.rep[tid] = tid
         parents = det.groupby("track_id_raw")["parent_track_id_raw"].max()
         # Raw track ids are integers; the stubs type the labels Hashable.
@@ -204,6 +240,8 @@ class _Lineage:
         a, k = self.tracks.pop(absorb), self.tracks[keep]
         for t, row in a.frames.items():
             k.frames[t] = k.frames[t] + row if t in k.frames else row
+        for t, cells in a.cells.items():
+            k.cells.setdefault(t, set()).update(cells)
         k.children.discard(absorb)
         for child in a.children:
             self.tracks[child].parent = keep
@@ -235,13 +273,24 @@ def _division_event(
     area_ratio = sum(f[0] for f in firsts) / p_area
 
     a, b = lin.tracks[kids[0]], lin.tracks[kids[1]]
+
+    def touch_at(t: int) -> float:
+        aa, ay, ax, _ = a.at(t)
+        ba, by, bx, _ = b.at(t)
+        return float(np.hypot(ay - by, ax - bx) / (_radius(aa) + _radius(ba)))
+
     co = max(a.begin, b.begin)
-    if co in a.frames and co in b.frames:
-        aa, ay, ax, _ = a.at(co)
-        ba, by, bx, _ = b.at(co)
-        touch = float(np.hypot(ay - by, ax - bx) / (_radius(aa) + _radius(ba)))
-    else:
-        touch = float("inf")
+    touch = touch_at(co) if co in a.frames and co in b.frames else float("inf")
+    shared = sorted(set(a.frames) & set(b.frames))[: params.stay_frames]
+    drift = max((touch_at(t) for t in shared), default=touch)
+    # Cell masks: in how many shared frames (where both have a cell) do the
+    # daughters sit in different cells?
+    judged = [t for t in shared if a.cells.get(t) and b.cells.get(t)]
+    cells_apart = (
+        sum(not (a.cells[t] & b.cells[t]) for t in judged) / len(judged)
+        if judged
+        else float("nan")
+    )
 
     marker_ratio = float("nan")
     refractory = (
@@ -267,6 +316,8 @@ def _division_event(
 
     is_fragment = (
         touch <= params.touch
+        and drift <= params.stay_touch
+        and not cells_apart > params.cells_apart
         and params.area_lo <= area_ratio <= params.area_hi
     )
     if lin.has_marker:
@@ -287,6 +338,8 @@ def _division_event(
         "marker_ratio": marker_ratio,
         "area_ratio": area_ratio,
         "touch": touch,
+        "drift": drift,
+        "cells_apart": cells_apart,
         "refractory": refractory,
         "y": p_y,
         "x": p_x,
@@ -405,6 +458,103 @@ def _join_restarts(
     return changed
 
 
+def _host(
+    lin: _Lineage,
+    tid: int,
+    params: RepairParams,
+    by_frame: dict[int, list[int]],
+) -> int | None:
+    """The one track a short piece touches in every frame of its life."""
+    piece = lin.tracks[tid]
+    host: int | None = None
+    for t in sorted(piece.frames):
+        pa, py, px, _ = piece.at(t)
+        touching = [
+            k
+            for k in by_frame.get(t, [])
+            if k != tid
+            and (other := lin.tracks.get(k)) is not None
+            and t in other.frames
+            and np.hypot(other.at(t)[1] - py, other.at(t)[2] - px)
+            <= params.touch * (_radius(pa) + _radius(other.at(t)[0]))
+        ]
+        if len(touching) != 1 or (host is not None and touching[0] != host):
+            return None
+        host = touching[0]
+    return host
+
+
+def _absorb_pieces(
+    lin: _Lineage,
+    params: RepairParams,
+    pass_no: int,
+    log: list[dict[str, Any]],
+) -> bool:
+    """Fold short pieces of a nucleus back into it.
+
+    Cellpose often cuts a nucleus in two for a frame or two, most often just
+    before or after mitosis. The cut-off piece starts its own track, so it is
+    never a daughter and the fragment test never sees it. A piece is an
+    unparented track of at most ``piece_frames`` frames touching exactly one
+    nucleus (the host) in every frame. It is merged if together they hold
+    the host's area from just before or just after the cut, or if the host ends
+    with the piece and the piece carries the children: a mitotic nucleus
+    split at metaphase whose half was handed the daughters. The geminin test
+    then judges that division on the host.
+    """
+    by_frame: dict[int, list[int]] = {}
+    for k, track in lin.tracks.items():
+        for t in track.frames:
+            by_frame.setdefault(t, []).append(k)
+    changed = False
+    for tid in sorted(lin.tracks):
+        piece = lin.tracks.get(tid)
+        if (
+            piece is None
+            or piece.parent
+            or len(piece.frames) > params.piece_frames
+        ):
+            continue
+        host_id = _host(lin, tid, params, by_frame)
+        if host_id is None:
+            continue
+        host = lin.tracks[host_id]
+        handover = (
+            bool(piece.children)
+            and not host.children
+            and host.end == piece.end
+        )
+        # Daughter nuclei grow fast after mitosis, so the area just before
+        # the cut can be far below the joint area; either side may vouch.
+        joint = np.mean([piece.at(t)[0] + host.at(t)[0] for t in piece.frames])
+        ratios = [
+            float(joint / host.at(t)[0])
+            for t in (piece.begin - 1, piece.end + 1)
+            if t in host.frames
+        ]
+        fits = [r for r in ratios if params.area_lo <= r <= params.area_hi]
+        ratio = fits[0] if fits else (ratios[0] if ratios else float("nan"))
+        if not (handover or fits):
+            continue
+        _, y, x, _ = piece.at(piece.begin)
+        log.append(
+            {
+                "pass": pass_no,
+                "parent": host_id,
+                "children": str(tid),
+                "frame": piece.begin,
+                "rule": "piece",
+                "area_ratio": ratio,
+                "y": y,
+                "x": x,
+            }
+        )
+        host.resolved = False
+        lin.merge(host_id, tid)
+        changed = True
+    return changed
+
+
 def repair_lineage(
     det: pd.DataFrame, params: RepairParams | None = None
 ) -> RepairResult:
@@ -434,7 +584,8 @@ def repair_lineage(
     log: list[dict[str, Any]] = []
     passes = 0
     for passes in range(1, params.max_passes + 1):
-        changed = _resolve_divisions(lin, params, passes, log)
+        changed = _absorb_pieces(lin, params, passes, log)
+        changed |= _resolve_divisions(lin, params, passes, log)
         changed |= _join_restarts(lin, params, passes, log)
         if not changed:
             break

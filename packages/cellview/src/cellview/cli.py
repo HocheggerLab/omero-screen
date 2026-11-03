@@ -9,6 +9,7 @@ documentation discovery do not pull in DuckDB, pandas or the OMERO stack.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -349,12 +350,6 @@ def export(obj: Context, plate_id: int) -> None:
     help="Restrict to this well (repeatable). Default: every well.",
 )
 @click.option(
-    "--marker",
-    default="Geminin",
-    show_default=True,
-    help="Channel whose nuclear signal is degraded at anaphase (PIP-FUCCI: geminin).",
-)
-@click.option(
     "--dry-run", is_flag=True, help="Report what would change; write nothing."
 )
 @click.option(
@@ -368,7 +363,6 @@ def repair_tracks(
     obj: Context,
     plate_id: int,
     wells: tuple[str, ...],
-    marker: str,
     dry_run: bool,
     events_path: Path | None,
 ) -> None:
@@ -376,20 +370,20 @@ def repair_tracks(
 
     Reads the tracker's immutable track_id_raw / parent_track_id_raw and
     writes the curated track_id / parent_track_id, so re-running gives the
-    same result. Only plates with a mitotic marker (geminin) are repaired.
+    same result. Only PIP-FUCCI plates (channels named exactly pip and
+    geminin) are repaired.
     """
-    from cellview.tracks.plate import MarkerNotFoundError, repair_plate
+    from cellview.tracks.plate import NotPipFucciError, repair_plate
 
     try:
         summaries = repair_plate(
             obj.conn,
             plate_id,
-            marker,
             list(wells) or None,
             dry_run,
             events_path,
         )
-    except (MarkerNotFoundError, ValueError) as err:
+    except (NotPipFucciError, ValueError) as err:
         raise click.ClickException(str(err)) from err
     verb = "Would repair" if dry_run else "Repaired"
     for s in summaries:
@@ -410,6 +404,80 @@ def _parse_anchor(
         return [int(frame), int(label)]
     except ValueError as err:
         raise click.BadParameter("use FRAME:LABEL, e.g. 72:524") from err
+
+
+@cli.command("audit-queue")
+@click.argument("plate_id", metavar="ID", type=int)
+@click.option(
+    "--well",
+    "wells",
+    multiple=True,
+    required=True,
+    help="Well to draw from (repeatable).",
+)
+@click.option(
+    "--n",
+    "n",
+    type=click.IntRange(min=1),
+    default=10,
+    show_default=True,
+    help="Cells to draw.",
+)
+@click.option("--start", type=int, default=72, show_default=True)
+@click.option("--stop", type=int, default=168, show_default=True)
+@click.option("--seed", type=int, default=0, show_default=True)
+@click.option(
+    "--log",
+    "log_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    required=True,
+    help="The review directory's edit log (the curated tracks to audit).",
+)
+@click.option(
+    "--out",
+    "out_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Queue file (default: audit.json beside the log).",
+)
+@click.pass_obj
+def audit_queue(
+    obj: Context,
+    plate_id: int,
+    wells: tuple[str, ...],
+    n: int,
+    start: int,
+    stop: int,
+    seed: int,
+    log_path: Path,
+    out_path: Path | None,
+) -> None:
+    """Draw N random analysed cells for an end-to-end check after correction.
+
+    Open the written queue in the Track Review widget. Fixes go to the
+    review's edit log; verdicts to audit_decisions.json beside it.
+    """
+    from cellview.tracks.review_queue import build_audit
+
+    out = out_path or log_path.with_name("audit.json")
+    try:
+        path = build_audit(
+            obj.conn,
+            plate_id,
+            list(wells),
+            n,
+            out,
+            log_path,
+            start,
+            stop,
+            seed,
+        )
+    except ValueError as err:
+        raise click.ClickException(str(err)) from err
+    items = json.loads(path.read_text())["items"]
+    click.echo(f"{path}: {len(items)} cells")
+    for it in items:
+        click.echo(f"  {it['id']}  automatic outcome {it['outcome']}")
 
 
 @cli.command("review-queue")
@@ -471,7 +539,6 @@ def _parse_anchor(
     type=click.Path(dir_okay=False, path_type=Path),
     help="Edit log to replay before following cells.",
 )
-@click.option("--marker", default="Geminin", show_default=True)
 @click.option(
     "--out",
     "out_dir",
@@ -492,7 +559,6 @@ def review_queue(
     mode: str,
     stationary_warn: float,
     log_path: Path | None,
-    marker: str,
     out_dir: Path,
 ) -> None:
     """Sample cells per well and write a review queue for the Track Review widget.
@@ -504,11 +570,17 @@ def review_queue(
     from cellview.tracks.review_queue import QueueSpec, build_queue
 
     spec = QueueSpec(
-        start=start, stop=stop, sample=sample, audit=audit, seed=seed
+        start=start,
+        stop=stop,
+        sample=sample,
+        audit=audit,
+        seed=seed,
+        stationary_warn=stationary_warn,
+        mode=mode,
     )
     try:
         q, s, table = build_queue(
-            obj.conn, plate_id, list(wells), spec, out_dir, log_path, marker
+            obj.conn, plate_id, list(wells), spec, out_dir, log_path
         )
     except ValueError as err:
         raise click.ClickException(str(err)) from err
@@ -553,12 +625,6 @@ _LOG_ARG = click.argument(
 )
 _PLATE_OPT = click.option(
     "--plate", "plate_id", type=int, required=True, help="OMERO plate id."
-)
-_MARKER_OPT = click.option(
-    "--marker",
-    default="Geminin",
-    show_default=True,
-    help="Mitotic marker channel for the repair.",
 )
 
 
@@ -622,7 +688,6 @@ _MARKER_OPT = click.option(
     type=click.Choice(["human"]),
     help="Who approved an agent's edit.",
 )
-@_MARKER_OPT
 @click.pass_obj
 def curate_add(
     obj: Context,
@@ -642,11 +707,10 @@ def curate_add(
     reason: str,
     author: str,
     confirmed_by: str | None,
-    marker: str,
 ) -> None:
     """Validate an edit against the plate and append it to LOG."""
     from cellview.tracks.edit import EditError, EditLog
-    from cellview.tracks.plate import MarkerNotFoundError, well_bases
+    from cellview.tracks.plate import NotPipFucciError, well_bases
 
     args: dict[str, Any] = {"cell": cell}
     if frames:
@@ -669,7 +733,7 @@ def curate_add(
         if value is not None:
             args[key] = value
     try:
-        base = well_bases(obj.conn, plate_id, marker, [well])[well][1]
+        base = well_bases(obj.conn, plate_id, [well])[well][1]
         edit = EditLog(log).append(
             op,
             well,
@@ -679,7 +743,7 @@ def curate_add(
             reason=reason,
             base=base,
         )
-    except (EditError, MarkerNotFoundError, KeyError) as err:
+    except (EditError, NotPipFucciError, KeyError) as err:
         raise click.ClickException(str(err)) from err
     click.echo(f"{edit.id} {edit.op} {well} {edit.args}")
 
@@ -688,19 +752,16 @@ def curate_add(
 @_LOG_ARG
 @_PLATE_OPT
 @click.option("--well", required=True, help="Well whose last edit to revert.")
-@_MARKER_OPT
 @click.pass_obj
-def curate_undo(
-    obj: Context, log: Path, plate_id: int, well: str, marker: str
-) -> None:
+def curate_undo(obj: Context, log: Path, plate_id: int, well: str) -> None:
     """Revert the last live edit for a well (appends a revert entry)."""
     from cellview.tracks.edit import EditError, EditLog
-    from cellview.tracks.plate import well_bases
+    from cellview.tracks.plate import NotPipFucciError, well_bases
 
     try:
-        base = well_bases(obj.conn, plate_id, marker, [well])[well][1]
+        base = well_bases(obj.conn, plate_id, [well])[well][1]
         edit = EditLog(log).undo(well, base=base)
-    except EditError as err:
+    except (EditError, NotPipFucciError) as err:
         raise click.ClickException(str(err)) from err
     click.echo(f"{edit.id} reverts {edit.args['target']}")
 
@@ -725,7 +786,6 @@ def curate_undo(
     type=click.Path(dir_okay=False, path_type=Path),
     help="Write per-track annotations (events, outcome, exclusion, notes) to this JSON file.",
 )
-@_MARKER_OPT
 @click.pass_obj
 def curate_replay(
     obj: Context,
@@ -734,24 +794,22 @@ def curate_replay(
     wells: tuple[str, ...],
     write: bool,
     annotations_path: Path | None,
-    marker: str,
 ) -> None:
     """Rebuild curated lineages: automatic repair plus every edit in LOG."""
     import json
 
     from cellview.tracks.edit import EditError, EditLog
-    from cellview.tracks.plate import MarkerNotFoundError, curate_plate
+    from cellview.tracks.plate import NotPipFucciError, curate_plate
 
     try:
         curated = curate_plate(
             obj.conn,
             plate_id,
             EditLog(log),
-            marker,
             list(wells) or None,
             write,
         )
-    except (EditError, MarkerNotFoundError) as err:
+    except (EditError, NotPipFucciError) as err:
         raise click.ClickException(str(err)) from err
     for well, cur in curated.items():
         n_tracks = len(set(cur.tracks.values()))

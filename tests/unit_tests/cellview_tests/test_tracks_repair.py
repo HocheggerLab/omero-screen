@@ -52,7 +52,9 @@ def test_touching_pieces_without_geminin_drop_are_merged() -> None:
     assert set(r.assignment.values()) == {1}
     assert _divisions(r) == 0
     tracks = apply_repair(det, r, ("marker",))
-    assert tracks.loc[tracks.timepoint == 10, "area"].item() == pytest.approx(400)
+    assert tracks.loc[tracks.timepoint == 10, "area"].item() == pytest.approx(
+        400
+    )
     assert tracks.loc[tracks.timepoint == 10, "n_pieces"].item() == 2
 
 
@@ -95,6 +97,37 @@ def test_second_mitosis_inside_refractory_period_is_rejected() -> None:
     assert refractory.refractory.any()
 
 
+def test_touching_cells_that_move_apart_are_not_fragments() -> None:
+    """Two G1 cells pressed together come apart and drift away: no merge.
+
+    They touch at the split and conserve area, but pieces of one nucleus do
+    not move apart, so one cell continues the parent and the other is a
+    founder (``neighbour``), not one label over two distant nuclei.
+    """
+    det = _det(
+        _track(1, 0, range(10), 100, 100, area=400),
+        _track(2, 1, range(10, 20), 100, 92, area=200, dx=-12),
+        _track(3, 1, range(10, 20), 100, 108, area=200, dx=12),
+    )
+    r = repair_lineage(det)
+    assert len(set(r.assignment.values())) == 2
+    ev = r.events.iloc[0]
+    assert ev.rule == "neighbour" and ev.touch <= 1.1 and ev.drift > 1.5
+
+
+def test_cells_that_part_after_a_few_frames_are_not_fragments() -> None:
+    """Touching for four frames, then moving apart, is still two cells."""
+    det = _det(
+        _track(1, 0, range(10), 100, 100, area=400),
+        _track(2, 1, range(10, 14), 100, 92, area=200)
+        + _track(2, 1, range(14, 24), 100, 92, area=200, dx=-12),
+        _track(3, 1, range(10, 24), 100, 108, area=200),
+    )
+    r = repair_lineage(det)
+    assert len(set(r.assignment.values())) == 2
+    assert r.events.iloc[0].rule == "neighbour"
+
+
 def test_without_marker_only_fragments_are_merged() -> None:
     """With no mitotic marker, geometry alone cannot reject a division."""
     det = _det(
@@ -111,3 +144,97 @@ def test_missing_column_raises() -> None:
     """The detections table must carry every required column."""
     with pytest.raises(ValueError, match="area"):
         repair_lineage(_det(_track(1, 0, range(3), 1, 1)).drop(columns="area"))
+
+
+def _rows(tid, parent, spec, marker=1000.0):
+    """Rows from ``{frame: (area, y, x)}``."""
+    return [
+        {
+            "track_id_raw": tid,
+            "parent_track_id_raw": parent,
+            "timepoint": t,
+            "area": a,
+            "y": y,
+            "x": x,
+            "marker": marker,
+        }
+        for t, (a, y, x) in spec.items()
+    ]
+
+
+def test_short_piece_of_a_nucleus_is_folded_back() -> None:
+    """A nucleus cut in two for two frames: the piece's own track is merged."""
+    host = {t: (400.0, 100.0, 100.0) for t in range(20)}
+    host.update({10: (220.0, 100.0, 95.0), 11: (220.0, 100.0, 95.0)})
+    det = _det(
+        _rows(1, 0, host),
+        _rows(2, 0, {10: (180.0, 100.0, 110.0), 11: (180.0, 100.0, 110.0)}),
+    )
+    r = repair_lineage(det)
+    assert r.assignment[2] == 1
+    assert "piece" in set(r.events.rule)
+    tracks = apply_repair(det, r)
+    assert tracks.loc[tracks.timepoint == 10, "area"].item() == pytest.approx(
+        400
+    )
+
+
+def test_short_track_away_from_any_nucleus_is_kept() -> None:
+    """A short track that touches nothing is not a piece."""
+    det = _det(
+        _track(1, 0, range(20), 100, 100),
+        _track(2, 0, range(10, 12), 100, 300),
+    )
+    r = repair_lineage(det)
+    assert r.assignment[2] == 2
+
+
+def test_metaphase_half_with_the_daughters_returns_them_to_the_mother() -> (
+    None
+):
+    """The mother is cut in two at metaphase and Trackastra hands the
+    daughters to the half that started a new track; the division is restored
+    on the mother and judged by geminin."""
+    mother = {t: (400.0, 100.0, 100.0) for t in range(9)}
+    mother[9] = (150.0, 100.0, 95.0)
+    det = _det(
+        _rows(1, 0, mother),
+        _rows(2, 0, {9: (150.0, 100.0, 107.0)}),
+        _track(3, 2, range(10, 20), 100, 80, area=240, marker=100),
+        _track(4, 2, range(10, 20), 100, 120, area=240, marker=100),
+    )
+    r = repair_lineage(det)
+    assert r.assignment[2] == 1
+    assert r.parents[3] == 1 and r.parents[4] == 1
+    assert {"piece", "mitosis"} <= set(r.events.rule)
+
+
+def test_piece_of_a_growing_daughter_is_judged_on_the_area_after() -> None:
+    """After mitosis a daughter nucleus grows fast: the area before the cut is
+    too small, the area after it matches."""
+    host = {t: (200.0, 100.0, 100.0) for t in range(10, 12)}
+    host.update({12: (270.0, 100.0, 95.0), 13: (520.0, 100.0, 100.0)})
+    host.update({t: (520.0, 100.0, 100.0) for t in range(14, 20)})
+    det = _det(
+        _rows(1, 0, host),
+        _rows(2, 0, {12: (160.0, 100.0, 110.0)}),
+    )
+    r = repair_lineage(det)
+    assert r.assignment[2] == 1
+
+
+def test_daughters_in_different_cell_masks_are_not_fragments() -> None:
+    """Two nuclei that stay touching but sit in two cells are two cells."""
+    det = _det(
+        _track(1, 0, range(10), 100, 100, area=400),
+        _track(2, 1, range(10, 20), 100, 92, area=200),
+        _track(3, 1, range(10, 20), 100, 108, area=200),
+    )
+    det["cell"] = 0
+    det.loc[det.track_id_raw == 2, "cell"] = 7
+    det.loc[det.track_id_raw == 3, "cell"] = 8
+    assert repair_lineage(det).events.iloc[0].rule == "neighbour"
+    det["cell"] = 7  # the same cell: pieces of one nucleus
+    assert repair_lineage(det).events.iloc[0].rule == "fragment"
+    det["cell"] = 0  # no cell masks: distance alone decides
+    assert repair_lineage(det).events.iloc[0].rule == "fragment"

@@ -71,7 +71,13 @@ cell, so use `filmstrip` for history. Never use `install_packages`. Use
 1. `review_goto`, then `filmstrip` for the window, then `cell_trace` if
    numbers matter.
 2. Read the flag (`reason`) and answer its question:
-   - **lost**: where does the cell go after the last frame? Check
+   - **lost**: first, is it at the image border (crops turn black)? Then it
+     left the field: accept. Does the track end on a small dim speck or part
+     of the nucleus while the cell carries on nearby? Link the real nucleus.
+     Automatic death needs a pyknotic end (small and bright for 3+ frames);
+     a cell that rounds, blebs or fragments and then vanishes can be called
+     death by eye with an `event` (dying RPE-1 cells detach and leave no
+     corpse). Where does the cell go after the last frame? Check
      `continuation_candidates` at the break. A good continuation is close
      (RPE-1 moves ~0.5 diameters per frame, occasionally 2–3), has similar area,
      and has continuous PIP/geminin. Propose `link` only if one candidate is
@@ -80,8 +86,11 @@ cell, so use `filmstrip` for history. Never use `install_packages`. Use
      before and after.
    - **fragment**: one nucleus in pieces (keep) or two cells (`drop` the
      neighbour's piece)?
-   - **phase_order**: phases running backwards usually means a wrong link or
-     a floating/dying cell over the nucleus. Find the frame.
+   - **geminin_jump**: geminin fell along the track without a split. Geminin
+     only falls in mitosis, so this is usually a wrong link, a merged
+     neighbour, or a floating/dying cell over the nucleus. Find the frame.
+     Do not judge links by per-frame phase calls: a compacting G1 nucleus is
+     briefly brighter in both reporters and gets called G2.
    - **outcome_review**: confirm death / slippage / arrest from the filmstrip.
      Death: shrinking, condensing, fragmenting nucleus. Slippage: geminin
      drops without two daughters.

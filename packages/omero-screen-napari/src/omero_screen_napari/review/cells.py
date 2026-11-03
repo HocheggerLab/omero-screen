@@ -34,13 +34,11 @@ class CellSource:
         plate_id: OMERO plate id.
         db_path: CellView DuckDB file (opened read-only).
         log_path: Edit log to replay on the automatic repair, if any.
-        marker: Mitotic marker channel for the repair.
     """
 
     plate_id: int
     db_path: Path | None = None
     log_path: Path | None = None
-    marker: str = "Geminin"
     hide_debris: bool = True
     _wells: dict[str, tuple[pd.DataFrame, Any]] = field(
         default_factory=dict, repr=False
@@ -98,16 +96,15 @@ class CellSource:
         return self.log_path.parent / "masks" if self.log_path else None
 
     def base(self, well: str) -> Any:
-        """The well's automatically repaired lineage, before any edit."""
-        from cellview.tracks.edit import base_lineage
-        from cellview.tracks.repair import repair_lineage
+        """The well's lineage as CellView holds it, before any edit.
+
+        CellView holds the stored correction's final tracks, so the base is
+        that lineage as it is; the repair is not run again here.
+        """
+        from cellview.tracks.edit import imported_lineage
 
         if well not in self._bases:
-            det = self.raw(well)
-            key = self.marker.lower()
-            self._bases[well] = base_lineage(
-                det, repair_lineage(det.rename(columns={key: "marker"}))
-            )
+            self._bases[well] = imported_lineage(self.raw(well))
         return self._bases[well]
 
     def path(

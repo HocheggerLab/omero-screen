@@ -192,9 +192,11 @@ def follow_from_cache(
         raise FileNotFoundError(
             f"Plate {plate_id} well {well} is not in the zarr cache with nuclei labels."
         )
+    from omero_screen_napari.zarr_cache.correction import tracked_nuclei
+
     return follow(
         data["image"][0],
-        data["nuclei"][0],
+        tracked_nuclei(plate_id, well, list(data["nuclei"]))[0],
         data["channel_names"],
         path,
         **kwargs,
