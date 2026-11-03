@@ -262,6 +262,18 @@ class ArgparseCompatCommand(click.Command):
     ),
 )
 @click.option(
+    "--track-correct",
+    is_flag=True,
+    default=False,
+    help=(
+        "Correct the first tracking pass before measuring: merge the pieces "
+        "of a split nucleus, hide debris and, on PIP-FUCCI plates, keep only "
+        "geminin-confirmed divisions; then track the corrected nuclei again. "
+        "The first-pass masks are uploaded unchanged, with the correction "
+        "table attached to each well. Requires --track."
+    ),
+)
+@click.option(
     "--log-level",
     default=None,
     help=(
@@ -308,6 +320,7 @@ def cli(
     track_batch_size: int,
     track_device: str | None,
     track_window: int | None,
+    track_correct: bool,
     log_level: str | None,
     log_file: str | None,
     verbose: bool,
@@ -325,6 +338,8 @@ def cli(
       omero-screen config show     show the settings in effect
       omero-screen models pull SET / models publish MODEL.pt
     """  # noqa: D301 - \b is Click's no-rewrap marker
+    if track_correct and not track:
+        raise click.UsageError("--track-correct requires --track.")
     _apply_environment(
         env=env,
         config=config,
@@ -337,6 +352,7 @@ def cli(
         track_batch_size=track_batch_size,
         track_device=track_device,
         track_window=track_window,
+        track_correct=track_correct,
         stream_stitch=stream_stitch,
         verbose=verbose,
         log_level=log_level,
@@ -370,6 +386,7 @@ def _apply_environment(
     track_batch_size: int,
     track_device: str | None,
     track_window: int | None,
+    track_correct: bool,
     stream_stitch: bool | None,
     verbose: bool,
     log_level: str | None,
@@ -418,6 +435,8 @@ def _apply_environment(
             os.environ["OMERO_SCREEN_TRACKING_DEVICE"] = track_device
         if track_window:
             os.environ["OMERO_SCREEN_TRACKING_WINDOW"] = str(track_window)
+        if track_correct:
+            os.environ["OMERO_SCREEN_TRACK_CORRECTION"] = "1"
     if stream_stitch is not None:
         os.environ["OMERO_SCREEN_STITCH_STREAMING"] = (
             "1" if stream_stitch else "0"

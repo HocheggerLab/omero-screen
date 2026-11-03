@@ -58,6 +58,43 @@ window can run out of GPU memory. By default this is handled for you:
 - `--track-batch-size N` (default 4) is the number of windows scored per forward
   pass. Lower it if you still hit CUDA out-of-memory errors.
 
+## Correcting the first pass
+
+Trackastra links detections; it cannot fix them. A nucleus that Cellpose
+splits in two becomes a false division, and debris becomes a stationary track.
+`--track-correct` corrects the first pass before anything is measured:
+
+```bash
+uv run omero-screen 12345 --stitch --track --track-correct
+```
+
+1. Every first-pass nucleus is measured, debris (stationary,
+   reporter-negative tracks) is hidden, and the pieces of one split nucleus
+   are given one label.
+2. The corrected nuclei are tracked a second time with the same model and
+   settings, so Trackastra sees one detection per nucleus.
+3. The second pass is repaired too, so every division in the final lineage has
+   passed the geminin test.
+4. The corrected nuclei are measured: CellView gets **one row per real
+   nucleus**, with every feature recomputed on the merged pieces.
+
+The geminin test and the debris test need a PIP-FUCCI plate: a timelapse with
+one channel named `pip` and one named `geminin`. On any other timelapse the
+correction only merges the pieces of split nuclei.
+
+The masks uploaded to OMERO stay the **first pass**. The correction is a table
+over their labels, attached to each well as `track_correction.csv`
+(`timepoint, label, track_id`, where 0 means hidden), `track_lineage.csv` (the
+first-pass and final lineages, and which first-pass tracks were debris) and
+`track_events.csv` (the repair decisions). Building the napari zarr cache copies
+the table beside the cache, so the viewer shows the same nuclei that CellView
+holds, as a `nuclei (corrected)` layer beside the first-pass nuclei. A rerun without `--track-correct`
+removes the attachments, because they no longer match the new masks.
+
+To correct an already-cached plate without rerunning the pipeline, use
+`omero-screen-images correct PLATE_ID`, which computes the same correction from
+the zarr cache.
+
 ## Tracks in CellView
 
 Import the plate as usual:

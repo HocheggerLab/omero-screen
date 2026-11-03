@@ -18,6 +18,12 @@ Readers apply the table when a frame is read (:func:`corrected_frame`), so the
 viewer can show corrected and first-pass nuclei side by side, and
 :func:`measure_cached_well` measures the corrected nuclei with the pipeline's
 own feature extraction for import into CellView.
+
+A correction comes from one of two places: computed here from the cache
+(``omero-screen-images correct``), or by the pipeline itself
+(``omero-screen --track --track-correct``), which attaches it to the OMERO well
+beside the first-pass masks. :func:`fetch_correction` copies the pipeline's
+into this directory when the cache is built.
 """
 
 from __future__ import annotations
@@ -36,9 +42,11 @@ from omero_screen.metadata_parser import (
     resolve_pip_fucci,
 )
 from omero_screen.track_correction import (
+    CORRECTION_ATTACHMENTS,
     CorrectionParams,
     CorrectionResult,
     correct_tracks,
+    correction_from_tables,
     measure_corrected_well,
     measure_labels,
     relabel_frame,
@@ -110,6 +118,38 @@ def load_correction(plate_id: int, well: str) -> CorrectionResult | None:
         if debris_path.exists()
         else set(),
     )
+
+
+def fetch_correction(plate_id: int, well: Any) -> CorrectionResult | None:
+    """Copy the correction the pipeline attached to an OMERO well, if any.
+
+    The pipeline's correction maps the first-pass masks stored in OMERO, from
+    which the cache is built, so it replaces any correction stored here for
+    the well. A well without one keeps whatever is stored here (for example
+    a correction computed from the cache).
+
+    Args:
+        plate_id: OMERO plate id.
+        well: OMERO ``WellWrapper``.
+
+    Returns:
+        The correction, or ``None`` if the well has none attached.
+    """
+    from omero_utils.attachments import get_file_attachments, parse_csv_data
+
+    tables: dict[str, pd.DataFrame] = {}
+    for key, title in CORRECTION_ATTACHMENTS.items():
+        anns = get_file_attachments(well, f"{title}.csv")
+        df = parse_csv_data(anns[0]) if anns else None
+        if df is not None:
+            tables[key] = df
+    if not {"table", "lineage"} <= set(tables):
+        return None
+    result, pass1 = correction_from_tables(tables)
+    well_pos = well.getWellPos()
+    out = save_correction(plate_id, well_pos, result, pass1)
+    logger.info(f"{well_pos}: pipeline track correction copied to {out}")
+    return result
 
 
 def _lineage_frame(parents: dict[int, int]) -> pd.DataFrame:

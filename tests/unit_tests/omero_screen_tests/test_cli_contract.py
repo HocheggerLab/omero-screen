@@ -6,6 +6,7 @@ defaults, the two awkward argparse spellings, and the environment variables
 each option sets.
 """
 
+import os
 from unittest.mock import patch
 
 import pytest
@@ -67,6 +68,7 @@ def test_default_argument_contract(parsed) -> None:
         "track_batch_size": 4,
         "track_device": None,
         "track_window": None,
+        "track_correct": False,
         "stream_stitch": None,
         "verbose": False,
         "log_level": None,
@@ -110,7 +112,7 @@ class TestTrackOptionalValue:
         assert got["run"]["stitch"] is True
 
     def test_greedy_value_matches_argparse(self, parsed) -> None:
-        """argparse's nargs="?" also consumed a following plate ID.
+        """Argparse's nargs="?" also consumed a following plate ID.
 
         Verified against the pre-migration parser: `--track 1234 5678`
         gave track='1234' and ID=[5678], and `--track 1234` alone was a
@@ -217,6 +219,7 @@ def test_representative_override_contract(parsed) -> None:
             "cpu",
             "--track-window",
             "6",
+            "--track-correct",
             "--log-level",
             "DEBUG",
             "--log-file",
@@ -236,6 +239,7 @@ def test_representative_override_contract(parsed) -> None:
         "track_batch_size": 2,
         "track_device": "cpu",
         "track_window": 6,
+        "track_correct": True,
         "stream_stitch": False,
         "verbose": True,
         "log_level": "DEBUG",
@@ -301,3 +305,53 @@ def test_help_does_not_import_the_pipeline() -> None:
     assert out.stdout.strip() == "", (
         f"heavy imports at module scope: {out.stdout}"
     )
+
+
+# --------------------------------------------------------------------------
+# --track-correct
+# --------------------------------------------------------------------------
+
+
+class TestTrackCorrect:
+    """The correction is opt-in and only meaningful with tracking."""
+
+    def test_off_by_default(self, parsed) -> None:
+        assert parsed(["1234", "--track"])["env"]["track_correct"] is False
+
+    def test_flag_with_track(self, parsed) -> None:
+        got = parsed(["1234", "--track", "--track-correct"])
+        assert got["env"]["track_correct"] is True
+
+    def test_without_track_is_a_usage_error(self, parsed) -> None:
+        got = parsed(["1234", "--track-correct"], expect_exit=2)
+        assert "requires --track" in got["output"]
+
+    def test_sets_the_environment_variable(self, monkeypatch) -> None:
+        # First touch records "unset", so teardown removes what the call sets.
+        for var in (
+            "OMERO_SCREEN_TRACKING_MODEL",
+            "OMERO_SCREEN_TRACKING_MODE",
+            "OMERO_SCREEN_TRACKING_BATCH_SIZE",
+            "OMERO_SCREEN_TRACK_CORRECTION",
+        ):
+            monkeypatch.delenv(var, raising=False)
+        with patch("omero_screen.config.configure_logging"):
+            runner_module._apply_environment(
+                env=None,
+                config=None,
+                stitch_config=None,
+                inference=(),
+                gallery=0,
+                batch=0,
+                track="general_2d",
+                track_mode="greedy",
+                track_batch_size=4,
+                track_device=None,
+                track_window=None,
+                track_correct=True,
+                stream_stitch=None,
+                verbose=False,
+                log_level=None,
+                log_file=None,
+            )
+        assert os.environ["OMERO_SCREEN_TRACK_CORRECTION"] == "1"

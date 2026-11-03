@@ -70,3 +70,58 @@ def test_correction_lut(result: CorrectionResult) -> None:
     lut = correction.correction_lut(result, 2)
     assert lut.shape == (2, 6)
     assert lut[0, 2] == 1 and lut[0, 3] == 0 and lut[1, 5] == 7
+
+
+def _well_with(tables: dict[str, pd.DataFrame]) -> object:
+    """A stand-in OMERO well whose attachments are ``tables`` by title."""
+    from unittest.mock import MagicMock
+
+    well = MagicMock()
+    well.getWellPos.return_value = "C2"
+    well.tables = {f"{k}.csv": v for k, v in tables.items()}
+    return well
+
+
+def _patch_attachments(monkeypatch: pytest.MonkeyPatch) -> None:
+    import omero_utils.attachments as att
+
+    monkeypatch.setattr(
+        att,
+        "get_file_attachments",
+        lambda well, ext: [well.tables[ext]] if ext in well.tables else None,
+    )
+    monkeypatch.setattr(att, "parse_csv_data", lambda df: df)
+
+
+def test_fetch_correction_copies_the_pipeline_tables(
+    store: Path, result: CorrectionResult, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from omero_screen.track_correction import correction_tables
+
+    _patch_attachments(monkeypatch)
+    pass1 = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    tables = correction_tables(result, pass1)
+    well = _well_with(
+        {
+            "track_correction": tables["table"],
+            "track_lineage": tables["lineage"],
+            "track_events": tables["events"],
+        }
+    )
+    got = correction.fetch_correction(1, well)
+    assert got is not None
+    stored = correction.load_correction(1, "C2")
+    assert stored is not None
+    assert stored.parents == result.parents
+    assert stored.debris == {3}
+    assert stored.frame_map(0) == {1: 1, 2: 1, 3: 0}
+    assert correction.first_pass_lineage(1, "C2") == pass1
+
+
+def test_fetch_correction_leaves_a_local_one_when_omero_has_none(
+    store: Path, result: CorrectionResult, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_attachments(monkeypatch)
+    correction.save_correction(1, "C2", result, {1: 0})
+    assert correction.fetch_correction(1, _well_with({})) is None
+    assert correction.has_correction(1, "C2")

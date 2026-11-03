@@ -69,6 +69,8 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
             prog_options += f" --track-device {args.track_device}"
         if args.track_window:
             prog_options += f" --track-window {args.track_window}"
+        if args.track_correct:
+            prog_options += " --track-correct"
     if args.config:
         # Resolve to an absolute path now: the job runs from this directory
         # (bin/), so a relative --config would otherwise resolve against bin/.
@@ -369,6 +371,13 @@ def _parse_args() -> argparse.Namespace:
         help="Force the tracking device (default: auto-detect). Use 'cpu' when "
         "a dense well exceeds GPU VRAM — same computation in host RAM, slower "
         "but no VRAM ceiling and no accuracy loss.",
+    )
+    group.add_argument(
+        "--track-correct",
+        action="store_true",
+        help="Correct the first tracking pass (merge split nuclei, hide "
+        "debris, geminin-gated divisions) and track again before measuring. "
+        "Requires --track.",
     )
     group.add_argument(
         "--track-window",

@@ -68,6 +68,7 @@ from omero_screen_napari.plate_cache import (
     is_empty_well,
 )
 from omero_screen_napari.zarr_cache.alignment import AlignmentError
+from omero_screen_napari.zarr_cache.correction import fetch_correction
 from omero_screen_napari.zarr_cache.eviction import (
     enforce_size_cap,
     estimate_plate_size_bytes,
@@ -1113,6 +1114,15 @@ def build_plate_zarr(
                 ),
                 missing_regions=holes,
             )
+            # A correction made by the pipeline (--track-correct) belongs to
+            # the masks just cached; keep it beside them for the viewer.
+            try:
+                fetch_correction(plate_id, well_obj)
+            except Exception as err:  # noqa: BLE001 - the cache itself is fine
+                logger.warning(
+                    f"Well {well_pos}: could not copy its track correction; "
+                    f"the viewer shows first-pass nuclei ({err})"
+                )
 
             if progress_cb is not None:
                 progress_cb(well_pos)

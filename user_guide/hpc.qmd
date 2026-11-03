@@ -49,4 +49,4 @@ These are forwarded to `omero-screen` in every job. They mean the same as in the
 | `--cp4`, `--model MODEL` | `--cp4`, `--model` |
 | `--stitch`, `--stitch-config PATH` | `--stitch`, `--stitch-config` |
 | `--stream-stitch` / `--no-stream-stitch` | the same |
-| `--track [MODEL]`, `--track-mode`, `--track-device`, `--track-window`, `--track-batch-size` | the same |
+| `--track [MODEL]`, `--track-mode`, `--track-device`, `--track-window`, `--track-batch-size`, `--track-correct` | the same |
