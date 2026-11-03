@@ -1,3 +1,9 @@
+## omero-screen-v0.9.0 (2026-11-03)
+
+### Feat
+
+- **tracking**: track correction by relabelling, Track Review v3 and track view (#72)
+
 ## omero-screen-v0.8.28 (2026-10-22)
 
 ### Fix
