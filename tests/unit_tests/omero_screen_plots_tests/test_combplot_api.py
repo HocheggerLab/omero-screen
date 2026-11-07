@@ -689,3 +689,41 @@ class TestMockingDependencies:
         # Should call sns.histplot once per condition for histograms
         expected_histogram_calls = len(conditions)
         assert mock_histogram.call_count == expected_histogram_calls
+
+
+class TestWithoutEdU:
+    """Plates stained without EdU drop the EdU scatter row instead of failing."""
+
+    @patch('matplotlib.pyplot.show')
+    def test_combplot_feature_without_edu(self, mock_show, dna_edu_data):
+        """One histogram row plus one row per feature, no EdU row."""
+        df = dna_edu_data.drop(columns="intensity_mean_EdU_nucleus_norm")
+        conditions = ["control", "treatment1"]
+
+        fig, axes = combplot_feature(
+            df=df,
+            conditions=conditions,
+            feature=["intensity_mean_p21_nucleus", "area_nucleus"],
+            threshold=[2500.0, None],
+            selector_col=None,
+            save=False,
+        )
+
+        assert len(axes) == len(conditions) * 3
+        assert all(ax.get_ylabel() != "norm. EdU int." for ax in axes)
+
+    @patch('matplotlib.pyplot.show')
+    def test_combplot_cellcycle_without_edu(self, mock_show, dna_edu_data):
+        """One histogram per condition plus the stacked barplot."""
+        df = dna_edu_data.drop(columns="intensity_mean_EdU_nucleus_norm")
+        conditions = ["control", "treatment1"]
+
+        fig, axes = combplot_cellcycle(
+            df=df,
+            conditions=conditions,
+            selector_col=None,
+            save=False,
+        )
+
+        assert len(axes) == len(conditions) + 1
+        assert axes[0].xaxis.get_visible()
