@@ -1161,5 +1161,23 @@ class TestCellCyclePlotBackwardCompatibility:
         assert len(list(tmp_path.glob("*"))) == 0
 
 
+@patch('matplotlib.pyplot.show')
+def test_cellcycle_plot_without_s_phase(mock_show, cellcycle_data_with_subG1):
+    """DNA-content-only data (no EdU, so no S phase) drops the S panel."""
+    df = cellcycle_data_with_subG1.copy()
+    df.loc[df["cell_cycle"] == "S", "cell_cycle"] = "G1"
+
+    fig, axes = cellcycle_plot(
+        df=df,
+        conditions=["control", "treatment1"],
+        show_subG1=True,
+        selector_col=None,
+        save=False,
+    )
+
+    assert len(axes) == 4
+    assert "S" not in [ax.get_title() for ax in axes]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

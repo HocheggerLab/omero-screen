@@ -381,6 +381,11 @@ class StandardCellCyclePlot(BaseCellCyclePlot):
         if not self.config.show_subG1:
             data_phases = [p for p in data_phases if p != "Sub-G1"]
 
+        # Plates without EdU are binned on DNA content alone and have no S
+        # phase; drop the panel rather than draw an empty one.
+        if "S" not in set(original_df["cell_cycle"].unique()):
+            data_phases = [p for p in data_phases if p != "S"]
+
         # Setup subplots based on final number of phases
         self._setup_subplots(len(data_phases))
 
