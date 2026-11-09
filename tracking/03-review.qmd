@@ -65,7 +65,7 @@ uv run omero-screen-images --env production track 5054 \
 Open **Plugins → Track Review Widget** and load `review/queue.json`. For each
 cell you can:
 
-- link it to its continuation (click it, or press Shift-1…9 for a numbered
+- link it to its continuation (click it, or press 1…9 for a numbered
   candidate);
 - unlink it, or add or remove a nucleus;
 - split a nucleus, or draw one that was missed;
@@ -73,8 +73,14 @@ cell you can:
 - give a verdict.
 
 *Next break* jumps along the track to the next problem and *Follow cell* keeps
-the cell centred. Edits go to `review/edits.jsonl` and verdicts to
-`review/decisions.json`.
+the cell in view, panning only when it leaves the central part of the view.
+Edits go to `review/edits.jsonl` and verdicts to `review/decisions.json`.
+
+Fluorescence channels open with their background black: contrast is set from
+several timepoints, so a reporter that rises later in the movie (geminin in
+S/G2) is not saturated. Brightfield channels (`bf`, `brightfield`, `phase`,
+`dic`) are grey, sit underneath the fluorescence and start hidden; tick their
+eye to show them.
 
 ### Track view
 
