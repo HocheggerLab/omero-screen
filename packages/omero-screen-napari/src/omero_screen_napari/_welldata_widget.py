@@ -65,6 +65,7 @@ from omero_screen_napari.zarr_cache import (
     plate_zarr_path,
     resolve_target_wells,
 )
+from omero_screen_napari.zarr_cache.palette import is_brightfield
 
 # Logging
 
@@ -1512,7 +1513,9 @@ def _role_based_color_map(channel_names: list[str]) -> dict[str, str]:
         # uncoloured.
         lowered = _ROUND_SUFFIX_RE.sub("", name.lower())
         tokens = {tok for tok in re.split(r"[_-]", lowered) if tok}
-        if lowered.endswith("_nucleus"):
+        if is_brightfield(name):
+            colors[name] = "gray"
+        elif lowered.endswith("_nucleus"):
             colors[name] = "blue"
         elif lowered.endswith("_cell"):
             colors[name] = "green"

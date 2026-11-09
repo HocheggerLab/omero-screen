@@ -113,3 +113,22 @@ class TestBaseName:
     )
     def test_strips_round_qualifier(self, name: str, expected: str) -> None:
         assert base_name(name) == expected
+
+
+def test_brightfield_is_grey_even_when_named_as_the_cell_channel() -> None:
+    """``bf_cell`` is transmitted light: grey, not the green cell stain (#76)."""
+    from omero_screen_napari.zarr_cache.palette import (
+        BRIGHTFIELD_HEX,
+        channel_colormaps,
+        is_brightfield,
+    )
+
+    names = ["geminin", "pip", "spyDNA_nucleus", "bf_cell"]
+    colours = channel_hex_colors(names)
+    assert colours[3] == BRIGHTFIELD_HEX
+    assert colours[2] == "0000FF"
+    assert "00FF00" not in colours
+    assert channel_colormaps(names)[3] == "gray"
+    assert is_brightfield("Brightfield") and is_brightfield("BF_R1")
+    assert is_brightfield("phase") and not is_brightfield("Tub")
+    assert not is_brightfield("abfx")

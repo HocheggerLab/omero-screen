@@ -71,6 +71,7 @@ Shift-Z      undo last edit of this cell
 ===========  ==========================================
 """
 
+import contextlib
 import os
 import re
 from collections.abc import Callable
@@ -107,7 +108,16 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from omero_screen_napari.layer_sync import hold_until_loaded
+from omero_screen_napari.layer_sync import (
+    NOT_A_SOURCE,
+    displayed_point,
+    hold_until_loaded,
+)
+from omero_screen_napari.review.cell_outline import (
+    cell_crop,
+    needs_recentre,
+    patch_crop,
+)
 from omero_screen_napari.review.session import (
     ReviewSession,
     set_active_session,
@@ -158,6 +168,14 @@ class TrackReviewWidget(QWidget):
         self._loaded: tuple[int, str] | None = None
         self._pixel_size = 1.0
         self._nuclei: Any = None
+        # The reviewed cell's outline, one small crop per frame (#76):
+        # frame -> (label, y, x) of the cell, its reviewer-made masks, the
+        # crops read so far (None: no nucleus) and the frame on screen.
+        self._cell_at: dict[int, tuple[int, float, float]] = {}
+        self._cell_patches: dict[int, tuple[int, int, np.ndarray]] = {}
+        self._cell_crops: dict[int, tuple[np.ndarray, int, int] | None] = {}
+        self._cell_frame: int | None = None
+        self._drawn_source: Any = None
         self._focus_seen: str | None = None
         self._mode: str | None = None  # absorb | drop | split
         self._seeds: list[tuple[int, int]] = []
@@ -308,8 +326,12 @@ class TrackReviewWidget(QWidget):
         self.repair_window = RepairWindow(self)
 
         self.viewer.mouse_drag_callbacks.append(self._on_click)
-        self.viewer.dims.events.current_step.connect(
-            lambda _: self._on_frame()
+        self._on_step = lambda _event: self._on_frame()
+        self.viewer.dims.events.current_step.connect(self._on_step)
+        # A closed dock must stop reacting to the viewer (#76): its handlers
+        # would otherwise keep running on every step, on deleted widgets.
+        self.destroyed.connect(
+            partial(_detach, self.viewer, self._on_step, self._on_click)
         )
         self._bind_keys()
         if self.path_edit.text():
@@ -616,6 +638,7 @@ class TrackReviewWidget(QWidget):
             self.viewer.layers[NUCLEI_LAYER].visible = True
         self._loaded = (plate_id, well)
         self._apply_nuclei()
+        self._watch_drawn()
 
     def go_to(self, item: ReviewItem, frame: int | None = None) -> None:
         """Load the item's well, draw the cell and jump to ``frame`` (default: the item's)."""
@@ -742,7 +765,7 @@ class TrackReviewWidget(QWidget):
             self._add_tracks(data, graph, AHEAD_LAYER, "magenta", 0, n, 4)
         coords = np.array([[t, y, x] for t, y, x, _ in pts], dtype=float)
         gap = np.array([lab == 0 for *_, lab in pts])
-        self.viewer.add_points(  # ty: ignore[unresolved-attribute]
+        marker = self.viewer.add_points(  # ty: ignore[unresolved-attribute]
             coords,
             name=MARKER_LAYER,
             scale=scale,
@@ -752,18 +775,80 @@ class TrackReviewWidget(QWidget):
             border_width=0,
             projection_mode="none",
         )
+        hold_until_loaded(self.viewer, marker)
+        self._cell_at = {t: (lab, y, x) for t, y, x, lab in pts if lab}
+        self._cell_patches = self._patches(pts)
+        self._cell_crops = {}
+        self._cell_frame = None
         if self._nuclei is not None:
-            self.viewer.add_labels(  # ty: ignore[unresolved-attribute]
-                _cell_mask(
-                    self._nuclei,
-                    {t: lab for t, _, _, lab in pts if lab},
-                    self._patches(pts),
-                ),
+            # A small 2-D crop around the cell, swapped in per frame, rather
+            # than a lazy mask the size of the well (#76).
+            cell: Any = self.viewer.add_labels(  # ty: ignore[unresolved-attribute]
+                np.zeros((1, 1), dtype=np.uint8),
                 name=CELL_LAYER,
-                scale=scale,
+                scale=scale[1:],
                 opacity=1.0,
-            ).contour = 2
+            )
+            cell.contour = 2
+            cell.metadata[NOT_A_SOURCE] = True
+            self._show_cell(self._drawn_frame())
         self._activate_image()
+
+    def _cell_crop_at(self, t: int) -> tuple[np.ndarray, int, int] | None:
+        """The reviewed cell's nucleus in frame ``t`` (cached)."""
+        if t not in self._cell_crops:
+            crop = None
+            if t in self._cell_patches:
+                crop = patch_crop(self._cell_patches[t])
+            elif t in self._cell_at and self._nuclei is not None:
+                label, y, x = self._cell_at[t]
+                try:
+                    crop = cell_crop(self._nuclei, t, label, y, x)
+                except Exception as err:  # a cache read may fail
+                    logger.warning(f"Track review: no outline at t{t}: {err}")
+            self._cell_crops[t] = crop
+        return self._cell_crops[t]
+
+    def _show_cell(self, t: int) -> None:
+        """Show the reviewed cell's outline for frame ``t``."""
+        if t == self._cell_frame or CELL_LAYER not in self.viewer.layers:
+            return
+        layer: Any = self.viewer.layers[CELL_LAYER]
+        crop = self._cell_crop_at(t)
+        if crop is None:
+            layer.data = np.zeros((1, 1), dtype=np.uint8)
+        else:
+            mask, y0, x0 = crop
+            layer.translate = (y0 * self._pixel_size, x0 * self._pixel_size)
+            layer.data = mask
+        self._cell_frame = t
+
+    def _drawn_frame(self) -> int:
+        """The frame the nuclei layer is drawing (the slider's if unknown)."""
+        src = self._drawn_source
+        if src is not None and getattr(src, "visible", False):
+            point = displayed_point(getattr(src, "__wrapped__", src))
+            if point:
+                return int(point[0])
+        return int(self.viewer.dims.current_step[0])
+
+    def _watch_drawn(self) -> None:
+        """Move the outline when the nuclei layer draws a frame.
+
+        With async slicing the nuclei arrive after the slider moves; the
+        outline follows what is drawn, as the tracks do (#11).
+        """
+        if self._drawn_source is not None:
+            with contextlib.suppress(TypeError, ValueError, RuntimeError):
+                self._drawn_source.events.set_data.disconnect(self._on_drawn)
+        self._drawn_source = None
+        if NUCLEI_LAYER in self.viewer.layers:
+            self._drawn_source = self.viewer.layers[NUCLEI_LAYER]
+            self._drawn_source.events.set_data.connect(self._on_drawn)
+
+    def _on_drawn(self, _event: Any = None) -> None:
+        if self.current is not None:
+            self._show_cell(self._drawn_frame())
 
     def _on_reach(self, n: int) -> None:
         self.settings.setValue("reach", n)
@@ -828,20 +913,49 @@ class TrackReviewWidget(QWidget):
             f"{span}breaks at: {breaks}<br><i>{it.question}</i>"
         )
 
-    def _centre(self, t: int) -> None:
+    def _centre(self, t: int, only_if_needed: bool = False) -> None:
+        """Centre the camera on the cell at frame ``t``.
+
+        With ``only_if_needed`` (Follow mode), pan only once the cell leaves
+        the central part of the view: each pan makes every layer slice the
+        frame again (#76).
+        """
         pts = self._points()
         if not pts:
             return
         before = [p for p in pts if p[0] <= t] or pts[:1]
         _, y, x, _ = before[-1]
-        self.viewer.scene.camera.center = (
-            y * self._pixel_size,
-            x * self._pixel_size,
-        )
+        cell = (y * self._pixel_size, x * self._pixel_size)
+        camera = self.viewer.scene.camera
+        if only_if_needed:
+            try:
+                h, w = self.viewer.canvas.size
+                zoom = float(camera.zoom)
+                view = (h / zoom, w / zoom)
+                centre = tuple(camera.center[-2:])
+            except (AttributeError, TypeError, ValueError, ZeroDivisionError):
+                view, centre = (0.0, 0.0), cell
+            if not needs_recentre(cell, (centre[0], centre[1]), view):
+                return
+        camera.center = cell
 
     def _on_frame(self) -> None:
+        try:
+            self._on_frame_unchecked()
+        except RuntimeError:  # this widget was deleted with its dock
+            _detach(self.viewer, self._on_step, self._on_click)
+
+    def _on_frame_unchecked(self) -> None:
         if self.follow.isChecked() and self.current is not None:
-            self._centre(int(self.viewer.dims.current_step[0]))
+            self._centre(
+                int(self.viewer.dims.current_step[0]), only_if_needed=True
+            )
+        src = self._drawn_source
+        if self.current is not None and (
+            src is None or not getattr(src, "visible", False)
+        ):
+            # No visible nuclei layer to wait for: move the outline now.
+            self._show_cell(int(self.viewer.dims.current_step[0]))
         if self.track_view is not None:
             try:
                 self.track_view.set_frame(
@@ -2008,10 +2122,12 @@ def _overlay_labels(
     """
     import dask.array as da
 
+    from omero_screen_napari.zarr_cache.display import _from_zarr
+
     lut = np.array(sorted(ids), dtype=np.int64)
     arrs = [
         (
-            da.from_zarr(lv)
+            _from_zarr(lv)
             if not isinstance(lv, np.ndarray | da.Array)
             else da.asarray(lv)
         )
@@ -2056,47 +2172,10 @@ def _overlay_labels(
     ]
 
 
-def _cell_mask(
-    nuclei: Any,
-    labels: dict[int, int],
-    patches: dict[int, tuple[int, int, np.ndarray]] | None = None,
-) -> Any:
-    """Lazy ``(T, Y, X)`` uint8 mask of only the cell's nucleus in each frame.
-
-    Frames where the cell is a reviewer-made mask are drawn from its patch.
-    """
-    patches = patches or {}
-    import dask.array as da
-
-    if isinstance(nuclei, da.Array):  # corrected nuclei are lazy already
-        arr = nuclei
-    elif isinstance(nuclei, np.ndarray):
-        arr = da.from_array(nuclei, chunks=(1, *nuclei.shape[1:]))
-    else:
-        arr = da.from_zarr(nuclei)
-
-    def select(block: np.ndarray, block_info: Any = None) -> np.ndarray:
-        t0 = block_info[0]["array-location"][0][0]
-        out = np.zeros(block.shape, dtype=np.uint8)
-        y_off = block_info[0]["array-location"][1][0]
-        x_off = block_info[0]["array-location"][2][0]
-        for i in range(block.shape[0]):
-            t = t0 + i
-            if t in patches:
-                py, px, mask = patches[t]
-                ys, xs = np.nonzero(mask)
-                ys, xs = ys + py - y_off, xs + px - x_off
-                ok = (
-                    (ys >= 0)
-                    & (ys < block.shape[1])
-                    & (xs >= 0)
-                    & (xs < block.shape[2])
-                )
-                out[i, ys[ok], xs[ok]] = 1
-                continue
-            label = labels.get(t)
-            if label:
-                out[i] = block[i] == label
-        return out
-
-    return arr.map_blocks(select, dtype=np.uint8)
+def _detach(viewer: Any, on_step: Any, on_click: Any) -> None:
+    """Disconnect a Track Review widget's handlers from ``viewer``."""
+    with contextlib.suppress(TypeError, ValueError, RuntimeError):
+        viewer.dims.events.current_step.disconnect(on_step)
+    callbacks = viewer.mouse_drag_callbacks
+    if on_click in callbacks:
+        callbacks.remove(on_click)

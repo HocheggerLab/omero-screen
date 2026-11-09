@@ -429,3 +429,30 @@ def test_conditions_sit_below_the_caption(synth_well_data):
     assert keys.index(display._CONDITIONS_OVERLAY) < keys.index(
         display._CAPTION_OVERLAY
     )
+
+
+def test_channel_contrast_ignores_canvas_padding():
+    """Zero padding must not pull the lower limit to 0 (#76)."""
+    from omero_screen_napari.zarr_cache.display import _channel_contrast
+
+    rng = np.random.default_rng(0)
+    data = rng.integers(700, 760, size=(200, 200)).astype(np.uint16)
+    data[:, :40] = 0  # padding around a stitched canvas
+    data[100:110, 100:110] = 3000  # a bright nucleus
+    lo, hi = _channel_contrast(data)
+    assert lo >= 700
+    assert hi > 760
+
+
+def test_contrast_sample_spans_the_timelapse():
+    """A reporter that only appears late still sets the upper limit."""
+    from omero_screen_napari.zarr_cache.display import (
+        _channel_contrast,
+        _contrast_sample,
+    )
+
+    level = np.full((20, 1, 50, 50), 700, dtype=np.uint16)
+    level[19, 0, :5, :5] = 5000
+    sample = _contrast_sample(level, 0)
+    assert sample.size == 5 * 50 * 50
+    assert _channel_contrast(sample, high=99.99)[1] > 4000

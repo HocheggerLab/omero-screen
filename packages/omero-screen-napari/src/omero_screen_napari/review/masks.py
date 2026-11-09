@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, replace
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -50,9 +51,25 @@ def save_patch(
 
 
 def load_patch(base_dir: Path, rel: str) -> tuple[int, int, np.ndarray]:
-    """``(y0, x0, mask)`` of a stored patch."""
-    data = np.load(base_dir / rel)
-    return int(data["y0"]), int(data["x0"]), data["mask"]
+    """``(y0, x0, mask)`` of a stored patch.
+
+    Track Review reads every patch of a well on each redraw; reads are cached
+    by file and modification time, so a patch saved again under the same
+    name is re-read. The cached mask is read-only.
+    """
+    path = base_dir / rel
+    stat = path.stat()
+    return _read_patch(str(path), stat.st_mtime_ns, stat.st_size)
+
+
+@lru_cache(maxsize=4096)
+def _read_patch(
+    path: str, mtime_ns: int, size: int
+) -> tuple[int, int, np.ndarray]:
+    data = np.load(path)
+    mask = data["mask"]
+    mask.flags.writeable = False
+    return int(data["y0"]), int(data["x0"]), mask
 
 
 def paint_patches(
