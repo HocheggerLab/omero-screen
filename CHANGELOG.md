@@ -1,3 +1,9 @@
+## omero-screen-v0.9.1 (2026-11-09)
+
+### Fix
+
+- **napari**: Track Review lag and channel colours/contrast (#78)
+
 ## omero-screen-v0.9.0 (2026-11-03)
 
 ### Feat
