@@ -333,6 +333,9 @@ def process_wells(
     # model's trained window.
     _window_env = os.getenv("OMERO_SCREEN_TRACKING_WINDOW")
     tracking_window = int(_window_env) if _window_env else None
+    # Correct the first pass (merge fragments, hide debris, geminin-gated
+    # divisions) and track again before measuring; see track_correction.
+    track_correction = os.getenv("OMERO_SCREEN_TRACK_CORRECTION", "0") == "1"
     if tracking_model_name:
         if not stitch_mode:
             logger.warning(
@@ -405,6 +408,7 @@ def process_wells(
                     tracking_mode=tracking_mode,
                     tracking_batch_size=tracking_batch_size,
                     tracking_window=tracking_window,
+                    track_correction=track_correction,
                 )
                 if not segmentation_mode:
                     _save_well_results(conn, well, well_data, well_quality)
@@ -1077,6 +1081,43 @@ def _reuse_stitched_masks(
     return n_mask, c_mask
 
 
+def _store_track_correction(
+    conn: BlitzGateway,
+    well: WellWrapper,
+    correction: Any | None,
+    pass1: dict[int, int],
+) -> None:
+    """Replace the well's stored track correction.
+
+    Any correction attached to the well is removed first: it maps the labels
+    of the masks just replaced. With ``correction`` its tables are attached
+    as CSVs (:data:`~omero_screen.track_correction.CORRECTION_ATTACHMENTS`).
+
+    Args:
+        conn: OMERO connection.
+        well: The well.
+        correction: A ``CorrectionResult``, or ``None`` to only remove.
+        pass1: First-pass lineage the correction started from.
+    """
+    from omero_screen.track_correction import (
+        CORRECTION_ATTACHMENTS,
+        correction_tables,
+    )
+
+    for title in CORRECTION_ATTACHMENTS.values():
+        delete_file_attachment(conn, well, ends_with=f"{title}.csv")
+    if correction is None:
+        return
+    tables = correction_tables(correction, pass1)
+    for key, title in CORRECTION_ATTACHMENTS.items():
+        attach_data(conn, tables[key], well, title)
+    logger.info(
+        f"Track correction for {well.getWellPos()} stored: "
+        f"{len(tables['table']):,} first-pass nuclei, "
+        f"{len(correction.parents):,} final tracks"
+    )
+
+
 def _stitched_well_loop(
     conn: BlitzGateway,
     well: WellWrapper,
@@ -1091,6 +1132,7 @@ def _stitched_well_loop(
     tracking_mode: str = "greedy",
     tracking_batch_size: int = 4,
     tracking_window: int | None = None,
+    track_correction: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Process a well as a single stitched canvas.
 
@@ -1270,6 +1312,41 @@ def _stitched_well_loop(
                 f"Tracked well {well_pos}: {len(track_parent_map):d} tracks across {n_timepoints:d} timepoints"
             )
 
+        # Correct the first pass while its masks are in memory: fragments of
+        # one nucleus become one, debris is hidden and the corrected nuclei
+        # are tracked again. The result is a table over the first-pass labels;
+        # the masks uploaded below stay the first pass, and the table is
+        # stored beside them so readers can apply it.
+        correction = None
+        if tracked and track_correction and tracking_model is not None:
+            from omero_screen.track_correction import (
+                CorrectionParams,
+                correct_stitched_well,
+            )
+
+            if prog:
+                prog.set_stage("track correction")
+            with bench.stage("stitched_track_correction"):
+                correction = correct_stitched_well(
+                    stitched_img,
+                    stitched_n_mask,
+                    stitched_c_mask,
+                    track_parent_map,
+                    channel_order,
+                    nucleus_idx,
+                    tracking_model,
+                    CorrectionParams(
+                        mode=tracking_mode,
+                        batch_size=tracking_batch_size,
+                        window=tracking_window,
+                    ),
+                )
+        elif track_correction and not tracked:
+            logger.warning(
+                f"Track correction for {well_pos} skipped: it needs tracking "
+                "(--track) and a timelapse."
+            )
+
         # Split the stitched masks back into per-field tiles and upload each
         # as a sibling Image in the dataset, named
         # "<field_id>_stitched_segmentation". This avoids the OMERO pyramid
@@ -1324,12 +1401,27 @@ def _stitched_well_loop(
                         name_suffix="_stitched_segmentation",
                         annotation_key="Stitched_Segmentation_Mask",
                     )
+            # New masks invalidate any correction stored with the old ones.
+            _store_track_correction(conn, well, correction, track_parent_map)
 
         if segmentation_mode:
             if prog:
                 for _ in range(n_fields):
                     prog.image_done()
             return pd.DataFrame(), pd.DataFrame()
+
+        # Measure the corrected nuclei: one row per real nucleus, every
+        # feature recomputed on the merged pieces, debris gone. The
+        # cytoplasm is rebuilt from the corrected nuclei.
+        if correction is not None:
+            from omero_screen.track_correction import relabel_stack
+
+            stitched_n_mask = relabel_stack(stitched_n_mask, correction)
+            track_parent_map = correction.parents
+            if stitched_c_mask is not None:
+                stitched_cyto_mask = _stitched_cyto(
+                    stitched_n_mask, stitched_c_mask
+                )
 
         if prog:
             prog.set_stage("feature extraction")
@@ -1398,6 +1490,7 @@ def _well_loop(
     tracking_mode: str = "greedy",
     tracking_batch_size: int = 4,
     tracking_window: int | None = None,
+    track_correction: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Process all images in a well.
 
@@ -1420,6 +1513,9 @@ def _well_loop(
         tracking_window: Override Trackastra's temporal window (frames per
             attention window); None keeps the model default (see
             ``track_nucleus_mask``)
+        track_correction: Correct the first tracking pass and track again
+            before measuring (stitched route, tracking on; see
+            :mod:`omero_screen.track_correction`)
 
     Returns:
         Tuple[pd.DataFrame, pd.DataFrame]: DataFrames containing the final data and quality control data
@@ -1439,6 +1535,7 @@ def _well_loop(
             tracking_mode=tracking_mode,
             tracking_batch_size=tracking_batch_size,
             tracking_window=tracking_window,
+            track_correction=track_correction,
         )
 
     logger.info(

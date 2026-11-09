@@ -14,6 +14,7 @@ import pytest
 from omero_utils.message import PlateDataError
 
 from omero_screen.loops import (
+    _store_track_correction,
     _load_and_stitch_streaming,
     _load_well_fields,
     _should_stream_stitch,
@@ -291,3 +292,45 @@ def test_stitched_well_loop_opens_progress_well() -> None:
     assert prog._current_well == "A1"
     assert prog._img_total == 4
     assert prog._wells_done == 1
+
+
+def test_store_track_correction_replaces_the_stored_tables() -> None:
+    """Old tables always go (they map the replaced masks); new ones are attached."""
+    import pandas as pd
+
+    from omero_screen.track_correction import CorrectionResult
+
+    well = MagicMock()
+    well.getWellPos.return_value = "C2"
+    result = CorrectionResult(
+        table=pd.DataFrame({"timepoint": [0], "label": [1], "track_id": [1]}),
+        parents={1: 0},
+        events=pd.DataFrame(),
+        debris=set(),
+    )
+    with (
+        patch("omero_screen.loops.delete_file_attachment") as delete,
+        patch("omero_screen.loops.attach_data") as attach,
+    ):
+        _store_track_correction(MagicMock(), well, result, {1: 0})
+    assert {c.kwargs["ends_with"] for c in delete.call_args_list} == {
+        "track_correction.csv",
+        "track_lineage.csv",
+        "track_events.csv",
+    }
+    assert [c.args[3] for c in attach.call_args_list] == [
+        "track_correction",
+        "track_lineage",
+        "track_events",
+    ]
+
+
+def test_store_track_correction_without_a_correction_only_removes() -> None:
+    """A rerun without --track-correct must not leave a stale table behind."""
+    with (
+        patch("omero_screen.loops.delete_file_attachment") as delete,
+        patch("omero_screen.loops.attach_data") as attach,
+    ):
+        _store_track_correction(MagicMock(), MagicMock(), None, {})
+    assert delete.call_count == 3
+    attach.assert_not_called()

@@ -638,6 +638,176 @@ def relabel_frame(
     return out
 
 
+def relabel_stack(
+    masks: npt.NDArray[Any], result: CorrectionResult
+) -> npt.NDArray[Any]:
+    """Apply a correction to a whole ``(T, Y, X)`` mask stack, in place.
+
+    Frame by frame, so no second full-size stack is allocated. Labels the
+    table does not list (and frames it does not cover) become 0. Only if the
+    mask's integer type cannot hold the largest final track id is the stack
+    first copied to ``uint32``.
+
+    Returns:
+        The stack holding the final track ids (``masks`` itself, unless it
+        had to be widened).
+    """
+    top = int(result.table["track_id"].max()) if len(result.table) else 0
+    if top > np.iinfo(masks.dtype).max:
+        masks = masks.astype(np.uint32)
+    table = result.table
+    by_frame: dict[int, dict[int, int]] = {}
+    for t, label, tid in zip(
+        table["timepoint"].to_numpy(dtype=np.int64),
+        table["label"].to_numpy(dtype=np.int64),
+        table["track_id"].to_numpy(dtype=np.int64),
+        strict=True,
+    ):
+        by_frame.setdefault(int(t), {})[int(label)] = int(tid)
+    for t in range(masks.shape[0]):
+        masks[t] = relabel_frame(masks[t], by_frame.get(t, {}))
+    return masks
+
+
+# --- the pipeline's stitched route ----------------------------------------
+
+
+def correct_stitched_well(
+    stitched_img: npt.NDArray[Any],
+    n_mask: npt.NDArray[Any],
+    c_mask: npt.NDArray[Any] | None,
+    parents: Mapping[int, int],
+    channel_order: Sequence[str],
+    nucleus_idx: int,
+    model: Trackastra,
+    params: CorrectionParams | None = None,
+) -> CorrectionResult:
+    """Correct a stitched well's first tracking pass in the pipeline.
+
+    The in-memory counterpart of the zarr-cache correction
+    (``omero_screen_napari.zarr_cache.correction.correct_cached_well``): the
+    same measurement, repair and second Trackastra pass, on the canvas the
+    pipeline has just tracked. The geminin-gated repair and the debris test
+    run only on PIP-FUCCI plates
+    (:func:`~omero_screen.metadata_parser.resolve_pip_fucci`); on any other
+    plate the repair merges fragments only.
+
+    Args:
+        stitched_img: Canvas ``(T, Y, X, C)``.
+        n_mask: First-pass nucleus masks ``(T, Y, X)``; pixel value = track id.
+        c_mask: Cell masks ``(T, Y, X)``, or ``None``.
+        parents: First-pass lineage (track id to parent, 0 = founder).
+        channel_order: Channel names in the canvas' last-axis order.
+        nucleus_idx: Index of the nucleus channel in ``channel_order``.
+        model: The Trackastra model of the first pass.
+        params: Correction settings.
+
+    Returns:
+        The correction table, final lineage, repair events and debris ids.
+    """
+    from omero_utils.channels import resolve_pip_fucci
+
+    names = list(channel_order)
+    fucci = resolve_pip_fucci(names, stitched_img.shape[0])
+    signals = (
+        {
+            "geminin": stitched_img[..., names.index(fucci.geminin)],
+            "pip": stitched_img[..., names.index(fucci.pip)],
+        }
+        if fucci
+        else {}
+    )
+    logger.info("Measuring first-pass nuclei for the track correction")
+    det = measure_labels(n_mask, signals, cells=c_mask)
+    return correct_tracks(
+        stitched_img[..., nucleus_idx],
+        n_mask,
+        parents,
+        signals,
+        model,
+        params,
+        det,
+    )
+
+
+# --- storage as OMERO well attachments -----------------------------------
+
+#: Attachment titles (``<title>.csv``) of a stored correction, by table.
+CORRECTION_ATTACHMENTS = {
+    "table": "track_correction",
+    "lineage": "track_lineage",
+    "events": "track_events",
+}
+
+
+def correction_tables(
+    result: CorrectionResult, pass1: Mapping[int, int]
+) -> dict[str, pd.DataFrame]:
+    """A correction as flat tables, for storage beside the first-pass masks.
+
+    Args:
+        result: The correction.
+        pass1: First-pass lineage the correction started from.
+
+    Returns:
+        ``table`` (``timepoint, label, track_id``), ``lineage`` (``pass``
+        ``first`` or ``final``, ``track_id``, ``parent_track_id``, ``debris``)
+        and ``events`` (the repair decisions), keyed as
+        :data:`CORRECTION_ATTACHMENTS`.
+    """
+    first = pd.DataFrame(
+        {
+            "pass": "first",
+            "track_id": [int(k) for k in pass1],
+            "parent_track_id": [int(v) for v in pass1.values()],
+        }
+    )
+    first["debris"] = first["track_id"].isin(sorted(result.debris))
+    final = pd.DataFrame(
+        {
+            "pass": "final",
+            "track_id": [int(k) for k in result.parents],
+            "parent_track_id": [int(v) for v in result.parents.values()],
+            "debris": False,
+        }
+    )
+    return {
+        "table": result.table[["timepoint", "label", "track_id"]],
+        "lineage": pd.concat([first, final], ignore_index=True),
+        "events": result.events,
+    }
+
+
+def correction_from_tables(
+    tables: Mapping[str, pd.DataFrame],
+) -> tuple[CorrectionResult, dict[int, int]]:
+    """Inverse of :func:`correction_tables`.
+
+    Returns:
+        ``(correction, first-pass lineage)``.
+    """
+    lineage = tables["lineage"]
+
+    def parent_map(rows: pd.DataFrame) -> dict[int, int]:
+        return dict(
+            zip(
+                rows["track_id"].astype(int),
+                rows["parent_track_id"].astype(int),
+                strict=True,
+            )
+        )
+
+    first = lineage[lineage["pass"] == "first"]
+    debris = first.loc[first["debris"].astype(bool), "track_id"]
+    result = CorrectionResult(
+        table=tables["table"][["timepoint", "label", "track_id"]],
+        parents=parent_map(lineage[lineage["pass"] == "final"]),
+        events=tables.get("events", pd.DataFrame()),
+        debris={int(t) for t in debris},
+    )
+    return result, parent_map(first)
+
+
 # --- measurement of the corrected nuclei ---------------------------------
 
 

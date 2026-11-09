@@ -12,14 +12,19 @@ import pandas as pd
 
 from omero_screen.track_correction import (
     CorrectionParams,
+    CorrectionResult,
     LazyFrames,
+    correct_stitched_well,
     correct_tracks,
+    correction_from_tables,
     correction_map,
+    correction_tables,
     graph_table,
     measure_labels,
     merge_detections,
     normalise_stack,
     relabel_frame,
+    relabel_stack,
 )
 
 
@@ -202,12 +207,13 @@ def test_measure_labels_records_the_majority_cell() -> None:
     cells[0, 0:5, 0:3] = 1  # covers 6 of nucleus 5's 9 pixels
     cells[0, 0:5, 3:5] = 2  # covers 3
     det = measure_labels(nuclei, {}, cells=cells)
-    assert dict(zip(det.label, det.cell)) == {5: 1, 6: 0}
+    assert dict(zip(det.label, det.cell, strict=False)) == {5: 1, 6: 0}
 
 
 def test_split_apart_never_lets_one_track_hold_distant_nuclei() -> None:
     """Touching pieces stay together; a distant nucleus gets its own track,
-    the same one in every frame."""
+    the same one in every frame.
+    """
     import pandas as pd
 
     from omero_screen.track_correction import split_apart
@@ -227,3 +233,109 @@ def test_split_apart_never_lets_one_track_hold_distant_nuclei() -> None:
     assert list(ids[1]) == [9] and list(ids[2]) == [9]
     assert len(ids[3]) == 1 and ids[3][0] not in (0, 9)
     assert set(events.rule) == {"apart"} and len(events) == 3
+
+
+def _result() -> CorrectionResult:
+    return CorrectionResult(
+        table=pd.DataFrame(
+            {
+                "timepoint": [0, 0, 0, 1, 1],
+                "label": [1, 2, 7, 1, 2],
+                "track_id": [5, 5, 0, 5, 6],
+            }
+        ),
+        parents={5: 0, 6: 5},
+        events=pd.DataFrame(
+            {"pass": [1], "rule": ["fragment"], "frame": [0]}
+        ),
+        debris={7},
+    )
+
+
+def test_relabel_stack_is_in_place_per_frame() -> None:
+    masks = np.array([[[1, 2, 7, 3]], [[1, 2, 0, 0]], [[1, 0, 0, 0]]])
+    out = relabel_stack(masks, _result())
+    assert out is masks
+    np.testing.assert_array_equal(
+        masks,
+        # frame 0: pieces 1 and 2 merge, debris 7 and unlisted 3 hidden;
+        # frame 2 is not in the table, so everything in it is hidden.
+        [[[5, 5, 0, 0]], [[5, 6, 0, 0]], [[0, 0, 0, 0]]],
+    )
+
+
+def test_relabel_stack_widens_a_type_too_small_for_the_ids() -> None:
+    res = _result()
+    res.table.loc[0, "track_id"] = 70_000
+    masks = np.array([[[1, 0]], [[0, 0]]], dtype=np.uint16)
+    out = relabel_stack(masks, res)
+    assert out.dtype == np.uint32
+    assert out[0, 0, 0] == 70_000
+
+
+def test_correction_tables_round_trip() -> None:
+    res = _result()
+    pass1 = {1: 0, 2: 1, 7: 0}
+    tables = correction_tables(res, pass1)
+    assert set(tables) == {"table", "lineage", "events"}
+    # As stored: CSV with no index.
+    reread = {
+        k: pd.read_csv(pd.io.common.StringIO(v.to_csv(index=False)))
+        for k, v in tables.items()
+    }
+    back, first = correction_from_tables(reread)
+    assert first == pass1
+    assert back.parents == res.parents
+    assert back.debris == {7}
+    pd.testing.assert_frame_equal(
+        back.table.reset_index(drop=True), res.table, check_dtype=False
+    )
+    assert back.frame_map(0) == res.frame_map(0)
+
+
+def test_correct_stitched_well_reads_the_pip_fucci_channels() -> None:
+    t, h, w = 3, 8, 8
+    img = np.zeros((t, h, w, 3), np.float32)
+    img[..., 1] = 5.0  # geminin
+    img[..., 2] = 2.0  # pip
+    n_mask = np.zeros((t, h, w), np.uint32)
+    n_mask[:, 2:5, 2:5] = 1
+    seen = {}
+
+    def fake_correct(images, masks, parents, signals, model, params, det):  # noqa: ANN001, ANN202
+        seen.update(images=images, signals=signals, det=det, params=params)
+        return "result"
+
+    with patch("omero_screen.track_correction.correct_tracks", fake_correct):
+        out = correct_stitched_well(
+            img,
+            n_mask,
+            None,
+            {1: 0},
+            ["DAPI", "geminin", "pip"],
+            0,
+            model=None,  # ty: ignore[invalid-argument-type]
+        )
+    assert out == "result"
+    assert set(seen["signals"]) == {"geminin", "pip"}
+    np.testing.assert_array_equal(seen["images"], img[..., 0])
+    # Background is every unlabelled pixel, so a flat channel measures 0.
+    assert set(seen["det"].columns) >= {"geminin", "pip", "area"}
+    assert len(seen["det"]) == t
+
+
+def test_correct_stitched_well_without_fucci_merges_fragments_only() -> None:
+    img = np.zeros((2, 4, 4, 1), np.float32)
+    n_mask = np.zeros((2, 4, 4), np.uint32)
+    n_mask[:, 1, 1] = 1
+    seen = {}
+
+    def fake_correct(images, masks, parents, signals, model, params, det):  # noqa: ANN001, ANN202
+        seen["signals"] = signals
+        return "result"
+
+    with patch("omero_screen.track_correction.correct_tracks", fake_correct):
+        correct_stitched_well(
+            img, n_mask, None, {1: 0}, ["DAPI"], 0, model=None  # ty: ignore[invalid-argument-type]
+        )
+    assert seen["signals"] == {}
