@@ -6,7 +6,7 @@ import dask.array as da
 import numpy as np
 import pandas as pd
 import pytest
-from omero_screen.track_correction import CorrectionResult
+from omero_screen_track.correction import CorrectionResult
 
 from omero_screen_napari.zarr_cache import correction
 
@@ -96,7 +96,7 @@ def _patch_attachments(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_fetch_correction_copies_the_pipeline_tables(
     store: Path, result: CorrectionResult, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from omero_screen.track_correction import correction_tables
+    from omero_screen_track.correction import correction_tables
 
     _patch_attachments(monkeypatch)
     pass1 = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}

@@ -298,7 +298,7 @@ def test_store_track_correction_replaces_the_stored_tables() -> None:
     """Old tables always go (they map the replaced masks); new ones are attached."""
     import pandas as pd
 
-    from omero_screen.track_correction import CorrectionResult
+    from omero_screen_track.correction import CorrectionResult
 
     well = MagicMock()
     well.getWellPos.return_value = "C2"
