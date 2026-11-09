@@ -705,7 +705,7 @@ def correct_stitched_well(
     Returns:
         The correction table, final lineage, repair events and debris ids.
     """
-    from omero_screen.metadata_parser import resolve_pip_fucci
+    from omero_utils.channels import resolve_pip_fucci
 
     names = list(channel_order)
     fucci = resolve_pip_fucci(names, stitched_img.shape[0])
