@@ -515,7 +515,7 @@ wheels = [
 
 [[package]]
 name = "cellclass"
-version = "0.9.1"
+version = "0.9.2"
 source = { editable = "packages/cellclass" }
 dependencies = [
     { name = "click" },
@@ -589,7 +589,7 @@ wheels = [
 
 [[package]]
 name = "cellview"
-version = "0.9.1"
+version = "0.9.2"
 source = { editable = "packages/cellview" }
 dependencies = [
     { name = "duckdb" },
@@ -3896,7 +3896,7 @@ wheels = [
 
 [[package]]
 name = "omero-screen"
-version = "0.9.1"
+version = "0.9.2"
 source = { editable = "." }
 default-groups = ["dev", "gui"]
 dependencies = [
@@ -4014,7 +4014,7 @@ gui = [{ name = "omero-screen-napari", extras = ["qt"], editable = "packages/ome
 
 [[package]]
 name = "omero-screen-napari"
-version = "0.9.1"
+version = "0.9.2"
 source = { editable = "packages/omero-screen-napari" }
 dependencies = [
     { name = "cellclass" },
@@ -4052,7 +4052,7 @@ provides-extras = ["qt"]
 
 [[package]]
 name = "omero-screen-plots"
-version = "0.9.1"
+version = "0.9.2"
 source = { editable = "packages/omero-screen-plots" }
 dependencies = [
     { name = "matplotlib" },
@@ -4086,7 +4086,7 @@ dev = [
 
 [[package]]
 name = "omero-screen-track"
-version = "0.9.1"
+version = "0.9.2"
 source = { editable = "packages/omero-screen-track" }
 dependencies = [
     { name = "duckdb" },
@@ -4106,7 +4106,7 @@ requires-dist = [
 
 [[package]]
 name = "omero-utils"
-version = "0.9.1"
+version = "0.9.2"
 source = { editable = "packages/omero-utils" }
 
 [[package]]

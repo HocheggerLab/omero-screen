@@ -1,3 +1,9 @@
+## omero-screen-v0.9.2 (2026-11-09)
+
+### Fix
+
+- **tracking**: correct the first tracking pass inside the pipeline (#81)
+
 ## omero-screen-v0.9.1 (2026-11-09)
 
 ### Fix
