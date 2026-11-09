@@ -1091,7 +1091,7 @@ def _store_track_correction(
 
     Any correction attached to the well is removed first: it maps the labels
     of the masks just replaced. With ``correction`` its tables are attached
-    as CSVs (:data:`~omero_screen.track_correction.CORRECTION_ATTACHMENTS`).
+    as CSVs (:data:`~omero_screen_track.correction.CORRECTION_ATTACHMENTS`).
 
     Args:
         conn: OMERO connection.
@@ -1099,7 +1099,7 @@ def _store_track_correction(
         correction: A ``CorrectionResult``, or ``None`` to only remove.
         pass1: First-pass lineage the correction started from.
     """
-    from omero_screen.track_correction import (
+    from omero_screen_track.correction import (
         CORRECTION_ATTACHMENTS,
         correction_tables,
     )
@@ -1319,10 +1319,9 @@ def _stitched_well_loop(
         # stored beside them so readers can apply it.
         correction = None
         if tracked and track_correction and tracking_model is not None:
-            from omero_screen.track_correction import (
-                CorrectionParams,
-                correct_stitched_well,
-            )
+            from omero_screen_track.correction import CorrectionParams
+
+            from omero_screen.track_correction import correct_stitched_well
 
             if prog:
                 prog.set_stage("track correction")
@@ -1414,7 +1413,7 @@ def _stitched_well_loop(
         # feature recomputed on the merged pieces, debris gone. The
         # cytoplasm is rebuilt from the corrected nuclei.
         if correction is not None:
-            from omero_screen.track_correction import relabel_stack
+            from omero_screen_track.correction import relabel_stack
 
             stitched_n_mask = relabel_stack(stitched_n_mask, correction)
             track_parent_map = correction.parents
