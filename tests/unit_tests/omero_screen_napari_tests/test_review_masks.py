@@ -44,7 +44,7 @@ def test_measure_recovers_the_pipeline_background() -> None:
 
 def test_patches_round_trip_and_paint(tmp_path) -> None:
     """Saved patches load back and are painted (replaced labels cleared) into a crop."""
-    from cellview.tracks.edit import Curated
+    from omero_screen_track.edit import Curated
 
     mask = np.zeros((4, 4), bool)
     mask[1:3, 1:3] = True
@@ -76,7 +76,7 @@ def _merged_well():
     import numpy as np
     import pandas as pd
 
-    from cellview.tracks.edit import Curated
+    from omero_screen_track.edit import Curated
 
     T, H, W = 6, 60, 80
     yy, xx = np.mgrid[:H, :W]
@@ -143,7 +143,7 @@ def test_separation_keeps_the_reporter_positive_part(tmp_path, monkeypatch) -> N
     assert all(e.args["cell"] == [3, others[0].args["label"]] for e in others[1:])
 
     session.undo("C2-t0-L1")
-    from cellview.tracks.edit import EditLog, replay
+    from omero_screen_track.edit import EditLog, replay
 
     after = replay(curated, EditLog(session.edits_path), "C2")
     assert not after.extras
@@ -220,7 +220,7 @@ def test_cell_part_nearest_reference_else_larger() -> None:
 
 def test_reference_position_nearest_earlier_then_later() -> None:
     """The track's position in its nearest earlier frame, else nearest later."""
-    from cellview.tracks.edit import Curated
+    from omero_screen_track.edit import Curated
 
     det = pd.DataFrame(
         {
@@ -258,7 +258,7 @@ def _touching_well():
     """Cell (track 1, label 1) at the left and neighbour (track 2, label 2) at the
     right in t0–1; at t2 they are one mask with label 2, owned by the neighbour.
     """
-    from cellview.tracks.edit import Curated
+    from omero_screen_track.edit import Curated
 
     T, H, W = 3, 60, 80
     yy, xx = np.mgrid[:H, :W]
@@ -314,8 +314,8 @@ def _split_session(tmp_path, monkeypatch, item_id="C2-t0-L1"):
     monkeypatch.setattr(session.source, "base", lambda well: curated)
 
     def well(_):
-        from cellview.tracks.cells import apply_extras
-        from cellview.tracks.edit import EditLog, replay
+        from omero_screen_track.cells import apply_extras
+        from omero_screen_track.edit import EditLog, replay
 
         cur = replay(curated, EditLog(session.edits_path), "C2")
         return apply_extras(det, cur), cur
@@ -331,7 +331,7 @@ def test_split_along_a_line_keeps_the_neighbour_track(
     its t1 position), the right part stays in the neighbour's track, both written
     as one batch that one cell-scoped undo reverts.
     """
-    from cellview.tracks.edit import EditLog, replay
+    from omero_screen_track.edit import EditLog, replay
     from omero_screen_napari.review import masks
 
     session, curated = _split_session(tmp_path, monkeypatch)
@@ -369,7 +369,7 @@ def test_split_of_the_cells_own_nucleus_starts_a_new_track(
     tmp_path, monkeypatch
 ) -> None:
     """When the cut nucleus is the cell's own, the other part becomes a new track."""
-    from cellview.tracks.edit import EditLog, replay
+    from omero_screen_track.edit import EditLog, replay
     from omero_screen_napari.review import masks
 
     session, curated = _split_session(
@@ -425,7 +425,7 @@ def test_normal_frame_skips_merged_frames() -> None:
 
 def test_reference_detection_uses_reviewer_masks_and_falls_back() -> None:
     """Areas of reviewer masks count; with no normal frame, the nearest earlier."""
-    from cellview.tracks.edit import Curated
+    from omero_screen_track.edit import Curated
     from omero_screen_napari.review.masks import reference_detection
 
     det = pd.DataFrame(
@@ -455,7 +455,7 @@ def test_flipped_split_gives_the_cell_the_other_part(
     tmp_path, monkeypatch
 ) -> None:
     """Flip swaps the parts (twice is the identity); commit writes the flip."""
-    from cellview.tracks.edit import EditLog, replay
+    from omero_screen_track.edit import EditLog, replay
     from omero_screen_napari.review import masks
 
     session, curated = _split_session(tmp_path, monkeypatch)
@@ -486,7 +486,7 @@ def test_a_split_part_can_be_split_again(tmp_path, monkeypatch) -> None:
     found under the line on the curated labels, read from the patch, replaces
     the part; replay paints only the new parts; undo restores the first cut.
     """
-    from cellview.tracks.edit import EditLog, replay
+    from omero_screen_track.edit import EditLog, replay
     from omero_screen_napari.review import masks
 
     session, curated = _split_session(tmp_path, monkeypatch)
@@ -534,7 +534,7 @@ def test_nuclei_layer_shows_reviewer_masks_at_every_level(tmp_path) -> None:
     live reviewer masks painted (scaled per pyramid level), debris blanked; a
     mask replaced by a later split is not painted.
     """
-    from cellview.tracks.edit import Curated
+    from omero_screen_track.edit import Curated
     from omero_screen_napari._review_widget import (
         _curated_overrides,
         _overlay_labels,

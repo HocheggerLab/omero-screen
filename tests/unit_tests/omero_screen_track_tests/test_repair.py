@@ -2,7 +2,7 @@
 
 import pandas as pd
 import pytest
-from cellview.tracks.repair import RepairParams, apply_repair, repair_lineage
+from omero_screen_track.repair import RepairParams, apply_repair, repair_lineage
 
 
 def _track(tid, parent, frames, y, x, area=400.0, marker=1000.0, dx=0.0):

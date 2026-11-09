@@ -51,7 +51,7 @@ class CellSource:
         """The well's detections as tracked, before any curation (loaded once)."""
         if well not in self._raw:
             import duckdb
-            from cellview.tracks.cells import load_well
+            from omero_screen_track.cells import load_well
 
             conn = duckdb.connect(
                 str(self.db_path or default_db_path()), read_only=True
@@ -61,7 +61,7 @@ class CellSource:
             finally:
                 conn.close()
             if self.hide_debris:
-                from cellview.tracks.debris import drop_debris
+                from omero_screen_track.debris import drop_debris
 
                 det, self._debris[well] = drop_debris(det)
             else:
@@ -77,8 +77,8 @@ class CellSource:
     def well(self, well: str) -> tuple[pd.DataFrame, Any]:
         """``(curated detections, curated lineage)`` for a well: repair + edit log."""
         if well not in self._wells:
-            from cellview.tracks.cells import apply_extras
-            from cellview.tracks.edit import EditLog, replay
+            from omero_screen_track.cells import apply_extras
+            from omero_screen_track.edit import EditLog, replay
 
             log: Iterable[Any] = (
                 EditLog(self.log_path) if self.log_path else []
@@ -101,7 +101,7 @@ class CellSource:
         CellView holds the stored correction's final tracks, so the base is
         that lineage as it is; the repair is not run again here.
         """
-        from cellview.tracks.edit import imported_lineage
+        from omero_screen_track.edit import imported_lineage
 
         if well not in self._bases:
             self._bases[well] = imported_lineage(self.raw(well))
@@ -115,7 +115,7 @@ class CellSource:
         stop: int | None = None,
     ) -> pd.DataFrame:
         """Per-frame path of the anchored cell, with phase calls."""
-        from cellview.tracks.cells import add_phases, cell_frames
+        from omero_screen_track.cells import add_phases, cell_frames
 
         det, curated = self.well(well)
         return add_phases(cell_frames(curated, det, anchor, start, stop), det)

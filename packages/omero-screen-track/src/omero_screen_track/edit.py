@@ -65,7 +65,7 @@ from typing import Any
 
 import pandas as pd
 
-from cellview.tracks.repair import RepairResult
+from omero_screen_track.repair import RepairResult
 
 LOG_VERSION = 1
 TRACK_OPS = (
@@ -387,7 +387,7 @@ def base_lineage(det: pd.DataFrame, result: RepairResult) -> Curated:
     Args:
         det: Detections with ``track_id_raw`` and ``timepoint`` (the raw label
             of a detection is its raw track id).
-        result: :func:`~cellview.tracks.repair.repair_lineage` output for ``det``.
+        result: :func:`~omero_screen_track.repair.repair_lineage` output for ``det``.
     """
     tracks = {
         (int(t), int(raw)): result.assignment[int(raw)]
@@ -527,7 +527,7 @@ def confirmed_frames(
     resolved on ``curated``, the lineage *after* replay, so the ids are the
     ones the fate walker follows. An anchor that no longer resolves is
     skipped. Feed the result to
-    :func:`~cellview.tracks.fate.follow_cells` (``confirmed``).
+    :func:`~omero_screen_track.fate.follow_cells` (``confirmed``).
 
     Args:
         curated: :func:`replay` of ``edits`` for ``well``.

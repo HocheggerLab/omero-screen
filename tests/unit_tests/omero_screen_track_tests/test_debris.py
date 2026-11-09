@@ -1,7 +1,7 @@
 """Debris: stationary, reporter-negative tracks are hidden, never deleted."""
 
 import pandas as pd
-from cellview.tracks.debris import corpse_detections, debris_tracks, drop_debris
+from omero_screen_track.debris import corpse_detections, debris_tracks, drop_debris
 
 
 def _det() -> pd.DataFrame:

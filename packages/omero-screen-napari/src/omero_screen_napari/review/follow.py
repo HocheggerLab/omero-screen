@@ -1,6 +1,6 @@
 """Follow one tracked cell through time in the zarr cache.
 
-Given a cell's per-frame path (:func:`cellview.tracks.cells.cell_frames`), cut
+Given a cell's per-frame path (:func:`omero_screen_track.cells.cell_frames`), cut
 a fixed-size window centred on the cell in **every** frame, so the cell stays
 in view however far it moves between frames. Image and nucleus-label crops are
 read straight from the cached OME-Zarr; no viewer and no Qt are involved, so

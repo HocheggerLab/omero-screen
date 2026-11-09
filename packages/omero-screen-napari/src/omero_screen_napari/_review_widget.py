@@ -1097,7 +1097,7 @@ class TrackReviewWidget(QWidget):
         """Preview an edit: say what it changes and draw the path after it."""
         if self.session is None or self.current is None:
             return
-        from cellview.tracks.edit import EditError
+        from omero_screen_track.edit import EditError
 
         self._clear_staged()
         try:
@@ -1175,7 +1175,7 @@ class TrackReviewWidget(QWidget):
 
     def _edit(self, op: str, args: dict[str, Any], reason: str = "") -> bool:
         assert self.session is not None and self.current is not None
-        from cellview.tracks.edit import EditError
+        from omero_screen_track.edit import EditError
 
         try:
             entry = self.session.edit(
@@ -1313,7 +1313,7 @@ class TrackReviewWidget(QWidget):
         """Preview cutting the nucleus under the line through two canvas points."""
         if self.session is None or self.current is None:
             return
-        from cellview.tracks.edit import EditError
+        from omero_screen_track.edit import EditError
 
         from omero_screen_napari.review.masks import MaskError, plan_split
 
@@ -1572,7 +1572,7 @@ class TrackReviewWidget(QWidget):
         """Revert the last edit that concerns this cell (with its batch)."""
         if self.session is None or self.current is None:
             return
-        from cellview.tracks.edit import EditError
+        from omero_screen_track.edit import EditError
 
         try:
             entry = self.session.undo(self.current.id)
@@ -1680,7 +1680,7 @@ class TrackReviewWidget(QWidget):
         row = self.proposal_list.currentRow()
         if self.session is None or not 0 <= row < len(pending):
             return
-        from cellview.tracks.edit import EditError
+        from omero_screen_track.edit import EditError
 
         try:
             self.session.resolve_proposal(

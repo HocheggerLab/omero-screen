@@ -373,7 +373,7 @@ def repair_tracks(
     same result. Only PIP-FUCCI plates (channels named exactly pip and
     geminin) are repaired.
     """
-    from cellview.tracks.plate import NotPipFucciError, repair_plate
+    from omero_screen_track.plate import NotPipFucciError, repair_plate
 
     try:
         summaries = repair_plate(
@@ -457,7 +457,7 @@ def audit_queue(
     Open the written queue in the Track Review widget. Fixes go to the
     review's edit log; verdicts to audit_decisions.json beside it.
     """
-    from cellview.tracks.review_queue import build_audit
+    from omero_screen_track.review_queue import build_audit
 
     out = out_path or log_path.with_name("audit.json")
     try:
@@ -567,7 +567,7 @@ def review_queue(
     (automatic repair plus --log). A fixed-seed random sample per well is
     drawn; flagged cells and an --audit fraction of unflagged ones are queued.
     """
-    from cellview.tracks.review_queue import QueueSpec, build_queue
+    from omero_screen_track.review_queue import QueueSpec, build_queue
 
     spec = QueueSpec(
         start=start,
@@ -709,8 +709,8 @@ def curate_add(
     confirmed_by: str | None,
 ) -> None:
     """Validate an edit against the plate and append it to LOG."""
-    from cellview.tracks.edit import EditError, EditLog
-    from cellview.tracks.plate import NotPipFucciError, well_bases
+    from omero_screen_track.edit import EditError, EditLog
+    from omero_screen_track.plate import NotPipFucciError, well_bases
 
     args: dict[str, Any] = {"cell": cell}
     if frames:
@@ -755,8 +755,8 @@ def curate_add(
 @click.pass_obj
 def curate_undo(obj: Context, log: Path, plate_id: int, well: str) -> None:
     """Revert the last live edit for a well (appends a revert entry)."""
-    from cellview.tracks.edit import EditError, EditLog
-    from cellview.tracks.plate import NotPipFucciError, well_bases
+    from omero_screen_track.edit import EditError, EditLog
+    from omero_screen_track.plate import NotPipFucciError, well_bases
 
     try:
         base = well_bases(obj.conn, plate_id, [well])[well][1]
@@ -798,8 +798,8 @@ def curate_replay(
     """Rebuild curated lineages: automatic repair plus every edit in LOG."""
     import json
 
-    from cellview.tracks.edit import EditError, EditLog
-    from cellview.tracks.plate import NotPipFucciError, curate_plate
+    from omero_screen_track.edit import EditError, EditLog
+    from omero_screen_track.plate import NotPipFucciError, curate_plate
 
     try:
         curated = curate_plate(
@@ -831,7 +831,7 @@ def curate_replay(
 @click.option("--well", help="Only this well.")
 def curate_show(log: Path, well: str | None) -> None:
     """List the entries of LOG, marking reverted ones."""
-    from cellview.tracks.edit import EditLog
+    from omero_screen_track.edit import EditLog
 
     entries = EditLog(log).entries()
     reverted = {e.args.get("target") for e in entries if e.op == "revert"}

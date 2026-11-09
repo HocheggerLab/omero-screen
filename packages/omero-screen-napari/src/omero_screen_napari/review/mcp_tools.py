@@ -438,7 +438,7 @@ def register(server: Any, state: Any) -> None:
     @server.tool()
     async def session_summary() -> dict[str, Any]:
         """Review progress and agent–human agreement: verdicts, edits by author, proposals confirmed vs rejected."""
-        from cellview.tracks.edit import EditLog
+        from omero_screen_track.edit import EditLog
 
         session = _session()
         verdicts: dict[str, int] = {}

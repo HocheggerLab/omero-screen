@@ -268,7 +268,7 @@ class ReviewSession:
             ``role`` (``cell`` / ``mother`` / ``daughter``) and ``frames``,
             a frame with ``timepoint, y, x, gap`` (gaps interpolated).
         """
-        from cellview.tracks.cells import cell_frames
+        from omero_screen_track.cells import cell_frames
 
         it = self.item(item_id)
         det, curated = self.source.well(it.well)
@@ -305,12 +305,12 @@ class ReviewSession:
             ``(summary lines, the cell's path after the edit)``.
 
         Raises:
-            cellview.tracks.edit.EditError: If the edit does not apply.
+            omero_screen_track.edit.EditError: If the edit does not apply.
         """
         import copy
 
-        from cellview.tracks.cells import cell_frames
-        from cellview.tracks.edit import ANNOTATION_OPS, Edit, apply_edit
+        from omero_screen_track.cells import cell_frames
+        from omero_screen_track.edit import ANNOTATION_OPS, Edit, apply_edit
 
         it = self.item(item_id)
         anchor = self.anchor(item_id)
@@ -377,14 +377,14 @@ class ReviewSession:
         )
 
     def breaks(self, item_id: str) -> list[int]:
-        from cellview.tracks.cells import track_breaks
+        from omero_screen_track.cells import track_breaks
 
         it = self.item(item_id)
         _, curated = self.source.well(it.well)
         return track_breaks(curated, self.anchor(item_id), self.stop())
 
     def candidates(self, item_id: str, frame: int) -> pd.DataFrame:
-        from cellview.tracks.cells import continuation_candidates
+        from omero_screen_track.cells import continuation_candidates
 
         it = self.item(item_id)
         det, curated = self.source.well(it.well)
@@ -428,7 +428,7 @@ class ReviewSession:
 
         ``args`` may omit ``cell``; it defaults to the item's anchor.
         """
-        from cellview.tracks.edit import EditLog
+        from omero_screen_track.edit import EditLog
 
         it = self.item(item_id)
         full = {"cell": list(self.anchor(item_id)), **args}
@@ -456,7 +456,7 @@ class ReviewSession:
         ``items`` are ``(op, args, reason)``; ``args`` may omit ``cell``
         (the item's anchor) but an explicit ``cell: None`` is kept.
         """
-        from cellview.tracks.edit import EditLog
+        from omero_screen_track.edit import EditLog
 
         it = self.item(item_id)
         anchor = list(self.anchor(item_id))
@@ -475,14 +475,14 @@ class ReviewSession:
 
         An edit concerns the cell if one of its anchors is the cell's anchor
         or resolves to the cell's curated track (see
-        :func:`~cellview.tracks.edit.concerns_cell`); its whole batch is
+        :func:`~omero_screen_track.edit.concerns_cell`); its whole batch is
         reverted with it. Edits of other cells in the well are never
         reached, and there is no fallback to them: with nothing for this
-        cell, :class:`~cellview.tracks.edit.EditError` says so.
+        cell, :class:`~omero_screen_track.edit.EditError` says so.
         ``whole_well=True`` restores the old behaviour (latest edit in the
         well).
         """
-        from cellview.tracks.edit import EditLog, concerns_cell
+        from omero_screen_track.edit import EditLog, concerns_cell
 
         it = self.item(item_id)
         concerns = None
@@ -497,7 +497,7 @@ class ReviewSession:
 
     def entries(self, item_id: str) -> list[Any]:
         """Edit-log entries that name this item's cell."""
-        from cellview.tracks.edit import EditLog
+        from omero_screen_track.edit import EditLog
 
         anchor = list(self.anchor(item_id))
         it = self.item(item_id)
@@ -677,7 +677,7 @@ class ReviewSession:
         return prop
 
     def _revert(self, prop: Proposal, author: str = "human") -> None:
-        from cellview.tracks.edit import EditLog
+        from omero_screen_track.edit import EditLog
 
         it = self.item(prop.item)
         log = EditLog(self.edits_path)

@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-from cellview.tracks.phases import (
+from omero_screen_track.phases import (
     PhaseParams,
     annotate_phases,
     fit_reference,

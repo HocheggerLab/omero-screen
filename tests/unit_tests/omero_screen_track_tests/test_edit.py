@@ -4,7 +4,7 @@ import json
 
 import pandas as pd
 import pytest
-from cellview.tracks.edit import (
+from omero_screen_track.edit import (
     Curated,
     Edit,
     EditError,
@@ -13,7 +13,7 @@ from cellview.tracks.edit import (
     confirmed_frames,
     replay,
 )
-from cellview.tracks.repair import repair_lineage
+from omero_screen_track.repair import repair_lineage
 
 
 def _curated(spec: dict[int, tuple[range, int]], parents: dict[int, int] | None = None) -> Curated:
@@ -181,7 +181,7 @@ def test_absorb_and_drop_move_single_detections() -> None:
 
 def test_mask_add_replaces_raw_labels_and_joins_cell() -> None:
     """A reviewer mask replaces the raw labels it covers and belongs to the anchored cell."""
-    from cellview.tracks.cells import apply_extras
+    from omero_screen_track.cells import apply_extras
 
     cur = _curated({1: (range(0, 10), 1), 7: (range(0, 10), 7)})
     cur.mask_add((0, 1), 5, 900, {"area": 120.0, "y": 1.0, "x": 2.0, "pip": 10.0, "patch": "masks/C2/t0005_L900.npz"}, [7])
@@ -337,7 +337,7 @@ def test_cell_scoped_undo_skips_other_cells_and_reverts_the_batch(
     """Undo with ``concerns_cell`` reverts the cell's latest edit (and its whole
     batch), never another cell's; with nothing left it refuses, no fallback.
     """
-    from cellview.tracks.edit import concerns_cell
+    from omero_screen_track.edit import concerns_cell
 
     base = _merged_neighbour()
     base.tracks.update({(t, 3): 3 for t in range(10)})
@@ -403,7 +403,7 @@ def test_cell_scoped_undo_skips_other_cells_and_reverts_the_batch(
 
 def test_concerns_cell_matches_anchors_that_resolve_to_the_cell() -> None:
     """Anchors equal to the cell's or resolving to its track concern it."""
-    from cellview.tracks.edit import concerns_cell
+    from omero_screen_track.edit import concerns_cell
 
     cur = _curated({1: (range(10), 1), 2: (range(10), 2)})
     concerns = concerns_cell(cur, (0, 1))
@@ -436,7 +436,7 @@ def test_split_part_cut_again_leaves_extras_and_undo_restores_it(
     the extra, which leaves ``extras`` (not ``removed``); anchors naming it still
     resolve; undoing the second split brings the first split's parts back.
     """
-    from cellview.tracks.edit import concerns_cell
+    from omero_screen_track.edit import concerns_cell
 
     base = _merged_neighbour()
     log = EditLog(tmp_path / "edits.jsonl")

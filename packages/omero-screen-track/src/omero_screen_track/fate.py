@@ -708,7 +708,7 @@ def follow_cells(
     """Follow every cell present at ``start`` until its first outcome or ``stop``.
 
     Args:
-        tracks: Repaired tracks for one well (:func:`~cellview.tracks.repair.apply_repair`)
+        tracks: Repaired tracks for one well (:func:`~omero_screen_track.repair.apply_repair`)
             with ``pip``, ``geminin`` and ``dna`` columns, background-subtracted.
         start: First frame of the window.
         stop: Last frame of the window.
@@ -719,7 +719,7 @@ def follow_cells(
             final ones.
         shape: Image height and width in pixels, for the ``edge`` flag.
         confirmed: Curated track id to the frames at which a reviewer fixed
-            its identity (:func:`~cellview.tracks.edit.confirmed_frames`).
+            its identity (:func:`~omero_screen_track.edit.confirmed_frames`).
             A switch there is the reviewer's, so it neither cuts the track
             nor is flagged or proposed.
 
@@ -948,7 +948,7 @@ def apply_annotations(cells: pd.DataFrame, curated: Any) -> pd.DataFrame:
 
     Args:
         cells: Output of :func:`follow_cells`.
-        curated: :class:`cellview.tracks.edit.Curated` the tracks came from.
+        curated: :class:`omero_screen_track.edit.Curated` the tracks came from.
     """
     kinds = {
         "mitosis": "divided",
