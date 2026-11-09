@@ -565,7 +565,7 @@ def annotate_phases(
 
     Args:
         cells: One row per cell (``cell`` column), e.g. from
-            :func:`~cellview.tracks.fate.follow_cells`.
+            :func:`~omero_screen_track.fate.follow_cells`.
         states: One row per cell and frame with ``cell``, ``timepoint``,
             ``pip``, ``geminin`` (background-subtracted).
         params: Settings; defaults to :class:`PhaseParams`.

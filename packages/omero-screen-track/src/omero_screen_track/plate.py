@@ -19,8 +19,8 @@ import duckdb
 import pandas as pd
 from omero_utils.channels import PipFucci, resolve_pip_fucci
 
-from cellview.tracks.edit import Curated, EditLog, base_lineage, replay
-from cellview.tracks.repair import RepairParams, repair_lineage
+from omero_screen_track.edit import Curated, EditLog, base_lineage, replay
+from omero_screen_track.repair import RepairParams, repair_lineage
 
 
 class NotPipFucciError(ValueError):
@@ -90,7 +90,7 @@ def plate_fucci(conn: duckdb.DuckDBPyConnection, plate_id: int) -> PipFucci:
 def pip_fucci_input(
     det: pd.DataFrame, plate_id: int, well: str
 ) -> pd.DataFrame:
-    """A well from :func:`cellview.tracks.cells.load_well`, ready for the repair.
+    """A well from :func:`omero_screen_track.cells.load_well`, ready for the repair.
 
     The geminin reporter becomes the repair's ``marker`` column.
 
@@ -294,12 +294,12 @@ def curated_well(
     Raises:
         NotPipFucciError: If the plate is not PIP-FUCCI.
     """
-    from cellview.tracks.cells import load_well
-    from cellview.tracks.debris import drop_debris
+    from omero_screen_track.cells import load_well
+    from omero_screen_track.debris import drop_debris
 
     det, _ = drop_debris(load_well(conn, plate_id, well))
     result = repair_lineage(pip_fucci_input(det, plate_id, well), params)
-    from cellview.tracks.cells import apply_extras
+    from omero_screen_track.cells import apply_extras
 
     base = base_lineage(det, result)
     curated = replay(base, log if log is not None else [], well)

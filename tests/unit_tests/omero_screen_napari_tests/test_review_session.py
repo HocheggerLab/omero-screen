@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from cellview.tracks.edit import Curated
+from omero_screen_track.edit import Curated
 from omero_screen_napari.review.session import ReviewSession, _span
 from omero_screen_napari.review_queue import (
     QueueError,
@@ -260,7 +260,7 @@ def test_second_queue_keeps_its_own_verdicts(tmp_path: Path) -> None:
 
 def test_undo_reverts_only_this_cells_edits(session, monkeypatch) -> None:
     """Shift-Z walks back through the cell's own edits, never a neighbour's."""
-    from cellview.tracks.edit import EditError, EditLog
+    from omero_screen_track.edit import EditError, EditLog
 
     monkeypatch.setattr(session.source, "base", lambda well: _curated())
     session.edit("C2-t0-L5", "note", {"text": "mine"})

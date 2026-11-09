@@ -23,6 +23,7 @@ members = [
     "omero-screen",
     "omero-screen-napari",
     "omero-screen-plots",
+    "omero-screen-track",
     "omero-utils",
 ]
 overrides = [{ name = "numcodecs", specifier = ">=0.15" }]
@@ -593,6 +594,7 @@ source = { editable = "packages/cellview" }
 dependencies = [
     { name = "duckdb" },
     { name = "omero-screen" },
+    { name = "omero-screen-track" },
     { name = "omero-utils" },
     { name = "pandas" },
     { name = "rich" },
@@ -614,6 +616,7 @@ requires-dist = [
     { name = "jupyterlab", marker = "extra == 'explore'", specifier = ">=4.0" },
     { name = "nbformat", marker = "extra == 'explore'", specifier = ">=5.9" },
     { name = "omero-screen", editable = "." },
+    { name = "omero-screen-track", editable = "packages/omero-screen-track" },
     { name = "omero-utils", editable = "packages/omero-utils" },
     { name = "pandas" },
     { name = "pytest", marker = "extra == 'test'" },
@@ -3913,6 +3916,7 @@ dependencies = [
     { name = "omero-cli-transfer" },
     { name = "omero-py" },
     { name = "omero-screen-plots" },
+    { name = "omero-screen-track" },
     { name = "omero-utils" },
     { name = "opencv-python" },
     { name = "openpyxl" },
@@ -3972,6 +3976,7 @@ requires-dist = [
     { name = "omero-py", specifier = ">=5.19.5" },
     { name = "omero-screen-napari", extras = ["qt"], marker = "extra == 'gui'", editable = "packages/omero-screen-napari" },
     { name = "omero-screen-plots", editable = "packages/omero-screen-plots" },
+    { name = "omero-screen-track", editable = "packages/omero-screen-track" },
     { name = "omero-utils", editable = "packages/omero-utils" },
     { name = "opencv-python", specifier = ">=4.11.0.86" },
     { name = "openpyxl", specifier = ">=3.1.5" },
@@ -4018,6 +4023,7 @@ dependencies = [
     { name = "napari-arboretum" },
     { name = "napari-ome-zarr" },
     { name = "ome-zarr" },
+    { name = "omero-screen-track" },
     { name = "rich" },
     { name = "zarr" },
 ]
@@ -4037,6 +4043,7 @@ requires-dist = [
     { name = "napari-arboretum", specifier = ">=0.2" },
     { name = "napari-ome-zarr", specifier = ">=0.10" },
     { name = "ome-zarr", specifier = ">=0.12,<0.14" },
+    { name = "omero-screen-track", editable = "packages/omero-screen-track" },
     { name = "pyqtgraph", marker = "extra == 'qt'", specifier = ">=0.14.0" },
     { name = "rich", specifier = ">=13.9.4" },
     { name = "zarr", specifier = ">=3.1,<4" },
@@ -4075,6 +4082,26 @@ requires-dist = [
 dev = [
     { name = "jupytext", specifier = ">=1.17.2" },
     { name = "nbstripout", specifier = ">=0.8.1" },
+]
+
+[[package]]
+name = "omero-screen-track"
+version = "0.9.1"
+source = { editable = "packages/omero-screen-track" }
+dependencies = [
+    { name = "duckdb" },
+    { name = "numpy", version = "2.3.5", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform != 'darwin'" },
+    { name = "omero-utils" },
+    { name = "pandas" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "duckdb" },
+    { name = "numpy" },
+    { name = "omero-utils", editable = "packages/omero-utils" },
+    { name = "pandas" },
 ]
 
 [[package]]

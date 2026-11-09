@@ -2,8 +2,8 @@
 
 import numpy as np
 import pandas as pd
-from cellview.tracks.cells import add_phases, cell_frames
-from cellview.tracks.edit import Curated
+from omero_screen_track.cells import add_phases, cell_frames
+from omero_screen_track.edit import Curated
 
 
 def _det(rows):

@@ -1,7 +1,7 @@
 """Per-cell fate walker on synthetic PIP-FUCCI tracks."""
 
 import pandas as pd
-from cellview.tracks.fate import FateParams, follow_cells
+from omero_screen_track.fate import FateParams, follow_cells
 
 G1 = {"pip": 1000.0, "geminin": 100.0}
 S = {"pip": 50.0, "geminin": 400.0}

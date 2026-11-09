@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pandas as pd
 import pytest
-from cellview.tracks.edit import Curated
+from omero_screen_track.edit import Curated
 from omero_screen_napari.review import track_view_model as tvm
 
 WELL = "C2"

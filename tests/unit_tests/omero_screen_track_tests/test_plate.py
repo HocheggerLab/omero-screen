@@ -2,7 +2,7 @@
 
 import duckdb
 import pytest
-from cellview.tracks.plate import NotPipFucciError, repair_plate
+from omero_screen_track.plate import NotPipFucciError, repair_plate
 
 
 @pytest.fixture
@@ -72,8 +72,8 @@ def test_pip_column_of_another_plate_does_not_count(conn) -> None:
 
 def test_curate_plate_replays_log_and_writes(conn, tmp_path) -> None:
     """Replay = repair from raw columns + edits; --write stores curated ids."""
-    from cellview.tracks.edit import EditLog
-    from cellview.tracks.plate import curate_plate, well_bases
+    from omero_screen_track.edit import EditLog
+    from omero_screen_track.plate import curate_plate, well_bases
 
     conn.execute("insert into measurements values (99,1,25,400,100,300,1050,50,800,9,9,0,0)")
     base = well_bases(conn, 5054)["C2"][1]

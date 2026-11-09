@@ -1,7 +1,7 @@
 """Per-frame records of one tracked cell, for following it through time.
 
 A cell is named by an anchor ``(frame, raw label)`` and followed along its
-curated track (see :mod:`cellview.tracks.edit`). :func:`cell_frames` returns
+curated track (see :mod:`omero_screen_track.edit`). :func:`cell_frames` returns
 one row per frame from the track's first to its last frame. Frames where the
 cell has no mask are kept as *gap* rows with an interpolated position, so a
 viewer can still centre on where the cell should be.
@@ -18,7 +18,7 @@ import duckdb
 import numpy as np
 import pandas as pd
 
-from cellview.tracks.edit import Anchor, Curated
+from omero_screen_track.edit import Anchor, Curated
 
 
 def nuclear_channels(conn: duckdb.DuckDBPyConnection) -> list[str]:
@@ -116,7 +116,7 @@ def cell_frames(
         NaN measurements and an interpolated position.
 
     Raises:
-        cellview.tracks.edit.EditError: If the anchor does not exist.
+        omero_screen_track.edit.EditError: If the anchor does not exist.
     """
     tid = curated.resolve(anchor)
     keys = curated.detections(tid)
@@ -203,10 +203,10 @@ def add_phases(
 ) -> pd.DataFrame:
     """Add a PIP-FUCCI ``phase`` column (G1/S/G2; empty on gaps) to a cell path.
 
-    Thresholds come from the whole well (:func:`cellview.tracks.fate.well_thresholds`),
+    Thresholds come from the whole well (:func:`omero_screen_track.fate.well_thresholds`),
     so the call is the same as the fate walker's.
     """
-    from cellview.tracks.fate import FateParams, Thresholds, call_phases
+    from omero_screen_track.fate import FateParams, Thresholds, call_phases
 
     if pip not in det or geminin not in det or path.empty:
         return path.assign(phase="")
@@ -232,7 +232,7 @@ def curated_tracks(
 ) -> pd.DataFrame:
     """All detections collapsed onto curated tracks, one row per track and frame.
 
-    The same shape as :func:`cellview.tracks.repair.apply_repair` output, so
+    The same shape as :func:`omero_screen_track.repair.apply_repair` output, so
     the fate walker runs on curated data unchanged. Channel columns are
     area-weighted; ``dna`` (default: the first channel whose name contains
     ``dna``, ``dapi`` or ``hoechst``) is also exposed as ``dna``.

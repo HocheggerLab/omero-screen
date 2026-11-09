@@ -23,7 +23,7 @@ base lineage, the review directory's ``edits.jsonl`` replayed on it, and the
 verdicts of every ``*decisions.json`` beside the queue
 (:func:`lineage_from_session` gathers them from a
 :class:`~omero_screen_napari.review.session.ReviewSession`). Outcomes from the
-fate walker and phases from the HMM (:mod:`cellview.tracks.phases`) are slow
+fate walker and phases from the HMM (:mod:`omero_screen_track.phases`) are slow
 (about a second and ten seconds per well), so they are computed separately
 (:func:`slow_annotations`) and passed back to :func:`build_lineage_table`;
 until then phases are the walker's per-frame G1/S/G2 calls.
@@ -42,7 +42,7 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    from cellview.tracks.edit import Curated, Edit
+    from omero_screen_track.edit import Curated, Edit
 
     from omero_screen_napari.review.cells import CellSource
     from omero_screen_napari.review.session import ReviewSession
@@ -289,7 +289,7 @@ class SlowAnnotations:
     """Fate-walker outcomes and HMM phases, computed off the UI thread.
 
     Attributes:
-        fates: :func:`~cellview.tracks.fate.follow_cells` cells with
+        fates: :func:`~omero_screen_track.fate.follow_cells` cells with
             curated annotations applied (``segments``, ``outcome``,
             ``outcome_frame``, ``excluded``, ``review_flags``).
         phases: ``track, frame, phase`` from the HMM.
@@ -384,7 +384,7 @@ def walker_phases(
 ) -> pd.Series:
     """The fate walker's per-frame G1/S/G2 call, vectorised over tracks.
 
-    Same rule as :func:`cellview.tracks.fate.call_phases`: a centred rolling
+    Same rule as :func:`omero_screen_track.fate.call_phases`: a centred rolling
     median over measured frames, S where PIP is below ``pip_low`` × the
     well's PIP-high level, else G2 where geminin is above ``gem_high`` × the
     well's geminin-low level, else G1.
@@ -496,7 +496,7 @@ def build_lineage_table(
     Returns:
         The :class:`LineageTable`.
     """
-    from cellview.tracks.edit import confirmed_frames
+    from omero_screen_track.edit import confirmed_frames
 
     records = records or {}
     queue = queue or {}
@@ -1135,7 +1135,7 @@ class WellInputs:
     """What :func:`build_lineage_table` reads for one well, as a snapshot.
 
     The objects are never modified after they are read (an edit makes the
-    session replay into a new :class:`~cellview.tracks.edit.Curated`), so a
+    session replay into a new :class:`~omero_screen_track.edit.Curated`), so a
     worker may compute :func:`slow_annotations` from them.
 
     Attributes:
@@ -1188,7 +1188,7 @@ def read_inputs(
         well: The well.
         window: Analysis window if the queue does not name one.
     """
-    from cellview.tracks.edit import EditLog
+    from omero_screen_track.edit import EditLog
 
     det, curated = source.well(well)
     spec = _spec(queue_path)
@@ -1307,12 +1307,12 @@ def plate_reference(
     Cached in :func:`cache_dir`, keyed by the database file's size and time.
 
     Returns:
-        A :class:`cellview.tracks.phases.WellReference`.
+        A :class:`omero_screen_track.phases.WellReference`.
     """
     import duckdb
-    from cellview.tracks.cells import load_well
-    from cellview.tracks.debris import drop_debris
-    from cellview.tracks.phases import (
+    from omero_screen_track.cells import load_well
+    from omero_screen_track.debris import drop_debris
+    from omero_screen_track.phases import (
         PhaseParams,
         WellReference,
         fit_reference,
@@ -1388,13 +1388,13 @@ def slow_annotations(
 
     Args:
         inputs: The well's snapshot (:func:`read_inputs`).
-        walker: Run :func:`~cellview.tracks.fate.follow_cells` over the
+        walker: Run :func:`~omero_screen_track.fate.follow_cells` over the
             window.
-        hmm: Call phases with :func:`~cellview.tracks.phases.annotate_phases`.
+        hmm: Call phases with :func:`~omero_screen_track.phases.annotate_phases`.
         min_frames: Shortest track (frames with a mask in the window) given
             HMM phases.
     """
-    from cellview.tracks.cells import curated_tracks
+    from omero_screen_track.cells import curated_tracks
 
     out = SlowAnnotations()
     det, curated = inputs.det, inputs.curated
@@ -1405,8 +1405,8 @@ def slow_annotations(
         return out
     have_reporters = {"pip", "geminin"} <= set(tracks.columns)
     if walker and have_reporters:
-        from cellview.tracks.edit import confirmed_frames
-        from cellview.tracks.fate import apply_annotations, follow_cells
+        from omero_screen_track.edit import confirmed_frames
+        from omero_screen_track.fate import apply_annotations, follow_cells
 
         try:
             if "dna" not in tracks:
@@ -1427,7 +1427,7 @@ def slow_annotations(
         except Exception as err:
             out.errors.append(f"fate walker: {err}")
     if hmm and have_reporters:
-        from cellview.tracks.phases import (
+        from omero_screen_track.phases import (
             PhaseParams,
             annotate_phases,
             fit_reference,

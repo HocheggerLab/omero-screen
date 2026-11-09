@@ -27,6 +27,7 @@ dependencies = [
     "seaborn>=0.13.2",
     "duckdb>=1.2.2",
     "cellview",
+    "omero-screen-track",
     "jupyter>=1.1.1",
     "opencv-python>=4.11.0.86",
     "ipykernel>=6.29.5",
@@ -74,6 +75,7 @@ members = [
     "packages/omero-screen-plots",
     "packages/cellview",
     "packages/cellclass",
+    "packages/omero-screen-track",
 ]
 
 [tool.uv]
@@ -93,6 +95,7 @@ omero-utils = { workspace = true }
 omero-screen-napari = { workspace = true }
 omero-screen-plots = { workspace = true }
 cellview = { workspace = true }
+omero-screen-track = { workspace = true }
 zeroc-ice = { index = "hocheggerlab-ice" }
 
 # Pre-built zeroc-ice 3.6.5 wheels (cp312-cp314; linux x86_64/aarch64, macOS
@@ -275,6 +278,9 @@ version_files = [
     "packages/cellclass/pyproject.toml:version",
     "packages/cellclass/src/cellclass/__init__.py:__version__",
     "packages/cellclass/README.md:version-[0-9]+\\.[0-9]+\\.[0-9]+",
+    "packages/omero-screen-track/pyproject.toml:version",
+    "packages/omero-screen-track/src/omero_screen_track/__init__.py:__version__",
+    "packages/omero-screen-track/README.md:version-[0-9]+\\.[0-9]+\\.[0-9]+",
     "README.md:version-[0-9]+\\.[0-9]+\\.[0-9]+",
 ]
 version_provider = "commitizen"

@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
-from cellview.tracks.edit import Curated, Edit
+from omero_screen_track.edit import Curated, Edit
 from omero_screen_napari.review import track_view_model as m
 
 
@@ -180,7 +180,7 @@ def test_events(table) -> None:
 
 def test_walker_phases_match_fate_walker() -> None:
     """The vectorised call is the fate walker's call_phases, track by track."""
-    from cellview.tracks.fate import FateParams, Thresholds, call_phases
+    from omero_screen_track.fate import FateParams, Thresholds, call_phases
 
     det, _ = _toy()
     nodes = det[det["label"].isin([9, 900])].rename(
@@ -467,7 +467,7 @@ def test_unfollowed_tracks_need_two_long_daughters(monkeypatch) -> None:
 
 def test_pooled_reference_is_used(table) -> None:
     """A reference passed in is used as is, and reported as pooled."""
-    from cellview.tracks.phases import WellReference
+    from omero_screen_track.phases import WellReference
 
     det, curated = _toy()
     ref = WellReference(bleed=0.0, pip_high=10.0, gem_high=20.0)

@@ -4,9 +4,9 @@ import json
 
 import pandas as pd
 import pytest
-from cellview.tracks import review_queue as rq
-from cellview.tracks.edit import Curated, EditLog
-from cellview.tracks.fate import apply_annotations
+from omero_screen_track import review_queue as rq
+from omero_screen_track.edit import Curated, EditLog
+from omero_screen_track.fate import apply_annotations
 
 
 def _det(n_cells: int = 6, frames: int = 30) -> pd.DataFrame:
@@ -195,7 +195,7 @@ def test_edit_log_on_another_correction_is_refused(tmp_path) -> None:
 
 def test_imported_lineage_is_the_identity() -> None:
     """The review starts from the lineage CellView holds, parents included."""
-    from cellview.tracks.edit import imported_lineage
+    from omero_screen_track.edit import imported_lineage
 
     det = _det(n_cells=2)
     det.loc[det["label"].eq(2), "parent_track_id_raw"] = 1

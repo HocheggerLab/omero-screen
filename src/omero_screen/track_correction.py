@@ -3,7 +3,7 @@
 Trackastra links detections; it cannot fix them. A nucleus that Cellpose
 splits in two becomes a false division, a dying cell floating over a neighbour
 becomes a swap, and debris becomes a stationary track. The FUCCI-gated repair
-(:mod:`cellview.tracks.repair`) fixes most of this from the lineage and the
+(:mod:`omero_screen_track.repair`) fixes most of this from the lineage and the
 geminin marker alone. This module turns that repair into a segmentation and
 tracking correction and tracks the corrected nuclei a second time:
 
@@ -38,9 +38,13 @@ from typing import TYPE_CHECKING, Any, Protocol
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-from cellview.tracks.debris import drop_debris
-from cellview.tracks.repair import RepairParams, RepairResult, repair_lineage
 from loguru import logger
+from omero_screen_track.debris import drop_debris
+from omero_screen_track.repair import (
+    RepairParams,
+    RepairResult,
+    repair_lineage,
+)
 
 from omero_screen.tracking import VALID_TRACKING_MODES, _configure_window
 

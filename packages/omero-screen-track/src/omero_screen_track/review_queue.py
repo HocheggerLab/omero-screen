@@ -28,16 +28,16 @@ import duckdb
 import numpy as np
 import pandas as pd
 
-from cellview.tracks.cells import apply_extras, curated_tracks, load_well
-from cellview.tracks.corrections import correction_hash, load_stored
-from cellview.tracks.debris import drop_debris
-from cellview.tracks.edit import (
+from omero_screen_track.cells import apply_extras, curated_tracks, load_well
+from omero_screen_track.corrections import correction_hash, load_stored
+from omero_screen_track.debris import drop_debris
+from omero_screen_track.edit import (
     EditLog,
     confirmed_frames,
     imported_lineage,
     replay,
 )
-from cellview.tracks.fate import FateParams, apply_annotations, follow_cells
+from omero_screen_track.fate import FateParams, apply_annotations, follow_cells
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
