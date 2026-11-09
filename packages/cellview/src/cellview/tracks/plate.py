@@ -6,7 +6,7 @@ re-run at any time with the same result, and never loses the tracker's output.
 It needs a mitotic marker whose nuclear signal collapses at anaphase: the
 geminin reporter of PIP-FUCCI. Only PIP-FUCCI plates are repaired — a
 timelapse with channels named exactly ``pip`` and ``geminin``
-(:func:`omero_screen.metadata_parser.resolve_pip_fucci`); every other plate
+(:func:`omero_utils.channels.resolve_pip_fucci`); every other plate
 is refused rather than repaired on geometry alone.
 """
 
@@ -17,10 +17,10 @@ from pathlib import Path
 
 import duckdb
 import pandas as pd
+from omero_utils.channels import PipFucci, resolve_pip_fucci
 
 from cellview.tracks.edit import Curated, EditLog, base_lineage, replay
 from cellview.tracks.repair import RepairParams, repair_lineage
-from omero_screen.metadata_parser import PipFucci, resolve_pip_fucci
 
 
 class NotPipFucciError(ValueError):
