@@ -1,9 +1,8 @@
 """PIP-FUCCI is recognised by the exact channel names ``pip`` and ``geminin`` only."""
 
 import pytest
+from omero_utils.channels import PipFucci, resolve_pip_fucci
 from omero_utils.message import ChannelAnnotationError
-
-from omero_screen.metadata_parser import PipFucci, resolve_pip_fucci
 
 
 def test_5054_channels() -> None:
@@ -43,3 +42,20 @@ def test_two_channels_for_one_reporter_raise() -> None:
     """Two channels resolving to one reporter are an annotation error."""
     with pytest.raises(ChannelAnnotationError):
         resolve_pip_fucci(["pip", "PIP_nucleus", "geminin"], 10)
+
+
+def test_metadata_parser_reexports_the_same_objects() -> None:
+    """The pipeline's old import path still works and is the same code (#75)."""
+    import omero_utils.channels as channels
+
+    from omero_screen import metadata_parser
+
+    for name in (
+        "PipFucci",
+        "resolve_pip_fucci",
+        "strip_role_suffix",
+        "ROLE_SUFFIXES",
+        "PIP_FUCCI_PIP",
+        "PIP_FUCCI_GEMININ",
+    ):
+        assert getattr(metadata_parser, name) is getattr(channels, name)
