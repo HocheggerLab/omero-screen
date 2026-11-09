@@ -127,3 +127,19 @@ def test_proxied_viewer_raises_no_private_access_warning() -> None:
         viewer.dims.set_current_step(0, 2)
     assert hold is not None
     assert hold.layer is tracks.__wrapped__
+
+
+def test_opted_out_layer_is_not_waited_for() -> None:
+    """A loading overlay marked NOT_A_SOURCE does not hold the tracks (#76)."""
+    from omero_screen_napari.layer_sync import NOT_A_SOURCE
+
+    viewer, image, tracks, hold = make_hold()
+    outline = FakeLayer("outline", asynchronous=True, loaded=False)
+    outline.metadata = {NOT_A_SOURCE: True}  # type: ignore[attr-defined]
+    viewer.layers.append(outline)
+    viewer.dims.point = (3.0, 0.0, 0.0)
+    hold._slice_dims(viewer.dims)
+    assert tracks.sliced == [(3.0, 0.0, 0.0)]
+    outline.shown = (9.0, 0.0, 0.0)
+    hold.on_drawn(outline)
+    assert tracks.sliced == [(3.0, 0.0, 0.0)]

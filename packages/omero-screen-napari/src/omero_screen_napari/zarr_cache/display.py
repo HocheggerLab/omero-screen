@@ -22,7 +22,10 @@ import numpy as np
 from loguru import logger
 from omero_screen.config import getenv_as_int
 
-from omero_screen_napari.zarr_cache.palette import channel_colormaps
+from omero_screen_napari.zarr_cache.palette import (
+    channel_colormaps,
+    is_brightfield,
+)
 from omero_screen_napari.zarr_cache.reader import (
     cached_wells,
     plate_info,
@@ -286,6 +289,25 @@ def _pad_to_common_yx(per_well: list[Any]) -> list[Any]:
     return out
 
 
+#: Y/X size of the dask chunks the viewer reads (pixels). The cache stores
+#: 256-px zarr chunks; one dask task per zarr chunk made dask's scheduling the
+#: main cost of drawing a frame (53 ms for an 800 × 1100 view against 5 ms for
+#: the zarr read itself, #76). Tasks of 1024 px read the same view in 14 ms;
+#: zarr still decodes only the chunks each task covers.
+DISPLAY_CHUNK = 1024
+
+
+def _from_zarr(arr: Any) -> Any:
+    """``arr`` as a dask array with one task per frame tile of :data:`DISPLAY_CHUNK`."""
+    native = tuple(getattr(arr, "chunks", None) or arr.shape)
+    *lead, ny, nx = arr.shape
+    yx = tuple(
+        min(max(DISPLAY_CHUNK, int(c)), int(n))
+        for c, n in zip(native[-2:], (ny, nx), strict=True)
+    )
+    return da.from_zarr(arr, chunks=(1,) * len(lead) + yx)  # type: ignore[no-untyped-call]
+
+
 def _stack_pyramid_per_channel(
     wells_data: list[dict[str, Any]],
     channel_index: int,
@@ -304,8 +326,7 @@ def _stack_pyramid_per_channel(
     pyramid: list[Any] = []
     for lvl in range(n_levels):
         per_well = [
-            da.from_zarr(wd["image"][lvl])[:, channel_index]  # type: ignore[no-untyped-call]
-            for wd in wells_data
+            _from_zarr(wd["image"][lvl])[:, channel_index] for wd in wells_data
         ]
         if multi:
             per_well = _pad_to_common_yx(per_well)
@@ -328,7 +349,7 @@ def _stack_pyramid_labels(
     n_levels = _common_level_count([wd[key] for wd in wells_data])
     pyramid: list[Any] = []
     for lvl in range(n_levels):
-        per_well = [da.from_zarr(wd[key][lvl]) for wd in wells_data]  # type: ignore[no-untyped-call]
+        per_well = [_from_zarr(wd[key][lvl]) for wd in wells_data]
         if multi:
             # Label 0 is background, so a zero pad reads as "no object".
             per_well = _pad_to_common_yx(per_well)
@@ -415,8 +436,14 @@ def _add_image_layers(
         for c in range(n_channels)
     ]
     colormaps = channel_colormaps(layer_names)
-    # Estimate contrast from the first well's first timepoint per channel.
-    for c in range(n_channels):
+    brightfield = [is_brightfield(name) for name in layer_names]
+    fluorescent = not all(brightfield)
+    # Brightfield goes underneath, opaque and hidden at first: a bright grey
+    # field blended additively over the stains washes every colour out.
+    order = [c for c in range(n_channels) if brightfield[c]] + [
+        c for c in range(n_channels) if not brightfield[c]
+    ]
+    for c in order:
         ch_name = channel_names[c] if c < len(channel_names) else f"ch{c}"
         position, round_index, redundant = channel_meta[c]
         pyramid = _stack_pyramid_per_channel(wells_data, c, multi)
@@ -431,8 +458,12 @@ def _add_image_layers(
         # Sample the smallest pyramid level for the contrast estimate: levels
         # are built with nearest-neighbour downsampling, so the percentiles
         # match the full-resolution ones while reading far fewer chunks.
-        sample = np.asarray(wells_data[0]["image"][-1][0, c])
-        limits = _channel_contrast(sample)
+        sample = _contrast_sample(wells_data[0]["image"][-1], c)
+        limits = (
+            _channel_contrast(sample, low=BF_LOW_PCT)
+            if brightfield[c]
+            else _channel_contrast(sample)
+        )
         # contrast_limits must be passed here, not only set afterwards. For a
         # multiscale layer created without them, napari marks the layer to
         # recompute contrast from the first slice it renders and overwrites
@@ -443,9 +474,12 @@ def _add_image_layers(
             name=ch_name,
             scale=scale,
             colormap=colormaps[c],
-            blending="additive",
+            blending="translucent_no_depth"
+            if brightfield[c] and fluorescent
+            else "additive",
             contrast_limits=limits,
-            visible=_channel_starts_visible(rounds, round_index, redundant),
+            visible=_channel_starts_visible(rounds, round_index, redundant)
+            and not (brightfield[c] and fluorescent),
         )
         # Passing contrast_limits also makes napari use them as the slider
         # range, clamping it to a window the user cannot widen. Widen it to
@@ -630,23 +664,55 @@ def _intensities_from_canvas(
         return None
 
 
-def _channel_contrast(level0_yx: np.ndarray[Any, Any]) -> tuple[int, int]:
-    """0.1/99.9-percentile contrast for a sample slice.
+#: Contrast percentiles. The lower one sits just above the background floor so
+#: an unstained field is black, not a dim wash of the channel colour; the upper
+#: one is taken over several timepoints so a reporter that accumulates later
+#: (geminin in S/G2) is not clipped (#76). Brightfield keeps its full range.
+LOW_PCT = 5.0
+HIGH_PCT = 99.95
+BF_LOW_PCT = 0.5
+#: Timepoints sampled for the contrast estimate.
+CONTRAST_TIMEPOINTS = 5
+
+
+def _contrast_sample(level: Any, channel: int) -> np.ndarray[Any, Any]:
+    """Pixels of ``channel`` from a few evenly spaced timepoints of ``level``.
+
+    ``level`` is ``(T, C, Y, X)``; pass the smallest pyramid level, which is
+    nearest-neighbour downsampled and so has the full-resolution percentiles.
+    """
+    n_t = int(level.shape[0])
+    ts = np.unique(np.linspace(0, n_t - 1, min(CONTRAST_TIMEPOINTS, n_t)))
+    return np.concatenate(
+        [np.asarray(level[int(t), channel]).ravel() for t in ts]
+    )
+
+
+def _channel_contrast(
+    level0_yx: np.ndarray[Any, Any],
+    low: float = LOW_PCT,
+    high: float = HIGH_PCT,
+) -> tuple[int, int]:
+    """Percentile contrast for a sample of a channel.
 
     Percentiles rather than min/max so a few hot pixels or a dead corner do not
-    flatten the whole channel. Returned as the layer's initial
-    ``contrast_limits``; the slider's *range* is set separately to the full
-    uint16 span so the user can always widen beyond this.
+    flatten the whole channel. Zero pixels are left out: they are the padding
+    around a stitched canvas, not signal, and counting them put the lower limit
+    at 0, which showed the background as a wash of the channel's colour (#76).
+    Returned as the layer's initial ``contrast_limits``; the slider's *range* is
+    set separately to the full uint16 span so the user can always widen beyond
+    this.
     """
-    if level0_yx.size > 1_000_000:
-        flat = level0_yx.ravel()
+    flat = level0_yx.ravel()
+    flat = flat[flat > 0]
+    if flat.size > 1_000_000:
         idx = np.random.default_rng(0).choice(
             flat.size, 1_000_000, replace=False
         )
         flat = flat[idx]
-    else:
-        flat = level0_yx.ravel()
-    lo, hi = np.percentile(flat, [0.1, 99.9])
+    if flat.size == 0:
+        return 0, _UINT16_MAX
+    lo, hi = np.percentile(flat, [low, high])
     if hi <= lo:
         # A flat or near-empty channel. napari rejects an empty range, and a
         # blank channel is better shown against the full span than against a

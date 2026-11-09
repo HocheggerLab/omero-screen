@@ -350,9 +350,13 @@ def corrected_pyramid(
             out[i][inside] = lut[t0 + i][frame[inside]]
         return out
 
+    # Display-sized tasks: one per 256-px zarr chunk made relabelling a
+    # frame ~3x slower than reading it (#76).
+    from omero_screen_napari.zarr_cache.display import _from_zarr
+
     pyramid: list[Any] = []
     for lv in levels:
-        arr: Any = lv if isinstance(lv, da.Array) else da.from_zarr(lv)  # type: ignore[no-untyped-call]
+        arr: Any = lv if isinstance(lv, da.Array) else _from_zarr(lv)
         pyramid.append(arr.map_blocks(relabel, dtype=np.uint32))
     return pyramid
 

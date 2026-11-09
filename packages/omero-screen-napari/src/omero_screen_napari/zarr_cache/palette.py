@@ -33,9 +33,16 @@ CELL_ALIASES = frozenset({"tub", "gapdh"})
 #: Trailing cyclic-IF round qualifier, e.g. the ``_r2`` of ``"DAPI_R2"``.
 ROUND_SUFFIX_RE = re.compile(r"_r\d+$")
 
+#: Channel-name tokens marking a transmitted-light channel (``"bf_cell"``,
+#: ``"Brightfield"``, ``"phase"``). Shown grey, not as a fluorescence colour.
+BRIGHTFIELD_TOKENS = frozenset(
+    {"bf", "brightfield", "phase", "dic", "tl", "transmitted"}
+)
+
 NUCLEUS_HEX = "0000FF"
 CELL_HEX = "00FF00"
 EDU_HEX = "808080"
+BRIGHTFIELD_HEX = "FFFFFF"
 
 #: Curated colour sequence, in assignment order. This is
 #: ``_welldata_widget._generate_color_map``'s ``remaining_colors`` list read in
@@ -68,6 +75,14 @@ _RESERVED_HUES = ((2 / 3, 0.06), (1 / 3, 0.06))
 def base_name(channel_name: str) -> str:
     """Strip a cyclic-IF round qualifier: ``"DAPI_R2"`` -> ``"dapi"``."""
     return ROUND_SUFFIX_RE.sub("", channel_name.lower())
+
+
+def is_brightfield(channel_name: str) -> bool:
+    """Whether a channel is transmitted light (brightfield, phase, DIC)."""
+    tokens = {
+        tok for tok in re.split(r"[_\-\s]", base_name(channel_name)) if tok
+    }
+    return bool(tokens & BRIGHTFIELD_TOKENS)
 
 
 def _hue_is_reserved(hue: float) -> bool:
@@ -110,6 +125,10 @@ def _role_hex(channel_name: str, used_roles: set[str]) -> str | None:
     """Conventional colour for a channel's role, if it is the first of that role."""
     base = base_name(channel_name)
     tokens = {tok for tok in re.split(r"[_-]", base) if tok}
+    # Checked first: "bf_cell" names the cell-segmentation channel, but it is
+    # transmitted light and reads as a grey image, not a green stain.
+    if is_brightfield(channel_name):
+        return BRIGHTFIELD_HEX
     if "nucleus" not in used_roles and (
         base in NUCLEUS_ALIASES or base.endswith("_nucleus")
     ):
@@ -129,8 +148,9 @@ def _role_hex(channel_name: str, used_roles: set[str]) -> str | None:
 def channel_hex_colors(channel_names: list[str]) -> list[str]:
     """One ``"RRGGBB"`` colour per channel, all distinct.
 
-    The first nuclear-role channel is blue, the first cytoplasmic-role channel
-    green and the first EdU channel grey; the rest take :data:`CURATED_HEX` in
+    Brightfield channels are grey (white ramp), the first nuclear-role channel
+    is blue, the first cytoplasmic-role channel green and the first EdU channel
+    grey; the rest take :data:`CURATED_HEX` in
     order, then generated hues. A later repeat of a role is treated as an
     ordinary channel so it stays distinguishable from the first.
 
@@ -174,7 +194,9 @@ def channel_colormaps(channel_names: list[str]) -> list[Any]:
     if len(channel_names) == 1:
         return ["gray"]
     return [
-        Colormap(["black", f"#{hex_color}"], name=name)
+        "gray"
+        if is_brightfield(name)
+        else Colormap(["black", f"#{hex_color}"], name=name)
         for hex_color, name in zip(
             channel_hex_colors(channel_names), channel_names, strict=True
         )

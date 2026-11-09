@@ -20,6 +20,17 @@ from typing import Any
 
 from loguru import logger
 
+#: Set ``layer.metadata[NOT_A_SOURCE] = True`` on an async layer that held
+#: layers should not wait for: an overlay that is cheap to slice and is itself
+#: drawn after the images (the Track Review cell outline, #76).
+NOT_A_SOURCE = "omero_screen_not_a_hold_source"
+
+
+def is_source(layer: Any) -> bool:
+    """Whether held layers wait for ``layer``: an async layer not opted out."""
+    metadata = getattr(layer, "metadata", None) or {}
+    return is_async(layer) and not metadata.get(NOT_A_SOURCE, False)
+
 
 def is_async(layer: Any) -> bool:
     """Whether napari slices ``layer`` off the GUI thread (image, labels, …)."""
@@ -60,7 +71,7 @@ class LayerHold:
             for other in self.viewer.layers
             if other is not self.layer
             and getattr(other, "visible", True)
-            and is_async(other)
+            and is_source(other)
         ]
 
     def loading(self) -> bool:
@@ -74,7 +85,11 @@ class LayerHold:
 
     def on_drawn(self, source: Any) -> None:
         """Move the held layer to the frame ``source`` has just drawn."""
-        if source is self.layer or not getattr(source, "visible", True):
+        if (
+            source is self.layer
+            or not getattr(source, "visible", True)
+            or not is_source(source)
+        ):
             return
         point = displayed_point(source)
         dims = self.viewer.dims
