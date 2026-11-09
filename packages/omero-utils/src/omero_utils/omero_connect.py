@@ -15,8 +15,6 @@ from collections.abc import Callable
 from typing import Any
 
 from loguru import logger
-from omero.gateway import BlitzGateway
-from omero_screen import settings
 
 from omero_utils.message import OmeroConnectionError, log_connection_success
 
@@ -47,6 +45,12 @@ def omero_connect(func: Callable[..., Any]) -> Callable[..., Any]:
 
     @functools.wraps(func)
     def wrapper_omero_connect(*args: Any, **kwargs: Any) -> Any:
+        # Imported here, not at module level: the OMERO gateway is slow to
+        # load, and importing omero_screen loads the .env configuration.
+        # Neither is needed until a connection is made (#83).
+        from omero.gateway import BlitzGateway
+        from omero_screen import settings
+
         conn = None
         value = None
 

@@ -20,11 +20,23 @@ import traceback
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from omero_screen.config import get_console
 from rich.panel import Panel
 
 if TYPE_CHECKING:
     from loguru import Logger
+    from rich.console import Console
+
+
+def get_console() -> Console:
+    """The pipeline's shared console, loaded on first use.
+
+    Imported lazily so the exception classes here (used by
+    ``omero_utils.channels``) do not load ``omero_screen`` at import (#83).
+    """
+    from omero_screen.config import get_console as _get_console
+
+    return _get_console()
+
 
 ERROR_STYLE = "bold red"
 
