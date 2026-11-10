@@ -49,7 +49,7 @@ dependencies = [
 # headless: the PyQt6/Qt6 Linux wheels need glibc >= 2.34 (x86_64) or >= 2.39
 # (aarch64), newer than some clusters. src/omero_screen never imports napari — only the
 # bin/phase_montage.py utility does — so the core pipeline is unaffected.
-gui = ["omero-screen-napari[qt]"]
+gui = ["omero-screen-napari[qt,agent]"]
 
 [project.scripts]
 omero-screen = "bin.run_omero_screen:main"
@@ -93,6 +93,9 @@ override-dependencies = ["numcodecs>=0.15"]
 omero-screen = { workspace = true }
 omero-utils = { workspace = true }
 omero-screen-napari = { workspace = true }
+# The HocheggerLab fork of napari-mcp: plugin-tool hook + fastmcp 4 (#88).
+# Pinned to a commit on its main; bump deliberately.
+napari-mcp = { git = "https://github.com/HocheggerLab/napari-mcp", rev = "2418b8e3dcefe301aa741a4520a8e251f658accf" }
 omero-screen-plots = { workspace = true }
 cellview = { workspace = true }
 omero-screen-track = { workspace = true }
@@ -110,7 +113,7 @@ explicit = true
 
 
 [dependency-groups]
-gui = ["omero-screen-napari[qt]"]
+gui = ["omero-screen-napari[qt,agent]"]
 
 dev = [
     "commitizen>=4.1.0",

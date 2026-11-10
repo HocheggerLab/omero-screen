@@ -134,19 +134,31 @@ outside it, and on tracks shorter than six frames, the walker's call stays.
 
 ## Working with an agent
 
-With [napari-mcp](https://github.com/HocheggerLab/napari-mcp/tree/plugin-tools)
-installed, omero-screen-napari adds review tools to the agent through
-napari-mcp's plugin hook. The agent can go to a cell, show its filmstrip, rank
-candidate continuations and propose an edit. A proposal appears in the widget
-and is applied only when the reviewer confirms it.
+The GUI install (`install.sh`, or `uv sync --group gui`) includes
+[napari-mcp](https://github.com/HocheggerLab/napari-mcp), and omero-screen-napari
+adds review tools to it through napari-mcp's plugin hook. With them an agent can
+go to a cell, show its filmstrip, rank candidate continuations and propose an
+edit. In a human run a proposal appears in the widget and is applied only when
+the reviewer confirms it; in an agent run (`review-queue --mode agent`) it is
+applied at once and logged for audit.
+
+1. Start napari as usual and open **Plugins → napari-mcp → Start Server**. The
+   bridge listens on `http://127.0.0.1:9999/mcp`.
+2. Open the Track Review widget and load the queue.
+3. Start Claude Code in the repository. The project's `.mcp.json` declares the
+   bridge as `napari-review`, so approve it when asked, or run `/mcp` to connect.
+   Start the server before Claude Code: tools are listed when the session
+   connects.
+
+Outside the repository, add the bridge yourself:
 
 ```bash
-uv run --with "napari-mcp @ git+https://github.com/HocheggerLab/napari-mcp@plugin-tools" napari
-claude mcp add --transport http napari http://127.0.0.1:9999/mcp
+claude mcp add --transport http napari-review http://127.0.0.1:9999/mcp
 ```
 
-The plugin hook is on the `plugin-tools` branch of the HocheggerLab fork until
-upstream napari-mcp releases it.
+The plugin hook and fastmcp 4 support are in the HocheggerLab fork of
+napari-mcp. Upstream pull requests are open (royerlab/napari-mcp#39, #41).
+Until they are released, the workspace pins the fork in `[tool.uv.sources]`.
 
 ## The edit log on the command line
 
