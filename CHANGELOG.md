@@ -1,3 +1,9 @@
+## omero-screen-v0.10.0 (2026-11-10)
+
+### Feat
+
+- **napari**: install the HocheggerLab napari-mcp fork with the GUI (#89)
+
 ## omero-screen-v0.9.2 (2026-11-09)
 
 ### Fix
