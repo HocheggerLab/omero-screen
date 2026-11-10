@@ -83,9 +83,10 @@ class QueueSpec:
     tail: int = 6
     stationary_warn: float = 0.05
     mode: str = "human"  # human: agent proposes, reviewer confirms; agent: agent works alone
-    births: tuple[int, int] | None = (
-        None  # follow one daughter of each confirmed division born in this window, not the cells present at start
-    )
+    # Follow daughters of confirmed divisions born in this window instead of the
+    # cells present at start; with sisters, both daughters of each division.
+    births: tuple[int, int] | None = None
+    sisters: bool = False
 
 
 def exclusion_summary(
@@ -180,7 +181,9 @@ def build_well(
     shape = (int(det["y"].max()) + 1, int(det["x"].max()) + 1)
     stored = load_stored(plate_id, well)
     seeds = (
-        birth_seeds(tracks, spec.births, walker, params, spec.seed)
+        birth_seeds(
+            tracks, spec.births, walker, params, spec.seed, spec.sisters
+        )
         if spec.births
         else None
     )

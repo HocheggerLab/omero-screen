@@ -210,6 +210,12 @@ class FateParams:
             mother's last DNA content.
         condense_rise: A division is confirmed when the H2B maximum around it
             reaches this multiple of the mother's interphase level.
+        newborn_area: A seeded daughter starts at most this fraction of the
+            mother's interphase area ...
+        newborn_h2b: ... with H2B at least this multiple of hers (telophase
+            chromatin is compact and bright) ...
+        min_mother_frames: ... and the mother was tracked this many frames
+            (a 1-3 frame "mother" is a mask fragment, not a cell).
         condense_window: Frames at the end of the mother (and the start of the
             daughters) searched for that peak.
     """
@@ -250,6 +256,9 @@ class FateParams:
     daughter_content: float = 0.75
     condense_rise: float = 1.8
     condense_window: int = 3
+    newborn_area: float = 0.6
+    newborn_h2b: float = 1.3
+    min_mother_frames: int = 6
 
     def frames(self, hours: float) -> int:
         """Convert hours to frames."""
@@ -846,6 +855,12 @@ class Walker:
         """Whether the reporters show the division (``False`` flags it)."""
         return True
 
+    def newborn(
+        self, mother: pd.DataFrame, daughter: pd.DataFrame, params: FateParams
+    ) -> bool:
+        """Whether a daughter looks newly born (for birth cohorts)."""
+        return True
+
 
 class FucciWalker(Walker):
     """PIP-FUCCI: the walker as described in the module docstring."""
@@ -1030,6 +1045,26 @@ class H2BTubWalker(Walker):
         ]
         return bool(max(peak) >= params.condense_rise * np.median(base))
 
+    def newborn(
+        self, mother: pd.DataFrame, daughter: pd.DataFrame, params: FateParams
+    ) -> bool:
+        """Small and bright against the mother, who was a real, tracked cell.
+
+        The mother's interphase reference is her last six frames before the
+        ``condense_window`` frames of mitosis. On 5061 B2 this keeps 30 of
+        172 condensation-confirmed seeds; the rest were mask fragments whose
+        tracks end within a few frames (median 4.5 against 17.5).
+        """
+        w = params.condense_window
+        if len(mother) < params.min_mother_frames or daughter.empty:
+            return False
+        base = mother.iloc[:-w].tail(6)
+        first = daughter.iloc[0]
+        return bool(
+            first["area"] <= params.newborn_area * base["area"].median()
+            and first["h2b"] >= params.newborn_h2b * base["h2b"].median()
+        )
+
 
 #: Walkers by name.
 WALKERS: dict[str, type[Walker]] = {
@@ -1069,13 +1104,16 @@ def birth_seeds(
     walker: Walker | None = None,
     params: FateParams | None = None,
     seed: int = 0,
+    sisters: bool = False,
 ) -> list[tuple[int, int]]:
-    """One daughter of every division in ``window`` that the reporters confirm.
+    """Daughters of the divisions in ``window`` that the reporters confirm.
 
     For a cohort followed from birth (:func:`follow_cells` ``seeds``). Only
-    divisions :meth:`Walker.division_confirmed` accepts give a seed, and one
-    daughter is drawn at random per division, so sisters (whose fates are
-    correlated) are not both followed.
+    divisions :meth:`Walker.division_confirmed` accepts give seeds, and only
+    daughters :meth:`Walker.newborn` accepts. By default one daughter is
+    drawn at random per division, so sisters (whose fates are correlated)
+    are not both followed; ``sisters=True`` keeps every one (analyse each
+    pair as a cluster).
 
     Args:
         tracks: A well's tracks, as for :func:`follow_cells`.
@@ -1083,6 +1121,7 @@ def birth_seeds(
         walker: Default :class:`FucciWalker`.
         params: Default :class:`FateParams`.
         seed: Random seed of the daughter draw.
+        sisters: Keep every accepted daughter, not one per division.
 
     Returns:
         ``(daughter track id, birth frame)``, by birth frame.
@@ -1103,8 +1142,15 @@ def birth_seeds(
         rows = [idx.rows[d] for d in daughters]
         if not walker.division_confirmed(idx.rows[mother], rows, params):
             continue
-        pick = sorted(daughters)[int(rng.integers(len(daughters)))]
-        seeds.append((pick, int(idx.rows[pick].index[0])))
+        ok = sorted(
+            d
+            for d in daughters
+            if walker.newborn(idx.rows[mother], idx.rows[d], params)
+        )
+        if not ok:
+            continue
+        picks = ok if sisters else [ok[int(rng.integers(len(ok)))]]
+        seeds += [(d, int(idx.rows[d].index[0])) for d in picks]
     return sorted(seeds, key=lambda s: (s[1], s[0]))
 
 

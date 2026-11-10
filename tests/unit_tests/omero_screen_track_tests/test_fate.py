@@ -488,16 +488,39 @@ def test_resolve_walker_by_channels() -> None:
     assert resolve_walker(["DAPI", "Tub"], 10) is None
 
 
+def _bright_births(rows):
+    """Newborn daughters (from frame 30) start bright: condensed chromatin."""
+    for r in rows:
+        if r["parent_track_id"] and r["timepoint"] == 30:
+            r["h2b"] = 900.0
+    return rows
+
+
 def test_birth_seeds_one_daughter_of_each_confirmed_division() -> None:
     """Only condensed divisions in the window seed; one daughter each."""
     from omero_screen_track.fate import H2BTubWalker, birth_seeds
 
-    rows = _h2b_population(
-        _h2b_cycle(10, 500),
-        _h2b_cycle(20, 1500, condensed=False),
+    rows = _bright_births(
+        _h2b_population(
+            _h2b_cycle(10, 500),
+            _h2b_cycle(20, 1500, condensed=False),
+        )
     )
     seeds = birth_seeds(pd.DataFrame(rows), (25, 35), H2BTubWalker())
     assert len(seeds) == 1
     (tid, frame), = seeds
     assert tid in (11, 12) and frame == 30
     assert birth_seeds(pd.DataFrame(rows), (31, 40), H2BTubWalker()) == []
+    both = birth_seeds(pd.DataFrame(rows), (25, 35), H2BTubWalker(), sisters=True)
+    assert both == [(11, 30), (12, 30)]
+
+
+def test_birth_seeds_skip_daughters_that_do_not_look_newborn() -> None:
+    """A dim daughter, or one from a fragment-length mother, is not a birth."""
+    from omero_screen_track.fate import FateParams, H2BTubWalker, birth_seeds
+
+    dim = _h2b_population(_h2b_cycle(10, 500))
+    assert birth_seeds(pd.DataFrame(dim), (25, 35), H2BTubWalker()) == []
+    rows = _bright_births(_h2b_population(_h2b_cycle(10, 500)))
+    strict = FateParams(min_mother_frames=31)
+    assert birth_seeds(pd.DataFrame(rows), (25, 35), H2BTubWalker(), strict) == []

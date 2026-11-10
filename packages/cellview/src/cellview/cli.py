@@ -515,6 +515,11 @@ def audit_queue(
     "each from its birth frame.",
 )
 @click.option(
+    "--sisters",
+    is_flag=True,
+    help="With --births: follow both daughters of each division, not one drawn at random.",
+)
+@click.option(
     "--sample",
     type=click.IntRange(min=1),
     default=50,
@@ -565,6 +570,7 @@ def review_queue(
     start: int,
     stop: int,
     births: tuple[int, int] | None,
+    sisters: bool,
     sample: int,
     audit: float,
     seed: int,
@@ -591,6 +597,7 @@ def review_queue(
         stationary_warn=stationary_warn,
         mode=mode,
         births=births,
+        sisters=sisters,
     )
     try:
         q, s, table = build_queue(
