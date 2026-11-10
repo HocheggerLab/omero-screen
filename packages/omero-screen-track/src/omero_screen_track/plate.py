@@ -3,28 +3,48 @@
 The repair reads the immutable ``track_id_raw`` / ``parent_track_id_raw``
 columns and writes the curated ``track_id`` / ``parent_track_id``, so it can be
 re-run at any time with the same result, and never loses the tracker's output.
-It needs a mitotic marker whose nuclear signal collapses at anaphase: the
-geminin reporter of PIP-FUCCI. Only PIP-FUCCI plates are repaired — a
-timelapse with channels named exactly ``pip`` and ``geminin``
-(:func:`omero_utils.channels.resolve_pip_fucci`); every other plate
-is refused rather than repaired on geometry alone.
+It needs a reporter that tells a mitosis from a mislinked or split nucleus:
+the geminin of PIP-FUCCI, whose nuclear signal collapses at anaphase (a
+timelapse with channels named exactly ``pip`` and ``geminin``,
+:func:`omero_utils.channels.resolve_pip_fucci`), or otherwise an H2B
+reporter, whose chromatin condenses (a channel named ``h2b`` or
+``h2b_<fluorophore>``, :func:`omero_utils.channels.resolve_h2b`, #85). Every
+other plate is refused rather than repaired on geometry alone.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import duckdb
 import pandas as pd
-from omero_utils.channels import PipFucci, resolve_pip_fucci
+from omero_utils.channels import PipFucci, resolve_h2b, resolve_pip_fucci
 
 from omero_screen_track.edit import Curated, EditLog, base_lineage, replay
 from omero_screen_track.repair import RepairParams, repair_lineage
 
 
 class NotPipFucciError(ValueError):
-    """Raised for a plate that is not PIP-FUCCI; its tracks are not repaired."""
+    """Raised for a plate with neither PIP-FUCCI nor H2B; it is not repaired."""
+
+
+@dataclass(frozen=True)
+class Reporter:
+    """The channel the repair's mitosis test reads, as named on the plate."""
+
+    kind: Literal["geminin", "h2b"]
+    channel: str
+
+
+def resolve_reporter(names: list[str], n_timepoints: int) -> Reporter | None:
+    """Geminin if the plate is PIP-FUCCI, else H2B if it has one, else None."""
+    fucci = resolve_pip_fucci(names, n_timepoints)
+    if fucci is not None:
+        return Reporter("geminin", fucci.geminin)
+    h2b = resolve_h2b(names, n_timepoints)
+    return Reporter("h2b", h2b) if h2b is not None else None
 
 
 @dataclass(frozen=True)
@@ -44,19 +64,19 @@ def _columns(conn: duckdb.DuckDBPyConnection) -> list[str]:
 
 def _not_fucci(plate_id: int, where: str = "") -> NotPipFucciError:
     return NotPipFucciError(
-        f"Plate {plate_id}{where} is not PIP-FUCCI (a timelapse with channels "
-        f"named exactly 'pip' and 'geminin'); its tracks are not repaired."
+        f"Plate {plate_id}{where} is neither PIP-FUCCI (a timelapse with "
+        f"channels named exactly 'pip' and 'geminin') nor has an H2B channel "
+        f"('h2b' or 'h2b_<fluorophore>'); its tracks are not repaired."
     )
 
 
-def plate_fucci(conn: duckdb.DuckDBPyConnection, plate_id: int) -> PipFucci:
-    """The PIP-FUCCI channels of a plate, as named in CellView.
+def _measured(
+    conn: duckdb.DuckDBPyConnection, plate_id: int
+) -> tuple[list[str], int]:
+    """Channels with nuclear values for this plate, and its timepoint count.
 
-    Only channels with nuclear values for this plate count, so a column
-    another plate created does not make this one FUCCI.
-
-    Raises:
-        NotPipFucciError: If the plate is not PIP-FUCCI.
+    Only channels measured on this plate count, so a column another plate
+    created does not make this one FUCCI or H2B.
     """
     prefix, suffix = "intensity_mean_", "_nucleus"
     cols = [
@@ -81,27 +101,59 @@ def plate_fucci(conn: duckdb.DuckDBPyConnection, plate_id: int) -> PipFucci:
         for c, n in zip(cols, row[1:], strict=True)
         if n
     ]
-    fucci = resolve_pip_fucci(measured, int(row[0]))
+    return measured, int(row[0])
+
+
+def plate_fucci(conn: duckdb.DuckDBPyConnection, plate_id: int) -> PipFucci:
+    """The PIP-FUCCI channels of a plate, as named in CellView.
+
+    Raises:
+        NotPipFucciError: If the plate is not PIP-FUCCI.
+    """
+    fucci = resolve_pip_fucci(*_measured(conn, plate_id))
     if fucci is None:
         raise _not_fucci(plate_id)
     return fucci
 
 
-def pip_fucci_input(
-    det: pd.DataFrame, plate_id: int, well: str
-) -> pd.DataFrame:
-    """A well from :func:`omero_screen_track.cells.load_well`, ready for the repair.
-
-    The geminin reporter becomes the repair's ``marker`` column.
+def plate_reporter(conn: duckdb.DuckDBPyConnection, plate_id: int) -> Reporter:
+    """The repair reporter of a plate: geminin, else H2B.
 
     Raises:
-        NotPipFucciError: If the well is not PIP-FUCCI.
+        NotPipFucciError: If the plate has neither.
+    """
+    reporter = resolve_reporter(*_measured(conn, plate_id))
+    if reporter is None:
+        raise _not_fucci(plate_id)
+    return reporter
+
+
+def repair_input(det: pd.DataFrame, plate_id: int, well: str) -> pd.DataFrame:
+    """A well from :func:`omero_screen_track.cells.load_well`, ready for the repair.
+
+    On a PIP-FUCCI well the geminin reporter becomes the repair's ``marker``
+    column. Otherwise the H2B maximum intensity (``<h2b>_max``, loaded with
+    ``load_well(..., maxima=[h2b])``) becomes its ``chromatin`` column.
+
+    Raises:
+        NotPipFucciError: If the well has neither reporter, or its H2B
+            maximum was not loaded.
     """
     n_t = det["timepoint"].nunique() if "timepoint" in det else 0
-    fucci = resolve_pip_fucci(det.columns, n_t)
-    if fucci is None:
+    names = [c for c in det.columns if not c.endswith("_max")]
+    reporter = resolve_reporter(names, n_t)
+    if reporter is None:
         raise _not_fucci(plate_id, f" well {well}")
-    return det.rename(columns={fucci.geminin: "marker"})
+    if reporter.kind == "geminin":
+        return det.rename(columns={reporter.channel: "marker"})
+    peak = f"{reporter.channel}_max"
+    if peak not in det.columns:
+        raise _not_fucci(plate_id, f" well {well} (no H2B maximum loaded)")
+    return det.assign(chromatin=det[peak])
+
+
+#: Former name of :func:`repair_input`, from when only PIP-FUCCI was repaired.
+pip_fucci_input = repair_input
 
 
 def load_detections(
@@ -111,21 +163,32 @@ def load_detections(
 ) -> pd.DataFrame:
     """Tracked detections of a plate in the shape :func:`repair_lineage` expects.
 
+    The reporter column is ``marker`` (background-subtracted geminin mean)
+    on a PIP-FUCCI plate, else ``chromatin`` (H2B maximum intensity).
+
     Raises:
-        NotPipFucciError: If the plate is not PIP-FUCCI.
+        NotPipFucciError: If the plate has neither reporter.
     """
-    gem = plate_fucci(conn, plate_id).geminin
+    reporter = plate_reporter(conn, plate_id)
+    ch = reporter.channel.lower()
     cols = {c.lower(): c for c in _columns(conn)}
-    mean = cols[f"intensity_mean_{gem.lower()}_nucleus"]
-    bg = cols.get(f"{gem.lower()}_background")
-    marker_sql = f'm."{mean}" - coalesce(m."{bg}", 0)' if bg else f'm."{mean}"'
+    if reporter.kind == "geminin":
+        mean = cols[f"intensity_mean_{ch}_nucleus"]
+        bg = cols.get(f"{ch}_background")
+        sql = f'm."{mean}" - coalesce(m."{bg}", 0)' if bg else f'm."{mean}"'
+        column = "marker"
+    else:
+        peak = cols.get(f"intensity_max_{ch}_nucleus")
+        if peak is None:
+            raise _not_fucci(plate_id, " (no H2B maximum intensity)")
+        sql, column = f'm."{peak}"', "chromatin"
     df = conn.execute(
         f"""
         select m.measurement_id, c.well,
                m.track_id_raw, m.parent_track_id_raw, m.timepoint,
                m.area_nucleus as area,
                m."centroid-0-nuc" as y, m."centroid-1-nuc" as x,
-               {marker_sql} as marker
+               {sql} as {column}
         from measurements m
         join conditions c using (condition_id)
         join repeats r using (repeat_id)
@@ -137,9 +200,9 @@ def load_detections(
         df = df[df.well.isin(wells)]
     if df.empty:
         raise ValueError(f"No tracked measurements for plate {plate_id}.")
-    if df["marker"].isna().all():
+    if df[column].isna().all():
         raise _not_fucci(plate_id)
-    df["marker"] = df["marker"].clip(lower=0)
+    df[column] = df[column].clip(lower=0)
     df["parent_track_id_raw"] = df["parent_track_id_raw"].fillna(0)
     return df
 
@@ -297,8 +360,10 @@ def curated_well(
     from omero_screen_track.cells import load_well
     from omero_screen_track.debris import drop_debris
 
-    det, _ = drop_debris(load_well(conn, plate_id, well))
-    result = repair_lineage(pip_fucci_input(det, plate_id, well), params)
+    reporter = plate_reporter(conn, plate_id)
+    maxima = [reporter.channel] if reporter.kind == "h2b" else []
+    det, _ = drop_debris(load_well(conn, plate_id, well, maxima=maxima))
+    result = repair_lineage(repair_input(det, plate_id, well), params)
     from omero_screen_track.cells import apply_extras
 
     base = base_lineage(det, result)

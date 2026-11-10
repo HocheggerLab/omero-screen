@@ -59,3 +59,28 @@ def test_metadata_parser_reexports_the_same_objects() -> None:
         "PIP_FUCCI_GEMININ",
     ):
         assert getattr(metadata_parser, name) is getattr(channels, name)
+
+
+@pytest.mark.parametrize("name", ["H2B", "h2b_rfp", "H2B_GFP_nucleus"])
+def test_resolve_h2b_finds_the_reporter(name: str) -> None:
+    """H2B, alone or with a fluorophore or role suffix, on a timelapse."""
+    from omero_utils.channels import resolve_h2b
+
+    assert resolve_h2b(["DAPI", name, "Tub"], 10) == name
+
+
+def test_resolve_h2b_rejects_other_plates() -> None:
+    """No H2B channel, a lookalike name or a single frame: not H2B."""
+    from omero_utils.channels import resolve_h2b
+
+    assert resolve_h2b(["DAPI", "H2Bx", "pip"], 10) is None
+    assert resolve_h2b(["H2B"], 1) is None
+
+
+def test_resolve_h2b_refuses_two_reporters() -> None:
+    """Two H2B channels are ambiguous."""
+    from omero_utils.channels import resolve_h2b
+    from omero_utils.message import ChannelAnnotationError
+
+    with pytest.raises(ChannelAnnotationError):
+        resolve_h2b(["H2B", "h2b_rfp"], 10)

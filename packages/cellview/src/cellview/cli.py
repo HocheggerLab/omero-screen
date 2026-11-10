@@ -370,8 +370,10 @@ def repair_tracks(
 
     Reads the tracker's immutable track_id_raw / parent_track_id_raw and
     writes the curated track_id / parent_track_id, so re-running gives the
-    same result. Only PIP-FUCCI plates (channels named exactly pip and
-    geminin) are repaired.
+    same result. Divisions are tested with geminin on PIP-FUCCI plates
+    (channels named exactly pip and geminin), otherwise by chromatin
+    condensation on plates with an H2B channel (h2b or h2b_<fluorophore>).
+    Other plates are refused.
     """
     from omero_screen_track.plate import NotPipFucciError, repair_plate
 

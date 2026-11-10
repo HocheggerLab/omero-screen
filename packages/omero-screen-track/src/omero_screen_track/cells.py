@@ -37,6 +37,7 @@ def load_well(
     plate_id: int,
     well: str,
     channels: list[str] | None = None,
+    maxima: list[str] | tuple[str, ...] = (),
 ) -> pd.DataFrame:
     """Tracked detections of one well with background-subtracted channel means.
 
@@ -46,6 +47,9 @@ def load_well(
         well: Well, e.g. ``"C2"``.
         channels: Nuclear channels to load (CellView names, any case). Default:
             every channel with data for this plate.
+        maxima: Channels whose nuclear maximum intensity is loaded too, as
+            ``<channel>_max`` (lower case, not background-subtracted): the
+            H2B condensation test of the repair reads it.
 
     Returns:
         Columns ``measurement_id, timepoint, label, track_id_raw,
@@ -69,6 +73,10 @@ def load_well(
         )
         expr = f'm."{mean}" - coalesce(m."{bg}", 0)' if bg else f'm."{mean}"'
         selects.append(f'{expr} as "{ch.lower()}"')
+    for ch in maxima:
+        peak = cols.get(f"intensity_max_{ch.lower()}_nucleus")
+        if peak is not None:
+            selects.append(f'm."{peak}" as "{ch.lower()}_max"')
     extra = (", " + ", ".join(selects)) if selects else ""
     df = conn.execute(
         f"""

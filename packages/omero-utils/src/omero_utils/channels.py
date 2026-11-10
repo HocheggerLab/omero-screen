@@ -86,3 +86,45 @@ def resolve_pip_fucci(
         return None
     logger.info(f"PIP-FUCCI: pip={pip[0]!r}, geminin={gem[0]!r}.")
     return PipFucci(pip=pip[0], geminin=gem[0])
+
+
+# A chromatin reporter whose condensation marks mitosis (#85): a channel
+# named ``h2b`` or ``h2b_<fluorophore>`` (``H2B``, ``H2B_RFP``), any case,
+# after any role suffix, on a timelapse. The nuclear stain is deliberately
+# not used: on 5061 H2B separates condensed mitoses better than SPY-DNA.
+H2B_NAME = "h2b"
+
+
+def resolve_h2b(channel_names: Iterable[str], n_timepoints: int) -> str | None:
+    """The plate's H2B channel, or ``None`` if it has none.
+
+    A plate has an H2B reporter if it is a timelapse and exactly one channel
+    is named ``h2b`` or ``h2b_<fluorophore>`` (see :data:`H2B_NAME`). The
+    lineage repair then tests divisions by chromatin condensation instead of
+    geminin. The decision is logged either way.
+
+    Args:
+        channel_names: Channel names as on the plate (or CellView columns).
+        n_timepoints: Number of timepoints; a single timepoint never counts.
+
+    Raises:
+        ChannelAnnotationError: If two channels are named as H2B.
+    """
+    found = [
+        name
+        for name in channel_names
+        if (key := strip_role_suffix(name).lower()) == H2B_NAME
+        or key.startswith(f"{H2B_NAME}_")
+    ]
+    if len(found) > 1:
+        raise ChannelAnnotationError(
+            f"Channels {found} all resolve to the H2B reporter.", logger
+        )
+    if not found:
+        logger.info("No H2B reporter: needs a channel named 'h2b'.")
+        return None
+    if n_timepoints < 2:
+        logger.info("No H2B reporter: a single timepoint.")
+        return None
+    logger.info(f"H2B reporter: {found[0]!r}.")
+    return found[0]
