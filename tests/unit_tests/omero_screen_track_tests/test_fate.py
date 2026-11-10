@@ -149,8 +149,10 @@ def test_pyknotic_end_at_the_border_left_the_field() -> None:
 
 
 def test_track_heading_out_of_the_field_left_it() -> None:
-    """A track that ends at the border after moving towards it left the
-    field: censored, but not flagged lost or edge, so it is not queued."""
+    """A track that ends at the border, heading out, left the field.
+
+    Censored, but not flagged lost or edge, so it is not queued.
+    """
     out = _rows(60, 0, range(15), 3500, G1, x0=4800, dx=12)  # ends at x 4968
     cells, _ = _walk(_cycling_cell(10, 500) + out)
     row = cells.set_index("start_track").loc[60]
@@ -169,8 +171,10 @@ def test_track_ending_near_the_border_but_not_heading_out_is_lost() -> None:
 
 
 def test_switch_onto_a_neighbour_is_flagged_and_proposed() -> None:
-    """A raw track that jumps onto a small dim object while the real nucleus
-    carries on under a new id is cut at the jump, and the neighbour proposed."""
+    """A raw track that jumps onto a small dim object is cut at the jump.
+
+    The real nucleus carries on under a new id, which is proposed.
+    """
     import json
 
     # Track 70: a G1 nucleus for 10 frames, then (same raw id) a quarter-size,
@@ -230,8 +234,10 @@ def test_unlinked_daughters_make_a_division() -> None:
 
 
 def test_bridges_are_proposed_with_confidence() -> None:
-    """A direct restart with one candidate is a clear bridge proposal; a
-    skipped frame makes it uncertain."""
+    """A direct restart with one candidate is a clear bridge proposal.
+
+    A skipped frame makes it uncertain.
+    """
     import json
 
     restart = _rows(50, 0, range(15), 2500, G1) + _rows(
@@ -255,8 +261,10 @@ def test_bridges_are_proposed_with_confidence() -> None:
 
 
 def test_jump_onto_a_pre_existing_neighbour_is_flagged_not_acted_on() -> None:
-    """A matching neighbour that already existed before the step is only a
-    suspect: the track is not cut and no relink is proposed."""
+    """A matching neighbour that existed before the step is only a suspect.
+
+    The track is not cut and no relink is proposed.
+    """
     import json
 
     good = _rows(70, 0, range(10), 2000, G1, area=600.0)
@@ -269,7 +277,7 @@ def test_jump_onto_a_pre_existing_neighbour_is_flagged_not_acted_on() -> None:
         x0=200,
         area=150.0,
     )
-    neighbour = _rows(71, 0, range(0, 41), 2010, G1, x0=100, area=600.0)
+    neighbour = _rows(71, 0, range(41), 2010, G1, x0=100, area=600.0)
     cells, states = _walk(
         _cycling_cell(10, 500)
         + _cycling_cell(20, 1500)
@@ -287,8 +295,9 @@ def test_jump_onto_a_pre_existing_neighbour_is_flagged_not_acted_on() -> None:
 
 
 def _switching_cell():
-    """Track 70 jumps at frame 10 onto a small dark object while new track
-    71 carries the cell on (the setting of the switch test above).
+    """Track 70 jumps at frame 10 onto a small dark object.
+
+    New track 71 carries the cell on (the setting of the switch test above).
     """
     good = _rows(70, 0, range(10), 2000, G1, area=600.0)
     wrong = _rows(
@@ -325,8 +334,10 @@ def test_unconfirmed_switch_still_cuts() -> None:
 
 
 def test_switch_at_a_reviewer_link_does_not_cut() -> None:
-    """A switch where the reviewer fixed the cell's identity (within one
-    frame) is theirs: the track is kept whole, nothing is flagged or proposed.
+    """A switch where the reviewer fixed the cell's identity is theirs.
+
+    Within one frame of it, the track is kept whole and nothing is flagged
+    or proposed.
     """
     import json
 
@@ -345,3 +356,133 @@ def test_switch_two_frames_from_a_reviewer_link_still_cuts() -> None:
     cells, _ = _walk_confirmed(_switching_cell(), {70: {12}})
     row = cells.set_index("start_track").loc[70]
     assert "switch" in row.review_flags.split() and row.outcome_frame == 10
+
+
+# --- H2B-Tub walker (#87) ----------------------------------------------------
+
+
+def _h2b_rows(tid, parent, frames, y, content, x0=100.0, dx=10.0, area=400.0,
+              h2b_max=1000.0):
+    """One track on an H2B plate; ``dna`` is set so that dna * area = content."""
+    return [
+        {
+            "track_id": tid,
+            "parent_track_id": parent,
+            "timepoint": t,
+            "area": area,
+            "y": y,
+            "x": x0 + dx * i,
+            "dna": content / area,
+            "h2b": 500.0,
+            "h2b_max": h2b_max,
+        }
+        for i, t in enumerate(frames)
+    ]
+
+
+def _h2b_cycle(tid, y, condensed=True):
+    """G1 (0-9) -> S (10-19) -> G2 (20-29) -> two half-content daughters from 30."""
+    rows = (
+        _h2b_rows(tid, 0, range(10), y, 1000.0)
+        + _h2b_rows(tid, 0, range(10, 20), y, 1400.0, x0=200)
+        + _h2b_rows(tid, 0, range(20, 30), y, 2000.0, x0=300)
+    )
+    if condensed:
+        rows[-1]["h2b_max"] = 3000.0
+    rows += _h2b_rows(tid + 1, tid, range(30, 41), y - 20, 1000.0, x0=400, area=200.0)
+    rows += _h2b_rows(tid + 2, tid, range(30, 41), y + 20, 1000.0, x0=400, area=200.0)
+    return rows
+
+
+def _h2b_walk(rows, **kw):
+    from omero_screen_track.fate import H2BTubWalker
+
+    return follow_cells(
+        pd.DataFrame(rows), 0, 40, FateParams(**kw), shape=(5000, 5000),
+        walker=H2BTubWalker(),
+    )
+
+
+def _h2b_population(*extra):
+    """Mostly G1 nuclei so the well's content peak sits at G1 (1000)."""
+    rows = [r for k in range(6) for r in _h2b_rows(200 + k, 0, range(41), 3000 + 100 * k, 1000.0)]
+    for e in extra:
+        rows += e
+    return rows
+
+
+def test_h2b_cycle_divides_with_content_phases() -> None:
+    """Content G1 -> S -> G2, then a condensed split: divided, no flags."""
+    cells, states = _h2b_walk(_h2b_population(_h2b_cycle(10, 500)))
+    cell = cells.set_index("start_track").loc[10]
+    assert cell.outcome == "divided" and cell.outcome_frame == 30
+    phases = states[states.cell == cell.cell].phase
+    assert phases[phases.ne(phases.shift())].tolist() == ["G1", "S", "G2"]
+    assert cell.review_flags == ""
+
+
+def test_h2b_division_without_condensation_is_flagged() -> None:
+    """A split the H2B maximum does not show is kept but flagged for review."""
+    cells, _ = _h2b_walk(_h2b_population(_h2b_cycle(10, 500, condensed=False)))
+    flags = cells.set_index("start_track").loc[10].review_flags
+    assert "division_unconfirmed" in flags and "outcome_review" in flags
+
+
+def test_h2b_content_fall_without_split_is_a_dna_jump() -> None:
+    """DNA content never halves along one cell outside mitosis."""
+    rows = _h2b_rows(5, 0, range(20), 500, 2000.0) + _h2b_rows(
+        5, 0, range(20, 41), 500, 1000.0, x0=300
+    )
+    cells, _ = _h2b_walk(_h2b_population(rows))
+    cell = cells.set_index("start_track").loc[5]
+    assert "dna_jump" in cell.review_flags and "geminin_jump" not in cell.review_flags
+
+
+def test_h2b_bridge_needs_matching_content() -> None:
+    """A founder with twice the content is not the cell's continuation."""
+    g1 = _h2b_rows(50, 0, range(15), 2500, 1000.0)
+    wrong = _h2b_rows(51, 0, range(16, 41), 2500, 2000.0, x0=260)
+    cells, _ = _h2b_walk(_h2b_population(g1 + wrong))
+    assert cells.set_index("start_track").loc[50].segments == "50"
+    right = _h2b_rows(52, 0, range(16, 41), 2500, 1050.0, x0=260)
+    cells, _ = _h2b_walk(_h2b_population(g1 + right))
+    assert cells.set_index("start_track").loc[50].segments == "50 52"
+
+
+def test_h2b_unlinked_daughters_make_a_division() -> None:
+    """A G2-content track that ends beside two half-content founders divided."""
+    rows = _h2b_rows(5, 0, range(30), 500, 2000.0)
+    rows += _h2b_rows(6, 0, range(31, 41), 480, 1000.0, x0=400, area=200.0)
+    rows += _h2b_rows(7, 0, range(31, 41), 520, 1000.0, x0=400, area=200.0)
+    cells, _ = _h2b_walk(_h2b_population(rows))
+    cell = cells.set_index("start_track").loc[5]
+    assert cell.outcome == "divided" and "daughter_pair" in cell.review_flags
+
+
+def test_seeds_follow_cells_from_their_own_frame() -> None:
+    """Seeded daughters are followed from birth; nobody else is."""
+    from omero_screen_track.fate import H2BTubWalker
+
+    rows = _h2b_population(_h2b_cycle(10, 500))
+    cells, states = follow_cells(
+        pd.DataFrame(rows), 0, 40, FateParams(), shape=(5000, 5000),
+        walker=H2BTubWalker(), seeds=[(11, 30)],
+    )
+    assert cells.start_track.tolist() == [11]
+    assert cells.start_frame.tolist() == [30]
+    assert states.timepoint.min() == 30
+
+
+def test_resolve_walker_by_channels() -> None:
+    """FUCCI first, else H2B with tubulin, else none."""
+    from omero_screen_track.fate import (
+        FucciWalker,
+        H2BTubWalker,
+        resolve_walker,
+    )
+
+    assert isinstance(resolve_walker(["pip", "geminin", "H2B", "Tub"], 10), FucciWalker)
+    walker = resolve_walker(["H2B_rfp", "tub_cell", "DAPI"], 10)
+    assert isinstance(walker, H2BTubWalker) and walker.h2b == "h2b_rfp"
+    assert resolve_walker(["H2B", "DAPI"], 10) is None
+    assert resolve_walker(["DAPI", "Tub"], 10) is None

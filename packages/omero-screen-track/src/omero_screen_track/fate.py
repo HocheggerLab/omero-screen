@@ -77,19 +77,45 @@ link or a mis-segmented frame (``geminin_jump``). Rises are allowed, because
 geminin builds up fast in S. Phases (``phase``, ``start_phase``,
 ``end_phase``) are still reported, but per-frame calls are unreliable when a
 nucleus compacts, and are best made later from the whole track.
+
+Walkers (#87)
+-------------
+
+The walking itself (bridges, switches, daughter pairs, outcomes, flags,
+proposals) is the same for every plate; what a reporter says about a cell is
+not. That part sits behind a :class:`Walker`, chosen from the plate's channels
+by :func:`resolve_walker`:
+
+:class:`FucciWalker`
+    PIP-FUCCI, as described above.
+:class:`H2BTubWalker`
+    H2B and tubulin, no FUCCI (plate 5061). Continuity comes from the nuclear
+    DNA content (``content`` = background-subtracted DNA-dye mean times area),
+    which along one cell only rises (doubling through S) and halves at
+    division: on 5054, within-cell G2/G1 content is 2.08 (10–90 %: 1.94–2.31)
+    with 12 % frame-to-frame noise. A fall without a split is ``dna_jump``.
+    Daughters carry about half the mother's content; a division the H2B
+    maximum does not show condensing is flagged ``division_unconfirmed``.
+    Phases are content relative to the well's G1 peak: approximate, because
+    dye uptake varies between cells (snapshot G1/G2 calls ~85 % on 5054);
+    make within-cell calls from the whole track later.
+
+Plates with neither get no walker.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
 import numpy as np
 import pandas as pd
+from omero_utils.channels import resolve_h2b, resolve_pip_fucci
 
 #: Reason codes a cell can be flagged with.
 FLAGS = (
@@ -101,6 +127,8 @@ FLAGS = (
     "fragment",  # nucleus pieces were merged during the window
     "refractory",  # the refractory rule removed a second division
     "geminin_jump",  # geminin fell (or leapt) without a split: wrong link or bad frame
+    "dna_jump",  # DNA content fell (or leapt) without a split: wrong link or bad frame
+    "division_unconfirmed",  # the division shows no H2B condensation
     "outcome_review",  # a rare outcome that decides a phenotype call
     "lost",  # the cell could not be followed to an outcome
     "edge",  # the nucleus came within one diameter of the image border
@@ -171,6 +199,19 @@ class FateParams:
             otherwise it is a mis-segmented frame.
         daughter_area: Area of a daughter relative to the mother's last
             frame, as ``(low, high)``, for ``daughter_pair``.
+        content_s: H2B-Tub walker: S phase from this multiple of the well's
+            G1 DNA content ...
+        content_g2: ... G2 from this multiple; also the content at which a
+            track end can be a mitosis and a small bright end is not a death.
+        content_tol: Allowed DNA-content ratio (and inverse) across a bridge
+            or switch: within-cell noise is ~12 %, and content cannot double
+            within ``max_gap`` frames, so a G1/G2 mix-up is refused.
+        daughter_content: A daughter carries less than this fraction of the
+            mother's last DNA content.
+        condense_rise: A division is confirmed when the H2B maximum around it
+            reaches this multiple of the mother's interphase level.
+        condense_window: Frames at the end of the mother (and the start of the
+            daughters) searched for that peak.
     """
 
     interval_minutes: float = 20.0
@@ -203,6 +244,12 @@ class FateParams:
     switch_window: int = 3
     switch_area: float = 2.0
     daughter_area: tuple[float, float] = (0.3, 0.75)
+    content_s: float = 1.3
+    content_g2: float = 1.75
+    content_tol: float = 1.5
+    daughter_content: float = 0.75
+    condense_rise: float = 1.8
+    condense_window: int = 3
 
     def frames(self, hours: float) -> int:
         """Convert hours to frames."""
@@ -211,12 +258,19 @@ class FateParams:
 
 @dataclass(frozen=True)
 class Thresholds:
-    """Well-level reference levels for phase calling."""
+    """Well-level reference levels for phase calling.
+
+    ``content_g1`` and ``h2b_floor`` are the H2B-Tub walker's (the well's G1
+    DNA-content peak, and the H2B level below which a nucleus does not
+    express it); the FUCCI walker leaves them unset.
+    """
 
     pip_high: float
     gem_low: float
     dna_median: float
     area_median: float
+    content_g1: float = float("nan")
+    h2b_floor: float = 0.0
 
 
 def well_thresholds(tracks: pd.DataFrame) -> Thresholds:
@@ -254,19 +308,21 @@ def call_phases(
 
 
 def _geminin_jump(
-    cell: pd.DataFrame, thr: Thresholds, params: FateParams
+    cell: pd.DataFrame,
+    thr: Thresholds,
+    params: FateParams,
+    walker: Walker | None = None,
 ) -> int | None:
-    """First frame where geminin falls (or leaps) between neighbouring windows.
+    """First frame where the jump marker falls (or leaps) between neighbouring windows.
 
     Compares the median of ``jump_window`` frames before each step with the
-    median after it, on geminin clipped at its high threshold, so G1-level
-    noise and one-frame compaction spikes never count.
+    median after it, on the walker's jump marker (geminin by default)
+    clipped at its floor, so G1-level noise and one-frame compaction spikes
+    never count.
     """
-    gem = (
-        cell["geminin"]
-        .clip(lower=params.gem_high * thr.gem_low)
-        .to_numpy(dtype=float)
-    )
+    walker = walker or FucciWalker()
+    floor = walker.floors(thr, params)[walker.jump]
+    gem = cell[walker.jump].clip(lower=floor).to_numpy(dtype=float)
     frames = cell.index.to_numpy()
     w = params.jump_window
     for i in range(w, len(gem) - w + 1):
@@ -305,9 +361,20 @@ class _Index:
         }
 
     def continuations(
-        self, tid: int, params: FateParams, claimed: set[int]
+        self,
+        tid: int,
+        params: FateParams,
+        claimed: set[int],
+        walker: Walker | None = None,
     ) -> list[tuple[float, int, int]]:
-        """Founders that plausibly continue ``tid``: ``(cost, gap, track)``."""
+        """Founders that plausibly continue ``tid``: ``(cost, gap, track)``.
+
+        A founder must start within ``reach`` and match area (``area_tol``)
+        and the walker's markers (``marker_tol``).
+        """
+        walker = walker or FucciWalker()
+        markers = walker.markers
+        tol = walker.tolerances(params)
         last = self.rows[tid].iloc[-1]
         end = int(self.rows[tid].index[-1])
         found = []
@@ -321,12 +388,10 @@ class _Index:
                     _radius(first.area) + _radius(last.area)
                 ):
                     continue
-                ratios = [
-                    first.area / last.area,
-                    max(first.pip, 1) / max(last.pip, 1),
-                    max(first.geminin, 1) / max(last.geminin, 1),
+                ratios = [first.area / last.area] + [
+                    max(first[m], 1) / max(last[m], 1) for m in markers
                 ]
-                tols = [params.area_tol, params.marker_tol, params.marker_tol]
+                tols = [params.area_tol] + [tol[m] for m in markers]
                 if any(
                     r > t or r < 1 / t
                     for r, t in zip(ratios, tols, strict=True)
@@ -340,44 +405,47 @@ class _Index:
 
 
 def _clipped(
-    rows: pd.DataFrame, thr: Thresholds, params: FateParams
-) -> tuple[Any, Any, Any]:
-    """Area, PIP and geminin with the reporters clipped at their floors."""
-    return (
-        rows["area"].to_numpy(dtype=float),
-        rows["pip"].clip(lower=params.pip_low * thr.pip_high).to_numpy(float),
-        rows["geminin"]
-        .clip(lower=params.gem_high * thr.gem_low)
-        .to_numpy(float),
-    )
+    rows: pd.DataFrame, thr: Thresholds, params: FateParams, walker: Walker
+) -> list[Any]:
+    """Area, then the walker's markers clipped at their floors, as arrays."""
+    floors = walker.floors(thr, params)
+    return [rows["area"].to_numpy(dtype=float)] + [
+        rows[m].clip(lower=floors[m]).to_numpy(float) for m in walker.markers
+    ]
 
 
 def _matching_neighbour(
     t: int,
     last: Any,
-    ref: tuple[float, float, float],
+    ref: Sequence[float],
     exclude: int,
     idx: _Index,
     thr: Thresholds,
     params: FateParams,
+    walker: Walker,
 ) -> int | None:
-    """A nucleus in frame ``t`` near ``last`` that continues ``ref``, by cost."""
+    """A nucleus in frame ``t`` near ``last`` that continues ``ref``, by cost.
+
+    ``ref`` is the cell's recent area and markers, in :func:`_clipped` order.
+    """
     here = idx.frames.get(t)
     if here is None:
         return None
     here = here[here["track_id"] != exclude]
     if here.empty:
         return None
-    area, pip, gem = _clipped(here, thr, params)
+    values = _clipped(here, thr, params, walker)
+    area = values[0]
     dist = np.hypot(
         here["y"].to_numpy(float) - last.y, here["x"].to_numpy(float) - last.x
     )
-    tols = (params.area_tol, params.marker_tol, params.marker_tol)
+    tol = walker.tolerances(params)
+    tols = [params.area_tol] + [tol[m] for m in walker.markers]
     best: tuple[float, int] | None = None
     for k, tid in enumerate(here["track_id"].to_numpy()):
         if dist[k] > params.reach * (_radius(area[k]) + _radius(last.area)):
             continue
-        ratios = [area[k] / ref[0], pip[k] / ref[1], gem[k] / ref[2]]
+        ratios = [v[k] / r for v, r in zip(values, ref, strict=True)]
         if any(
             r > tol or r < 1 / tol for r, tol in zip(ratios, tols, strict=True)
         ):
@@ -392,16 +460,17 @@ def _matching_neighbour(
 
 def _jumped(
     area_now: float,
-    gem_now: float,
-    ref: tuple[float, float, float],
+    marker_now: float,
+    ref_area: float,
+    ref_marker: float,
     params: FateParams,
 ) -> bool:
-    """Whether area or geminin differ from the reference beyond the switch tolerances."""
+    """Whether area or the jump marker differ from the reference beyond the switch tolerances."""
     return (
-        area_now > params.switch_area * ref[0]
-        or area_now < ref[0] / params.switch_area
-        or gem_now < ref[2] / params.jump_drop
-        or gem_now > params.jump_rise * ref[2]
+        area_now > params.switch_area * ref_area
+        or area_now < ref_area / params.switch_area
+        or marker_now < ref_marker / params.jump_drop
+        or marker_now > params.jump_rise * ref_marker
     )
 
 
@@ -411,10 +480,12 @@ def _switch(
     thr: Thresholds,
     params: FateParams,
     confirmed: set[int] | frozenset[int] = frozenset(),
+    walker: Walker | None = None,
 ) -> tuple[int, int] | None:
     """First frame where the track jumps to another nucleus: ``(frame, neighbour)``.
 
-    Within an unbroken track, a step after which area or geminin stays
+    Within an unbroken track, a step after which area or the walker's jump
+    marker (geminin; DNA content for H2B-Tub) stays
     changed (medians of ``switch_history`` frames before against
     ``switch_window`` frames from the step on), while a nucleus nearby
     continues the cell's recent values, is a tracking switch: the raw track
@@ -433,8 +504,11 @@ def _switch(
     word, the same cell looking different, and would make every following
     step read as the same jump again.
     """
+    walker = walker or FucciWalker()
     w, h = params.switch_window, params.switch_history
-    area, pip, gem = _clipped(cell, thr, params)
+    values = _clipped(cell, thr, params, walker)
+    area = values[0]
+    jump = values[1 + walker.markers.index(walker.jump)]
     tids = cell["track_id"].to_numpy()
     frames = cell.index.to_numpy()
     for i in range(2, len(cell)):
@@ -449,19 +523,17 @@ def _switch(
             lo = max(lo, int(np.searchsorted(frames, max(since))))
             if i - lo < 2:
                 continue
-        ref = (
-            float(np.median(area[lo:i])),
-            float(np.median(pip[lo:i])),
-            float(np.median(gem[lo:i])),
-        )
+        ref = [float(np.median(v[lo:i])) for v in values]
+        ref_jump = float(np.median(jump[lo:i]))
         # The step frame itself must jump (so the switch is dated to the
         # frame it happens in) and the frames after it must stay jumped.
         if not (
-            _jumped(float(area[i]), float(gem[i]), ref, params)
+            _jumped(float(area[i]), float(jump[i]), ref[0], ref_jump, params)
             and _jumped(
                 float(np.median(area[i:hi])),
-                float(np.median(gem[i:hi])),
-                ref,
+                float(np.median(jump[i:hi])),
+                ref[0],
+                ref_jump,
                 params,
             )
         ):
@@ -474,6 +546,7 @@ def _switch(
             idx,
             thr,
             params,
+            walker,
         )
         if alt is not None:
             return int(frames[i]), alt
@@ -493,20 +566,21 @@ def _daughter_pair(
     thr: Thresholds,
     params: FateParams,
     claimed: set[int],
+    walker: Walker | None = None,
 ) -> tuple[int, list[int]] | None:
-    """Two daughter-like founders after a track ends with geminin high.
+    """Two daughter-like founders after a track ends looking mitotic.
 
     The repair links daughters only when it can; a mitosis whose daughters
     were never linked leaves a G2 track that just ends and two new founders
-    beside it, each about half its area and with geminin fallen. Returns
+    beside it, each about half its area and daughter-like by the walker's
+    markers (geminin fallen; half the DNA content). Returns
     ``(frame, [daughters])``.
     """
+    walker = walker or FucciWalker()
     rows = idx.rows[tid]
     last = rows.iloc[-1]
     end = int(rows.index[-1])
-    w = params.switch_window
-    gem_high = params.gem_high * thr.gem_low
-    if float(np.median(rows["geminin"].to_numpy(float)[-w:])) < gem_high:
+    if not walker.ends_mitotic(rows, thr, params):
         return None
     lo, hi = params.daughter_area
     for gap in range(1, params.max_gap + 1):
@@ -522,7 +596,7 @@ def _daughter_pair(
                 continue
             if not lo <= first.area / last.area <= hi:
                 continue
-            if first.geminin >= params.exit_drop * last.geminin:
+            if not walker.daughter_like(first, last, params):
                 continue
             found.append((float(dist), int(cand)))
         if len(found) >= 2:
@@ -616,14 +690,16 @@ def _pyknotic_end(
     thr: Thresholds,
     params: FateParams,
     shape: tuple[int, int] | None,
+    walker: Walker | None = None,
 ) -> int | None:
     """Onset frame of a pyknotic end of the track, or ``None``.
 
     The last ``death_frames`` or more frames must be small and bright against
     the cell's own medians, the end must lie away from the image border, and
-    geminin at the onset must be below its high threshold (a G2 nucleus that
-    condenses is entering mitosis, not dying).
+    the cell must not be at G2 level at the onset (geminin high; G2 DNA
+    content): a G2 nucleus that condenses is entering mitosis, not dying.
     """
+    walker = walker or FucciWalker()
     if len(cell) < 2 * params.death_frames:
         return None
     pyknotic = (cell["area"] < params.death_area * cell["area"].median()) & (
@@ -635,7 +711,7 @@ def _pyknotic_end(
     if run < params.death_frames:
         return None
     onset = cell.iloc[-run]
-    if onset["geminin"] > params.gem_high * thr.gem_low:
+    if walker.at_g2(onset, thr, params):
         return None
     if shape is not None:
         last = cell.iloc[-1]
@@ -695,6 +771,298 @@ def _condensed_run(
     return best
 
 
+# --- walkers ---------------------------------------------------------------
+
+
+class Walker:
+    """What a plate's reporters tell the walker about one cell.
+
+    Subclasses name the marker columns compared across bridges and steps
+    (:attr:`markers`), the one whose fall marks a wrong link (:attr:`jump`)
+    and how the reporters call phases, mitotic track ends, daughters, exits,
+    expression and G2.
+    """
+
+    name: ClassVar[str] = ""
+    markers: ClassVar[tuple[str, ...]] = ()
+    jump: ClassVar[str] = ""
+    jump_flag: ClassVar[str] = ""
+    state_columns: ClassVar[tuple[str, ...]] = ()
+
+    def prepare(self, tracks: pd.DataFrame) -> pd.DataFrame:
+        """The walker's columns added to (or renamed in) a well's tracks."""
+        return tracks
+
+    def thresholds(self, tracks: pd.DataFrame) -> Thresholds:
+        """Well-level reference levels."""
+        raise NotImplementedError
+
+    def floors(self, thr: Thresholds, params: FateParams) -> dict[str, float]:
+        """Per marker, the level below which values are noise (clipped)."""
+        raise NotImplementedError
+
+    def tolerances(self, params: FateParams) -> dict[str, float]:
+        """Per marker, the ratio (and inverse) allowed across a bridge or step."""
+        return dict.fromkeys(self.markers, params.marker_tol)
+
+    def phases(
+        self, cell: pd.DataFrame, thr: Thresholds, params: FateParams
+    ) -> pd.Series:
+        """Per-frame G1/S/G2 call."""
+        raise NotImplementedError
+
+    def ends_mitotic(
+        self, rows: pd.DataFrame, thr: Thresholds, params: FateParams
+    ) -> bool:
+        """Whether a track's end looks like mitosis (for daughter pairs)."""
+        raise NotImplementedError
+
+    def daughter_like(self, first: Any, last: Any, params: FateParams) -> bool:
+        """Whether a founder's first frame is a daughter of ``last``'s nucleus."""
+        raise NotImplementedError
+
+    def mitotic_exit(
+        self, rows: pd.DataFrame, thr: Thresholds, params: FateParams
+    ) -> int | None:
+        """Frame of a mitotic exit without division, if the reporters show one."""
+        return None
+
+    def reporter_status(
+        self, history: pd.DataFrame, thr: Thresholds, params: FateParams
+    ) -> str:
+        """``"positive"``, ``"negative"`` or ``"unclear"``."""
+        raise NotImplementedError
+
+    def at_g2(self, row: Any, thr: Thresholds, params: FateParams) -> bool:
+        """Whether one frame is at G2 level (then condensing is mitosis, not death)."""
+        raise NotImplementedError
+
+    def division_confirmed(
+        self,
+        mother: pd.DataFrame,
+        daughters: list[pd.DataFrame],
+        params: FateParams,
+    ) -> bool:
+        """Whether the reporters show the division (``False`` flags it)."""
+        return True
+
+
+class FucciWalker(Walker):
+    """PIP-FUCCI: the walker as described in the module docstring."""
+
+    name = "fucci"
+    markers = ("pip", "geminin")
+    jump = "geminin"
+    jump_flag = "geminin_jump"
+    state_columns = ("pip", "geminin", "dna")
+
+    def thresholds(self, tracks: pd.DataFrame) -> Thresholds:
+        """PIP-high and geminin-low references (:func:`well_thresholds`)."""
+        return well_thresholds(tracks)
+
+    def floors(self, thr: Thresholds, params: FateParams) -> dict[str, float]:
+        """PIP clipped at its S-phase level, geminin at its high threshold."""
+        return {
+            "pip": params.pip_low * thr.pip_high,
+            "geminin": params.gem_high * thr.gem_low,
+        }
+
+    def phases(
+        self, cell: pd.DataFrame, thr: Thresholds, params: FateParams
+    ) -> pd.Series:
+        """PIP-FUCCI phases (:func:`call_phases`)."""
+        return call_phases(cell, thr, params)
+
+    def ends_mitotic(
+        self, rows: pd.DataFrame, thr: Thresholds, params: FateParams
+    ) -> bool:
+        """Geminin high over the last ``switch_window`` frames."""
+        tail = rows["geminin"].to_numpy(float)[-params.switch_window :]
+        return float(np.median(tail)) >= params.gem_high * thr.gem_low
+
+    def daughter_like(self, first: Any, last: Any, params: FateParams) -> bool:
+        """Geminin fallen below ``exit_drop`` of the mother's."""
+        return bool(first.geminin < params.exit_drop * last.geminin)
+
+    def mitotic_exit(
+        self, rows: pd.DataFrame, thr: Thresholds, params: FateParams
+    ) -> int | None:
+        """Sustained high geminin collapsing in one nucleus (:func:`_mitotic_exit`)."""
+        return _mitotic_exit(rows, thr, params)
+
+    def reporter_status(
+        self, history: pd.DataFrame, thr: Thresholds, params: FateParams
+    ) -> str:
+        """Expression of PIP or geminin (:func:`_reporter_status`)."""
+        return _reporter_status(history, thr, params)
+
+    def at_g2(self, row: Any, thr: Thresholds, params: FateParams) -> bool:
+        """Geminin above its high threshold."""
+        return bool(row["geminin"] > params.gem_high * thr.gem_low)
+
+
+@dataclass(frozen=True)
+class H2BTubWalker(Walker):
+    """H2B and tubulin, no FUCCI: continuity from DNA content, divisions from H2B.
+
+    Attributes:
+        h2b: Column of the H2B channel in the tracks (``load_well`` lower
+            case, e.g. ``"h2b"`` or ``"h2b_rfp"``); renamed to ``h2b``.
+        h2b_max: Column of its nuclear maximum, if loaded; renamed to
+            ``h2b_max``. Without it divisions are not checked.
+    """
+
+    h2b: str = "h2b"
+    h2b_max: str | None = "h2b_max"
+    name: ClassVar[str] = "h2b_tub"
+    markers: ClassVar[tuple[str, ...]] = ("content", "h2b")
+    jump: ClassVar[str] = "content"
+    jump_flag: ClassVar[str] = "dna_jump"
+    state_columns: ClassVar[tuple[str, ...]] = ("h2b", "dna", "content")
+
+    def prepare(self, tracks: pd.DataFrame) -> pd.DataFrame:
+        """Rename the H2B columns and add ``content`` (DNA mean times area)."""
+        out = tracks.rename(
+            columns={self.h2b: "h2b"}
+            | ({self.h2b_max: "h2b_max"} if self.h2b_max else {})
+        )
+        if "content" not in out:
+            out["content"] = out["dna"] * out["area"]
+        return out
+
+    def thresholds(self, tracks: pd.DataFrame) -> Thresholds:
+        """G1 content peak (mode of log content) and the H2B expression floor."""
+        content = tracks["content"].to_numpy(float)
+        content = content[content > 0]
+        # The G1 peak: the mode of log content (most cells are in G1).
+        hist, edges = np.histogram(np.log(content), bins=60)
+        k = int(hist.argmax())
+        return Thresholds(
+            pip_high=float("nan"),
+            gem_low=float("nan"),
+            dna_median=float(tracks["dna"].median()),
+            area_median=float(tracks["area"].median()),
+            content_g1=float(np.exp((edges[k] + edges[k + 1]) / 2)),
+            h2b_floor=0.2 * float(tracks["h2b"].median()),
+        )
+
+    def floors(self, thr: Thresholds, params: FateParams) -> dict[str, float]:
+        """Content clipped at half the G1 peak, H2B at its expression floor."""
+        return {"content": 0.5 * thr.content_g1, "h2b": thr.h2b_floor}
+
+    def tolerances(self, params: FateParams) -> dict[str, float]:
+        """Content within ``content_tol`` (it is steady); H2B within ``marker_tol``."""
+        return {"content": params.content_tol, "h2b": params.marker_tol}
+
+    def phases(
+        self, cell: pd.DataFrame, thr: Thresholds, params: FateParams
+    ) -> pd.Series:
+        """Smoothed content against the well's G1 peak (approximate)."""
+        level = (
+            cell["content"]
+            .rolling(params.smooth, center=True, min_periods=1)
+            .median()
+            / thr.content_g1
+        )
+        return pd.Series(
+            np.select(
+                [level >= params.content_g2, level >= params.content_s],
+                ["G2", "S"],
+                "G1",
+            ),
+            index=cell.index,
+        )
+
+    def ends_mitotic(
+        self, rows: pd.DataFrame, thr: Thresholds, params: FateParams
+    ) -> bool:
+        """Content at G2 level over the last ``switch_window`` frames."""
+        tail = rows["content"].to_numpy(float)[-params.switch_window :]
+        return self.at_g2({"content": float(np.median(tail))}, thr, params)
+
+    def daughter_like(self, first: Any, last: Any, params: FateParams) -> bool:
+        """Less than ``daughter_content`` of the mother's content."""
+        return bool(first.content < params.daughter_content * last.content)
+
+    def reporter_status(
+        self, history: pd.DataFrame, thr: Thresholds, params: FateParams
+    ) -> str:
+        """H2B expressed in any frame, else negative once observed long enough."""
+        h2b = (
+            history["h2b"]
+            .rolling(params.smooth, center=True, min_periods=1)
+            .median()
+        )
+        if (h2b > thr.h2b_floor).any():
+            return "positive"
+        span = int(history.index[-1]) - int(history.index[0]) + 1
+        return (
+            "negative"
+            if span >= params.frames(params.reporter_hours)
+            else "unclear"
+        )
+
+    def at_g2(self, row: Any, thr: Thresholds, params: FateParams) -> bool:
+        """Content at ``content_g2`` times the G1 peak or more."""
+        return bool(row["content"] >= params.content_g2 * thr.content_g1)
+
+    def division_confirmed(
+        self,
+        mother: pd.DataFrame,
+        daughters: list[pd.DataFrame],
+        params: FateParams,
+    ) -> bool:
+        """H2B condenses: the maximum around the split rises over interphase.
+
+        The peak is taken over the mother's last ``condense_window`` frames
+        and the daughters' first ones, against the median of the mother's
+        frames before that. Undecidable (no maximum loaded, too short a
+        mother) counts as confirmed: the flag is for a visible absence.
+        """
+        if "h2b_max" not in mother:
+            return True
+        w = params.condense_window
+        base = mother["h2b_max"].to_numpy(float)[:-w][-2 * w :]
+        if len(base) < 2:
+            return True
+        peak = [mother["h2b_max"].to_numpy(float)[-w:].max()] + [
+            d["h2b_max"].to_numpy(float)[:w].max() for d in daughters if len(d)
+        ]
+        return bool(max(peak) >= params.condense_rise * np.median(base))
+
+
+#: Walkers by name.
+WALKERS: dict[str, type[Walker]] = {
+    FucciWalker.name: FucciWalker,
+    H2BTubWalker.name: H2BTubWalker,
+}
+
+
+def resolve_walker(
+    channel_names: Iterable[str], n_timepoints: int
+) -> Walker | None:
+    """The walker for a plate's channels: FUCCI, else H2B with tubulin, else none.
+
+    Args:
+        channel_names: The plate's channel names (CellView or OMERO).
+        n_timepoints: Frames in the timelapse; a single frame gets no walker.
+
+    Returns:
+        :class:`FucciWalker` for PIP-FUCCI; :class:`H2BTubWalker` (with the
+        H2B column named as :func:`~omero_screen_track.cells.load_well` names
+        it) when there is an H2B channel and a tubulin channel (name
+        containing ``tub``); otherwise ``None``.
+    """
+    names = list(channel_names)
+    if resolve_pip_fucci(names, n_timepoints) is not None:
+        return FucciWalker()
+    h2b = resolve_h2b(names, n_timepoints)
+    if h2b is not None and any("tub" in n.lower() for n in names):
+        col = h2b.lower()
+        return H2BTubWalker(h2b=col, h2b_max=f"{col}_max")
+    return None
+
+
 def follow_cells(
     tracks: pd.DataFrame,
     start: int,
@@ -704,6 +1072,8 @@ def follow_cells(
     assignment: dict[int, int] | None = None,
     shape: tuple[int, int] | None = None,
     confirmed: dict[int, set[int]] | None = None,
+    walker: Walker | None = None,
+    seeds: Sequence[tuple[int, int]] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Follow every cell present at ``start`` until its first outcome or ``stop``.
 
@@ -722,22 +1092,33 @@ def follow_cells(
             its identity (:func:`~omero_screen_track.edit.confirmed_frames`).
             A switch there is the reviewer's, so it neither cuts the track
             nor is flagged or proposed.
+        walker: What the reporters say (:func:`resolve_walker`); default
+            :class:`FucciWalker`.
+        seeds: ``(track id, frame)`` of the cells to follow, each from its
+            own frame (e.g. daughters at birth), instead of every cell
+            present at ``start``. The start-area test is skipped for them.
 
     Returns:
         ``(cells, states)``: one row per cell with its outcome and flags, and
         one row per cell and frame with the phase call.
     """
     params = params or FateParams()
-    thr = well_thresholds(tracks)
+    walker = walker or FucciWalker()
+    tracks = walker.prepare(tracks)
+    thr = walker.thresholds(tracks)
     idx = _Index(tracks)
     events_by_track = _events_by_track(repair_events, assignment)
 
-    present = tracks[tracks.timepoint == start]
-    present = present[present.area >= params.min_start_area * thr.area_median]
-    claimed: set[int] = set(present.track_id)
+    if seeds is None:
+        present = tracks[tracks.timepoint == start]
+        present = present[
+            present.area >= params.min_start_area * thr.area_median
+        ]
+        seeds = [(int(t), start) for t in sorted(present.track_id)]
+    claimed: set[int] = {int(t) for t, _ in seeds}
 
     cells, states = [], []
-    for cell_no, tid in enumerate(sorted(present.track_id), start=1):
+    for cell_no, (tid, t0) in enumerate(seeds, start=1):
         flags: set[str] = set()
         segments = [int(tid)]
         proposals: list[dict[str, Any]] = []
@@ -750,9 +1131,9 @@ def follow_cells(
             if cur in idx.divides:
                 outcome, outcome_frame = "divided", end + 1
                 break
-            options = idx.continuations(cur, params, claimed)
+            options = idx.continuations(cur, params, claimed, walker)
             if not options:
-                pair = _daughter_pair(cur, idx, thr, params, claimed)
+                pair = _daughter_pair(cur, idx, thr, params, claimed, walker)
                 if pair is not None:
                     frame, daughters = pair
                     outcome, outcome_frame = "divided", frame
@@ -765,7 +1146,7 @@ def follow_cells(
                                 "track": d,
                                 "frame": frame,
                                 "parent": int(tid),
-                                "reason": f"daughter pair at t{frame}: the track ends with geminin high and two half-size nuclei appear",
+                                "reason": f"daughter pair at t{frame}: the track ends at G2 level and two half-size nuclei appear",
                                 "confidence": "uncertain",
                             }
                         )
@@ -793,9 +1174,9 @@ def follow_cells(
             cur = nxt
 
         rows = pd.concat([idx.rows[s] for s in segments])
-        rows = rows[(rows.index >= start) & (rows.index <= stop)]
+        rows = rows[(rows.index >= t0) & (rows.index <= stop)]
         fixed = {f for s in segments for f in (confirmed or {}).get(s, ())}
-        switched = _switch(rows, idx, thr, params, fixed)
+        switched = _switch(rows, idx, thr, params, fixed, walker)
         if switched is not None and not _new_label(switched, idx):
             # A matching neighbour that already existed is usually a
             # neighbour (on 5054, 19 of 19 such relinks in C4 were wrong: the
@@ -821,9 +1202,13 @@ def follow_cells(
                     "confidence": "uncertain",
                 }
             )
-        phases = call_phases(rows, thr, params)
+        phases = walker.phases(rows, thr, params)
+        if outcome == "divided" and cur in idx.divides:
+            kids = [idx.rows[k] for k, p in idx.parent.items() if p == cur]
+            if not walker.division_confirmed(idx.rows[cur], kids, params):
+                flags.update(("division_unconfirmed", "outcome_review"))
 
-        exit_frame = _mitotic_exit(rows, thr, params)
+        exit_frame = walker.mitotic_exit(rows, thr, params)
         if exit_frame is not None and (
             outcome_frame is None or exit_frame < outcome_frame - 1
         ):
@@ -836,7 +1221,7 @@ def follow_cells(
         ):
             outcome, outcome_frame = "mitotic_arrest", run[0]
         if outcome == "lost" and switched is None:
-            onset = _pyknotic_end(rows, thr, params, shape)
+            onset = _pyknotic_end(rows, thr, params, shape, walker)
             if onset is not None:
                 outcome, outcome_frame = "death", onset
             elif _left_field(rows, thr, params, shape):
@@ -844,19 +1229,22 @@ def follow_cells(
         if outcome is None:
             outcome, outcome_frame = "no_mitosis", int(rows.index[-1])
         history = pd.concat([idx.rows[s] for s in segments])
-        reporter = _reporter_status(
+        reporter = walker.reporter_status(
             history[history.index <= stop], thr, params
         )
 
-        # Geminin falls in mitosis itself: judge continuity only before it.
+        # The jump marker falls in mitosis itself: judge continuity only before it.
         cut = (
             outcome_frame - params.jump_window
             if outcome in ("divided", "mitotic_exit_no_division")
             and outcome_frame is not None
             else stop + 1
         )
-        if _geminin_jump(rows[rows.index < cut], thr, params) is not None:
-            flags.add("geminin_jump")
+        if (
+            _geminin_jump(rows[rows.index < cut], thr, params, walker)
+            is not None
+        ):
+            flags.add(walker.jump_flag)
         if outcome in ("mitotic_exit_no_division", "mitotic_arrest", "death"):
             flags.add("outcome_review")
         if "daughter_pair" in flags:
@@ -865,7 +1253,7 @@ def follow_cells(
             flags.add("lost")
         for s in segments:
             for rule, frame in events_by_track.get(s, ()):
-                if start <= frame <= rows.index[-1]:
+                if t0 <= frame <= rows.index[-1]:
                     flags.add(rule)
         if shape is not None:
             margin = 2 * _radius(thr.area_median)
@@ -896,6 +1284,7 @@ def follow_cells(
             {
                 "cell": cell_no,
                 "start_track": int(tid),
+                "start_frame": int(t0),
                 "segments": " ".join(map(str, segments)),
                 "start_phase": phases.iloc[0],
                 "outcome": outcome,
@@ -909,9 +1298,7 @@ def follow_cells(
                 "proposals": json.dumps(proposals),
             }
         )
-        st = rows[
-            ["track_id", "area", "y", "x", "pip", "geminin", "dna"]
-        ].copy()
+        st = rows[["track_id", "area", "y", "x", *walker.state_columns]].copy()
         st["phase"] = phases
         st["cell"] = cell_no
         states.append(st.reset_index())
