@@ -43,13 +43,20 @@ qt = [
     "napari[pyqt6,optional]>=0.9.2",
     "pyqtgraph>=0.14.0",
 ]
+# Agent access to the viewer (Track Review with Claude): napari-mcp with the
+# napari_mcp.tools plugin hook and fastmcp 3+/4 support. Both are only in the
+# HocheggerLab fork (upstream PRs royerlab/napari-mcp#39 and #41 are open);
+# the workspace pins the fork in [tool.uv.sources] (#88).
+agent = [
+    "napari-mcp>=0.1",
+]
 
 [project.entry-points."napari.manifest"]
 omero-screen-napari = "omero_screen_napari:napari.yaml"
 
-# Track-review tools for agents, picked up by napari-mcp's plugin hook
-# (HocheggerLab/napari-mcp@plugin-tools until upstream releases it). Declaring
-# the entry point does not require napari-mcp to be installed.
+# Track-review tools for agents, picked up by napari-mcp's plugin hook (the
+# `agent` extra; HocheggerLab fork until upstream releases it). Declaring the
+# entry point does not require napari-mcp to be installed.
 [project.entry-points."napari_mcp.tools"]
 omero_screen = "omero_screen_napari.review.mcp_tools:register"
 
