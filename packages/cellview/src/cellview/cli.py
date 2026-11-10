@@ -506,6 +506,15 @@ def audit_queue(
     help="Last frame cells are followed to.",
 )
 @click.option(
+    "--births",
+    type=(int, int),
+    default=None,
+    metavar="FIRST LAST",
+    help="Follow a birth cohort instead of the cells present at --start: one "
+    "daughter of every reporter-confirmed division born in frames FIRST-LAST, "
+    "each from its birth frame.",
+)
+@click.option(
     "--sample",
     type=click.IntRange(min=1),
     default=50,
@@ -555,6 +564,7 @@ def review_queue(
     wells: tuple[str, ...],
     start: int,
     stop: int,
+    births: tuple[int, int] | None,
     sample: int,
     audit: float,
     seed: int,
@@ -565,8 +575,9 @@ def review_queue(
 ) -> None:
     """Sample cells per well and write a review queue for the Track Review widget.
 
-    Cells present at --start are followed to --stop on the curated lineage
-    (automatic repair plus --log). A fixed-seed random sample per well is
+    Cells present at --start (or, with --births, daughters born in that
+    window) are followed to --stop on the curated lineage (automatic repair
+    plus --log), by the plate's walker: PIP-FUCCI, or H2B with tubulin. A fixed-seed random sample per well is
     drawn; flagged cells and an --audit fraction of unflagged ones are queued.
     """
     from omero_screen_track.review_queue import QueueSpec, build_queue
@@ -579,6 +590,7 @@ def review_queue(
         seed=seed,
         stationary_warn=stationary_warn,
         mode=mode,
+        births=births,
     )
     try:
         q, s, table = build_queue(

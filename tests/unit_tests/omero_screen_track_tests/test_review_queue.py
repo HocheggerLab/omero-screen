@@ -53,7 +53,8 @@ def _det(n_cells: int = 6, frames: int = 30) -> pd.DataFrame:
 
 @pytest.fixture
 def fake_well(monkeypatch):
-    monkeypatch.setattr(rq, "load_well", lambda conn, plate, well: _det())
+    monkeypatch.setattr(rq, "load_well", lambda conn, plate, well, **kw: _det())
+    monkeypatch.setattr(rq, "plate_walker", lambda conn, plate: rq.FucciWalker())
 
 
 def test_sampling_is_reproducible_and_excludes_debris(fake_well) -> None:
@@ -171,7 +172,7 @@ def test_queue_carries_walker_proposals_as_raw_label_edits(
     broken = det["track_id_raw"].eq(2) & det["timepoint"].ge(10)
     det.loc[broken, ["track_id_raw", "label"]] = 50
     det = det[~(det["label"].eq(50) & det["timepoint"].eq(10))]
-    monkeypatch.setattr(rq, "load_well", lambda conn, plate, well: det)
+    monkeypatch.setattr(rq, "load_well", lambda conn, plate, well, **kw: det)
     _, items = rq.build_well(
         None, 1, "C2", rq.QueueSpec(start=5, stop=25, sample=10, audit=0.0)
     )

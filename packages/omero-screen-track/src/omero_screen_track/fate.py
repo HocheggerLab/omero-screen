@@ -1063,6 +1063,51 @@ def resolve_walker(
     return None
 
 
+def birth_seeds(
+    tracks: pd.DataFrame,
+    window: tuple[int, int],
+    walker: Walker | None = None,
+    params: FateParams | None = None,
+    seed: int = 0,
+) -> list[tuple[int, int]]:
+    """One daughter of every division in ``window`` that the reporters confirm.
+
+    For a cohort followed from birth (:func:`follow_cells` ``seeds``). Only
+    divisions :meth:`Walker.division_confirmed` accepts give a seed, and one
+    daughter is drawn at random per division, so sisters (whose fates are
+    correlated) are not both followed.
+
+    Args:
+        tracks: A well's tracks, as for :func:`follow_cells`.
+        window: First and last birth frame.
+        walker: Default :class:`FucciWalker`.
+        params: Default :class:`FateParams`.
+        seed: Random seed of the daughter draw.
+
+    Returns:
+        ``(daughter track id, birth frame)``, by birth frame.
+    """
+    walker = walker or FucciWalker()
+    params = params or FateParams()
+    idx = _Index(walker.prepare(tracks))
+    rng = np.random.default_rng(seed)
+    kids: dict[int, list[int]] = {}
+    for tid, parent in idx.parent.items():
+        if parent and parent in idx.rows:
+            kids.setdefault(int(parent), []).append(int(cast(int, tid)))
+    seeds = []
+    for mother, daughters in sorted(kids.items()):
+        born = int(idx.rows[daughters[0]].index[0])
+        if not window[0] <= born <= window[1]:
+            continue
+        rows = [idx.rows[d] for d in daughters]
+        if not walker.division_confirmed(idx.rows[mother], rows, params):
+            continue
+        pick = sorted(daughters)[int(rng.integers(len(daughters)))]
+        seeds.append((pick, int(idx.rows[pick].index[0])))
+    return sorted(seeds, key=lambda s: (s[1], s[0]))
+
+
 def follow_cells(
     tracks: pd.DataFrame,
     start: int,

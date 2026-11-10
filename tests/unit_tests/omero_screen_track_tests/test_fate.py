@@ -486,3 +486,18 @@ def test_resolve_walker_by_channels() -> None:
     assert isinstance(walker, H2BTubWalker) and walker.h2b == "h2b_rfp"
     assert resolve_walker(["H2B", "DAPI"], 10) is None
     assert resolve_walker(["DAPI", "Tub"], 10) is None
+
+
+def test_birth_seeds_one_daughter_of_each_confirmed_division() -> None:
+    """Only condensed divisions in the window seed; one daughter each."""
+    from omero_screen_track.fate import H2BTubWalker, birth_seeds
+
+    rows = _h2b_population(
+        _h2b_cycle(10, 500),
+        _h2b_cycle(20, 1500, condensed=False),
+    )
+    seeds = birth_seeds(pd.DataFrame(rows), (25, 35), H2BTubWalker())
+    assert len(seeds) == 1
+    (tid, frame), = seeds
+    assert tid in (11, 12) and frame == 30
+    assert birth_seeds(pd.DataFrame(rows), (31, 40), H2BTubWalker()) == []

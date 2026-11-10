@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import duckdb
 import pandas as pd
@@ -24,6 +24,9 @@ from omero_utils.channels import PipFucci, resolve_h2b, resolve_pip_fucci
 
 from omero_screen_track.edit import Curated, EditLog, base_lineage, replay
 from omero_screen_track.repair import RepairParams, repair_lineage
+
+if TYPE_CHECKING:
+    from omero_screen_track.fate import Walker
 
 
 class NotPipFucciError(ValueError):
@@ -114,6 +117,24 @@ def plate_fucci(conn: duckdb.DuckDBPyConnection, plate_id: int) -> PipFucci:
     if fucci is None:
         raise _not_fucci(plate_id)
     return fucci
+
+
+def plate_walker(conn: duckdb.DuckDBPyConnection, plate_id: int) -> Walker:
+    """The fate walker for a plate's channels (:func:`~omero_screen_track.fate.resolve_walker`).
+
+    Raises:
+        NotPipFucciError: If the plate has neither PIP-FUCCI nor H2B with
+            tubulin, so cells cannot be followed.
+    """
+    from omero_screen_track.fate import resolve_walker
+
+    walker = resolve_walker(*_measured(conn, plate_id))
+    if walker is None:
+        raise NotPipFucciError(
+            f"Plate {plate_id} is neither PIP-FUCCI nor has H2B and tubulin "
+            "channels; there is no walker to follow its cells."
+        )
+    return walker
 
 
 def plate_reporter(conn: duckdb.DuckDBPyConnection, plate_id: int) -> Reporter:

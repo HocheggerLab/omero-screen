@@ -37,20 +37,31 @@ from omero_screen_track.edit import (
     imported_lineage,
     replay,
 )
-from omero_screen_track.fate import FateParams, apply_annotations, follow_cells
+from omero_screen_track.fate import (
+    FateParams,
+    FucciWalker,
+    H2BTubWalker,
+    Walker,
+    apply_annotations,
+    birth_seeds,
+    follow_cells,
+)
+from omero_screen_track.plate import plate_walker
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
 QUESTIONS = {
     "switch": "The track jumps to a different-looking nucleus while a new label continues the cell. Which nucleus is the cell from here?",
-    "jump_suspect": "Area or geminin changes abruptly while a neighbour that already existed looks like the cell. A real change in this cell (e.g. an exit), or a jump onto the neighbour?",
-    "daughter_pair": "The track ends with geminin high and two half-size nuclei appear beside it. A division whose daughters were not linked?",
+    "jump_suspect": "Area or geminin (DNA content on H2B plates) changes abruptly while a neighbour that already existed looks like the cell. A real change in this cell (e.g. an exit), or a jump onto the neighbour?",
+    "daughter_pair": "The track ends at G2 level (geminin high; G2 DNA content) and two half-size nuclei appear beside it. A division whose daughters were not linked?",
     "lost": "The track ends without an outcome. Where does the cell go? Pick its continuation, or mark death.",
     "link_ambiguous": "A break was bridged with more than one candidate. Is the continuation the same cell?",
     "gap": "Frames without a mask were bridged. Is it the same cell on both sides?",
     "fragment": "Nucleus pieces were merged. One nucleus, or two cells?",
     "geminin_jump": "Geminin falls without a split. A wrong link, or a mis-segmented frame?",
+    "dna_jump": "DNA content falls (or leaps) without a split. A wrong link, or a mis-segmented frame?",
+    "division_unconfirmed": "The track divides but H2B shows no condensation. A real mitosis, or a neighbour linked as a daughter?",
     "outcome_review": "Automatic outcome needs confirmation. Correct, or which outcome?",
     "refractory": "A second division within 8 h was rejected. One mitosis, or two?",
     "edge": "The cell touches the image edge. Still followable?",
@@ -72,6 +83,9 @@ class QueueSpec:
     tail: int = 6
     stationary_warn: float = 0.05
     mode: str = "human"  # human: agent proposes, reviewer confirms; agent: agent works alone
+    births: tuple[int, int] | None = (
+        None  # follow one daughter of each confirmed division born in this window, not the cells present at start
+    )
 
 
 def exclusion_summary(
@@ -143,9 +157,19 @@ def build_well(
     spec: QueueSpec,
     log: EditLog | None = None,
     params: FateParams | None = None,
+    walker: Walker | None = None,
 ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
-    """Sample and queue one well. Returns ``(sample table, queue items)``."""
-    raw = load_well(conn, plate_id, well)
+    """Sample and queue one well. Returns ``(sample table, queue items)``.
+
+    ``walker`` defaults to :class:`~omero_screen_track.fate.FucciWalker`
+    (:func:`build_queue` resolves it from the plate's channels). With
+    ``spec.births`` the cells are daughters at birth
+    (:func:`~omero_screen_track.fate.birth_seeds`), each followed from its
+    own birth frame; otherwise every cell present at ``spec.start``.
+    """
+    walker = walker or FucciWalker()
+    maxima = [walker.h2b] if isinstance(walker, H2BTubWalker) else []
+    raw = load_well(conn, plate_id, well, maxima=maxima)
     det, debris = drop_debris(raw)
     # CellView holds the stored correction's final lineage; start from it as
     # it is, so the review, the widget's masks and the fate table agree.
@@ -155,6 +179,11 @@ def build_well(
     tracks = curated_tracks(curated, det)
     shape = (int(det["y"].max()) + 1, int(det["x"].max()) + 1)
     stored = load_stored(plate_id, well)
+    seeds = (
+        birth_seeds(tracks, spec.births, walker, params, spec.seed)
+        if spec.births
+        else None
+    )
     cells, states = follow_cells(
         tracks,
         spec.start,
@@ -164,6 +193,8 @@ def build_well(
         {} if stored is not None else None,  # event ids are final track ids
         shape,
         confirmed_frames(curated, edits, well),
+        walker,
+        seeds,
     )
     cells = apply_annotations(cells, curated)
     summary = exclusion_summary(cells, spec.stationary_warn)
@@ -180,11 +211,16 @@ def build_well(
     ].copy()
     sampled["well"] = well
     sampled["label"] = [
-        int(labels.get((int(t), spec.start), 0))
-        for t in sampled["start_track"]
+        int(labels.get((int(t), int(f)), 0))
+        for t, f in zip(
+            sampled["start_track"], sampled["start_frame"], strict=True
+        )
     ]
     sampled["id"] = [
-        f"{well}-t{spec.start}-L{lab}" for lab in sampled["label"]
+        f"{well}-t{f}-L{lab}"
+        for f, lab in zip(
+            sampled["start_frame"], sampled["label"], strict=True
+        )
     ]
     audit_draw = rng.random(len(sampled))
     flagged = sampled["n_flags"] > 0
@@ -203,13 +239,13 @@ def build_well(
         proposals = _proposals(
             json.loads(getattr(row, "proposals", "[]") or "[]"),
             labels,
-            spec.start,
+            int(row.start_frame),
             int(row.label),
         )
         frame = (
             int(row.outcome_frame)
             if pd.notna(row.outcome_frame) and row.outcome != "no_mitosis"
-            else spec.start
+            else int(row.start_frame)
         )
         path = _path(
             states[states["cell"] == row.cell],
@@ -304,8 +340,9 @@ def build_audit(
         start=start, stop=stop, sample=10**9, audit=1.0, seed=seed
     )
     pool: list[dict[str, Any]] = []
+    walker = plate_walker(conn, plate_id)
     for well in wells:
-        _, items = build_well(conn, plate_id, well, spec, log)
+        _, items = build_well(conn, plate_id, well, spec, log, walker=walker)
         pool += items
     rng = np.random.default_rng([seed, n])
     pick = sorted(rng.choice(len(pool), size=min(n, len(pool)), replace=False))
@@ -389,8 +426,9 @@ def build_queue(
     if log_path is not None:
         check_correction(log_path.parent, digest)
     samples, items, exclusions = [], [], {}
+    walker = plate_walker(conn, plate_id)
     for well in wells:
-        s, i = build_well(conn, plate_id, well, spec, log)
+        s, i = build_well(conn, plate_id, well, spec, log, walker=walker)
         exclusions[well] = s.attrs.get("exclusions", {})
         samples.append(s)
         items += i
