@@ -524,3 +524,17 @@ def test_birth_seeds_skip_daughters_that_do_not_look_newborn() -> None:
     rows = _bright_births(_h2b_population(_h2b_cycle(10, 500)))
     strict = FateParams(min_mother_frames=31)
     assert birth_seeds(pd.DataFrame(rows), (25, 35), H2BTubWalker(), strict) == []
+
+
+def test_birth_seeds_use_the_mothers_end_not_a_late_child() -> None:
+    """A child track that starts long after the mother ended is no birth."""
+    from omero_screen_track.fate import H2BTubWalker, birth_seeds
+
+    rows = _bright_births(_h2b_population(_h2b_cycle(10, 500)))
+    for r in rows:  # daughter 12 only appears at frame 36
+        if r["track_id"] == 12 and r["timepoint"] < 36:
+            r["track_id"] = -1
+    rows = [r for r in rows if r["track_id"] != -1]
+    seeds = birth_seeds(pd.DataFrame(rows), (25, 35), H2BTubWalker(), sisters=True)
+    assert seeds == [(11, 30)]
+    assert birth_seeds(pd.DataFrame(rows), (36, 40), H2BTubWalker(), sisters=True) == []

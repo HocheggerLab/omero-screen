@@ -1136,9 +1136,16 @@ def birth_seeds(
             kids.setdefault(int(parent), []).append(int(cast(int, tid)))
     seeds = []
     for mother, daughters in sorted(kids.items()):
-        born = int(idx.rows[daughters[0]].index[0])
-        if not window[0] <= born <= window[1]:
+        # A daughter is born when the mother ends: a track that starts later
+        # and was linked as a child is not a birth in the window.
+        split = int(idx.rows[mother].index[-1]) + 1
+        if not window[0] <= split <= window[1]:
             continue
+        daughters = [
+            d
+            for d in daughters
+            if int(idx.rows[d].index[0]) - split <= params.max_gap - 1
+        ]
         rows = [idx.rows[d] for d in daughters]
         if not walker.division_confirmed(idx.rows[mother], rows, params):
             continue
