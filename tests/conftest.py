@@ -25,6 +25,7 @@ import pytest
 # Import OMERO modules carefully to avoid circular imports
 # First import the gateway module
 from omero.gateway import BlitzGateway
+from omero_screen.config import set_env_vars
 
 # Finally import model classes
 # Then import rtypes which doesn't depend on model classes
@@ -33,6 +34,10 @@ from omero_utils.omero_plate import (
     create_basic_plate,
     create_well_with_image,
 )
+
+# The omero_conn fixture reads HOST/USERNAME/PASSWORD from the environment.
+# Importing omero_utils no longer loads the .env file (#83), so load it here.
+set_env_vars()
 
 
 @pytest.fixture
