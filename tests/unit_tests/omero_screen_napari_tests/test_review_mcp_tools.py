@@ -123,7 +123,7 @@ def test_proposals_wait_for_confirmation(server) -> None:
         _call(
             srv,
             "propose_edit",
-            {"item_id": "C2-t72-L5", "op": "swap", "args": {}, "reason": "x"},
+            {"item_id": "C2-t72-L5", "op": "mask_add", "args": {}, "reason": "x"},
         )
 
 

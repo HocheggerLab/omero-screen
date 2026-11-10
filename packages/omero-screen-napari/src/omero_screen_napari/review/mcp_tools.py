@@ -34,6 +34,9 @@ PROPOSABLE = (
     "exclude",
     "note",
     "separate",
+    "clear_parent",
+    "set_parent",
+    "swap",
 )
 
 
@@ -290,14 +293,21 @@ def register(server: Any, state: Any) -> None:
         Args:
             item_id: Queue item id.
             op: One of link, unlink, absorb, drop, separate, event, set_outcome,
-                exclude, note.
+                exclude, note, clear_parent, set_parent, swap.
             args: For link {"frame", "label"}; unlink {"frame"}; absorb / drop
                 {"frames": [first, last], "label"}; separate {"first", "last",
                 "threshold"} (split the cell from a reporter-negative object
                 merged into its mask over those frames; threshold is the
                 fraction of the cell's own reporter level, default 0.5); event
                 {"kind": mitosis|death|slippage, "frame"}; set_outcome
-                {"outcome"}; exclude {"reason"}; note {"text"}.
+                {"outcome"}; exclude {"reason"}; note {"text"};
+                clear_parent {"cell": [frame, label]} (detach that nucleus's
+                track from its mother, e.g. a piece or neighbour left as a
+                fake daughter); set_parent {"cell": [frame, label],
+                "parent": [frame, label]}; swap {"other": [frame, label],
+                "frame"} (exchange identities with another cell from frame
+                on, e.g. sisters mixed up after a merge). ``cell`` defaults
+                to the item's own cell.
             reason: Why, in one sentence the reviewer can check on screen.
             confidence: "clear" if the filmstrip and numbers leave no doubt,
                 otherwise "uncertain".
