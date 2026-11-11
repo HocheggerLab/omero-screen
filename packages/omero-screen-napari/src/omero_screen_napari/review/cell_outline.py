@@ -4,8 +4,14 @@ Track Review outlines the reviewed cell's nucleus in each frame. It used to
 show the outline as a lazy mask the size of the whole well: every time step
 relabelled every tile of the frame, and napari traced contours over the full
 canvas (~320 ms per step on a 3200² well, #76). The outline only needs the
-pixels around the cell, so the widget now shows one small crop per frame,
-read with :func:`cell_crop` and placed on the canvas with ``translate``.
+pixels around the cell: :func:`cell_crop` reads one small crop per frame.
+
+The crops were then shown in a labels layer, swapped in per frame. Labels
+layers slice asynchronously, so the outline appeared one load after the
+nuclei, behind the cell's marker. The widget now traces each crop into
+polygons (:func:`crop_outline`) in a background thread, nearest frames first
+(:func:`frames_from`), and shows them in one in-memory shapes layer that
+follows the drawn frame exactly like the marker does.
 
 Plain numpy, no Qt: these functions are tested without a viewer.
 """
@@ -15,6 +21,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+from skimage.measure import find_contours
 
 #: Crop half-size (pixels) tried first, and the largest the crop may grow to.
 START_HALF = 64
@@ -75,6 +82,39 @@ def patch_crop(
     """A reviewer-made mask ``(y0, x0, mask)`` as ``(uint8 mask, y0, x0)``."""
     y0, x0, mask = patch
     return np.asarray(mask, dtype=bool).astype(np.uint8), int(y0), int(x0)
+
+
+def crop_outline(
+    crop: tuple[np.ndarray, int, int], frame: int
+) -> list[np.ndarray]:
+    """The outline of a crop as ``(t, y, x)`` polygons on the canvas.
+
+    Args:
+        crop: ``(mask, y0, x0)`` from :func:`cell_crop` or :func:`patch_crop`.
+        frame: Time index written into the polygons' first column.
+
+    Returns:
+        One ``(N, 3)`` float array per closed contour (several when the mask
+        has holes or separate pieces); empty when the mask is empty.
+    """
+    mask, y0, x0 = crop
+    # Padding closes contours that touch the crop's border.
+    padded = np.pad(np.asarray(mask, dtype=np.uint8), 1)
+    polygons = []
+    for contour in find_contours(padded, 0.5):
+        if len(contour) < 3:
+            continue
+        polygon = np.empty((len(contour), 3))
+        polygon[:, 0] = frame
+        polygon[:, 1] = contour[:, 0] + y0 - 1
+        polygon[:, 2] = contour[:, 1] + x0 - 1
+        polygons.append(polygon)
+    return polygons
+
+
+def frames_from(frames: list[int], centre: int) -> list[int]:
+    """``frames`` ordered by distance from ``centre`` (earlier frame first on ties)."""
+    return sorted(frames, key=lambda t: (abs(t - centre), t))
 
 
 def needs_recentre(

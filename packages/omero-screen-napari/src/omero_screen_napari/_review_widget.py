@@ -81,6 +81,7 @@ from typing import Any
 
 import numpy as np
 from loguru import logger
+from napari.qt.threading import create_worker
 from napari.utils import notifications
 from napari.utils.colormaps import Colormap
 from napari.viewer import Viewer
@@ -108,13 +109,11 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from omero_screen_napari.layer_sync import (
-    NOT_A_SOURCE,
-    displayed_point,
-    hold_until_loaded,
-)
+from omero_screen_napari.layer_sync import hold_until_loaded
 from omero_screen_napari.review.cell_outline import (
     cell_crop,
+    crop_outline,
+    frames_from,
     needs_recentre,
     patch_crop,
 )
@@ -138,6 +137,11 @@ PROPOSAL_LAYER = "review proposal"
 PREVIEW_LAYER = "review preview"
 SEPARATION_LAYER = "review separation"
 DRAW_LAYER = "review draw"
+#: The reviewed cell's outline: colour and width (canvas pixels).
+OUTLINE_COLOUR = "#00e5ff"
+OUTLINE_WIDTH = 1.5
+#: Frames traced per update of the outline layer (the first update is one frame).
+OUTLINE_CHUNK = 16
 REVIEW_LAYERS = (
     PAST_LAYER,
     AHEAD_LAYER,
@@ -168,14 +172,14 @@ class TrackReviewWidget(QWidget):
         self._loaded: tuple[int, str] | None = None
         self._pixel_size = 1.0
         self._nuclei: Any = None
-        # The reviewed cell's outline, one small crop per frame (#76):
-        # frame -> (label, y, x) of the cell, its reviewer-made masks, the
-        # crops read so far (None: no nucleus) and the frame on screen.
+        # The reviewed cell's outline (#76): frame -> (label, y, x) of the
+        # cell and its reviewer-made masks, traced into polygons by a
+        # background worker; a newer trace supersedes an older one (_gen).
         self._cell_at: dict[int, tuple[int, float, float]] = {}
         self._cell_patches: dict[int, tuple[int, int, np.ndarray]] = {}
-        self._cell_crops: dict[int, tuple[np.ndarray, int, int] | None] = {}
-        self._cell_frame: int | None = None
-        self._drawn_source: Any = None
+        self._outline_worker: Any = None
+        self._outline_gen = 0
+        self._outline_centre: int | None = None
         self._focus_seen: str | None = None
         self._mode: str | None = None  # absorb | drop | split
         self._seeds: list[tuple[int, int]] = []
@@ -638,7 +642,6 @@ class TrackReviewWidget(QWidget):
             self.viewer.layers[NUCLEI_LAYER].visible = True
         self._loaded = (plate_id, well)
         self._apply_nuclei()
-        self._watch_drawn()
 
     def go_to(self, item: ReviewItem, frame: int | None = None) -> None:
         """Load the item's well, draw the cell and jump to ``frame`` (default: the item's)."""
@@ -654,8 +657,9 @@ class TrackReviewWidget(QWidget):
         self._clear_staged()
         self.note.clear()
         self.outcome.setCurrentText(item.outcome)
-        self._redraw()
         t = item.frame if frame is None else frame
+        self._outline_centre = t  # trace the outline outwards from here
+        self._redraw()
         self.viewer.dims.set_current_step(0, t)
         self._centre(t)
         self.viewer.scene.camera.zoom = self.zoom.value()
@@ -778,77 +782,94 @@ class TrackReviewWidget(QWidget):
         hold_until_loaded(self.viewer, marker)
         self._cell_at = {t: (lab, y, x) for t, y, x, lab in pts if lab}
         self._cell_patches = self._patches(pts)
-        self._cell_crops = {}
-        self._cell_frame = None
-        if self._nuclei is not None:
-            # A small 2-D crop around the cell, swapped in per frame, rather
-            # than a lazy mask the size of the well (#76).
-            cell: Any = self.viewer.add_labels(  # ty: ignore[unresolved-attribute]
-                np.zeros((1, 1), dtype=np.uint8),
-                name=CELL_LAYER,
-                scale=scale[1:],
-                opacity=1.0,
+        if self._nuclei is not None or self._cell_patches:
+            # Polygons in an in-memory shapes layer, held to the drawn frame
+            # like the marker. The outline used to be a labels layer, which
+            # slices asynchronously: it appeared one load after the nuclei,
+            # behind the marker.
+            cell: Any = (
+                self.viewer.add_shapes(  # ty: ignore[unresolved-attribute]
+                    ndim=3,
+                    name=CELL_LAYER,
+                    scale=scale,
+                    edge_color=OUTLINE_COLOUR,
+                    face_color="transparent",
+                    edge_width=OUTLINE_WIDTH,
+                )
             )
-            cell.contour = 2
-            cell.metadata[NOT_A_SOURCE] = True
-            self._show_cell(self._drawn_frame())
+            hold_until_loaded(self.viewer, cell)
+            self._trace_outline(cell)
         self._activate_image()
 
-    def _cell_crop_at(self, t: int) -> tuple[np.ndarray, int, int] | None:
-        """The reviewed cell's nucleus in frame ``t`` (cached)."""
-        if t not in self._cell_crops:
-            crop = None
-            if t in self._cell_patches:
-                crop = patch_crop(self._cell_patches[t])
-            elif t in self._cell_at and self._nuclei is not None:
-                label, y, x = self._cell_at[t]
-                try:
-                    crop = cell_crop(self._nuclei, t, label, y, x)
-                except Exception as err:  # a cache read may fail
-                    logger.warning(f"Track review: no outline at t{t}: {err}")
-            self._cell_crops[t] = crop
-        return self._cell_crops[t]
+    def _stop_outline(self) -> None:
+        """Abandon the outline being traced (its results are ignored)."""
+        self._outline_gen += 1
+        if self._outline_worker is not None:
+            with contextlib.suppress(RuntimeError):
+                self._outline_worker.quit()
+            self._outline_worker = None
 
-    def _show_cell(self, t: int) -> None:
-        """Show the reviewed cell's outline for frame ``t``."""
-        if t == self._cell_frame or CELL_LAYER not in self.viewer.layers:
-            return
-        layer: Any = self.viewer.layers[CELL_LAYER]
-        crop = self._cell_crop_at(t)
-        if crop is None:
-            layer.data = np.zeros((1, 1), dtype=np.uint8)
-        else:
-            mask, y0, x0 = crop
-            layer.translate = (y0 * self._pixel_size, x0 * self._pixel_size)
-            layer.data = mask
-        self._cell_frame = t
+    def _trace_outline(self, layer: Any) -> None:
+        """Fill ``layer`` with the cell's outline, nearest frames first.
 
-    def _drawn_frame(self) -> int:
-        """The frame the nuclei layer is drawing (the slider's if unknown)."""
-        src = self._drawn_source
-        if src is not None and getattr(src, "visible", False):
-            point = displayed_point(getattr(src, "__wrapped__", src))
-            if point:
-                return int(point[0])
-        return int(self.viewer.dims.current_step[0])
-
-    def _watch_drawn(self) -> None:
-        """Move the outline when the nuclei layer draws a frame.
-
-        With async slicing the nuclei arrive after the slider moves; the
-        outline follows what is drawn, as the tracks do (#11).
+        Reading a crop takes ~8 ms; a whole track (~1.7 s for 217 frames)
+        would block the viewer, so a worker traces it and adds the polygons
+        in growing chunks: the frame on screen first.
         """
-        if self._drawn_source is not None:
-            with contextlib.suppress(TypeError, ValueError, RuntimeError):
-                self._drawn_source.events.set_data.disconnect(self._on_drawn)
-        self._drawn_source = None
-        if NUCLEI_LAYER in self.viewer.layers:
-            self._drawn_source = self.viewer.layers[NUCLEI_LAYER]
-            self._drawn_source.events.set_data.connect(self._on_drawn)
+        self._stop_outline()
+        gen = self._outline_gen
+        centre = self._outline_centre
+        self._outline_centre = None
+        if centre is None:
+            centre = int(self.viewer.dims.current_step[0])
+        frames = frames_from(
+            sorted(set(self._cell_at) | set(self._cell_patches)), centre
+        )
+        jobs = [
+            (t, self._cell_patches.get(t), self._cell_at.get(t))
+            for t in frames
+        ]
+        nuclei = self._nuclei
 
-    def _on_drawn(self, _event: Any = None) -> None:
-        if self.current is not None:
-            self._show_cell(self._drawn_frame())
+        def trace() -> Any:
+            batch: list[np.ndarray] = []
+            done, size = 0, 1
+            for t, patch, at in jobs:
+                crop = None
+                if patch is not None:
+                    crop = patch_crop(patch)
+                elif at is not None and nuclei is not None:
+                    label, y, x = at
+                    try:
+                        crop = cell_crop(nuclei, t, label, y, x)
+                    except Exception as err:  # a cache read may fail
+                        logger.warning(
+                            f"Track review: no outline at t{t}: {err}"
+                        )
+                if crop is not None:
+                    batch.extend(crop_outline(crop, t))
+                done += 1
+                if done >= size:
+                    yield batch
+                    batch, done, size = [], 0, min(size * 2, OUTLINE_CHUNK)
+            if batch:
+                yield batch
+
+        def show(polygons: list[np.ndarray]) -> None:
+            if gen != self._outline_gen or not polygons:
+                return
+            with contextlib.suppress(RuntimeError):  # layer or widget deleted
+                layer.add_polygons(
+                    polygons,
+                    edge_width=OUTLINE_WIDTH,
+                    edge_color=OUTLINE_COLOUR,
+                    face_color="transparent",
+                )
+
+        worker = create_worker(trace)
+        worker.yielded.connect(show)
+        self._outline_worker = worker
+        worker.start()
 
     def _on_reach(self, n: int) -> None:
         self.settings.setValue("reach", n)
@@ -950,12 +971,6 @@ class TrackReviewWidget(QWidget):
             self._centre(
                 int(self.viewer.dims.current_step[0]), only_if_needed=True
             )
-        src = self._drawn_source
-        if self.current is not None and (
-            src is None or not getattr(src, "visible", False)
-        ):
-            # No visible nuclei layer to wait for: move the outline now.
-            self._show_cell(int(self.viewer.dims.current_step[0]))
         if self.track_view is not None:
             try:
                 self.track_view.set_frame(
