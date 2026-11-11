@@ -115,3 +115,47 @@ def test_patch_reads_are_cached_until_the_file_changes(tmp_path) -> None:
     save_patch(patch_dir, "C2", 3, 7, 4, 5, np.ones((3, 3), bool))
     again = load_patch(tmp_path, rel)
     assert again[:2] == (4, 5) and again[2].shape == (3, 3)
+
+
+def test_outline_traces_the_nucleus_on_the_canvas() -> None:
+    """The polygon sits on the nucleus' border, in canvas coordinates, at its frame."""
+    from omero_screen_napari.review.cell_outline import crop_outline
+
+    nuclei = stack()
+    crop = cell_crop(nuclei, 0, 5, 500, 500)
+    assert crop is not None
+    polygons = crop_outline(crop, 0)
+    assert len(polygons) == 1
+    poly = polygons[0]
+    assert poly.shape[1] == 3
+    assert np.all(poly[:, 0] == 0)
+    # The nucleus covers rows/cols 495..504; the 0.5 iso-line runs half a pixel outside.
+    assert poly[:, 1].min() == pytest.approx(494.5)
+    assert poly[:, 1].max() == pytest.approx(504.5)
+    assert poly[:, 2].min() == pytest.approx(494.5)
+    assert poly[:, 2].max() == pytest.approx(504.5)
+
+
+def test_outline_of_a_nucleus_at_the_crop_border_is_closed() -> None:
+    """A mask touching the crop edge still gives one closed polygon."""
+    from omero_screen_napari.review.cell_outline import crop_outline
+
+    mask = np.ones((4, 4), dtype=np.uint8)
+    (poly,) = crop_outline((mask, 10, 20), 3)
+    assert np.allclose(poly[0], poly[-1])
+    assert poly[:, 1].min() == pytest.approx(9.5)
+    assert poly[:, 2].max() == pytest.approx(23.5)
+
+
+def test_outline_of_an_empty_mask_is_empty() -> None:
+    """No nucleus, no polygon."""
+    from omero_screen_napari.review.cell_outline import crop_outline
+
+    assert crop_outline((np.zeros((5, 5), dtype=np.uint8), 0, 0), 0) == []
+
+
+def test_frames_are_ordered_outwards_from_the_centre() -> None:
+    """The frame on screen first, then its neighbours, earlier first on ties."""
+    from omero_screen_napari.review.cell_outline import frames_from
+
+    assert frames_from([1, 2, 3, 4, 5, 9], 3) == [3, 2, 4, 1, 5, 9]
