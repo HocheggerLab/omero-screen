@@ -20,4 +20,4 @@ Moved from ``cellview.tracks`` (#75); that path remains as an alias for one
 release.
 """
 
-__version__ = "0.10.0"
+__version__ = "0.10.1"
