@@ -248,7 +248,7 @@ class ReviewSession:
 
     def refresh(self, well: str) -> None:
         """Forget the cached lineage of ``well`` so the next read replays the log."""
-        self.source._wells.pop(well, None)
+        self.source.invalidate(well)
 
     def path(self, item_id: str) -> pd.DataFrame:
         """Curated per-frame path of the item's cell from its anchor frame on.
@@ -295,6 +295,78 @@ class ReviewSession:
                 }
             )
         return out
+
+    def taken_from_decided(
+        self, item_id: str, op: str, args: dict[str, Any]
+    ) -> list[str]:
+        """Frames an edit would take from other items that already have a verdict.
+
+        A link or swap can move another cell's detections to this one; if
+        that cell was already reviewed, its verdict silently stops matching
+        its track. Returns one line per such item (empty if none, or if the
+        edit does not apply; :meth:`propose` reports that error itself).
+        """
+        import copy
+
+        from omero_screen_track.edit import (
+            ANNOTATION_OPS,
+            Edit,
+            EditError,
+            apply_edit,
+        )
+
+        if op in ANNOTATION_OPS or op == "separate":
+            return []
+        it = self.item(item_id)
+        decided = self.decided()
+        others = [
+            o
+            for o in self.queue.items
+            if o.well == it.well and o.id != item_id and o.id in decided
+        ]
+        if not others:
+            return []
+        _, curated = self.source.well(it.well)
+        anchor = self.anchor(item_id)
+        after = copy.deepcopy(curated)
+        try:
+            own = curated.resolve(anchor)
+            apply_edit(
+                after,
+                Edit(
+                    id="check",
+                    op=op,
+                    well=it.well,
+                    args={"cell": list(anchor), **args},
+                ),
+            )
+        except EditError:
+            return []
+        lines = []
+        for other in others:
+            try:
+                tid = curated.resolve(self.anchor(other.id))
+            except EditError:
+                continue
+            if tid == own:
+                continue
+            try:
+                now = after.resolve(self.anchor(other.id))
+            except EditError:
+                now = None
+            if now == after.resolve(anchor):
+                now = None  # its anchor itself moved to this cell
+            lost = sorted(
+                t
+                for t, lab in curated.detections(tid)
+                if now is None or after.tracks.get((t, lab)) != now
+            )
+            if lost:
+                lines.append(
+                    f"takes {_span(lost)} from {other.id}, which already "
+                    f"has a verdict ({decided[other.id].verdict})"
+                )
+        return lines
 
     def preview(
         self, item_id: str, op: str, args: dict[str, Any]
@@ -584,8 +656,11 @@ class ReviewSession:
         )
         if self.mode == "agent" or confidence == "clear":
             try:
+                taken = self.taken_from_decided(item_id, op, args)
                 prop.edit_ids = self._apply(prop, confirmed_by=None)
                 prop.status = "applied"
+                if taken:
+                    prop.note = "WARNING: " + "; ".join(taken)
             except Exception as err:
                 if raise_errors:
                     raise

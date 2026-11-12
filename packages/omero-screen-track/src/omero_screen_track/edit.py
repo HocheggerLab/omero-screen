@@ -20,7 +20,9 @@ items use the same form (``C2-t72-L524`` is anchor ``(72, 524)`` in well C2).
                 new founder
 ``set_parent``  make the anchored cell a daughter of ``parent``
 ``clear_parent`` make the anchored cell a founder
-``swap``        exchange the identities of two cells from ``frame`` on
+``swap``        exchange the identities of two cells from ``frame`` on, or
+                only through ``until`` (a short crossing: the cells take
+                their own identities back after it)
 
 **Detection operations** (which nuclei belong to the cell in a frame range):
 
@@ -258,11 +260,34 @@ class Curated:
         """Make the cell a founder."""
         self.parents[self.resolve(cell)] = 0
 
-    def swap(self, cell_a: Anchor, cell_b: Anchor, frame: int) -> None:
-        """Exchange the two cells' identities from ``frame`` on."""
+    def swap(
+        self,
+        cell_a: Anchor,
+        cell_b: Anchor,
+        frame: int,
+        until: int | None = None,
+    ) -> None:
+        """Exchange the two cells' identities from ``frame`` on.
+
+        With ``until``, only in frames ``frame``–``until``: both cells keep
+        their own detections (and daughters) after it, so a crossing of a
+        few frames is one edit instead of a swap and a swap back.
+        """
         a, b = self.resolve(cell_a), self.resolve(cell_b)
         if a == b:
             raise EditError("Swap needs two different cells.")
+        if until is not None:
+            if until < frame:
+                raise EditError("until must not be before frame.")
+            span_a = [k for k in self._tail(a, frame) if k[0] <= until]
+            span_b = [k for k in self._tail(b, frame) if k[0] <= until]
+            if not span_a and not span_b:
+                raise EditError(
+                    f"Neither cell has detections in frames {frame}–{until}."
+                )
+            self._reassign(span_a, b)
+            self._reassign(span_b, a)
+            return
         tail_a, tail_b = self._tail(a, frame), self._tail(b, frame)
         if not tail_a or not tail_b:
             raise EditError(
@@ -462,8 +487,12 @@ def apply_edit(curated: Curated, edit: Edit) -> None:
         elif edit.op == "clear_parent":
             curated.clear_parent(_anchor(a["cell"]))
         elif edit.op == "swap":
+            until = a.get("until")
             curated.swap(
-                _anchor(a["cell"]), _anchor(a["other"]), int(a["frame"])
+                _anchor(a["cell"]),
+                _anchor(a["other"]),
+                int(a["frame"]),
+                None if until is None else int(until),
             )
         elif edit.op == "absorb":
             curated.absorb(
@@ -523,7 +552,9 @@ def confirmed_frames(
     """Frames at which a reviewer fixed a cell's identity, per curated track.
 
     Every live ``link`` (its anchored cell) and ``swap`` (both cells) of
-    ``well``, by a human or an agent, contributes its ``frame``. Anchors are
+    ``well``, by a human or an agent, contributes its ``frame`` (a swap
+    with ``until`` also the frame after it, where the cells take their own
+    identities back). Anchors are
     resolved on ``curated``, the lineage *after* replay, so the ids are the
     ones the fate walker follows. An anchor that no longer resolves is
     skipped. Feed the result to
@@ -551,7 +582,10 @@ def confirmed_frames(
                 tid = curated.resolve(_anchor(anchor))
             except EditError:
                 continue
-            out.setdefault(tid, set()).add(int(edit.args["frame"]))
+            frames = {int(edit.args["frame"])}
+            if edit.op == "swap" and edit.args.get("until") is not None:
+                frames.add(int(edit.args["until"]) + 1)
+            out.setdefault(tid, set()).update(frames)
     return out
 
 

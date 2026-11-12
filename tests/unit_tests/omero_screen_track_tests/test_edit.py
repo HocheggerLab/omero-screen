@@ -479,3 +479,26 @@ def test_split_part_cut_again_leaves_extras_and_undo_restores_it(
     cur = replay(base, log, "C2")
     assert set(cur.extras) == {(5, 900), (5, 901)}
     assert cur.tracks[(5, 900)] == 1 and cur.tracks[(5, 901)] == 2
+
+
+def test_swap_until_exchanges_only_a_crossing() -> None:
+    """A swap with until gives the cells their own identities back after it."""
+    cur = _curated({1: (range(0, 20), 1), 2: (range(0, 20), 2)}, parents={})
+    kid = cur._new_track()
+    cur.tracks[(25, 3)] = kid
+    cur.parents[kid] = 1
+    cur.swap((0, 1), (0, 2), 10, until=12)
+    assert [cur.tracks[(t, 1)] for t in (9, 10, 12, 13)] == [1, 2, 2, 1]
+    assert [cur.tracks[(t, 2)] for t in (9, 10, 12, 13)] == [2, 1, 1, 2]
+    assert cur.parents[kid] == 1  # daughters stay
+    with pytest.raises(EditError, match="until"):
+        cur.swap((0, 1), (0, 2), 10, until=9)
+    with pytest.raises(EditError, match="Neither"):
+        cur.swap((0, 1), (0, 2), 30, until=31)
+
+
+def test_ranged_swap_confirms_both_ends() -> None:
+    base = _curated({2: (range(30), 2), 3: (range(30), 3)})
+    edits = [Edit("e0001", "swap", "C2", {"cell": [0, 2], "other": [0, 3], "frame": 10, "until": 12})]
+    cur = replay(base, edits, "C2")
+    assert confirmed_frames(cur, edits, "C2") == {2: {10, 13}, 3: {10, 13}}
