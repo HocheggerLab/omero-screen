@@ -28,6 +28,23 @@ START_HALF = 64
 MAX_HALF = 512
 
 
+def read_window(
+    nuclei: Any, frame: int, y0: int, y1: int, x0: int, x1: int
+) -> np.ndarray:
+    """``nuclei[frame, y0:y1, x0:x1]`` as numpy, safe off the GUI thread.
+
+    A dask compute with the default ``callbacks=None`` swaps dask's global
+    callbacks out and back in, and napari's dask cache is one of them: two
+    threads computing at once (the outline worker and napari's slicing)
+    corrupt the cache and fail with a ``KeyError``. An explicit empty list
+    leaves the global callbacks alone and computes in this thread.
+    """
+    block = nuclei[frame, y0:y1, x0:x1]
+    if hasattr(block, "dask"):
+        return np.asarray(block.compute(scheduler="synchronous", callbacks=[]))
+    return np.asarray(block)
+
+
 def cell_crop(
     nuclei: Any,
     frame: int,
@@ -62,7 +79,7 @@ def cell_crop(
     while True:
         y0, y1 = max(cy - half, 0), min(cy + half, height)
         x0, x1 = max(cx - half, 0), min(cx + half, width)
-        mask = np.asarray(nuclei[frame, y0:y1, x0:x1]) == label
+        mask = read_window(nuclei, frame, y0, y1, x0, x1) == label
         if not mask.any():
             return None
         clipped = (
