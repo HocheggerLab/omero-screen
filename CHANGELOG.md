@@ -1,3 +1,9 @@
+## omero-screen-v0.10.4 (2026-11-12)
+
+### Fix
+
+- **napari**: keep agent edits that land mid-replay; warn on frame steals; ranged swap (#99)
+
 ## omero-screen-v0.10.3 (2026-11-12)
 
 ### Fix
