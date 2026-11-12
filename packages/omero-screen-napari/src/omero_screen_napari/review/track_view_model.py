@@ -1404,7 +1404,13 @@ def slow_annotations(
         out.errors.append(f"tracks: {err}")
         return out
     have_reporters = {"pip", "geminin"} <= set(tracks.columns)
-    if walker and have_reporters:
+    from omero_screen_track.fate import resolve_walker
+
+    # Channel columns only: the H2B maximum would read as a second H2B channel.
+    fate_walker = resolve_walker(
+        [c for c in tracks.columns if not c.endswith("_max")], 2
+    )
+    if walker and fate_walker is not None:
         from omero_screen_track.edit import confirmed_frames
         from omero_screen_track.fate import apply_annotations, follow_cells
 
@@ -1422,6 +1428,7 @@ def slow_annotations(
                 None,
                 shape,
                 confirmed_frames(curated, live, inputs.well),
+                fate_walker,
             )
             out.fates = apply_annotations(cells, curated)
         except Exception as err:

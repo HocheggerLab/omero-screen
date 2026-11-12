@@ -21,8 +21,13 @@ Each two-daughter event is classified, in this order:
     The daughters lose the mitotic marker. With PIP-FUCCI that is geminin,
     which the APC/C degrades at anaphase: a real division takes the daughters
     below ``marker_drop`` times the parent's late-G2 level, a split nucleus
-    keeps it. A track born by mitosis less than ``refractory_hours`` earlier
-    cannot divide again, which removes one mitosis called twice.
+    keeps it. Without geminin, an H2B reporter is used instead (#85): the
+    chromatin condenses (its peak maximum intensity over the parent's last
+    and the daughters' first frames reaches ``condense_rise`` times the
+    parent's interphase level) and each daughter starts at about half the
+    parent's interphase area (``half_lo`` to ``half_hi``). A track born by
+    mitosis less than ``refractory_hours`` earlier cannot divide again, which
+    removes one mitosis called twice.
 ``fragment``
     The daughters touch, stay touching for as long as both exist, and
     together hold the parent's area: two pieces of one
@@ -35,7 +40,13 @@ Each two-daughter event is classified, in this order:
 ``neighbour``
     Anything else that is not a mitosis: a separate cell was linked in as a
     daughter. The daughter that continues the parent's position is merged into
-    it and the other becomes a founder.
+    it and the other becomes a founder. The H2B test misses more real
+    mitoses than geminin does, so with H2B an event is a neighbour only if
+    the chromatin did not condense (below ``uncondensed``) and a daughter
+    starts at nearly the parent's full area (``full_area``).
+``kept``
+    Neither: the link is left as the tracker made it and the event is logged
+    for review. Without any marker every non-fragment event is kept.
 
 Before each pass over the divisions, a short unparented track that touches
 one nucleus in every frame of its life (``piece``) is folded into it: a
@@ -54,9 +65,9 @@ at 11 and splits again at 12 — so passes repeat until nothing changes. Every
 decision is returned as a row of :attr:`RepairResult.events`, which is what a
 curator should check first in Mastodon.
 
-Without a marker the mitosis test is unavailable: fragments are still merged,
-but no event is called a neighbour, because a real division and a mislinked
-neighbour cannot be told apart from geometry alone.
+Without a marker or chromatin reporter the mitosis test is unavailable:
+fragments are still merged, but no event is called a neighbour, because a real
+division and a mislinked neighbour cannot be told apart from geometry alone.
 """
 
 from __future__ import annotations
@@ -113,6 +124,23 @@ class RepairParams:
             fraction of their shared frames are not fragments (needs a
             ``cell`` column; frames without a cell mask are not judged).
         max_passes: Safety bound on repair passes.
+        condense_rise: H2B test: a mitosis needs the chromatin's peak maximum
+            intensity (parent's last ``condense_window`` and daughters' first
+            ``daughter_window`` frames) at least this multiple of the
+            parent's interphase level.
+        condense_window: H2B test: frames at the end of the parent searched
+            for condensation (mitosis lasts about an hour).
+        half_lo: H2B test: smallest daughter area, as a fraction of the
+            parent's interphase area (median of each daughter's first
+            ``daughter_window`` frames).
+        half_hi: H2B test: largest daughter area, as the same fraction.
+        uncondensed: H2B test: below this peak ratio the chromatin did not
+            condense, so the event may be called a neighbour.
+        full_area: H2B test: a daughter at least this fraction of the
+            parent's interphase area is a whole cell, not a daughter.
+        baseline_frames: H2B test: interphase frames, just before the
+            parent's last ``condense_window``, whose median sets its
+            interphase intensity and area.
     """
 
     interval_minutes: float = 20.0
@@ -129,6 +157,13 @@ class RepairParams:
     stay_touch: float = 1.5
     cells_apart: float = 0.5
     max_passes: int = 50
+    condense_rise: float = 1.8
+    condense_window: int = 3
+    half_lo: float = 0.2
+    half_hi: float = 0.8
+    uncondensed: float = 1.3
+    full_area: float = 0.85
+    baseline_frames: int = 6
 
     @property
     def refractory_frames(self) -> int:
@@ -174,11 +209,18 @@ class _Track:
 
     def at(self, t: int) -> tuple[float, float, float, float]:
         """Area, centroid y, centroid x and mean marker at frame ``t``."""
-        area, ya, xa, ma = self.frames[t]
+        area, ya, xa, ma = self.frames[t][:4]
         return area, ya / area, xa / area, ma / area
 
     def marker(self, frames: list[int]) -> list[float]:
         return [self.at(t)[3] for t in frames]
+
+    def area(self, frames: list[int]) -> list[float]:
+        return [float(self.frames[t][0]) for t in frames]
+
+    def chromatin(self, frames: list[int]) -> list[float]:
+        """Area-weighted chromatin (H2B maximum intensity) at ``frames``."""
+        return [float(self.frames[t][4] / self.frames[t][0]) for t in frames]
 
 
 def _radius(area: float) -> float:
@@ -188,11 +230,19 @@ def _radius(area: float) -> float:
 class _Lineage:
     """Mutable lineage graph with union-find over raw track ids."""
 
-    def __init__(self, det: pd.DataFrame, has_marker: bool) -> None:
+    def __init__(
+        self, det: pd.DataFrame, has_marker: bool, has_chromatin: bool = False
+    ) -> None:
         self.has_marker = has_marker
+        self.has_chromatin = has_chromatin and not has_marker
         self.rep: dict[int, int] = {}
         self.tracks: dict[int, _Track] = {}
         marker = det["marker"].to_numpy() if has_marker else np.zeros(len(det))
+        chromatin = (
+            det["chromatin"].to_numpy(dtype=float)
+            if has_chromatin
+            else np.zeros(len(det))
+        )
         area = det["area"].to_numpy(dtype=float)
         stacked = np.column_stack(
             [
@@ -200,6 +250,7 @@ class _Lineage:
                 area * det["y"].to_numpy(),
                 area * det["x"].to_numpy(),
                 area * marker,
+                area * chromatin,
             ]
         )
         tids = det["track_id_raw"].to_numpy()
@@ -314,6 +365,10 @@ def _division_event(
             float(np.mean(d_levels) / p_level) if p_level > 0 else float("nan")
         )
 
+    condense = half_lo = half_hi = float("nan")
+    if lin.has_chromatin:
+        condense, half_lo, half_hi = _condensation(lin, parent, kids, params)
+
     is_fragment = (
         touch <= params.touch
         and drift <= params.stay_touch
@@ -327,6 +382,22 @@ def _division_event(
             if mitotic
             else ("fragment" if is_fragment else "neighbour")
         )
+    elif lin.has_chromatin:
+        mitotic = (
+            condense >= params.condense_rise
+            and params.half_lo <= half_lo
+            and half_hi <= params.half_hi
+            and not refractory
+        )
+        uncondensed = not condense >= params.uncondensed
+        if mitotic:
+            rule = "mitosis"
+        elif is_fragment:
+            rule = "fragment"
+        elif uncondensed and half_hi >= params.full_area:
+            rule = "neighbour"
+        else:
+            rule = "kept"
     else:
         rule = "fragment" if is_fragment else "kept"
 
@@ -336,6 +407,9 @@ def _division_event(
         "frame": split,
         "rule": rule,
         "marker_ratio": marker_ratio,
+        "condense": condense,
+        "half_lo": half_lo,
+        "half_hi": half_hi,
         "area_ratio": area_ratio,
         "touch": touch,
         "drift": drift,
@@ -344,6 +418,60 @@ def _division_event(
         "y": p_y,
         "x": p_x,
     }
+
+
+def _condensation(
+    lin: _Lineage, parent: _Track, kids: list[int], params: RepairParams
+) -> tuple[float, float, float]:
+    """H2B test measures: peak condensation and the daughters' area fractions.
+
+    Returns:
+        ``(condense, smaller, larger)``: the chromatin peak over the parent's
+        interphase level, and the smaller and larger daughter's area over the
+        parent's interphase area.
+
+        A parent with no frames before its last ``condense_window`` is often
+        a mitotic cell that segmentation lost until metaphase. Its interphase
+        reference then comes from the daughters' early G1 frames (after
+        their first ``daughter_window``): the chromatin level is their
+        median, and the parent's size is the median of the two daughters'
+        summed area. NaN when neither reference exists.
+    """
+    nan = float("nan")
+    frames = sorted(parent.frames)
+    late = frames[-params.condense_window :]
+    base = frames[: -params.condense_window][-params.baseline_frames :]
+    starts = [
+        sorted(lin.tracks[k].frames)[: params.daughter_window] for k in kids
+    ]
+    if base:
+        level = float(np.median(parent.chromatin(base)))
+        size = float(np.median(parent.area(base)))
+    else:
+        a, b = lin.tracks[kids[0]], lin.tracks[kids[1]]
+        g1 = sorted(set(a.frames) & set(b.frames))[
+            params.daughter_window : params.daughter_window
+            + params.baseline_frames
+        ]
+        if not g1:
+            return nan, nan, nan
+        # List concatenation: the median over both daughters' values. The
+        # size below is their sum (np.add), standing in for the mother's.
+        level = float(np.median(a.chromatin(g1) + b.chromatin(g1)))
+        size = float(np.median(np.add(a.area(g1), b.area(g1))))
+    peak = max(
+        max(parent.chromatin(late)),
+        *(
+            max(lin.tracks[k].chromatin(f))
+            for k, f in zip(kids, starts, strict=True)
+        ),
+    )
+    halves = sorted(
+        float(np.median(lin.tracks[k].area(f))) / size
+        for k, f in zip(kids, starts, strict=True)
+    )
+    condense = peak / level if level > 0 else nan
+    return condense, halves[0], halves[-1]
 
 
 def _continuing_child(lin: _Lineage, pid: int) -> int:
@@ -562,7 +690,9 @@ def repair_lineage(
 
     Args:
         det: One row per detection with :data:`REQUIRED_COLUMNS` and, if a
-            mitotic marker is used, a background-subtracted ``marker`` column.
+            mitotic marker is used, a background-subtracted ``marker`` column
+            (geminin); otherwise, for the H2B test, a ``chromatin`` column
+            (the H2B maximum intensity in the nucleus).
         params: Thresholds; defaults to :class:`RepairParams`.
 
     Returns:
@@ -579,7 +709,9 @@ def repair_lineage(
         )
 
     lin = _Lineage(
-        det.dropna(subset=["track_id_raw"]), has_marker="marker" in det.columns
+        det.dropna(subset=["track_id_raw"]),
+        has_marker="marker" in det.columns,
+        has_chromatin="chromatin" in det.columns,
     )
     log: list[dict[str, Any]] = []
     passes = 0

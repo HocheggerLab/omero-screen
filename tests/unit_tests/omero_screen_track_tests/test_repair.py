@@ -238,3 +238,78 @@ def test_daughters_in_different_cell_masks_are_not_fragments() -> None:
     assert repair_lineage(det).events.iloc[0].rule == "fragment"
     det["cell"] = 0  # no cell masks: distance alone decides
     assert repair_lineage(det).events.iloc[0].rule == "fragment"
+
+
+def _h2b(tid, parent, frames, y, x, area=400.0, chromatin=None, dx=0.0):
+    """Rows for one raw track with an H2B ``chromatin`` column (no geminin).
+
+    ``chromatin`` maps frame to intensity; frames not listed are at 1000.
+    """
+    rows = _track(tid, parent, frames, y, x, area=area, dx=dx)
+    for row in rows:
+        del row["marker"]
+        row["chromatin"] = (chromatin or {}).get(row["timepoint"], 1000.0)
+    return rows
+
+
+def test_h2b_condensation_with_half_size_daughters_is_a_mitosis() -> None:
+    """Condensed chromatin and half-size daughters keep the division."""
+    det = _det(
+        _h2b(1, 0, range(20), 100, 100, chromatin={18: 2500.0, 19: 3000.0}),
+        _h2b(2, 1, range(20, 30), 100, 80, area=200, chromatin={20: 2400.0}),
+        _h2b(3, 1, range(20, 30), 100, 120, area=200, chromatin={20: 2400.0}),
+    )
+    r = repair_lineage(det)
+    assert r.parents[2] == 1 and r.parents[3] == 1
+    (event,) = r.events.itertuples()
+    assert event.rule == "mitosis"
+    assert event.condense == pytest.approx(3.0)
+    assert event.half_lo == pytest.approx(0.5)
+
+
+def test_h2b_uncondensed_full_size_daughter_is_a_neighbour() -> None:
+    """No condensation and a whole-cell daughter: a mislinked neighbour."""
+    det = _det(
+        _h2b(1, 0, range(20), 100, 100),
+        _h2b(2, 1, range(20, 30), 100, 102),
+        _h2b(3, 1, range(20, 30), 100, 200, area=380),
+    )
+    r = repair_lineage(det)
+    assert r.assignment[2] == 1
+    assert r.parents[3] == 0
+    assert set(r.events.rule) == {"neighbour"}
+
+
+def test_h2b_ambiguous_event_is_kept_for_review() -> None:
+    """Half-size daughters without condensation are neither: link kept."""
+    det = _det(
+        _h2b(1, 0, range(20), 100, 100),
+        _h2b(2, 1, range(20, 30), 100, 70, area=200),
+        _h2b(3, 1, range(20, 30), 100, 130, area=200),
+    )
+    r = repair_lineage(det)
+    assert _divisions(r) == 1
+    assert set(r.events.rule) == {"kept"}
+
+
+def test_h2b_condensed_but_full_size_daughters_are_not_a_mitosis() -> None:
+    """Condensation alone is not enough: daughters must be about half size."""
+    det = _det(
+        _h2b(1, 0, range(20), 100, 100, chromatin={19: 3000.0}),
+        _h2b(2, 1, range(20, 30), 100, 70, area=400),
+        _h2b(3, 1, range(20, 30), 100, 130, area=400),
+    )
+    r = repair_lineage(det)
+    assert "mitosis" not in set(r.events.rule)
+
+
+def test_geminin_takes_precedence_over_h2b() -> None:
+    """With both columns, the geminin test decides."""
+    det = _det(
+        _track(1, 0, range(20), 100, 100),
+        _track(2, 1, range(20, 30), 100, 70, area=200, marker=100),
+        _track(3, 1, range(20, 30), 100, 130, area=200, marker=100),
+    ).assign(chromatin=1000.0)
+    r = repair_lineage(det)
+    assert set(r.events.rule) == {"mitosis"}
+    assert r.events.condense.isna().all()

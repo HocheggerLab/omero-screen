@@ -84,3 +84,65 @@ def test_curate_plate_replays_log_and_writes(conn, tmp_path) -> None:
     assert conn.execute("select track_id from measurements where measurement_id = 99").fetchone()[0] == 1
     # Replaying again on the raw columns gives the same answer.
     assert curate_plate(conn, 5054, log)["C2"].tracks == curated["C2"].tracks
+
+
+@pytest.fixture
+def h2b_conn(tmp_path):
+    """A non-FUCCI plate with an H2B reporter: one mitosis, one mislink."""
+    c = duckdb.connect(str(tmp_path / "h2b.duckdb"))
+    c.execute("create table repeats (repeat_id int, plate_id int)")
+    c.execute("create table conditions (condition_id int, repeat_id int, well varchar)")
+    c.execute(
+        'create table measurements (measurement_id int, condition_id int, timepoint int, '
+        'area_nucleus float, "centroid-0-nuc" float, "centroid-1-nuc" float, '
+        "intensity_mean_H2B_nucleus float, intensity_max_H2B_nucleus float, "
+        "H2B_background float, "
+        "track_id int, track_id_raw int, parent_track_id int, parent_track_id_raw int)"
+    )
+    c.execute("insert into repeats values (1, 5061)")
+    c.execute("insert into conditions values (1, 1, 'B2')")
+    rows, mid = [], 0
+
+    def add(tid, parent, frames, x, area, peak=None):
+        nonlocal mid
+        for t in frames:
+            mid += 1
+            mx = (peak or {}).get(t, 1000.0)
+            rows.append((mid, 1, t, area, 100.0, x, 500.0, mx, 50.0, tid, tid, parent, parent))
+
+    # Track 1 divides at 20 (condensed, half-size daughters 2 and 3).
+    add(1, 0, range(20), 100.0, 400.0, {19: 3000.0})
+    add(2, 1, range(20, 30), 80.0, 200.0, {20: 2500.0})
+    add(3, 1, range(20, 30), 120.0, 200.0, {20: 2500.0})
+    # Track 4 is mislinked to a whole, uncondensed neighbour (6).
+    add(4, 0, range(20), 300.0, 400.0)
+    add(5, 4, range(20, 30), 302.0, 400.0)
+    add(6, 4, range(20, 30), 400.0, 390.0)
+    c.executemany("insert into measurements values (?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    yield c
+    c.close()
+
+
+def test_h2b_plate_is_repaired_by_condensation(h2b_conn, tmp_path) -> None:
+    """Without geminin, H2B decides: the mitosis stays, the mislink goes."""
+    events = tmp_path / "events.csv"
+    (s,) = repair_plate(h2b_conn, 5061, events_path=events)
+    assert (s.divisions_before, s.divisions_after) == (2, 1)
+    parents = dict(
+        h2b_conn.execute(
+            "select distinct track_id_raw, parent_track_id from measurements"
+        ).fetchall()
+    )
+    assert parents[2] == 1 and parents[3] == 1
+    assert parents[6] == 0
+    text = events.read_text()
+    assert "mitosis" in text and "neighbour" in text
+
+
+def test_h2b_curated_well_uses_the_maximum(h2b_conn) -> None:
+    """The curated-lineage path loads the H2B maximum and repairs the same way."""
+    from omero_screen_track.plate import curated_well
+
+    _, curated = curated_well(h2b_conn, 5061, "B2")
+    divided = {p for p in curated.parents.values() if p}
+    assert len(divided) == 1

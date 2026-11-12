@@ -370,8 +370,10 @@ def repair_tracks(
 
     Reads the tracker's immutable track_id_raw / parent_track_id_raw and
     writes the curated track_id / parent_track_id, so re-running gives the
-    same result. Only PIP-FUCCI plates (channels named exactly pip and
-    geminin) are repaired.
+    same result. Divisions are tested with geminin on PIP-FUCCI plates
+    (channels named exactly pip and geminin), otherwise by chromatin
+    condensation on plates with an H2B channel (h2b or h2b_<fluorophore>).
+    Other plates are refused.
     """
     from omero_screen_track.plate import NotPipFucciError, repair_plate
 
@@ -504,6 +506,20 @@ def audit_queue(
     help="Last frame cells are followed to.",
 )
 @click.option(
+    "--births",
+    type=(int, int),
+    default=None,
+    metavar="FIRST LAST",
+    help="Follow a birth cohort instead of the cells present at --start: one "
+    "daughter of every reporter-confirmed division born in frames FIRST-LAST, "
+    "each from its birth frame.",
+)
+@click.option(
+    "--sisters",
+    is_flag=True,
+    help="With --births: follow both daughters of each division, not one drawn at random.",
+)
+@click.option(
     "--sample",
     type=click.IntRange(min=1),
     default=50,
@@ -553,6 +569,8 @@ def review_queue(
     wells: tuple[str, ...],
     start: int,
     stop: int,
+    births: tuple[int, int] | None,
+    sisters: bool,
     sample: int,
     audit: float,
     seed: int,
@@ -563,8 +581,9 @@ def review_queue(
 ) -> None:
     """Sample cells per well and write a review queue for the Track Review widget.
 
-    Cells present at --start are followed to --stop on the curated lineage
-    (automatic repair plus --log). A fixed-seed random sample per well is
+    Cells present at --start (or, with --births, daughters born in that
+    window) are followed to --stop on the curated lineage (automatic repair
+    plus --log), by the plate's walker: PIP-FUCCI, or H2B with tubulin. A fixed-seed random sample per well is
     drawn; flagged cells and an --audit fraction of unflagged ones are queued.
     """
     from omero_screen_track.review_queue import QueueSpec, build_queue
@@ -577,6 +596,8 @@ def review_queue(
         seed=seed,
         stationary_warn=stationary_warn,
         mode=mode,
+        births=births,
+        sisters=sisters,
     )
     try:
         q, s, table = build_queue(
