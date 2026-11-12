@@ -7,6 +7,16 @@ title: "Running on a SLURM cluster"
 (job classes, GPU nodes); other clusters will need its template adjusted.
 
 ::: {.callout-note}
+The submitter needs a source checkout: run it from the checkout's `bin/`
+folder, and create a `.env` file at the checkout root (an empty one will do if
+you configured with `omero-screen setup`). An `omero-screen submit` command
+that works from the normal install is in preparation
+([#92](https://github.com/HocheggerLab/omero-screen/issues/92)). For
+installing on the cluster, see
+[On an HPC cluster](installation.qmd#on-an-hpc-cluster).
+:::
+
+::: {.callout-note}
 This is a `bin/` utility and still uses argparse, unlike the installed
 commands. It keeps argparse conventions, including abbreviated options.
 :::

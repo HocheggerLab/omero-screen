@@ -7,6 +7,16 @@ OMERO server and user, and your password. One command installs the software
 and walks you through the rest. Budget ten minutes the first time, most of it
 downloading.
 
+## Which install do you need?
+
+| You want to… | Use |
+|---|---|
+| analyse your plates on a Mac or Linux machine | [Quick install](#quick-install-macos-and-linux) |
+| do the same on Windows | [Windows (WSL2)](#windows) |
+| run jobs on an HPC cluster | [On an HPC cluster](#on-an-hpc-cluster) |
+| try OMERO-Screen without an OMERO account | [Try it locally](try-it.qmd), with a local OMERO server in Docker |
+| change the code | [Developer install](#developer-install) |
+
 ## Quick install (macOS and Linux)
 
 Open **Terminal** and paste:
@@ -25,17 +35,122 @@ The installer:
 3. puts the commands (`omero-screen`, `cellview`, `cellclass`, `napari`, …) in
    uv's command directory (normally `~/.local/bin`) and adds that directory to
    your shell `PATH` automatically if needed;
-4. runs `omero-screen setup` and `omero-screen doctor` (below).
+4. downloads the stock Cellpose segmentation models, so a network problem
+   shows up now rather than in the middle of your first plate;
+5. runs `omero-screen setup` and `omero-screen doctor` (below).
 
-Run the same line again to update; your settings and data are kept. If the
-installer says it updated your `PATH`, open a new Terminal window once before
-running the commands. You do not need to edit `.zshrc` or another shell file
-manually.
+If the installer says it updated your `PATH`, open a new Terminal window once
+before running the commands. You do not need to edit `.zshrc` or another shell
+file manually.
+
+If the download fails (`could not download …`), check the network (VPN,
+proxy) and run the same line again; it picks up where it stopped.
+
+### Installer options
+
+Set these as environment variables before `sh`, for example
+`curl … | OMERO_SCREEN_NO_SETUP=1 sh`:
+
+| Variable | Effect |
+|---|---|
+| `OMERO_SCREEN_VERSION` | install this release tag (e.g. `omero-screen-v0.10.4`) instead of the latest |
+| `OMERO_SCREEN_HOME` | install here instead of `~/.local/share/omero-screen` (e.g. a project space with more room) |
+| `OMERO_SCREEN_BIN` | link the commands here instead of uv's command directory; your `PATH` is then not changed |
+| `OMERO_SCREEN_NO_SETUP=1` | skip `omero-screen setup` and `doctor` at the end |
+| `OMERO_SCREEN_BRANCH` | install a branch instead of a release (for testing changes) |
+
+### What goes where
+
+| What | Where | Size |
+|---|---|---|
+| The software: one folder per release, each with its own Python environment | `~/.local/share/omero-screen/<release>`, with `current` pointing at the one in use | ~2.3 GB per release, two kept |
+| The commands | `~/.local/bin` (links into `current`) | — |
+| Your settings | `~/.config/omero-screen/config.toml` | — |
+| Your password | the system keychain (or a password file, see below) | — |
+| Cellpose models | `~/.cellpose/models` | 25 MB per Cellpose 3 model; 1.2 GB for Cellpose 4 (`cpsam`) |
+| Downloaded images | `~/omero-cache` | grows with use |
+| CellView database | `~/.cellview/cellview.duckdb` | grows with use |
+| Downloaded packages, reused by updates | uv's cache (`uv cache dir`) | shared by all releases |
+
+The two releases on disk share most of their files with uv's cache, so they
+take less space than `du` reports, as long as the cache is on the same disk.
+
+### Windows {#windows}
+
+The installer is a shell script, and the local OMERO server needs Docker, which
+on Windows runs on WSL2 anyway, so on Windows OMERO-Screen runs inside WSL2
+(a Linux system built into Windows):
+
+1. In PowerShell, run `wsl --install`, restart, and create a Linux user when
+   Ubuntu opens.
+2. In the Ubuntu window, run the [quick install](#quick-install-macos-and-linux)
+   line.
+3. For [Try it locally](try-it.qmd), install
+   [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/)
+   and turn on *Settings → Resources → WSL integration* for Ubuntu.
+
+napari opens as a normal window on Windows 11. Without a keychain in WSL, use
+a [password file](#the-configuration-in-detail).
+
+::: {.callout-note}
+The Windows route has not yet been tested end to end. Please report problems
+as a GitHub issue.
+:::
 
 ::: {.callout-note}
 If you work with Claude, continue with [Working with Claude](claude.qmd) once
 the installer has finished.
 :::
+
+## Update
+
+```bash
+omero-screen self update            # install the latest release
+omero-screen self update --check    # only say whether there is one
+```
+
+Your settings and data are kept. `omero-screen doctor` also tells you when a
+newer release is out. Running the install line again does the same as
+`self update`.
+
+The previous release stays on disk, so you can go back if a new one causes
+trouble; older releases are removed (each takes several GB):
+
+```bash
+omero-screen self update --version 0.8.27
+```
+
+## Uninstall
+
+```bash
+omero-screen self uninstall           # remove the software and its commands
+omero-screen self uninstall --purge   # also your settings and keychain password
+```
+
+What each operation does with the things listed in
+[What goes where](#what-goes-where):
+
+| | Update | Uninstall | Uninstall `--purge` |
+|---|---|---|---|
+| Software (current release) | replaced by the new one | removed | removed |
+| Previous release | kept for rollback; older ones removed | removed | removed |
+| Commands in `~/.local/bin` | relinked | removed (only ours) | removed (only ours) |
+| Settings (`config.toml`) | kept | kept | **removed** |
+| Keychain password | kept | kept | **removed** |
+| Cellpose models, image cache, CellView database | kept | kept, listed | kept, listed |
+| uv and its cache | kept | kept | kept |
+
+Only commands that link into the install are removed; a `napari` you
+installed yourself stays. Your data (the CellView database, the image cache
+and the Cellpose models) is never deleted, not even with `--purge`: the
+uninstaller lists where it is so you can delete it yourself.
+`uv self uninstall` removes uv.
+
+If the `omero-screen` command no longer works, uninstall from the web:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/HocheggerLab/omero-screen/main/install.sh | sh -s -- --uninstall
+```
 
 ## Set up your OMERO login
 
@@ -96,6 +211,31 @@ laptop; some combinations need the right hardware.
 Device selection is automatic: CUDA if present, then MPS, then CPU. Force CPU
 with `OMERO_SCREEN_USE_GPU=0`.
 
+## On an HPC cluster
+
+Run the [quick install](#quick-install-macos-and-linux) on a **login node**.
+Then:
+
+- **Password:** clusters have no keychain, so use a
+  [password file](#the-configuration-in-detail).
+- **Space:** each release takes ~2.3 GB. If your home directory is small, set
+  `OMERO_SCREEN_HOME` (and `UV_CACHE_DIR`, uv's download cache) to a project
+  directory.
+- **Models:** fetch them on the login node once, so jobs don't download them
+  in parallel: `omero-screen models pull stock`, and
+  `omero-screen models pull hocheggerlab` for the lab's models. Cellpose 4
+  (`cpsam`) downloads on first use.
+- **CUDA:** the PyTorch build installed needs an NVIDIA driver for CUDA 12
+  (driver 525 or newer).
+
+The quick install includes napari, which needs glibc 2.34 or newer on Linux
+(`ldd --version`). A GUI-free install for clusters, and an
+`omero-screen submit` command that writes and submits SLURM jobs from the
+install, are in preparation
+([#92](https://github.com/HocheggerLab/omero-screen/issues/92)). Until then,
+jobs are submitted from a source checkout as described in
+[Running on a SLURM cluster](hpc.qmd).
+
 ## The configuration in detail
 
 Settings come from several places. A value set higher up in this list wins:
@@ -117,7 +257,7 @@ username = "ab123"
 # group = "my-lab-group"          # default: your OMERO default group
 
 [segmentation]
-# model_set = "hocheggerlab"      # the lab's custom models (omero-screen models pull)
+# model_set = "hocheggerlab"      # the lab's models; first: omero-screen models pull hocheggerlab
 
 [paths]
 # cache = "~/omero-cache"         # downloaded images
@@ -184,6 +324,26 @@ that way, and never paste one into an issue or a pull request.
 
 Run `uv run omero-integration-test e2e_connection` to check the connection to
 a test server.
+
+### A release and a checkout side by side
+
+You can keep the installed release for day-to-day work and a checkout for
+development. They use separate Python environments: inside the checkout,
+`uv run omero-screen` (or the checkout's activated `.venv`) runs your
+development code; elsewhere, `omero-screen` runs the release. Check which one
+you have with `omero-screen --version`.
+
+They share your settings, keychain password, Cellpose models, image cache and
+CellView database. Two things to watch:
+
+- **`.env` files.** Any `omero-screen` command reads the `.env.{ENV}` file
+  (default `.env.development`) of the git repository containing the current
+  folder. Run inside your checkout, the release therefore uses the checkout's
+  development settings. Run the release from outside any repository with a
+  `.env` file.
+- **Shared data.** Point the checkout at its own CellView database
+  (`DATABASE_PATH` in `.env.development`) so experiments don't touch the one
+  you work with.
 
 ## Next
 

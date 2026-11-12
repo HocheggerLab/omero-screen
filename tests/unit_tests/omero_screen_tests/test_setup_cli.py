@@ -160,3 +160,64 @@ def test_version_flags() -> None:
     assert out.exit_code == 0 and version("omero-screen") in out.output
     out = runner.invoke(cellclass, ["--version"])
     assert out.exit_code == 0 and version("cellclass") in out.output
+
+
+def test_models_pull_stock(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+
+    from omero_screen import stock_models
+
+    server = tmp_path / "server"
+    server.mkdir()
+    (server / "m").write_bytes(b"weights")
+    monkeypatch.setattr(
+        stock_models,
+        "MIRRORED_SHA256",
+        {"m": hashlib.sha256(b"weights").hexdigest()},
+    )
+    monkeypatch.setattr(
+        stock_models, "sources", lambda name: [(server / name).as_uri()]
+    )
+    monkeypatch.setenv("CELLPOSE_LOCAL_MODELS_PATH", str(tmp_path / "models"))
+    result = runner.invoke(setup_cli.cli, ["models", "pull", "stock"])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "models" / "m").read_bytes() == b"weights"
+
+
+def test_self_update_refuses_a_source_checkout(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup_cli.install, "find", lambda: None)
+    result = runner.invoke(setup_cli.cli, ["self", "update"])
+    assert result.exit_code != 0
+    assert "git pull" in result.output
+
+
+def test_self_update_check_reports_a_newer_release(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from omero_screen import install
+
+    found = install.Install(home=tmp_path, bin_dir=tmp_path)
+    monkeypatch.setattr(setup_cli.install, "find", lambda: found)
+    monkeypatch.setattr(
+        setup_cli.install, "latest_version", lambda **_: "99.0.0"
+    )
+    result = runner.invoke(setup_cli.cli, ["self", "update", "--check"])
+    assert result.exit_code == 0, result.output
+    assert "Update available: 99.0.0" in result.output
+
+
+def test_self_uninstall_asks_first(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from omero_screen import install
+
+    found = install.Install(home=tmp_path, bin_dir=tmp_path)
+    monkeypatch.setattr(setup_cli.install, "find", lambda: found)
+    ran = []
+    monkeypatch.setattr(setup_cli.os, "execvpe", lambda *a: ran.append(a))
+    result = runner.invoke(setup_cli.cli, ["self", "uninstall"], input="n\n")
+    assert result.exit_code != 0 and not ran

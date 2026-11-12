@@ -80,11 +80,11 @@ def size_model_path(model_type):
 
 def cache_model_path(basename):
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    url = f"{_MODEL_URL}/{basename}"
     cached_file = os.fspath(MODEL_DIR.joinpath(basename))
     if not os.path.exists(cached_file):
-        models_logger.info('Downloading: "{}" to {}\n'.format(url, cached_file))
-        utils.download_url_to_file(url, cached_file, progress=True)
+        # omero-screen: try our mirror before cellpose.org (see stock_models)
+        from omero_screen.stock_models import fetch
+        fetch(basename, Path(cached_file))
     return cached_file
 
 

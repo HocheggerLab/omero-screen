@@ -16,10 +16,19 @@ curl -LsSf https://raw.githubusercontent.com/HocheggerLab/omero-screen/main/inst
 It installs uv if needed, downloads the latest release (a git tag
 `omero-screen-vX.Y.Z`), installs the locked environment with napari into
 `~/.local/share/omero-screen/<version>` (`current` links to it), links the
-commands into `~/.local/bin`, then runs `omero-screen setup` and
-`omero-screen doctor`. Rerunning it updates the install. Options as environment
-variables: `OMERO_SCREEN_VERSION`, `OMERO_SCREEN_BRANCH` (testing),
-`OMERO_SCREEN_HOME`, `OMERO_SCREEN_BIN`, `OMERO_SCREEN_NO_SETUP=1`.
+commands into `~/.local/bin` (recorded in `install.env`), pre-fetches the stock
+Cellpose 3 models (`omero-screen models pull stock`; mirrored on a GitHub
+release, cellpose.org as fallback), then runs `omero-screen setup` and
+`omero-screen doctor`. Options as environment variables: `OMERO_SCREEN_VERSION`,
+`OMERO_SCREEN_BRANCH` (testing), `OMERO_SCREEN_HOME`, `OMERO_SCREEN_BIN`,
+`OMERO_SCREEN_NO_SETUP=1`.
+
+Update: `omero-screen self update [--check] [--version X.Y.Z]` (or rerun the
+line); keeps the current and previous release, removes older ones. Uninstall:
+`omero-screen self uninstall [--purge]`, or `… install.sh | sh -s -- --uninstall`
+when the command is broken. Only links into the install are removed; `--purge`
+adds the settings and keychain password; CellView DB, image cache and Cellpose
+models are never deleted.
 
 **Developers:**
 

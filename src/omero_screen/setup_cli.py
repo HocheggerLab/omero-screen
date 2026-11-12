@@ -19,7 +19,7 @@ from typing import Any
 
 import click
 
-from omero_screen import settings
+from omero_screen import install, settings, stock_models
 
 #: Exit status of ``doctor`` when a required check fails.
 DOCTOR_FAILED = 1
@@ -284,9 +284,43 @@ def _check_cache() -> Check:
     )
 
 
+def _check_models() -> Check:
+    missing = stock_models.missing()
+    target = stock_models.model_dir()
+    return Check(
+        "Stock Cellpose models",
+        not missing,
+        f"in {target}" if not missing else f"missing {', '.join(missing)}",
+        "Run: omero-screen models pull stock",
+        required=False,
+    )
+
+
+def _check_update() -> Check:
+    from importlib.metadata import version
+
+    current = version("omero-screen")
+    try:
+        latest = install.latest_version(timeout=5)
+    except install.InstallError as err:
+        return Check("Updates", True, f"not checked ({err})", required=False)
+    newer = install.version_key(latest) > install.version_key(current)
+    return Check(
+        "Updates",
+        not newer,
+        f"{latest} available (installed: {current})"
+        if newer
+        else "up to date",
+        "Run: omero-screen self update",
+        required=False,
+    )
+
+
 @cli.command()
 @click.option(
-    "--offline", is_flag=True, help="Skip the test connection to OMERO."
+    "--offline",
+    is_flag=True,
+    help="Skip the test connection to OMERO and the update check.",
 )
 def doctor(offline: bool) -> None:
     """Check the installation and configuration; explain any fix."""
@@ -300,7 +334,10 @@ def doctor(offline: bool) -> None:
         _check_napari,
         _check_device,
         _check_cache,
+        _check_models,
     ]
+    if not offline and install.find() is not None:
+        probes.append(_check_update)
     checks: list[Check] = []
     for probe in probes:
         result = probe()
@@ -363,37 +400,43 @@ def models() -> None:
     """Get segmentation models; publish classifiers to OMERO."""
 
 
-def _cellpose_dir() -> Path:
-    return Path(
-        os.environ.get("CELLPOSE_LOCAL_MODELS_PATH", "~/.cellpose/models")
-    ).expanduser()
-
-
-def _sha256(path: Path) -> str:
-    import hashlib
-
-    digest = hashlib.sha256()
-    with path.open("rb") as fh:
-        for block in iter(lambda: fh.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
+def _pull_stock() -> None:
+    """Fetch the stock Cellpose 3 models used by default."""
+    target = stock_models.model_dir()
+    for name, expected in stock_models.MIRRORED_SHA256.items():
+        dest = target / name
+        if dest.exists() and stock_models.sha256(dest) == expected:
+            click.echo(f"ok      {name}")
+            continue
+        try:
+            stock_models.fetch(name, dest)
+        except stock_models.ModelDownloadError as err:
+            raise click.ClickException(str(err)) from err
+        click.echo(f"fetched {name}")
+    click.echo(f"Done: the stock Cellpose 3 models are in {target}")
 
 
 @models.command("pull")
 @click.argument("model_set")
 def models_pull(model_set: str) -> None:
-    """Download the Cellpose models of MODEL_SET from the site profile.
+    """Download the Cellpose models of MODEL_SET.
 
-    Files already present with the right checksum are skipped. Use the set
-    by adding ``[segmentation] model_set = "<MODEL_SET>"`` to the user config.
+    ``stock`` is the stock Cellpose 3 models (nuclei, cyto3) used when no
+    models are configured; any other name is a model set of the site
+    profile. Files already present with the right checksum are skipped. Use
+    a site set by adding ``[segmentation] model_set = "<MODEL_SET>"`` to the
+    user config.
     """
     import urllib.request
 
+    if model_set == "stock":
+        _pull_stock()
+        return
     sets = settings.load().section("segmentation").get("model_sets", {})
     if model_set not in sets:
         raise click.ClickException(
-            f"Unknown model set {model_set!r}; the site profile has "
-            f"{sorted(sets) or 'none'}."
+            f"Unknown model set {model_set!r}; available: "
+            f"{', '.join(['stock', *sorted(sets)])}."
         )
     entry = sets[model_set]
     url, files = entry.get("url", ""), entry.get("sha256", {})
@@ -401,18 +444,18 @@ def models_pull(model_set: str) -> None:
         raise click.ClickException(
             f"Model set {model_set!r} has no download URL yet: ask the site "
             "maintainer, or copy the model files into "
-            f"{_cellpose_dir()} by hand."
+            f"{stock_models.model_dir()} by hand."
         )
-    target = _cellpose_dir()
+    target = stock_models.model_dir()
     target.mkdir(parents=True, exist_ok=True)
     for name, expected in files.items():
         dest = target / name
-        if dest.exists() and _sha256(dest) == expected:
+        if dest.exists() and stock_models.sha256(dest) == expected:
             click.echo(f"ok      {name}")
             continue
         partial = dest.with_suffix(".part")
         urllib.request.urlretrieve(url.format(name=name), partial)
-        if _sha256(partial) != expected:
+        if stock_models.sha256(partial) != expected:
             partial.unlink()
             raise click.ClickException(f"Checksum mismatch for {name}")
         partial.replace(dest)
@@ -512,6 +555,108 @@ def models_publish(model: Path, replace: bool) -> None:
         )
     finally:
         conn.close()
+
+
+# --- self --------------------------------------------------------------------
+
+
+@cli.group("self")
+def self_group() -> None:
+    """Update or uninstall an install made by install.sh."""
+
+
+def _require_install() -> install.Install:
+    found = install.find()
+    if found is None:
+        raise click.ClickException(
+            "This omero-screen was not installed with install.sh. In a source "
+            "checkout, update with: git pull && uv sync --dev"
+        )
+    return found
+
+
+@self_group.command("update")
+@click.option(
+    "--version",
+    "version",
+    default=None,
+    help="Install this release (e.g. 0.8.27) instead of the latest; an "
+    "older one rolls back.",
+)
+@click.option(
+    "--check", is_flag=True, help="Only report whether an update exists."
+)
+def self_update(version: str | None, check: bool) -> None:
+    """Install the latest release; settings and data are kept.
+
+    The previous release stays on disk for a quick rollback with
+    --version; older ones are removed.
+    """
+    import subprocess
+    import tempfile
+    from importlib.metadata import version as installed_version
+
+    found = _require_install()
+    current = installed_version("omero-screen")
+    if version is None:
+        try:
+            latest = install.latest_version()
+        except install.InstallError as err:
+            raise click.ClickException(str(err)) from err
+        newer = install.version_key(latest) > install.version_key(current)
+        if check or not newer:
+            click.echo(
+                f"Update available: {latest} (installed: {current})"
+                if newer
+                else f"Up to date ({current})."
+            )
+            return
+        version = latest
+    elif check:
+        raise click.UsageError("--check and --version do not go together.")
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            script = install.download_installer(Path(tmp) / "install.sh")
+        except install.InstallError as err:
+            raise click.ClickException(str(err)) from err
+        env = {**os.environ, **install.installer_env(found, version)}
+        result = subprocess.run(["sh", str(script)], env=env, check=False)
+    if result.returncode:
+        raise click.ClickException(
+            f"The installer failed (exit {result.returncode}); {current} is "
+            "still installed."
+        )
+
+
+@self_group.command("uninstall")
+@click.option(
+    "--purge",
+    is_flag=True,
+    help="Also delete the settings and the password in the keychain.",
+)
+@click.option("--yes", "-y", is_flag=True, help="Do not ask to confirm.")
+def self_uninstall(purge: bool, yes: bool) -> None:
+    """Remove omero-screen and its commands.
+
+    Your CellView database, image cache and Cellpose models are never
+    deleted; the uninstaller says where they are.
+    """
+    found = _require_install()
+    what = f"omero-screen in {found.home} and its commands in {found.bin_dir}"
+    if purge:
+        what += f", your settings in {settings.config_dir()} and the keychain password"
+    if not yes:
+        click.confirm(f"Remove {what}?", abort=True)
+    script = found.installer
+    if not script.is_file():
+        raise click.ClickException(
+            f"{script} is missing; run the uninstaller from the web: curl -LsSf "
+            f"{install.INSTALLER_URL} | sh -s -- --uninstall"
+        )
+    args = ["sh", str(script), "--uninstall", *(["--purge"] if purge else [])]
+    env = {**os.environ, **install.installer_env(found, None)}
+    # Replace this process: the script deletes the venv it runs from.
+    os.execvpe("sh", args, env)
 
 
 def run(argv: list[str]) -> None:
