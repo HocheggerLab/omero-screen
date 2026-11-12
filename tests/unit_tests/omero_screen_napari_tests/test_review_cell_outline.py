@@ -159,3 +159,27 @@ def test_frames_are_ordered_outwards_from_the_centre() -> None:
     from omero_screen_napari.review.cell_outline import frames_from
 
     assert frames_from([1, 2, 3, 4, 5, 9], 3) == [3, 2, 4, 1, 5, 9]
+
+
+def test_dask_crop_leaves_global_callbacks_alone() -> None:
+    """Reading a dask stack neither runs nor swaps dask's global callbacks.
+
+    napari's dask cache is a global callback that breaks when a second
+    thread computes at the same time as napari's slicing.
+    """
+    da = pytest.importorskip("dask.array")
+    from dask.callbacks import Callback
+
+    seen: list[object] = []
+
+    class Spy(Callback):
+        def _pretask(self, key, dsk, state):  # noqa: ANN001, ANN202
+            seen.append(key)
+
+    nuclei = da.from_array(stack(), chunks=(1, 250, 250))
+    with Spy() as spy:
+        crop = cell_crop(nuclei, 0, 5, 500, 500)
+        assert spy._callback in Callback.active
+    assert crop is not None
+    assert crop[0].sum() == 100
+    assert seen == []
