@@ -17,7 +17,7 @@ Importing the package loads neither ``omero_screen`` nor the OMERO gateway
 loads the ``.env`` configuration.
 """
 
-__version__ = "0.10.4"
+__version__ = "0.10.5"
 
 from .omero_connect import omero_connect
 

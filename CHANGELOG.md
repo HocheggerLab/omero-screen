@@ -1,3 +1,9 @@
+## omero-screen-v0.10.5 (2026-11-12)
+
+### Fix
+
+- **napari**: split a mother that runs on into a daughter; find fast cells after a gap (#102)
+
 ## omero-screen-v0.10.4 (2026-11-12)
 
 ### Fix
