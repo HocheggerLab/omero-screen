@@ -1490,7 +1490,7 @@ def _reloading(
         log = source.log_path
         mtime = log.stat().st_mtime if log and log.exists() else 0.0
         if well in seen and seen[well] != mtime:
-            source._wells.pop(well, None)
+            source.invalidate(well)
         seen[well] = mtime
         return read(well)
 

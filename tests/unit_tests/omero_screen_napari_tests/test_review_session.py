@@ -272,3 +272,48 @@ def test_undo_reverts_only_this_cells_edits(session, monkeypatch) -> None:
         session.undo("C2-t0-L5")
     live = {e.args.get("target") for e in EditLog(session.edits_path)}
     assert "e0002" not in live
+
+
+@pytest.fixture
+def two_items(tmp_path: Path, monkeypatch) -> ReviewSession:
+    """The dividing cell and its neighbour (track 4, label 9) both queued."""
+    q = tmp_path / "queue.json"
+    write_queue(
+        q,
+        1,
+        [
+            ReviewItem(id="C2-t0-L5", well="C2", frame=0),
+            ReviewItem(id="C2-t0-L9", well="C2", frame=0),
+        ],
+    )
+    s = ReviewSession(q)
+    det, curated = _det(), _curated()
+    monkeypatch.setattr(s.source, "well", lambda well: (det, curated))
+    return s
+
+
+def test_link_taking_frames_from_a_decided_item_is_reported(two_items) -> None:
+    link = {"frame": 4, "label": 9}
+    assert two_items.taken_from_decided("C2-t0-L5", "link", link) == []
+    two_items.verdict("C2-t0-L9", "correct")
+    assert two_items.taken_from_decided("C2-t0-L5", "link", link) == [
+        "takes t4–5 from C2-t0-L9, which already has a verdict (correct)"
+    ]
+    # annotations and edits that do not apply are not checked
+    assert two_items.taken_from_decided("C2-t0-L5", "note", {"text": "x"}) == []
+    bad = {"frame": 4, "label": 99}
+    assert two_items.taken_from_decided("C2-t0-L5", "link", bad) == []
+
+
+def test_applied_proposal_carries_the_warning(two_items, monkeypatch) -> None:
+    monkeypatch.setattr(
+        ReviewSession,
+        "edit",
+        lambda self, item, op, args, **kw: type("E", (), {"id": "e0001"})(),
+    )
+    two_items.verdict("C2-t0-L9", "correct")
+    prop = two_items.propose(
+        "C2-t0-L5", "link", {"frame": 4, "label": 9}, "re-emerges", "clear"
+    )
+    assert prop.status == "applied"
+    assert prop.note.startswith("WARNING: takes t4–5 from C2-t0-L9")

@@ -305,9 +305,13 @@ def register(server: Any, state: Any) -> None:
                 track from its mother, e.g. a piece or neighbour left as a
                 fake daughter); set_parent {"cell": [frame, label],
                 "parent": [frame, label]}; swap {"other": [frame, label],
-                "frame"} (exchange identities with another cell from frame
-                on, e.g. sisters mixed up after a merge). ``cell`` defaults
-                to the item's own cell.
+                "frame", "until"?} (exchange identities with another cell
+                from frame on, e.g. sisters mixed up after a merge; with
+                until, only through that frame, so a short crossing is one
+                edit). ``cell`` defaults to the item's own cell. If the edit
+                would take frames from another item that already has a
+                verdict, it is still applied but the proposal's note starts
+                with WARNING: re-check that item.
             reason: Why, in one sentence the reviewer can check on screen.
             confidence: "clear" if the filmstrip and numbers leave no doubt,
                 otherwise "uncertain".

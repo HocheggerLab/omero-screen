@@ -7,6 +7,7 @@ the agent's ``filmstrip`` tool. Wells are loaded and repaired once per
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -46,6 +47,13 @@ class CellSource:
     _bases: dict[str, Any] = field(default_factory=dict, repr=False)
     _raw: dict[str, pd.DataFrame] = field(default_factory=dict, repr=False)
     _debris: dict[str, set[int]] = field(default_factory=dict, repr=False)
+    # Edits arrive on the MCP bridge thread while the viewer replays on the
+    # Qt thread: a replay that started before an edit must not be cached
+    # after it (the edit would seem lost). See invalidate().
+    _generation: dict[str, int] = field(default_factory=dict, repr=False)
+    _lock: threading.Lock = field(
+        default_factory=threading.Lock, repr=False, compare=False
+    )
 
     def raw(self, well: str) -> pd.DataFrame:
         """The well's detections as tracked, before any curation (loaded once)."""
@@ -75,20 +83,38 @@ class CellSource:
         return self._debris.get(well, set())
 
     def well(self, well: str) -> tuple[pd.DataFrame, Any]:
-        """``(curated detections, curated lineage)`` for a well: repair + edit log."""
-        if well not in self._wells:
-            from omero_screen_track.cells import apply_extras
-            from omero_screen_track.edit import EditLog, replay
+        """``(curated detections, curated lineage)`` for a well: repair + edit log.
 
+        Thread-safe against :meth:`invalidate`: a replay overtaken by an
+        invalidation is discarded and run again, never cached.
+        """
+        from omero_screen_track.cells import apply_extras
+        from omero_screen_track.edit import EditLog, replay
+
+        while True:
+            with self._lock:
+                if well in self._wells:
+                    return self._wells[well]
+                generation = self._generation.get(well, 0)
             log: Iterable[Any] = (
                 EditLog(self.log_path) if self.log_path else []
             )
             curated = replay(self.base(well), log, well)
-            self._wells[well] = (
-                apply_extras(self.raw(well), curated),
-                curated,
-            )
-        return self._wells[well]
+            result = (apply_extras(self.raw(well), curated), curated)
+            with self._lock:
+                if self._generation.get(well, 0) == generation:
+                    self._wells[well] = result
+                    return result
+
+    def invalidate(self, well: str) -> None:
+        """Forget the curated lineage of ``well``; the next read replays the log.
+
+        Call after appending to the edit log. A replay already running on
+        another thread is then not cached (see :meth:`well`).
+        """
+        with self._lock:
+            self._wells.pop(well, None)
+            self._generation[well] = self._generation.get(well, 0) + 1
 
     @property
     def patch_dir(self) -> Path | None:
