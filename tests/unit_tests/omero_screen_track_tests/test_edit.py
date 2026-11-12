@@ -16,9 +16,15 @@ from omero_screen_track.edit import (
 from omero_screen_track.repair import repair_lineage
 
 
-def _curated(spec: dict[int, tuple[range, int]], parents: dict[int, int] | None = None) -> Curated:
+def _curated(
+    spec: dict[int, tuple[range, int]], parents: dict[int, int] | None = None
+) -> Curated:
     """Build a lineage from ``{label: (frames, track_id)}``."""
-    tracks = {(t, label): tid for label, (frames, tid) in spec.items() for t in frames}
+    tracks = {
+        (t, label): tid
+        for label, (frames, tid) in spec.items()
+        for t in frames
+    }
     tids = set(tracks.values())
     par = {tid: 0 for tid in tids} | (parents or {})
     return Curated(tracks=tracks, parents=par, next_id=max(tids) + 1)
@@ -69,14 +75,20 @@ def test_unlink_makes_a_founder_and_refuses_an_empty_cut() -> None:
     cur = _curated({1: (range(0, 20), 1)})
     cur.unlink((0, 1), 10)
     tail = cur.tracks[(15, 1)]
-    assert tail != 1 and cur.parents[tail] == 0 and _frames(cur, 1) == list(range(10))
+    assert (
+        tail != 1
+        and cur.parents[tail] == 0
+        and _frames(cur, 1) == list(range(10))
+    )
     with pytest.raises(EditError):
         cur.unlink((0, 1), 50)
 
 
 def test_set_parent_rejects_cycles_and_overlap() -> None:
     """A division must go forward in time and cannot loop."""
-    cur = _curated({1: (range(0, 10), 1), 2: (range(10, 20), 2), 3: (range(5, 20), 3)})
+    cur = _curated(
+        {1: (range(0, 10), 1), 2: (range(10, 20), 2), 3: (range(5, 20), 3)}
+    )
     cur.set_parent((10, 2), (0, 1))
     assert cur.parents[2] == 1
     with pytest.raises(EditError, match="ancestor"):
@@ -113,9 +125,21 @@ def test_log_replay_is_deterministic_and_undo_reverts(tmp_path) -> None:
     """Replaying the same log twice gives the same lineage; undo appends a revert."""
     base = _curated({1: (range(0, 10), 1), 5: (range(12, 20), 5)})
     log = EditLog(tmp_path / "edits.jsonl")
-    log.append("link", "C2", {"cell": [0, 1], "frame": 12, "label": 5}, author="agent",
-               confirmed_by="human", reason="2.4 diameters, markers continuous", base=base)
-    log.append("event", "C2", {"cell": [0, 1], "kind": "mitosis", "frame": 19}, base=base)
+    log.append(
+        "link",
+        "C2",
+        {"cell": [0, 1], "frame": 12, "label": 5},
+        author="agent",
+        confirmed_by="human",
+        reason="2.4 diameters, markers continuous",
+        base=base,
+    )
+    log.append(
+        "event",
+        "C2",
+        {"cell": [0, 1], "kind": "mitosis", "frame": 19},
+        base=base,
+    )
     a, b = replay(base, log, "C2"), replay(base, log, "C2")
     assert a.tracks == b.tracks and a.annotations == b.annotations
     assert a.tracks[(15, 5)] == 1
@@ -127,7 +151,11 @@ def test_log_replay_is_deterministic_and_undo_reverts(tmp_path) -> None:
     assert after.tracks[(15, 5)] == 1  # the link survives
     assert len(log.entries()) == 3  # nothing deleted
     first = json.loads((tmp_path / "edits.jsonl").read_text().splitlines()[0])
-    assert first["author"] == "agent" and first["confirmed_by"] == "human" and first["v"] == 1
+    assert (
+        first["author"] == "agent"
+        and first["confirmed_by"] == "human"
+        and first["v"] == 1
+    )
 
 
 def test_invalid_edit_is_not_written(tmp_path) -> None:
@@ -135,7 +163,9 @@ def test_invalid_edit_is_not_written(tmp_path) -> None:
     base = _curated({1: (range(0, 10), 1)})
     log = EditLog(tmp_path / "edits.jsonl")
     with pytest.raises(EditError):
-        log.append("link", "C2", {"cell": [0, 1], "frame": 12, "label": 77}, base=base)
+        log.append(
+            "link", "C2", {"cell": [0, 1], "frame": 12, "label": 77}, base=base
+        )
     assert log.entries() == []
 
 
@@ -151,11 +181,25 @@ def test_base_lineage_from_repair() -> None:
     """The repair's assignment becomes the starting lineage, keyed by raw label."""
     det = pd.DataFrame(
         [
-            {"track_id_raw": 1, "parent_track_id_raw": 0, "timepoint": t, "area": 400.0, "y": 100.0, "x": 100.0}
+            {
+                "track_id_raw": 1,
+                "parent_track_id_raw": 0,
+                "timepoint": t,
+                "area": 400.0,
+                "y": 100.0,
+                "x": 100.0,
+            }
             for t in range(10)
         ]
         + [
-            {"track_id_raw": 2, "parent_track_id_raw": 0, "timepoint": t, "area": 400.0, "y": 100.0, "x": 103.0}
+            {
+                "track_id_raw": 2,
+                "parent_track_id_raw": 0,
+                "timepoint": t,
+                "area": 400.0,
+                "y": 100.0,
+                "x": 103.0,
+            }
             for t in range(10, 20)
         ]
     )
@@ -164,7 +208,12 @@ def test_base_lineage_from_repair() -> None:
     assert cur.tracks[(15, 2)] == 1  # restart joined by the repair
     assert cur.next_id == 3
     table = cur.label_table()
-    assert set(table.columns) == {"timepoint", "label", "track_id", "parent_track_id"}
+    assert set(table.columns) == {
+        "timepoint",
+        "label",
+        "track_id",
+        "parent_track_id",
+    }
 
 
 def test_absorb_and_drop_move_single_detections() -> None:
@@ -184,12 +233,42 @@ def test_mask_add_replaces_raw_labels_and_joins_cell() -> None:
     from omero_screen_track.cells import apply_extras
 
     cur = _curated({1: (range(0, 10), 1), 7: (range(0, 10), 7)})
-    cur.mask_add((0, 1), 5, 900, {"area": 120.0, "y": 1.0, "x": 2.0, "pip": 10.0, "patch": "masks/C2/t0005_L900.npz"}, [7])
-    cur.mask_add(None, 5, 901, {"area": 80.0, "y": 3.0, "x": 4.0, "pip": 20.0}, [])
-    assert cur.tracks[(5, 900)] == 1 and (5, 7) in cur.removed and (5, 7) not in cur.tracks
-    assert cur.parents[cur.tracks[(5, 901)]] == 0  # second part is a new founder
-    det = pd.DataFrame({"timepoint": [5, 5], "label": [1, 7], "track_id_raw": [1, 7], "parent_track_id_raw": [0, 0],
-                        "area": [100.0, 100.0], "y": [0.0, 9.0], "x": [0.0, 9.0], "pip": [1.0, 1.0]})
+    cur.mask_add(
+        (0, 1),
+        5,
+        900,
+        {
+            "area": 120.0,
+            "y": 1.0,
+            "x": 2.0,
+            "pip": 10.0,
+            "patch": "masks/C2/t0005_L900.npz",
+        },
+        [7],
+    )
+    cur.mask_add(
+        None, 5, 901, {"area": 80.0, "y": 3.0, "x": 4.0, "pip": 20.0}, []
+    )
+    assert (
+        cur.tracks[(5, 900)] == 1
+        and (5, 7) in cur.removed
+        and (5, 7) not in cur.tracks
+    )
+    assert (
+        cur.parents[cur.tracks[(5, 901)]] == 0
+    )  # second part is a new founder
+    det = pd.DataFrame(
+        {
+            "timepoint": [5, 5],
+            "label": [1, 7],
+            "track_id_raw": [1, 7],
+            "parent_track_id_raw": [0, 0],
+            "area": [100.0, 100.0],
+            "y": [0.0, 9.0],
+            "x": [0.0, 9.0],
+            "pip": [1.0, 1.0],
+        }
+    )
     out = apply_extras(det, cur)
     assert set(out.label) == {1, 900, 901}
     assert out.set_index("label").loc[900, "pip"] == 10.0
@@ -226,14 +305,34 @@ def test_extend_writes_all_or_nothing_and_batch_undo(tmp_path) -> None:
     assert not replay(base, log, "C2").annotations.get(1, {}).get("notes")
 
 
-def test_confirmed_frames_are_live_links_and_swaps_on_the_replayed_lineage() -> None:
+def test_confirmed_frames_are_live_links_and_swaps_on_the_replayed_lineage() -> (
+    None
+):
     """Links (the anchored cell) and swaps (both cells) of the well, human or
     agent, give their frame; reverted edits, other ops and wells do not.
     """
-    base = _curated({1: (range(10), 1), 5: (range(10, 30), 5), 2: (range(30), 2), 3: (range(30), 3)})
+    base = _curated(
+        {
+            1: (range(10), 1),
+            5: (range(10, 30), 5),
+            2: (range(30), 2),
+            3: (range(30), 3),
+        }
+    )
     edits = [
-        Edit("e0001", "link", "C2", {"cell": [0, 1], "frame": 10, "label": 5}, author="agent"),
-        Edit("e0002", "swap", "C2", {"cell": [0, 2], "other": [0, 3], "frame": 20}),
+        Edit(
+            "e0001",
+            "link",
+            "C2",
+            {"cell": [0, 1], "frame": 10, "label": 5},
+            author="agent",
+        ),
+        Edit(
+            "e0002",
+            "swap",
+            "C2",
+            {"cell": [0, 2], "other": [0, 3], "frame": 20},
+        ),
         Edit("e0003", "link", "C2", {"cell": [0, 2], "frame": 25, "label": 5}),
         Edit("e0004", "revert", "C2", {"target": "e0003"}),
         Edit("e0005", "unlink", "C2", {"cell": [0, 3], "frame": 28}),
@@ -499,6 +598,47 @@ def test_swap_until_exchanges_only_a_crossing() -> None:
 
 def test_ranged_swap_confirms_both_ends() -> None:
     base = _curated({2: (range(30), 2), 3: (range(30), 3)})
-    edits = [Edit("e0001", "swap", "C2", {"cell": [0, 2], "other": [0, 3], "frame": 10, "until": 12})]
+    edits = [
+        Edit(
+            "e0001",
+            "swap",
+            "C2",
+            {"cell": [0, 2], "other": [0, 3], "frame": 10, "until": 12},
+        )
+    ]
     cur = replay(base, edits, "C2")
     assert confirmed_frames(cur, edits, "C2") == {2: {10, 13}, 3: {10, 13}}
+
+
+def test_set_parent_split_cuts_a_mother_that_runs_on() -> None:
+    """The tracker carried the mother (track 1) into one daughter at t10; the
+    other daughter (track 2) is born at t10."""
+    cur = _curated({1: (range(0, 20), 1), 2: (range(10, 20), 2)})
+    grandkid = cur._new_track()
+    cur.tracks[(25, 7)] = grandkid
+    cur.parents[grandkid] = 1
+    with pytest.raises(EditError, match="split"):
+        cur.set_parent((10, 2), (0, 1))
+    cur.set_parent((10, 2), (0, 1), split=True)
+    sister = cur.resolve((10, 1))
+    assert sister not in (1, 2)
+    assert _frames(cur, 1) == list(range(10))
+    assert cur.parents[2] == 1 and cur.parents[sister] == 1
+    assert cur.parents[grandkid] == sister  # the tail keeps its daughters
+    with pytest.raises(EditError, match="begin"):
+        cur.set_parent((10, 2), (10, 1), split=True)
+
+
+def test_set_parent_split_via_the_log() -> None:
+    base = _curated({1: (range(0, 20), 1), 2: (range(10, 20), 2)})
+    edits = [
+        Edit(
+            "e0001",
+            "set_parent",
+            "C2",
+            {"cell": [10, 2], "parent": [0, 1], "split": True},
+        )
+    ]
+    cur = replay(base, edits, "C2")
+    assert cur.parents[cur.resolve((10, 2))] == 1
+    assert cur.parents[cur.resolve((15, 1))] == 1

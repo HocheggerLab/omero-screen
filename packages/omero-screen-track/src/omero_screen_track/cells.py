@@ -291,6 +291,27 @@ def curated_tracks(
     return out
 
 
+def _velocity(
+    det: pd.DataFrame, own: list[Anchor], frames: int
+) -> tuple[float, float]:
+    """Mean ``(dy, dx)`` per frame over the cell's last ``frames`` frames."""
+    times = sorted({t for t, _ in own})[-(frames + 1) :]
+    keys = {(t, lab) for t, lab in own if t >= times[0]}
+    rows = det[det["timepoint"] >= times[0]]
+    rows = rows[
+        [
+            (int(t), int(lab)) in keys
+            for t, lab in zip(rows["timepoint"], rows["label"], strict=True)
+        ]
+    ]
+    pos = rows.groupby("timepoint")[["y", "x"]].mean()
+    if len(pos) < 2:
+        return 0.0, 0.0
+    span = float(pos.index[-1] - pos.index[0])
+    dy, dx = (pos.iloc[-1] - pos.iloc[0]) / span
+    return float(dy), float(dx)
+
+
 def continuation_candidates(
     curated: Curated,
     det: pd.DataFrame,
@@ -300,12 +321,16 @@ def continuation_candidates(
     max_gap: int = 6,
     channels: tuple[str, ...] = ("pip", "geminin"),
     limit: int = 9,
+    motion_frames: int = 3,
 ) -> pd.DataFrame:
     """Nuclei that could be the anchored cell's continuation at or after ``frame``.
 
     Candidates are detections in frames ``frame … frame + max_gap`` within
     ``reach`` nuclear diameters of the cell's last position before ``frame``,
-    that do not already belong to the cell. They are ranked by a cost of
+    or of where its recent motion (mean step over its last ``motion_frames``
+    frames) would have carried it by then, that do not already belong to the
+    cell. ``distance`` is the nearer of the two, so a fast cell is found
+    after a gap without widening the search for slow ones. They are ranked by a cost of
     distance (in diameters) plus the absolute log-ratios of area and of each
     reporter against the cell's last measurement, so nuclei of the same size
     and cell-cycle state come first.
@@ -336,8 +361,17 @@ def continuation_candidates(
         for t, lab in zip(window["timepoint"], window["label"], strict=True)
     ]
     window = window[window["track_id"] != tid]
+    vy, vx = _velocity(det, own, motion_frames)
+    ahead = window["timepoint"] - last_t
     window["distance"] = (
-        np.hypot(window["y"] - ref["y"], window["x"] - ref["x"]) / diam
+        np.minimum(
+            np.hypot(window["y"] - ref["y"], window["x"] - ref["x"]),
+            np.hypot(
+                window["y"] - (ref["y"] + vy * ahead),
+                window["x"] - (ref["x"] + vx * ahead),
+            ),
+        )
+        / diam
     )
     window = window[window["distance"] <= reach]
     if window.empty:

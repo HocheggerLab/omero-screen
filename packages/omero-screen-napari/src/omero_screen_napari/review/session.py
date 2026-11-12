@@ -455,13 +455,19 @@ class ReviewSession:
         _, curated = self.source.well(it.well)
         return track_breaks(curated, self.anchor(item_id), self.stop())
 
-    def candidates(self, item_id: str, frame: int) -> pd.DataFrame:
+    def candidates(
+        self, item_id: str, frame: int, **search: Any
+    ) -> pd.DataFrame:
+        """:func:`~omero_screen_track.cells.continuation_candidates` for the item's cell.
+
+        ``search`` passes ``reach`` / ``max_gap`` through.
+        """
         from omero_screen_track.cells import continuation_candidates
 
         it = self.item(item_id)
         det, curated = self.source.well(it.well)
         return continuation_candidates(
-            curated, det, self.anchor(item_id), frame
+            curated, det, self.anchor(item_id), frame, **search
         )
 
     def label_at(

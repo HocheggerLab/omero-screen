@@ -2,7 +2,7 @@
 
 import numpy as np
 import pandas as pd
-from omero_screen_track.cells import add_phases, cell_frames
+from omero_screen_track.cells import add_phases, cell_frames, continuation_candidates
 from omero_screen_track.edit import Curated
 
 
@@ -63,3 +63,24 @@ def test_phases_follow_the_reporters() -> None:
     phases = add_phases(cell_frames(cur, det, (0, 1)), det).phase
     runs = phases[phases.ne(phases.shift())].tolist()
     assert runs == ["G1", "S", "G2"]
+
+
+def test_candidates_follow_a_fast_cell_across_a_gap() -> None:
+    """A cell moving 50 px (2.5 diameters) a frame and lost for two frames is
+    found where its motion carries it, not only near its last position."""
+    area = np.pi * 10**2  # diameter 20 px
+    rows = [(t, 1, 100.0, 50.0 * t) for t in range(5)]  # fast, lost after t4
+    rows += [(t, 2, 100.0, 50.0 * t) for t in range(7, 10)]  # re-emerges
+    rows += [(t, 3, 100.0, 230.0) for t in range(10)]  # slow neighbour
+    det = pd.DataFrame(rows, columns=["timepoint", "label", "y", "x"])
+    det["area"] = area
+    tracks = {(t, lab): lab for t, lab, _, _ in rows}
+    cur = Curated(tracks=tracks, parents={1: 0, 2: 0, 3: 0}, next_id=4)
+
+    found = continuation_candidates(cur, det, (0, 1), 5)
+    assert found.iloc[0]["label"] == 2
+    assert found.iloc[0]["timepoint"] == 7
+    assert found.iloc[0]["distance"] < 0.1
+    # Without the motion term the re-emerged cell (7.5 diameters away) is missed.
+    still = continuation_candidates(cur, det, (0, 1), 5, motion_frames=0)
+    assert 2 not in set(still["label"])

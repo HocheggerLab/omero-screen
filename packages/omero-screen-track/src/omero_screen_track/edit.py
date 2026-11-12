@@ -18,7 +18,9 @@ items use the same form (``C2-t72-L524`` is anchor ``(72, 524)`` in well C2).
                 ``label`` (re-joins a broken track; works across gaps)
 ``unlink``      cut the anchored cell's track at ``frame``; the rest becomes a
                 new founder
-``set_parent``  make the anchored cell a daughter of ``parent``
+``set_parent``  make the anchored cell a daughter of ``parent``; with
+                ``split``, a parent whose track runs on past the daughter's
+                birth is cut there and the rest becomes the other daughter
 ``clear_parent`` make the anchored cell a founder
 ``swap``        exchange the identities of two cells from ``frame`` on, or
                 only through ``until`` (a short crossing: the cells take
@@ -242,8 +244,15 @@ class Curated:
                 f"The cell has no detections from frame {frame} on."
             )
 
-    def set_parent(self, cell: Anchor, parent: Anchor) -> None:
-        """Make the cell a daughter of ``parent``."""
+    def set_parent(
+        self, cell: Anchor, parent: Anchor, split: bool = False
+    ) -> None:
+        """Make the cell a daughter of ``parent``.
+
+        With ``split``, a parent whose track goes on past the cell's first
+        frame (the tracker carried the mother into one daughter) is cut
+        there: the rest of it, with any daughters, becomes the cell's sister.
+        """
         tid, pid = self.resolve(cell), self.resolve(parent)
         if tid == pid:
             raise EditError("A cell cannot be its own parent.")
@@ -252,8 +261,20 @@ class Curated:
             if ancestor == tid:
                 raise EditError("This would make a cell its own ancestor.")
             ancestor = self.parents.get(ancestor, 0)
+        birth = self.detections(tid)[0][0]
+        if split and self.detections(pid)[-1][0] >= birth:
+            if self.detections(pid)[0][0] >= birth:
+                raise EditError(
+                    "The parent must begin before the daughter is born."
+                )
+            sister = self._split_at(pid, birth)
+            if sister is not None:
+                self.parents[sister] = pid
         if self.detections(pid)[-1][0] >= self.detections(tid)[0][0]:
-            raise EditError("The parent must end before the daughter begins.")
+            raise EditError(
+                "The parent must end before the daughter begins "
+                "(split: true cuts a parent that runs on into a daughter)."
+            )
         self.parents[tid] = pid
 
     def clear_parent(self, cell: Anchor) -> None:
@@ -483,7 +504,11 @@ def apply_edit(curated: Curated, edit: Edit) -> None:
         elif edit.op == "unlink":
             curated.unlink(_anchor(a["cell"]), int(a["frame"]))
         elif edit.op == "set_parent":
-            curated.set_parent(_anchor(a["cell"]), _anchor(a["parent"]))
+            curated.set_parent(
+                _anchor(a["cell"]),
+                _anchor(a["parent"]),
+                bool(a.get("split", False)),
+            )
         elif edit.op == "clear_parent":
             curated.clear_parent(_anchor(a["cell"]))
         elif edit.op == "swap":

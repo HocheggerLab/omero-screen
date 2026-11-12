@@ -252,16 +252,27 @@ def register(server: Any, state: Any) -> None:
 
     @server.tool()
     async def continuation_candidates(
-        item_id: str, frame: int
+        item_id: str,
+        frame: int,
+        reach: float = 3.5,
+        max_gap: int = 6,
     ) -> list[dict[str, Any]]:
         """Nuclei that could continue the cell at or after `frame`, best first.
 
-        Each: rank, timepoint, raw label, distance (nuclear diameters), gap
-        (frames skipped), area ratio, reporter ratios and a combined cost. The
-        reviewer sees the same numbers on screen (Shift-1…9 links rank n).
+        Searched in frames frame…frame+max_gap, within `reach` nuclear
+        diameters of the cell's last position or of where its recent motion
+        would have carried it. Each: rank, timepoint, raw label, distance
+        (nuclear diameters, the nearer of the two), gap (frames skipped),
+        area ratio, reporter ratios and a combined cost. The reviewer sees
+        the same numbers on screen (Shift-1…9 links rank n). Raise reach
+        (e.g. 6) for a cell that turned or jumped.
         """
         session = _session()
-        return _records(session.candidates(item_id, int(frame)))
+        return _records(
+            session.candidates(
+                item_id, int(frame), reach=float(reach), max_gap=int(max_gap)
+            )
+        )
 
     @server.tool()
     async def label_at(
@@ -304,14 +315,16 @@ def register(server: Any, state: Any) -> None:
                 clear_parent {"cell": [frame, label]} (detach that nucleus's
                 track from its mother, e.g. a piece or neighbour left as a
                 fake daughter); set_parent {"cell": [frame, label],
-                "parent": [frame, label]}; swap {"other": [frame, label],
-                "frame", "until"?} (exchange identities with another cell
-                from frame on, e.g. sisters mixed up after a merge; with
-                until, only through that frame, so a short crossing is one
-                edit). ``cell`` defaults to the item's own cell. If the edit
-                would take frames from another item that already has a
-                verdict, it is still applied but the proposal's note starts
-                with WARNING: re-check that item.
+                "parent": [frame, label], "split"?} (split: true when the
+                mother's track runs on into one daughter: it is cut at the
+                cell's birth and the rest becomes the sister); swap
+                {"other": [frame, label], "frame", "until"?} (exchange
+                identities with another cell from frame on, e.g. sisters
+                mixed up after a merge; with until, only through that frame,
+                so a short crossing is one edit). ``cell`` defaults to the
+                item's own cell. If the edit would take frames from another
+                item that already has a verdict, it is still applied but the
+                proposal's note starts with WARNING: re-check that item.
             reason: Why, in one sentence the reviewer can check on screen.
             confidence: "clear" if the filmstrip and numbers leave no doubt,
                 otherwise "uncertain".
