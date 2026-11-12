@@ -1,3 +1,9 @@
+## omero-screen-v0.10.6 (2026-11-12)
+
+### Fix
+
+- **install**: update, uninstall, safe downloads and mirrored stock Cellpose models (#95)
+
 ## omero-screen-v0.10.5 (2026-11-12)
 
 ### Fix

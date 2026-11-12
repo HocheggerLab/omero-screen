@@ -1,6 +1,6 @@
 [project]
 name = "omero-screen-track"
-version = "0.10.5"
+version = "0.10.6"
 description = "GUI-free cell-tracking logic for omero-screen: lineage repair, review edits, fates and phases"
 readme = "README.md"
 authors = [

@@ -1,4 +1,4 @@
-__version__ = "0.10.5"
+__version__ = "0.10.6"
 
 from omero_screen.config import set_env_vars
 
