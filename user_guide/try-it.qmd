@@ -7,6 +7,15 @@ machine — no institutional server, no credentials, no data of your own. This i
 the fastest way to see what OMERO-Screen actually does.
 
 ::: {.callout-note}
+This page currently needs a source checkout (see the
+[developer install](installation.qmd#developer-install)). A single
+`omero-screen demo` command is in preparation. It will start the local server,
+download a small set of example plates (an IF experiment, a cyclic IF and a
+live-cell timelapse) with the RPE-1 Cellpose model, and import them, from the
+normal install, on Windows (WSL2), macOS and Linux.
+:::
+
+::: {.callout-note}
 Allow about 30 minutes end to end, most of which is the first Docker pull and
 the Cellpose model download.
 :::
@@ -34,11 +43,12 @@ and the data lives in a Docker volume you can delete.
 ./scripts/manage_test_server.sh stop      # shut it down
 ```
 
-Point your environment at it by setting `ENV=e2etest`, which loads
-`.env.e2etest` — that file already contains the container's credentials
-(`root` / `omero` on `localhost`), so nothing needs editing.
+Point your environment at it with a `.env.e2etest` file at the repository
+root, holding the container's credentials. The file is not in the repository
+(`.env*` files are gitignored), so create it once:
 
 ```bash
+printf 'HOST=localhost\nUSERNAME=root\nPASSWORD=omero\n' > .env.e2etest
 export ENV=e2etest
 uv run omero-integration-test e2e_connection
 ```
@@ -137,8 +147,12 @@ the metrics.
 
 ```bash
 ./scripts/manage_test_server.sh stop
-docker volume prune          # removes the throwaway OMERO data
+docker compose -f docker-compose.test.yml down -v   # also delete the server's data
 ```
+
+`down -v` deletes only this server's two volumes (its database and image
+store). Avoid `docker volume prune`: it removes every unused volume on the
+machine, not only OMERO's.
 
 ## If something fails
 

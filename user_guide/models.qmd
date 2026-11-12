@@ -64,11 +64,21 @@ also override everything: `omero-screen 1234 --model cp3:my_model`.
 ## Share models in a lab
 
 Models a whole lab uses can go into the lab's site profile as a **model set**,
-published for download (e.g. on Zenodo). Everyone then gets them with:
+published for download (e.g. as a GitHub release or on Zenodo). Everyone then
+gets them with:
 
 ```bash
 omero-screen models pull <set-name>
 ```
 
 and selects them with `[segmentation] model_set = "<set-name>"`. The Hochegger
-lab's models are the `hocheggerlab` set of the `sussex` profile.
+lab's models are the `hocheggerlab` set of the `sussex` profile, Cellpose 3
+models trained on Operetta 10x images:
+
+| Model | Segments | Used for |
+|---|---|---|
+| `Nuclei_Hoechst` | nuclei (Hoechst) | all cell lines |
+| `RPE-1_Tub_Hoechst` | cells (tubulin) | RPE-1, HCC1143 |
+| `U2OS_Tub_Hoechst` | cells (tubulin) | U2OS, and any cell line not listed |
+| `HeLa_Tub_Hoechst` | cells (tubulin) | HeLa |
+| `MM231_Tub_Hoechst` | cells (tubulin) | MDA-MB-231 |
