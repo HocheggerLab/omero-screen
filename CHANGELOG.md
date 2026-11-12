@@ -1,3 +1,9 @@
+## omero-screen-v0.10.3 (2026-11-12)
+
+### Fix
+
+- **tracking**: fate walkers per reporter and H2B mitosis repair (#96)
+
 ## omero-screen-v0.10.2 (2026-11-12)
 
 ### Fix
