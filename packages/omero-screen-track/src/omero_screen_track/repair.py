@@ -455,6 +455,8 @@ def _condensation(
         ]
         if not g1:
             return nan, nan, nan
+        # List concatenation: the median over both daughters' values. The
+        # size below is their sum (np.add), standing in for the mother's.
         level = float(np.median(a.chromatin(g1) + b.chromatin(g1)))
         size = float(np.median(np.add(a.area(g1), b.area(g1))))
     peak = max(
