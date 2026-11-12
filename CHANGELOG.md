@@ -1,3 +1,9 @@
+## omero-screen-v0.10.2 (2026-11-12)
+
+### Fix
+
+- **napari**: keep the Track Review outline on every frame (#94)
+
 ## omero-screen-v0.10.1 (2026-11-11)
 
 ### Fix
