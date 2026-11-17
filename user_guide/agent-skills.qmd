@@ -1,0 +1,133 @@
+---
+title: "Agent skills"
+---
+
+OMERO-Screen ships **agent skills**: instructions that teach an AI agent
+(Claude, or another coding agent) how to use OMERO-Screen. With them installed,
+you describe what you want in plain words. The agent runs the commands, checks
+the results and tells you what it did. It asks before it changes anything in
+OMERO.
+
+The skills cover three things:
+
+| | What the agent does for you |
+|---|---|
+| **Analyse** | Loads single-cell data from CellView, runs the analysis, and makes the cell-cycle, feature and intensity plots used in our papers. |
+| **Images** | Opens plates in napari, collects example cells, trains and tests a cell classifier, and renders galleries and whole-well images that show what the numbers say. |
+| **Tracks** | Reviews tracked cells in napari together with you. It moves the viewer to each cell, shows a filmstrip, and proposes fixes to a lineage that you confirm or reject. Every decision goes into one edit log, so it can be audited and undone. |
+
+There are three skills behind this:
+
+- **omero-screen**: the pipeline, CellView, plots, napari and images.
+- **cellclass-train**: classifier training from your labelled cells to a finished model.
+- **track-review**: reviewing cell tracks with a human in napari.
+
+The [Skills](../skills.html) page shows every file of each skill.
+
+## Install
+
+You need OMERO-Screen installed first ([Install & configure](installation.qmd)).
+
+### Claude (desktop app or Claude Code)
+
+The skills come as one **Claude plugin**.
+
+- **Desktop app:** **Customize → Plugins → Add marketplace**, paste
+  `HocheggerLab/omero-screen`, then install **omero-screen**. The full
+  walkthrough is in [Working with Claude](claude.qmd).
+- **Claude Code:**
+
+  ```
+  /plugin marketplace add HocheggerLab/omero-screen
+  /plugin install omero-screen@omero-screen
+  ```
+
+The plugin updates itself when we publish improvements.
+
+### Other agents
+
+The skills follow the open [Agent Skills](https://agentskills.io) format, so
+other agents can use them too. We ran our evaluation of agent-driven analysis
+with the [Pi](https://github.com/badlogic/pi-mono) coding agent.
+
+- **With npx** (Node.js needed). This lists the three skills and asks which
+  agents to install them for:
+
+  ```bash
+  npx skills add HocheggerLab/omero-screen
+  ```
+
+- **By hand.** Copy (or link) the skill folders from
+  [`plugins/omero-screen/skills/`](https://github.com/HocheggerLab/omero-screen/tree/main/plugins/omero-screen/skills)
+  into your agent's skills folder: `~/.pi/agent/skills/` for Pi,
+  `~/.claude/skills/` for Claude Code.
+
+## Connect napari (for track review)
+
+Track review needs the agent to see and drive your napari window. The GUI
+install includes our fork of [napari-mcp](https://github.com/HocheggerLab/napari-mcp),
+which lets OMERO-Screen add its review tools to the agent's toolbox.
+
+1. Start napari and open **Plugins → napari-mcp → Start Server**. It listens
+   on `http://127.0.0.1:9999/mcp`.
+2. Open the **Track Review** widget and load your review queue.
+3. Register the server with your agent once. For Claude Code:
+
+   ```bash
+   claude mcp add --transport http napari-review http://127.0.0.1:9999/mcp
+   ```
+
+   Other agents that support MCP servers over HTTP use the same address.
+
+4. Start a **new** agent session. The tools are listed when the session
+   connects, so napari must be running first.
+
+The details, including what an agent may change on its own, are in
+[Reviewing tracks](../tracking/review.qmd#working-with-an-agent).
+
+## Things to ask
+
+Say what you want in your own words. The agent asks when it needs a plate
+number or a channel name.
+
+**Analyse**
+
+> Load plate 1234 from CellView and make a cell-cycle plot per siRNA, controls
+> first, as a PDF.
+
+You get the PDF, the numbers behind it, and the Python code that made it, so
+the plot can be regenerated.
+
+**Images**
+
+> Show me the cells the micronucleus classifier calls positive in wells B3 and
+> C3 of plate 1234, next to the control.
+
+You get galleries of the classified cells for each well, saved as image files,
+with a manifest recording which cells and settings were used.
+
+**Classifier**
+
+> Train a classifier on the cells I collected and show me how well it does.
+
+The agent builds the dataset, runs the standard training sweep and gives you a
+report with accuracy, a confusion matrix and the best model, ready to publish
+to OMERO.
+
+**Tracks**
+
+> Load the review queue in napari and go through the open cells with me.
+
+The agent shows each cell in your napari window, explains what looks wrong,
+for example a broken track or a false division, and proposes the fix. You
+confirm or reject it in the widget.
+
+## Good to know
+
+- **The agent asks before changing OMERO**: running the pipeline, publishing a
+  classifier, deleting anything. It reads and plots without asking.
+- **Your password never goes into the chat.** `omero-screen setup` stores it
+  in your keychain.
+- **The agent works on your computer.** napari opens windows on your screen,
+  and OMERO is reached over your network, so use an agent that runs locally
+  (Claude Code, the Code tab of the Claude desktop app, or Pi).
