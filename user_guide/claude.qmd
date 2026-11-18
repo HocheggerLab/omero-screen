@@ -4,7 +4,9 @@ title: "Working with Claude"
 
 You can run OMERO-Screen by talking to Claude instead of typing commands. Claude
 runs the tools for you, explains what it is doing, and asks before it changes
-anything in OMERO. This page sets that up. It takes about ten minutes.
+anything in OMERO. This page sets that up in the Claude desktop app. It takes
+about ten minutes. For what the skills do, Claude Code, other agents and
+connecting napari, see [Agent skills](agent-skills.qmd).
 
 ## What you need
 

@@ -38,15 +38,18 @@ the reviewer confirms it in the Track Review widget.
        --log <dir>/edits.jsonl --out <dir>
    ```
    For the paper, `<dir>` is `omero-screen-paper/05_tracking/raw/review`.
-3. napari with the agent hook (the fork until upstream releases it):
+3. napari with the agent hook. The GUI install (`install.sh`, or
+   `uv sync --group gui` in a clone) includes the HocheggerLab fork of
+   napari-mcp, which carries the plugin-tool hook these tools need:
    ```
-   cd ~/code/omero-screen
    OMERO_SCREEN_REVIEW_QUEUE=<dir>/queue.json \
-   uv run --with "napari-mcp @ git+https://github.com/HocheggerLab/napari-mcp@plugin-tools" napari
+   napari -w omero-screen-napari "Track Review Widget"
    ```
-   Open *Plugins → Track Review Widget*, then *napari-mcp → Start*.
-4. Register once: `claude mcp add --transport http napari http://127.0.0.1:9999/mcp`
-   (tools appear in the next agent session).
+   (in a clone: `uv run napari …`). Then *Plugins → napari-mcp → Start Server*;
+   the bridge listens on `http://127.0.0.1:9999/mcp`.
+4. Register once, then start a new agent session (tools are listed when it
+   connects): `claude mcp add --transport http napari-review http://127.0.0.1:9999/mcp`.
+   Inside the omero-screen repo, `.mcp.json` already declares it.
 
 ## Tools
 
