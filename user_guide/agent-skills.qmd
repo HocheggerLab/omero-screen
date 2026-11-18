@@ -92,11 +92,13 @@ number or a channel name.
 
 **Analyse**
 
-> Load plate 1234 from CellView and make a cell-cycle plot per siRNA, controls
-> first, as a PDF.
+> Analyse plate 1234. This is a cell-cycle and DNA damage analysis after siRNA
+> depletion of genes X, Y and Z. Make a PowerPoint with a lab-meeting style
+> summary of the data.
 
-You get the PDF, the numbers behind it, and the Python code that made it, so
-the plot can be regenerated.
+You get a slide deck with the cell-cycle and DNA damage plots per siRNA, the
+numbers behind them and a short summary of what changes, plus the Python code
+that made the plots, so every figure can be regenerated.
 
 **Images**
 
@@ -121,6 +123,14 @@ to OMERO.
 The agent shows each cell in your napari window, explains what looks wrong,
 for example a broken track or a false division, and proposes the fix. You
 confirm or reject it in the widget.
+
+> Make a movie of cell 234 showing its FUCCI intensities over time and its
+> cell-cycle phases as it moves through G1, S, G2 and M. Save it to the
+> Desktop.
+
+You get a video file on your Desktop: the cell followed through the
+timelapse, with its FUCCI traces drawn alongside and each frame labelled with
+its phase.
 
 ## Good to know
 
