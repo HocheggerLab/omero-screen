@@ -285,12 +285,10 @@ def test_doctor_warns_about_a_password_left_in_the_keychain(
 ) -> None:
     import keyring
 
+    # CI sets HOST/USERNAME/PASSWORD, which win over any config: set our own.
     monkeypatch.delenv("PASSWORD", raising=False)
-    settings.user_config_path().parent.mkdir(parents=True, exist_ok=True)
-    settings.user_config_path().write_text(
-        'site = "sussex"\n[omero]\nusername = "ab123"\n'
-    )
-    settings.apply()
+    monkeypatch.setenv("HOST", "ome2.hpc.sussex.ac.uk")
+    monkeypatch.setenv("USERNAME", "ab123")
     keyring.set_password(
         settings.KEYRING_SERVICE, "ab123@ome2.hpc.sussex.ac.uk", "old"
     )
