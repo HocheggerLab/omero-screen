@@ -16,21 +16,22 @@ connecting napari, see [Agent skills](agent-skills.qmd).
   `omero-screen setup`, which saves your OMERO login.
 - For OMERO from outside the university, the **VPN**.
 
-## 1. Install the OMERO-Screen plugin
+## 1. Add the OMERO-Screen skills
 
-The plugin teaches Claude how OMERO-Screen works.
+The skills teach Claude how OMERO-Screen works. The desktop app adds skills
+from zip files (it does not read plugin marketplaces):
 
-1. Open the Claude desktop app.
-2. Go to **Customize → Plugins**.
-3. Choose **Add marketplace** and paste:
+1. Download the three skills:
+   [omero-screen.zip](../downloads/omero-screen.zip),
+   [cellclass-train.zip](../downloads/cellclass-train.zip) and
+   [track-review.zip](../downloads/track-review.zip).
+2. Open the Claude desktop app and its window for adding a skill.
+3. Drag each zip into that window. Don't unpack them first.
 
-   ```
-   HocheggerLab/omero-screen
-   ```
-
-4. Find **omero-screen** in the list and click **Install**.
-
-The plugin updates itself when we publish improvements.
+When we publish improved skills (with each OMERO-Screen release), download the
+zips again and replace the skills. In the app's **Code** tab you can use the
+plugin instead, which updates from our marketplace: see
+[Agent skills](agent-skills.qmd).
 
 ::: {.callout-note}
 If your lab uses a Claude Team plan, the administrator can install the plugin
@@ -53,8 +54,9 @@ computer, not only in the cloud.
 
   Claude should run `omero-screen doctor` and report a list of checks. If it
   says it cannot run commands on your computer, use the **Code** tab of the
-  desktop app instead; it looks like a chat too, runs on your computer, and
-  uses the same plugin.
+  desktop app instead; it looks like a chat too and runs on your computer.
+  There, install the skills as the plugin
+  ([Agent skills](agent-skills.qmd#install)).
 
 ## 3. Things to ask
 

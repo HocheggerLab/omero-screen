@@ -19,6 +19,8 @@ on:
       - "packages/**/assets/**"
       - "packages/**/README.md"
       - "scripts/build_docs.sh"
+      - "scripts/build_skill_zips.py"
+      - "plugins/**"
       - ".github/workflows/docs-greatdocs.yml"
   pull_request:
     branches: ["main"]
@@ -35,6 +37,8 @@ on:
       - "packages/**/assets/**"
       - "packages/**/README.md"
       - "scripts/build_docs.sh"
+      - "scripts/build_skill_zips.py"
+      - "plugins/**"
   workflow_dispatch:
 
 concurrency:
