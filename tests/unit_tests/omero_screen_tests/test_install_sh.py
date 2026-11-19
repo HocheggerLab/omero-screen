@@ -257,3 +257,14 @@ def test_compiling_gets_a_longer_timeout_unless_set(fake: Path) -> None:
     assert "UV_COMPILE_BYTECODE_TIMEOUT=600 " in _sync_args(fake)
     assert _run(fake, UV_COMPILE_BYTECODE_TIMEOUT="99").returncode == 0
     assert "UV_COMPILE_BYTECODE_TIMEOUT=99 " in _sync_args(fake)
+
+
+def test_a_branch_refetch_keeps_the_environment(fake: Path) -> None:
+    _release(fake, "testbranch")
+    assert _run(fake, OMERO_SCREEN_BRANCH="testbranch").returncode == 0
+    venv = _home(fake) / "branch-testbranch" / ".venv"
+    (venv / "compiled-marker").write_text("")
+    result = _run(fake, OMERO_SCREEN_BRANCH="testbranch")
+    assert result.returncode == 0, result.stderr
+    assert "Downloading branch-testbranch" in result.stdout  # source refreshed
+    assert (venv / "compiled-marker").exists()  # environment kept

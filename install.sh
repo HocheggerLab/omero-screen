@@ -188,6 +188,10 @@ if [ "${FETCH:-0}" = 1 ] || [ ! -f "$TARGET/uv.lock" ]; then
     tar -xzf "$TMP/release.tar.gz" -C "$TMP/src" --strip-components 1 \
         || die "the download of $VERSION is damaged; run the installer again"
     [ -f "$TMP/src/uv.lock" ] || die "the download of $VERSION is incomplete; run the installer again"
+    # A branch is fetched again on every run: keep its environment, so uv
+    # only updates what changed instead of reinstalling and recompiling
+    # everything (the path stays the same, so the venv stays valid).
+    if [ -d "$TARGET/.venv" ]; then mv "$TARGET/.venv" "$TMP/src/.venv"; fi
     rm -rf "$TARGET"
     mv "$TMP/src" "$TARGET"
 fi
