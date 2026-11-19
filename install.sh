@@ -10,6 +10,9 @@
 #   OMERO_SCREEN_HOME      install location (default: ~/.local/share/omero-screen)
 #   OMERO_SCREEN_BIN       where commands are linked (default: uv's tool bin dir)
 #   OMERO_SCREEN_NO_SETUP  set to 1 to skip `omero-screen setup` at the end
+#   OMERO_SCREEN_TRAINING  0 (or --no-training): leave out classifier training
+#                          (cellclass, Weights & Biases); default 1. An update
+#                          keeps the choice of the install it replaces.
 #   OMERO_SCREEN_HEADLESS  1: no napari GUI; 0: with it. Default: headless on
 #                          a cluster (SLURM present) or with glibc < 2.34
 #                          (too old for the Qt wheels), else with the GUI. An
@@ -43,8 +46,9 @@ PURGE=0
 for arg in "$@"; do
     case "$arg" in
         --uninstall) UNINSTALL=1 ;;
+        --no-training) OMERO_SCREEN_TRAINING=0 ;;
         --purge) PURGE=1 ;;
-        *) die "unknown option: $arg (options: --uninstall [--purge])" ;;
+        *) die "unknown option: $arg (options: --no-training, --uninstall [--purge])" ;;
     esac
 done
 [ "$PURGE" = 0 ] || [ "$UNINSTALL" = 1 ] || die "--purge goes with --uninstall"
@@ -137,12 +141,28 @@ else
     fi
 fi
 case "$HEADLESS" in 0|1) ;; *) die "OMERO_SCREEN_HEADLESS must be 0 or 1" ;; esac
+
+# Classifier training (cellclass + W&B): on unless asked otherwise, or as the
+# existing install had it.
+if [ -n "${OMERO_SCREEN_TRAINING:-}" ]; then
+    TRAINING="$OMERO_SCREEN_TRAINING"
+elif [ -f "$HOME_DIR/install.env" ] && grep -q "^INSTALLED_TRAINING=" "$HOME_DIR/install.env"; then
+    TRAINING=$(sed -n "s/^INSTALLED_TRAINING='\{0,1\}\([01]\)'\{0,1\}$/\1/p" "$HOME_DIR/install.env")
+else
+    TRAINING=1
+fi
+case "$TRAINING" in 0|1) ;; *) die "OMERO_SCREEN_TRAINING must be 0 or 1" ;; esac
 if [ "$HEADLESS" = 1 ]; then
     say "Headless install, without the napari GUI ($HEADLESS_WHY); OMERO_SCREEN_HEADLESS=0 adds it"
     COMMANDS=$(printf '%s\n' $COMMANDS | grep -vx napari | tr '\n' ' ')
     UV_GROUPS=""
 else
     UV_GROUPS="--group gui"
+fi
+if [ "$TRAINING" = 1 ]; then
+    UV_GROUPS="$UV_GROUPS --group training"
+else
+    say "Without classifier training (cellclass, Weights & Biases); install again without --no-training to add it"
 fi
 
 # 1. uv (installs Python as needed)
@@ -199,7 +219,7 @@ fi
 # 3. Install exactly the locked versions (with the napari GUI unless
 # headless), without dev tools
 say "Installing packages (a few minutes the first time)"
-# shellcheck disable=SC2086  # UV_GROUPS is empty or two words
+# shellcheck disable=SC2086  # UV_GROUPS is a list of --group options
 (cd "$TARGET" && uv sync --frozen --no-default-groups $UV_GROUPS) \
     || die "installing the packages failed (see above); run the installer again: it continues where it stopped"
 # Compile separately, so the user knows what the silent wait is. Same
@@ -250,6 +270,7 @@ INSTALLED_VERSION='$VERSION'
 INSTALLED_BIN_DIR='$BIN_DIR'
 INSTALLED_COMMANDS='$COMMANDS'
 INSTALLED_HEADLESS='$HEADLESS'
+INSTALLED_TRAINING='$TRAINING'
 EOF
 say "Installed $VERSION in $TARGET"
 

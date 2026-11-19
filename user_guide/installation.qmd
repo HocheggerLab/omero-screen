@@ -78,8 +78,9 @@ You are ready for [your first plate](first-plate.qmd).
 1. installs [uv](https://docs.astral.sh/uv/), which brings its own Python, if
    it is missing;
 2. downloads the latest release and installs exactly the tested versions of
-   everything, including napari, CellView, cellclass and the plotting
-   library, into `~/.local/share/omero-screen`;
+   everything, including napari, CellView, the plotting library and
+   classifier training (cellclass with Weights & Biases), into
+   `~/.local/share/omero-screen`;
 3. puts the commands (`omero-screen`, `cellview`, `cellclass`, `napari`, …) in
    uv's command directory (normally `~/.local/bin`) and adds that directory to
    your shell `PATH` automatically if needed (you do not need to edit `.zshrc`
@@ -100,6 +101,7 @@ Set these as environment variables before `sh`, for example
 | `OMERO_SCREEN_BIN` | link the commands here instead of uv's command directory; your `PATH` is then not changed |
 | `OMERO_SCREEN_NO_SETUP=1` | skip `omero-screen setup` and `doctor` at the end |
 | `OMERO_SCREEN_BRANCH` | install a branch instead of a release (for testing changes) |
+| `--no-training` (or `OMERO_SCREEN_TRAINING=0`) | leave out classifier training (`cellclass` and Weights & Biases), installed by default; e.g. `curl … \| sh -s -- --no-training`. An update keeps the choice |
 | `OMERO_SCREEN_HEADLESS` | `1`: install without the napari GUI; `0`: with it. By default the install is headless on an HPC cluster (SLURM present) or with glibc older than 2.34, and has the GUI elsewhere. An update keeps the choice of the install it replaces |
 | `UV_HTTP_TIMEOUT` | download timeout in seconds; the installer uses 300 unless you set it (uv's own 30 s is too short behind some proxies) |
 | `UV_COMPILE_BYTECODE_TIMEOUT` | per-file compile timeout in seconds; the installer uses 600 unless you set it (uv's own 60 s is too short on a busy cluster filesystem) |
@@ -300,7 +302,9 @@ curl -LsSf https://raw.githubusercontent.com/HocheggerLab/omero-screen/main/inst
 ```
 
 It sees SLURM and installs **headless**: everything except the napari GUI,
-which a cluster doesn't need:
+which a cluster doesn't need. Classifier training (`cellclass`, Weights &
+Biases) is included, since training usually runs on the cluster's GPUs; add
+`sh -s -- --no-training` to the `curl` line to leave it out:
 
 ```text
 ==> Headless install, without the napari GUI (SLURM cluster); OMERO_SCREEN_HEADLESS=0 adds it
@@ -329,7 +333,8 @@ Accept the suggested image cache in your work space: downloaded images can
 grow to tens of GB and do not belong in home.
 
 **5. Read the check.** `doctor` should report `OK` everywhere except
-`napari and Qt` (a warning on a headless install) and the compute device,
+`napari and Qt` (a warning on a headless install), `Classifier training`
+(a warning if you installed with `--no-training`) and the compute device,
 which is `CPU only` on a login node; the GPU is checked in step 7.
 
 **6. Fetch the models once, on the login node,** so that parallel jobs don't

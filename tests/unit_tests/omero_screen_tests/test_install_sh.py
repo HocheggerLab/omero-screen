@@ -266,3 +266,31 @@ def test_compiling_is_announced_as_its_own_step(fake: Path) -> None:
     # Both syncs select the same groups, so the second removes nothing.
     assert syncs[0].split(" UV_")[0] + " --compile-bytecode" == syncs[1].split(" UV_")[0]
     assert "Compiling Python files" in result.stdout
+
+
+def test_training_is_installed_by_default(fake: Path) -> None:
+    assert _run(fake).returncode == 0
+    assert "--group training" in _sync_args(fake)
+    assert "INSTALLED_TRAINING='1'" in (_home(fake) / "install.env").read_text()
+
+
+def test_no_training_leaves_it_out_and_updates_keep_that(fake: Path) -> None:
+    result = _run(fake, "--no-training", OMERO_SCREEN_VERSION="0.8.10")
+    assert result.returncode == 0, result.stderr
+    assert "--group training" not in _sync_args(fake)
+    assert "Without classifier training" in result.stdout
+    assert "INSTALLED_TRAINING='0'" in (_home(fake) / "install.env").read_text()
+    assert _run(fake, OMERO_SCREEN_VERSION="0.8.11").returncode == 0
+    assert "--group training" not in _sync_args(fake)
+
+
+def test_headless_installs_get_training_too(fake: Path) -> None:
+    assert _run(fake, SLURM_JOB_ID="1").returncode == 0
+    args = _sync_args(fake)
+    assert "--group gui" not in args and "--group training" in args
+
+
+def test_a_bad_training_value_is_refused(fake: Path) -> None:
+    result = _run(fake, OMERO_SCREEN_TRAINING="yes")
+    assert result.returncode != 0
+    assert "must be 0 or 1" in result.stderr

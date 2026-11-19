@@ -295,3 +295,15 @@ def test_doctor_warns_about_a_password_left_in_the_keychain(
     result = runner.invoke(setup_cli.cli, ["doctor", "--offline"])
     assert "[WARN] Password: in the system keychain" in result.output
     assert "moves it to a file" in result.output
+
+
+def test_doctor_reports_missing_training_tools_as_a_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        setup_cli, "_module", lambda name: name not in ("cellclass", "wandb")
+    )
+    check = setup_cli._check_training()
+    assert not check.ok and not check.required
+    assert "cellclass, wandb" in check.detail
+    assert "--no-training" in check.fix

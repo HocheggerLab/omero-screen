@@ -52,6 +52,10 @@ dependencies = [
 # (aarch64), newer than some clusters. src/omero_screen never imports napari — only the
 # bin/phase_montage.py utility does — so the core pipeline is unaffected.
 gui = ["omero-screen-napari[qt,agent]"]
+# Classifier training (cellclass with Weights & Biases logging); installed by
+# install.sh unless --no-training. Training usually runs on the GPU cluster,
+# where the install is headless and gets no cellclass through the GUI group.
+training = ["cellclass[wandb]"]
 
 [project.scripts]
 omero-screen = "bin.run_omero_screen:main"
@@ -102,6 +106,7 @@ napari-mcp = { git = "https://github.com/HocheggerLab/napari-mcp", rev = "2418b8
 omero-screen-plots = { workspace = true }
 cellview = { workspace = true }
 omero-screen-track = { workspace = true }
+cellclass = { workspace = true }
 zeroc-ice = { index = "hocheggerlab-ice" }
 
 # Pre-built zeroc-ice 3.6.5 wheels (cp312-cp314; linux x86_64/aarch64, macOS
@@ -117,6 +122,10 @@ explicit = true
 
 [dependency-groups]
 gui = ["omero-screen-napari[qt,agent]"]
+# Classifier training (cellclass with Weights & Biases logging); installed by
+# install.sh unless --no-training. Training usually runs on the GPU cluster,
+# where the install is headless and gets no cellclass through the GUI group.
+training = ["cellclass[wandb]"]
 
 dev = [
     "commitizen>=4.1.0",
