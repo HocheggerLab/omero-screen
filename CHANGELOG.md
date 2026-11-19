@@ -1,3 +1,10 @@
+## omero-screen-v0.10.9 (2026-11-19)
+
+### Fix
+
+- **skills**: skills written for installed users; plots API first; desktop zips (#112)
+- **install**: cellclass and W&B installed by default, also headless; --no-training (#111)
+
 ## omero-screen-v0.10.8 (2026-11-19)
 
 ### Fix
