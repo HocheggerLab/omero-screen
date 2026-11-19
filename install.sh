@@ -200,8 +200,14 @@ fi
 # headless), without dev tools
 say "Installing packages (a few minutes the first time)"
 # shellcheck disable=SC2086  # UV_GROUPS is empty or two words
-(cd "$TARGET" && uv sync --frozen --no-default-groups $UV_GROUPS --compile-bytecode) \
+(cd "$TARGET" && uv sync --frozen --no-default-groups $UV_GROUPS) \
     || die "installing the packages failed (see above); run the installer again: it continues where it stopped"
+# Compile separately, so the user knows what the silent wait is. Same
+# options as above: this sync changes nothing and only compiles.
+say "Compiling Python files for a faster start (quiet; minutes on a laptop, up to half an hour on a busy cluster filesystem)"
+# shellcheck disable=SC2086
+(cd "$TARGET" && uv sync --frozen --no-default-groups $UV_GROUPS --compile-bytecode) \
+    || die "compiling failed (see above); run the installer again: the packages stay installed"
 PREVIOUS=$(readlink "$HOME_DIR/current" 2>/dev/null || true)
 ln -sfn "$TARGET" "$HOME_DIR/current"
 

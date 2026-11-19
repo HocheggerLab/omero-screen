@@ -268,3 +268,14 @@ def test_a_branch_refetch_keeps_the_environment(fake: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "Downloading branch-testbranch" in result.stdout  # source refreshed
     assert (venv / "compiled-marker").exists()  # environment kept
+
+
+def test_compiling_is_announced_as_its_own_step(fake: Path) -> None:
+    result = _run(fake)
+    assert result.returncode == 0, result.stderr
+    syncs = (fake / "uv.log").read_text().splitlines()[-2:]
+    assert "--compile-bytecode" not in syncs[0]
+    assert "--compile-bytecode" in syncs[1]
+    # Both syncs select the same groups, so the second removes nothing.
+    assert syncs[0].split(" UV_")[0] + " --compile-bytecode" == syncs[1].split(" UV_")[0]
+    assert "Compiling Python files" in result.stdout
