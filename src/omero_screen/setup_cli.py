@@ -249,8 +249,9 @@ def _check_napari() -> Check:
     return Check(
         "napari and Qt",
         ok,
-        "importable" if ok else "missing",
-        "Install the GUI group (included by the install script).",
+        "importable" if ok else "missing (a headless install has no GUI)",
+        "Only needed for the napari GUI: install with OMERO_SCREEN_HEADLESS=0.",
+        required=False,
     )
 
 

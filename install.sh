@@ -10,6 +10,12 @@
 #   OMERO_SCREEN_HOME      install location (default: ~/.local/share/omero-screen)
 #   OMERO_SCREEN_BIN       where commands are linked (default: uv's tool bin dir)
 #   OMERO_SCREEN_NO_SETUP  set to 1 to skip `omero-screen setup` at the end
+#   OMERO_SCREEN_HEADLESS  1: no napari GUI; 0: with it. Default: headless on
+#                          a cluster (SLURM present) or with glibc < 2.34
+#                          (too old for the Qt wheels), else with the GUI. An
+#                          update keeps the choice of the install it replaces.
+#   UV_HTTP_TIMEOUT        download timeout in seconds (default here: 300; a
+#                          cluster proxy can be too slow for uv's own 30)
 #
 # Running it again updates the install (or `omero-screen self update`); your
 # settings (~/.config/omero-screen) and data are kept. The previous release is
@@ -90,6 +96,48 @@ esac
 command -v curl >/dev/null 2>&1 || die "curl is required"
 command -v tar >/dev/null 2>&1 || die "tar is required"
 
+# Large wheels (torch, Qt) can take longer than uv's default 30 s through a
+# proxy; the user's own value wins.
+UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}"
+export UV_HTTP_TIMEOUT
+
+# glibc version as MAJOR*100+MINOR (0 if unknown, e.g. macOS or musl).
+glibc_version() {
+    v=$(getconf GNU_LIBC_VERSION 2>/dev/null | sed -n 's/^glibc \([0-9]*\)\.\([0-9]*\).*/\1 \2/p')
+    [ -n "$v" ] || { echo 0; return; }
+    set -- $v
+    echo $(( $1 * 100 + $2 ))
+}
+
+# Headless (no napari GUI): explicit choice, else the previous install's,
+# else on a cluster or where the Qt wheels cannot run.
+if [ -n "${OMERO_SCREEN_HEADLESS:-}" ]; then
+    HEADLESS="$OMERO_SCREEN_HEADLESS"
+    HEADLESS_WHY="OMERO_SCREEN_HEADLESS=$HEADLESS"
+elif [ -f "$HOME_DIR/install.env" ] && grep -q "^INSTALLED_HEADLESS=" "$HOME_DIR/install.env"; then
+    HEADLESS=$(sed -n "s/^INSTALLED_HEADLESS='\{0,1\}\([01]\)'\{0,1\}$/\1/p" "$HOME_DIR/install.env")
+    HEADLESS_WHY="as the existing install"
+elif command -v sbatch >/dev/null 2>&1 || env | grep -q '^SLURM_'; then
+    HEADLESS=1
+    HEADLESS_WHY="SLURM cluster"
+else
+    GLIBC=$(glibc_version)
+    if [ "$GLIBC" -gt 0 ] && [ "$GLIBC" -lt 234 ]; then
+        HEADLESS=1
+        HEADLESS_WHY="glibc older than 2.34"
+    else
+        HEADLESS=0
+    fi
+fi
+case "$HEADLESS" in 0|1) ;; *) die "OMERO_SCREEN_HEADLESS must be 0 or 1" ;; esac
+if [ "$HEADLESS" = 1 ]; then
+    say "Headless install, without the napari GUI ($HEADLESS_WHY); OMERO_SCREEN_HEADLESS=0 adds it"
+    COMMANDS=$(printf '%s\n' $COMMANDS | grep -vx napari | tr '\n' ' ')
+    UV_GROUPS=""
+else
+    UV_GROUPS="--group gui"
+fi
+
 # 1. uv (installs Python as needed)
 if ! command -v uv >/dev/null 2>&1; then
     say "Installing uv"
@@ -137,9 +185,12 @@ if [ "${FETCH:-0}" = 1 ] || [ ! -f "$TARGET/uv.lock" ]; then
     mv "$TMP/src" "$TARGET"
 fi
 
-# 3. Install exactly the locked versions, with the napari GUI, without dev tools
+# 3. Install exactly the locked versions (with the napari GUI unless
+# headless), without dev tools
 say "Installing packages (a few minutes the first time)"
-(cd "$TARGET" && uv sync --frozen --no-default-groups --group gui --compile-bytecode)
+# shellcheck disable=SC2086  # UV_GROUPS is empty or two words
+(cd "$TARGET" && uv sync --frozen --no-default-groups $UV_GROUPS --compile-bytecode) \
+    || die "installing the packages failed (see above); run the installer again: it continues where it stopped"
 PREVIOUS=$(readlink "$HOME_DIR/current" 2>/dev/null || true)
 ln -sfn "$TARGET" "$HOME_DIR/current"
 
@@ -181,6 +232,7 @@ cat > "$HOME_DIR/install.env" <<EOF
 INSTALLED_VERSION='$VERSION'
 INSTALLED_BIN_DIR='$BIN_DIR'
 INSTALLED_COMMANDS='$COMMANDS'
+INSTALLED_HEADLESS='$HEADLESS'
 EOF
 say "Installed $VERSION in $TARGET"
 
@@ -192,6 +244,12 @@ say "Installed $VERSION in $TARGET"
 if [ "${OMERO_SCREEN_NO_SETUP:-0}" != "1" ]; then
     if [ -f "${OMERO_SCREEN_CONFIG_DIR:-$HOME/.config/omero-screen}/config.toml" ]; then
         say "Existing configuration kept (change it with: omero-screen setup)"
+    elif [ "$HEADLESS" = 1 ]; then
+        # No keychain on a headless machine: the password goes in a file.
+        say "Next: put your OMERO password in a file only you can read, then run setup:"
+        say "  mkdir -p ~/.config/omero-screen && chmod 700 ~/.config/omero-screen"
+        say "  (umask 077; read -rs -p 'OMERO password: ' pw; echo; printf '%s' \"\$pw\" > ~/.config/omero-screen/omero-password)"
+        say "  omero-screen setup --password-file ~/.config/omero-screen/omero-password"
     elif (: </dev/tty) 2>/dev/null; then
         "$BIN_DIR/omero-screen" setup </dev/tty || say "Setup did not finish; run: omero-screen setup"
     else

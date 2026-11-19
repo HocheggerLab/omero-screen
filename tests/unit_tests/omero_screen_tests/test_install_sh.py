@@ -36,9 +36,13 @@ UV = """#!/bin/sh
 case "$1" in
     tool) [ "$2" = dir ] && printf '%s\\n' "$FAKE/bin" ;;
     sync)
+        echo "$* UV_HTTP_TIMEOUT=$UV_HTTP_TIMEOUT" >> "$FAKE/uv.log"
         mkdir -p .venv/bin
         printf '#!/bin/sh\\necho "$@" >> "%s/omero-screen.log"\\n' "$FAKE" > .venv/bin/omero-screen
-        chmod +x .venv/bin/omero-screen ;;
+        chmod +x .venv/bin/omero-screen
+        case "$*" in *"--group gui"*)
+            printf '#!/bin/sh\\n' > .venv/bin/napari; chmod +x .venv/bin/napari ;;
+        esac ;;
 esac
 """
 
@@ -69,7 +73,10 @@ def fake(tmp_path: Path) -> Path:
     stubs.mkdir(parents=True)
     (fake / "bin").mkdir()
     stubbed = (
-        ("curl", CURL), ("uv", UV), ("security", KEYCHAIN), ("secret-tool", KEYCHAIN)
+        ("curl", CURL),
+        ("uv", UV),
+        ("security", KEYCHAIN),
+        ("secret-tool", KEYCHAIN),
     )
     for name, script in stubbed:
         (stubs / name).write_text(script)
@@ -101,15 +108,18 @@ def _home(fake: Path) -> Path:
     return fake / "home" / ".local" / "share" / "omero-screen"
 
 
-def test_installs_the_latest_release_and_links_the_commands(fake: Path) -> None:
+def test_installs_the_latest_release_and_links_the_commands(
+    fake: Path,
+) -> None:
     result = _run(fake)
     assert result.returncode == 0, result.stderr
     home = _home(fake)
     assert os.readlink(home / "current") == str(home / "omero-screen-v0.8.11")
     assert os.readlink(fake / "bin" / "omero-screen").startswith(str(home))
-    assert "INSTALLED_BIN_DIR='" + str(fake / "bin") in (
-        home / "install.env"
-    ).read_text()
+    assert (
+        "INSTALLED_BIN_DIR='" + str(fake / "bin")
+        in (home / "install.env").read_text()
+    )
     assert "models pull stock" in (fake / "omero-screen.log").read_text()
 
 
@@ -133,6 +143,7 @@ def test_an_update_keeps_only_the_previous_release(fake: Path) -> None:
 def test_uninstall_removes_only_our_links(fake: Path) -> None:
     assert _run(fake).returncode == 0
     own_napari = fake / "bin" / "napari"
+    own_napari.unlink(missing_ok=True)  # replace our link with the user's own
     own_napari.write_text("#!/bin/sh\n")  # the user's own, not a link to us
     config = fake / "home" / ".config" / "omero-screen"
     config.mkdir(parents=True)
@@ -161,3 +172,81 @@ def test_uninstall_refuses_a_folder_that_is_not_an_install(fake: Path) -> None:
     result = _run(fake, "--uninstall", OMERO_SCREEN_HOME=str(other))
     assert result.returncode != 0
     assert other.exists()
+
+
+def _sync_args(fake: Path) -> str:
+    return (fake / "uv.log").read_text().splitlines()[-1]
+
+
+def test_a_desktop_install_has_the_gui(fake: Path) -> None:
+    result = _run(fake)
+    assert result.returncode == 0, result.stderr
+    assert "--group gui" in _sync_args(fake)
+    assert (fake / "bin" / "napari").is_symlink()
+    assert (
+        "INSTALLED_HEADLESS='0'" in (_home(fake) / "install.env").read_text()
+    )
+
+
+def test_a_slurm_cluster_installs_headless(fake: Path) -> None:
+    sbatch = fake / "stubs" / "sbatch"
+    sbatch.write_text("#!/bin/sh\n")
+    sbatch.chmod(0o755)
+    result = _run(fake)
+    assert result.returncode == 0, result.stderr
+    assert "Headless install" in result.stdout
+    assert "--group gui" not in _sync_args(fake)
+    assert not (fake / "bin" / "napari").exists()
+    env = (_home(fake) / "install.env").read_text()
+    assert "INSTALLED_HEADLESS='1'" in env
+    assert "napari" not in env
+
+
+def test_inside_a_slurm_job_installs_headless(fake: Path) -> None:
+    result = _run(fake, SLURM_JOB_ID="123")
+    assert result.returncode == 0, result.stderr
+    assert "--group gui" not in _sync_args(fake)
+
+
+def test_headless_can_be_forced_off(fake: Path) -> None:
+    result = _run(fake, SLURM_JOB_ID="123", OMERO_SCREEN_HEADLESS="0")
+    assert result.returncode == 0, result.stderr
+    assert "--group gui" in _sync_args(fake)
+
+
+def test_an_update_keeps_the_headless_choice(fake: Path) -> None:
+    assert (
+        _run(
+            fake, OMERO_SCREEN_HEADLESS="1", OMERO_SCREEN_VERSION="0.8.10"
+        ).returncode
+        == 0
+    )
+    result = _run(fake, OMERO_SCREEN_VERSION="0.8.11")
+    assert result.returncode == 0, result.stderr
+    assert "--group gui" not in _sync_args(fake)
+
+
+def test_a_bad_headless_value_is_refused(fake: Path) -> None:
+    result = _run(fake, OMERO_SCREEN_HEADLESS="yes")
+    assert result.returncode != 0
+    assert "must be 0 or 1" in result.stderr
+
+
+def test_downloads_get_a_longer_timeout_unless_set(fake: Path) -> None:
+    assert _run(fake).returncode == 0
+    assert _sync_args(fake).endswith("UV_HTTP_TIMEOUT=300")
+    assert _run(fake, UV_HTTP_TIMEOUT="42").returncode == 0
+    assert _sync_args(fake).endswith("UV_HTTP_TIMEOUT=42")
+
+
+def test_a_headless_install_points_to_a_password_file(fake: Path) -> None:
+    result = _run(fake, OMERO_SCREEN_HEADLESS="1", OMERO_SCREEN_NO_SETUP="0")
+    assert result.returncode == 0, result.stderr
+    assert "setup --password-file" in result.stdout
+    assert (
+        "setup"
+        not in (fake / "omero-screen.log")
+        .read_text()
+        .replace("models pull stock", "")
+        .split()
+    )

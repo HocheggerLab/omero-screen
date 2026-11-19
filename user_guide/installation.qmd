@@ -58,6 +58,8 @@ Set these as environment variables before `sh`, for example
 | `OMERO_SCREEN_BIN` | link the commands here instead of uv's command directory; your `PATH` is then not changed |
 | `OMERO_SCREEN_NO_SETUP=1` | skip `omero-screen setup` and `doctor` at the end |
 | `OMERO_SCREEN_BRANCH` | install a branch instead of a release (for testing changes) |
+| `OMERO_SCREEN_HEADLESS` | `1`: install without the napari GUI; `0`: with it. By default the install is headless on an HPC cluster (SLURM present) or with glibc older than 2.34, and has the GUI elsewhere. An update keeps the choice of the install it replaces |
+| `UV_HTTP_TIMEOUT` | download timeout in seconds; the installer uses 300 unless you set it (uv's own 30 s is too short behind some proxies) |
 
 ### What goes where
 
@@ -214,7 +216,9 @@ with `OMERO_SCREEN_USE_GPU=0`.
 ## On an HPC cluster
 
 Run the [quick install](#quick-install-macos-and-linux) on a **login node**.
-Then:
+It sees SLURM there and installs **headless**: everything except the napari
+GUI, which a cluster doesn't need (`doctor` then reports napari as a warning,
+not a failure). Then:
 
 - **Password:** clusters have no keychain, so use a
   [password file](#the-configuration-in-detail).
@@ -228,10 +232,8 @@ Then:
 - **CUDA:** the PyTorch build installed needs an NVIDIA driver for CUDA 12
   (driver 525 or newer).
 
-The quick install includes napari, which needs glibc 2.34 or newer on Linux
-(`ldd --version`). A GUI-free install for clusters, and an
-`omero-screen submit` command that writes and submits SLURM jobs from the
-install, are in preparation
+An `omero-screen submit` command that writes and submits SLURM jobs from the
+install is in preparation
 ([#92](https://github.com/HocheggerLab/omero-screen/issues/92)). Until then,
 jobs are submitted from a source checkout as described in
 [Running on a SLURM cluster](hpc.qmd).
