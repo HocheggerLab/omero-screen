@@ -1,3 +1,9 @@
+## omero-screen-v0.10.7 (2026-11-19)
+
+### Fix
+
+- **deps**: update vulnerable dependencies, torch 2.10 capped for the Artemis driver (#105)
+
 ## omero-screen-v0.10.6 (2026-11-12)
 
 ### Fix
