@@ -1,150 +1,124 @@
 ---
 name: omero-screen
-description: Answer questions and guide workflows for the omero-screen monorepo — running the analysis pipeline, OMERO server setup, CellView database, classifier training, plotting, and napari widgets. Use when a user asks "how do I..." about any omero-screen tool or workflow.
+description: Run and troubleshoot OMERO-Screen, the Hochegger lab's high-content imaging pipeline (OMERO → Cellpose → measurements → CellView → figures). Use for checking or fixing an install (`omero-screen doctor`, `setup`, login or VPN problems), running the pipeline on OMERO plates (segmentation, stitching, tracking, `--inference` classifiers), submitting cluster jobs (`omero-screen-sbatch`), importing and exporting CellView data, cell-cycle and feature plots with omero-screen-plots, browsing plates in napari, and galleries or well images with `omero-screen-images`. Typical requests - "analyse plate 1234", "my login fails", "import plate 1234 into CellView", "plot p21 per condition", "show me well B3". For training a cell classifier use cellclass-train; for reviewing tracked cells use track-review.
 ---
 
-# OMERO-Screen Skill
+# OMERO-Screen
 
-This skill covers all user-facing workflows in the **omero-screen** monorepo: a Python pipeline for high-content immunofluorescence microscopy analysis connecting OMERO server, Cellpose segmentation, DuckDB storage, napari visualisation, and CNN classifiers.
+A pipeline for high-content immunofluorescence screens: plates in OMERO are
+segmented with Cellpose, measured per cell, assigned cell-cycle phases, stored
+in CellView (a local DuckDB database) and plotted with omero-screen-plots.
 
-**Docs:** https://hocheggerlab.github.io/omero-screen/
-**GitHub:** https://github.com/HocheggerLab/omero-screen
+Docs: https://hocheggerlab.github.io/omero-screen/ ·
+GitHub: https://github.com/HocheggerLab/omero-screen
 
-**Two kinds of install:**
-- **User install** (`install.sh`): the commands (`omero-screen`, `cellview`,
-  `cellclass`, `napari`, …) are on the `PATH` in `~/.local/bin`; the code is in
-  `~/.local/share/omero-screen/current`. There is no git checkout, so run
-  commands directly, without `uv run`.
-- **Developer install**: a clone (usually `~/code/omero-screen`); run commands
-  with `uv run` from it.
+## Plots: use the omero-screen-plots API first
 
-Settings live in `~/.config/omero-screen/config.toml` (written by
-`omero-screen setup`); the password is in `~/.config/omero-screen/omero-password`
-(owner-only; never read or print it).
+**For any plot of OMERO-Screen data, use an omero-screen-plots function when
+one covers the plot type. Do not hand-roll matplotlib or seaborn for these.**
+The functions apply the lab's normalisation, cell-cycle gating, colours,
+sizes and per-plate statistics; a hand-made version looks different from the
+lab's figures and has no statistics.
 
----
+```python
+from cellview.api import cellview_load_data
+from omero_screen_plots import combplot_cellcycle, cellcycle_stacked, feature_plot
+df, _ = cellview_load_data(1234)
+fig, ax = feature_plot(df, "intensity_mean_p21_nucleus", ["control", "palbo"],
+                       selector_val="RPE1", save=True, path="figures")
+```
+
+Available: `combplot_cellcycle`, `combplot_feature`, `cellcycle_stacked`,
+`cellcycle_plot`, `feature_plot`, `feature_norm_plot`, `count_plot`,
+`histogram_plot`, `scatter_plot`, `classification_plot`, `well_qc_plot`.
+**Read `references/plotting.md` before plotting**: it maps requests to
+functions and gives their arguments. Hand-roll only a plot type none of them
+covers, in the lab style described there, and say that it is custom.
+
+## Which install is this?
+
+- **Installed release** (most users): `command -v omero-screen` points into
+  `~/.local/bin`. Run commands directly (`omero-screen …`), never `uv run`.
+  Settings come from `~/.config/omero-screen/config.toml`, written by
+  `omero-screen setup`. There is no repository; don't suggest repo scripts,
+  `.env` files or `--env`.
+- **Developer checkout**: the user works in a clone and runs `uv run …`.
+  Only then read `references/developer.md`.
+
+If unsure, run `command -v omero-screen` and `omero-screen --version`.
 
 ## Working with someone who does not code
 
 Many users are biologists who know chat assistants but not the terminal.
 
-- **Check first, explain after.** Start with `omero-screen doctor`. When
-  anything fails, run it again and fix what it reports before trying
-  something else. Most problems are the VPN (OMERO unreachable) or a missing
-  `omero-screen setup`.
-- **Say what you are about to do, in plain words**, before each command
-  ("I'll look up plate 1234 in OMERO"), and what the result means after it.
-  Don't paste long logs; summarise them.
-- **Never show or ask for the password in the chat.** `omero-screen setup` asks
-  for it itself, in the terminal; tell the user to run it there. Don't read or
-  print `~/.config/omero-screen/`, `.env` files or the keychain.
-- **Ask before anything that changes OMERO**: running the pipeline on a plate
-  (it writes masks and results), `omero-screen models publish`, deleting
-  data. Reading is fine without asking.
-- **napari is a window on the user's screen.** Start it for them
-  (`napari &`), then say exactly which menu to open and what to click.
-- **Results go into CellView.** For analysis and figures, load data with
-  `cellview_load_data` and the omero-screen-plots functions; save figures as
-  PDF and say where.
+- **Check first.** Start with `omero-screen doctor`; when something fails,
+  run it again and fix what it reports before trying anything else. Most
+  problems are the VPN or a missing `omero-screen setup`.
+- **Say what you'll do in plain words** before each command ("I'll look up
+  plate 1234 in OMERO") and what the result means after it. Summarise logs;
+  don't paste them.
+- **napari is a window on the user's screen.** Start it (`napari &`), then
+  say exactly which menu to open and what to click.
+- **Results go into CellView**; analyse them with `cellview_load_data` and
+  the plot functions; save figures as PDF and say where.
 
----
+## Safety rules
 
-## Dispatch Table
+- **Ask first** before anything that writes to OMERO, CellView or the user's
+  install: running the pipeline (`omero-screen <plate>`, `--delete`,
+  `omero-screen-sbatch`), `omero-screen models publish`,
+  `cellview import`/`delete`/`clean`/`curate`, `omero-train delete`,
+  `omero-screen self update`/`self uninstall`. Reading, looking and plotting
+  need no permission.
+- **Never** ask for, read or print the password, `~/.config/omero-screen/`,
+  `.env*` files or `~/.netrc`. The user runs `omero-screen setup` themselves,
+  in their terminal; it asks for the password there.
+- **Never run the pipeline on an HPC login node**; submit a job.
 
-Read the relevant reference file before answering questions in these areas:
+## Dispatch table
 
-| User asks about... | Read |
+Read the reference for the area before answering; for a question spanning
+areas, read each relevant one.
+
+| The user asks about… | Read |
 |---|---|
-| Running the pipeline, plate IDs, segmentation, inference, HPC | `references/pipeline.md` |
-| OMERO server setup, Docker, test server, loading data | `references/docker-setup.md` |
-| CellView database, import CSV/plate, export, Python API | `references/cellview.md` |
-| Classifier training, generating training data, labelling crops, inference | `references/classifier-training.md` |
-| Plots, cell cycle figures, feature plots, normalisation | `references/plotting.md` |
-| Napari widgets, browsing images, gallery, training sessions | `references/napari.md` |
-| Images to support a quantitative finding (galleries, well overviews, close-ups) without napari, `omero-screen-images`, figure panels from a notebook | `references/images.md` |
-| Environment setup, uv install, .env files, config, dependencies | `references/environment.md` |
+| Plots and figures from CellView data | `references/plotting.md` |
+| Running the pipeline, options, models, stitching, tracking, HPC jobs | `references/pipeline.md` |
+| CellView: import, export, projects, the Python API, notebooks | `references/cellview.md` |
+| Images for a finding without napari: galleries, well overviews, `omero-screen-images` | `references/images.md` |
+| napari: browsing wells, masks, collecting training crops | `references/napari.md` |
+| Classifiers: collecting crops, publishing, `--inference` | `references/classifier-training.md` (training itself: the cellclass-train skill) |
+| Install, setup, doctor, config, update, HPC install | `references/environment.md` |
+| A developer checkout: `uv run`, `.env`, tests, test server, releases | `references/developer.md` |
 
-For questions spanning multiple areas, read both reference files before answering.
+## Quick reference
 
----
-
-## Quick Reference
-
-### Run the pipeline
 ```bash
-omero-screen <plate_id>                          # basic run
-omero-screen 1234 1235 --env production          # multiple plates, production env
-omero-screen 1234 --segmentation                 # segmentation only, no feature extraction
-omero-screen 1234 --inference micronuclei       # classifier by name (published with `omero-screen models publish`)
-omero-screen 1234 --cp4                          # use Cellpose 4 (cpsam) for everything
-omero-screen 1234 --model cp4:cpsam              # override all models explicitly
-omero-screen 1234 --benchmark                    # record per-image timing JSON
+omero-screen doctor                         # check everything; prints a fix per failure
+omero-screen setup                          # the user runs this; asks for the password
+omero-screen config show                    # settings in effect and their source
+omero-screen --help                         # pipeline options (Click: full names only)
+
+omero-screen 1234                           # run a plate (ask first)
+omero-screen 1234 --segmentation            # masks only
+omero-screen 1234 --delete                  # segment again from scratch
+omero-screen 1234 --inference micronuclei   # with a published classifier
+omero-screen-sbatch 1234 --stitch --track   # on an HPC cluster: submit a job
+
+cellview projects                           # what's in the database
+cellview import plate 1234                  # results from OMERO into CellView (ask first)
+cellview explore 1234 --template cellcycle  # a ready-made notebook
+omero-screen-images --help                  # galleries and well images without napari
 ```
 
-### CellView quick commands
-```bash
-cellview projects                              # list all projects
-cellview project <id>                          # show project detail
-cellview import csv /path/to/final_data_cc.csv
-cellview import plate <plate_id> [<id2> ...]
-cellview import screen <screen_id>
-cellview export <plate_id>
-cellview explore <plate_id> --template cellcycle  # launch Jupyter notebook
-cellview clean                                 # remove orphaned records
-```
-
-```python
-from cellview.api import cellview_load_data
-df, vars = cellview_load_data(12345)                         # by plate ID
-df, vars = cellview_load_data(experiment="palb_washout")    # by experiment name
-```
-
-### Test server
-```bash
-./scripts/manage_test_server.sh start|stop|status
-./scripts/load_plates.sh -d /path/to/plates -x
-```
-
-### Setup and checks
-```bash
-omero-screen setup         # server, user name, password (owner-only file)
-omero-screen doctor        # check everything; says how to fix failures
-omero-screen config show   # settings in effect and where each came from
-omero-screen --version
-omero-screen models pull hocheggerlab   # the lab's custom Cellpose models
-omero-screen models publish model.pt    # upload a classifier for --inference
-```
-
----
-
-## Package Map
-
-```
-omero-screen/
-├── src/omero_screen/        # Core pipeline (loops, segmentation, cell cycle, QC)
-├── packages/
-│   ├── omero-utils/         # OMERO connection decorator, attachments, annotations
-│   ├── cellview/            # DuckDB database, CLI, Python API
-│   ├── omero-screen-plots/  # Publication-ready statistical plots
-│   ├── omero-screen-napari/ # Napari widgets for browsing and classifier training
-│   └── cellclass/           # CNN classifier training pipeline
-├── bin/                     # run_omero_screen.py, aggregate_plates.py, seg-samples.py
-├── scripts/                 # manage_test_server.sh, load_plates.sh
-└── tests/unit_tests/ + e2e_tests/
-```
-
----
-
-## Common Issues (quick answers)
+## Common issues
 
 | Problem | Fix |
 |---|---|
-| Anything fails | Run `omero-screen doctor` first and fix what it reports |
-| Cannot connect to OMERO | VPN off, or login not set up: `omero-screen setup` |
-| GPU not detected | `omero-screen doctor` shows the device; on a Mac it is MPS, not CUDA |
-| Flatfield correction slow | First run generates masks from 100 images — subsequent runs load cached masks |
-| Which model segmented a plate? | Read the `omero-screen/provenance` map annotation on the plate |
-| Custom model per cell line | `[segmentation.models]` in the user config (`CELLLINE = "model_name"`), or `[segmentation] model_set = "..."` |
-| CellView import fails | CSV needs `plate_id`, `cell_line`, `condition` columns plus measurement columns |
-| Logging missing in napari | Plugin mode writes to a file: `logs/app.log`, or `OMERO_SCREEN_LOG_FILE` |
-| Default segmentation model | With no models configured: Cellpose 4 (cpsam) on an NVIDIA GPU, stock Cellpose 3 (nuclei, cyto3) on a Mac or CPU. `--cp4` / `--model` override it |
+| Anything fails | `omero-screen doctor`, then fix what it reports |
+| Can't connect to OMERO | VPN; then `omero-screen setup` |
+| `command not found` | New terminal window, or `uv tool update-shell` |
+| Which model segmented a plate? | The `omero-screen/provenance` map annotation on the plate |
+| Default segmentation model | Nothing configured: Cellpose 4 (cpsam) on an NVIDIA GPU, stock Cellpose 3 (nuclei, cyto3) on a Mac or CPU; `--cp4`/`--model` override |
+| A re-run didn't change the masks | Stored masks are reused; add `--delete` |
+| CellView import of a CSV fails | It needs `plate_id`, `cell_line`, `condition` plus measurement columns |

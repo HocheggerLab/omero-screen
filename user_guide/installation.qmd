@@ -15,6 +15,7 @@ downloading.
 | do the same on Windows | [Windows (WSL2)](#windows) |
 | run jobs on an HPC cluster | [On an HPC cluster](#on-an-hpc-cluster) |
 | try OMERO-Screen without an OMERO account | [Try it locally](try-it.qmd), with a local OMERO server in Docker |
+| let Claude run OMERO-Screen for you | the quick install, then [the Claude skills](#quick-install-macos-and-linux) (step 5) |
 | change the code | [Developer install](#developer-install) |
 
 ## Quick install (macOS and Linux)
@@ -70,6 +71,31 @@ comes with a `fix:` line.
 ```bash
 omero-screen --version
 ```
+
+**5. Add the Claude skills** (optional): they let Claude run OMERO-Screen
+for you from plain-language requests ("analyse plate 1234", "plot γH2AX per
+siRNA").
+
+- **Claude Code** (terminal, or the desktop app's **Code** tab):
+
+  ```
+  /plugin marketplace add HocheggerLab/omero-screen
+  /plugin install omero-screen@omero-screen
+  ```
+
+  Then switch on updates once: `/plugin` → **Marketplaces** →
+  **omero-screen** → auto-update. Updates are off by default for
+  marketplaces outside Anthropic's own; without them, update by hand with
+  `/plugin marketplace update omero-screen` and `/reload-plugins`.
+- **Claude desktop app (chat):** the app does not read marketplaces. Download
+  the skills and drag each zip into the app's window for adding a skill:
+  [omero-screen.zip](../downloads/omero-screen.zip),
+  [cellclass-train.zip](../downloads/cellclass-train.zip),
+  [track-review.zip](../downloads/track-review.zip). After an OMERO-Screen
+  update, download them again.
+
+What the skills do, and how to use them with other agents:
+[Agent skills](agent-skills.qmd) and [Working with Claude](claude.qmd).
 
 You are ready for [your first plate](first-plate.qmd).
 
@@ -386,6 +412,12 @@ omero-screen self update
 The install stays where `OMERO_SCREEN_HOME` put it. Jobs that are already
 queued keep the release they were submitted with until it is removed (the
 previous release is kept, so wait for running jobs before updating twice).
+
+**10. Claude on the cluster** (optional): with Claude Code on the login
+node, add the plugin as in [step 5 of the quick install](#quick-install-macos-and-linux).
+The skills know the cluster rules: Claude checks the install and submits
+plates with `omero-screen-sbatch`, and never runs the pipeline or training on
+the login node.
 
 ### When something goes wrong on the cluster
 

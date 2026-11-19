@@ -30,19 +30,40 @@ You need OMERO-Screen installed first ([Install & configure](installation.qmd)).
 
 ### Claude (desktop app or Claude Code)
 
-The skills come as one **Claude plugin**.
-
-- **Desktop app:** **Customize → Plugins → Add marketplace**, paste
-  `HocheggerLab/omero-screen`, then install **omero-screen**. The full
-  walkthrough is in [Working with Claude](claude.qmd).
-- **Claude Code:**
+- **Claude Code** (terminal, or the desktop app's **Code** tab): the skills come
+  as one **Claude plugin** from our marketplace:
 
   ```
   /plugin marketplace add HocheggerLab/omero-screen
   /plugin install omero-screen@omero-screen
   ```
 
-The plugin updates itself when we publish improvements.
+- **Claude desktop app (chat):** the app does not read plugin marketplaces.
+  Download each skill as a zip and drag it into the app's window for adding a
+  skill:
+
+  - [omero-screen.zip](../downloads/omero-screen.zip)
+  - [cellclass-train.zip](../downloads/cellclass-train.zip)
+  - [track-review.zip](../downloads/track-review.zip)
+
+  The full walkthrough is in [Working with Claude](claude.qmd).
+
+#### Keeping the skills up to date
+
+We publish improved skills with each OMERO-Screen release.
+
+- **Claude Code:** automatic updates are **off** for marketplaces outside
+  Anthropic's own. Turn them on once: run `/plugin`, open **Marketplaces**,
+  select **omero-screen** and switch on auto-update. Or update by hand:
+
+  ```
+  /plugin marketplace update omero-screen
+  /reload-plugins
+  ```
+
+  A running session keeps the old skills until `/reload-plugins` or a new
+  session.
+- **Desktop app:** download the zips again and replace the skills.
 
 ### Other agents
 

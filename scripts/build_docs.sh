@@ -11,6 +11,7 @@
 #   _site/plots/           omero-screen-plots
 #   _site/napari/          omero-screen-napari
 #   _site/utils/           omero-utils
+#   _site/downloads/       one .zip per agent skill (Claude desktop app)
 #
 # Usage:
 #   ./scripts/build_docs.sh            # build everything into ./_site
@@ -65,6 +66,10 @@ for entry in "${SUBSITES[@]}"; do
   mkdir -p "${OUT}/${sub}"
   cp -R "${ROOT}/${pkg}/great-docs/_site/." "${OUT}/${sub}/"
 done
+
+# The desktop app installs skills from a zip, not from the plugin marketplace.
+echo "==> Zipping the agent skills -> /downloads/"
+python3 "${ROOT}/scripts/build_skill_zips.py" "${OUT}/downloads"
 
 echo
 echo "==> Done. $(find "${OUT}" -name '*.html' | wc -l | tr -d ' ') HTML pages in ${OUT}"

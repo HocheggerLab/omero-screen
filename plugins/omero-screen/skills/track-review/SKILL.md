@@ -1,6 +1,6 @@
 ---
 name: track-review
-description: Co-review tracked cells with a human in napari — set up a review queue, drive the Track Review widget through the omero-screen napari-mcp tools, inspect cells with filmstrips and traces, and propose lineage or mask edits for the reviewer to confirm. Use when the user wants to check, curate or review tracks, cell fates or a review queue for a timelapse plate.
+description: Review tracked timelapse cells together with a person in napari, through the napari-review MCP tools (review_goto, filmstrip, cell_trace, propose_edit). Use to work through a review queue, inspect lost or flagged tracks, divisions and cell fates on a tracked plate, and propose lineage or mask fixes that the reviewer confirms in the Track Review widget. Typical requests - "go through the review queue", "check this track", "is cell C2-t72-L524 dividing". Needs napari open with the MCP server running. Not for running tracking itself (`omero-screen --track`, use the omero-screen skill) or for plots.
 ---
 
 # Track review with a human (omero-screen)
@@ -8,7 +8,13 @@ description: Co-review tracked cells with a human in napari — set up a review 
 You and the reviewer check tracked cells together. **You navigate, measure and
 propose; the reviewer decides.** You never change data directly: the only tool
 that changes anything is `propose_edit`, and a proposal takes effect only when
-the reviewer confirms it in the Track Review widget.
+the reviewer confirms it in the Track Review widget. Verdicts, mask edits and
+`cellview curate` are the reviewer's too.
+
+**Safety rules.** Ask before anything that writes to OMERO, CellView or the
+user's install (including `cellview review-queue` and `cellview curate`).
+Never ask for, read or print the password, `~/.config/omero-screen/`, `.env*`
+files or `~/.netrc`.
 
 ## Concepts
 
@@ -22,8 +28,9 @@ the reviewer confirms it in the Track Review widget.
   replay of the log. Entries record author (`human` / `agent`) and who confirmed.
 - **Verdicts** (`decisions.json`): the reviewer's accept / correct / reject /
   unsure per item.
-- **Window:** cells present at frame 72 (24 h) are followed to frame 168
-  (56 h). Outcomes: divided, mitotic_exit_no_division, mitotic_arrest, death,
+- **Window:** cells present at the queue's start frame are followed to its
+  stop frame (`cellview review-queue --start/--stop`; defaults 72 and 168).
+  Outcomes: divided, mitotic_exit_no_division, mitotic_arrest, death,
   no_mitosis, lost (censored). Excluded: debris, stationary, no_reporter.
 
 ## Setup (the reviewer runs these; check before starting)
@@ -33,23 +40,23 @@ the reviewer confirms it in the Track Review widget.
    uncached well.
 2. Build a queue (random sample per well, flagged cells + audit fraction):
    ```
-   cellview --db ~/.cellview/cellview.duckdb review-queue 5054 \
-       --well C2 --well C3 --well C4 --sample 50 --seed 1 \
+   cellview review-queue <plate_id> \
+       --well C2 --well C3 --sample 50 --seed 1 \
        --log <dir>/edits.jsonl --out <dir>
    ```
-   For the paper, `<dir>` is `omero-screen-paper/05_tracking/raw/review`.
-3. napari with the agent hook. The GUI install (`install.sh`, or
-   `uv sync --group gui` in a clone) includes the HocheggerLab fork of
-   napari-mcp, which carries the plugin-tool hook these tools need:
+   `<dir>` is any folder the reviewer chooses; `cellview review-queue --help`
+   lists the window and sampling options.
+3. napari with the agent hook. The GUI install (`install.sh`) includes the
+   HocheggerLab fork of napari-mcp, which carries the plugin-tool hook these
+   tools need (a headless install has no napari):
    ```
    OMERO_SCREEN_REVIEW_QUEUE=<dir>/queue.json \
    napari -w omero-screen-napari "Track Review Widget"
    ```
-   (in a clone: `uv run napari …`). Then *Plugins → napari-mcp → Start Server*;
-   the bridge listens on `http://127.0.0.1:9999/mcp`.
-4. Register once, then start a new agent session (tools are listed when it
+   Then *Plugins → napari-mcp → Start Server*; the bridge listens on
+   `http://127.0.0.1:9999/mcp`.
+4. Register it once, then start a new agent session (tools are listed when it
    connects): `claude mcp add --transport http napari-review http://127.0.0.1:9999/mcp`.
-   Inside the omero-screen repo, `.mcp.json` already declares it.
 
 ## Tools
 
@@ -135,7 +142,5 @@ Suggest them in words.
 
 1. `session_summary`: report reviewed per well, verdicts, edits by author,
    and agreement (confirmed / resolved proposals).
-2. Write a short progress-log entry (vault `&OmeroScreenTracking_progresslog`)
-   with the counts and any recurring problem types.
-3. Rebuild the analysis tables if asked:
-   `uv run python 05_tracking/build/build_cell_fates.py` (paper repo).
+2. Name any recurring problem types (e.g. many lost tracks at one well's
+   border), so the reviewer can decide what to fix upstream.

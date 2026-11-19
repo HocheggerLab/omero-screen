@@ -1,197 +1,131 @@
-# Running the OMERO-Screen Analysis Pipeline
+# Running the OMERO-Screen pipeline
 
-Docs: https://hocheggerlab.github.io/omero-screen/
+Docs: https://hocheggerlab.github.io/omero-screen/ (Analyse a plate, Stitching,
+Running on a SLURM cluster).
 
-## Prerequisites
-- OMERO server running and credentials in `.env.{ENV}`
-- Plate uploaded to OMERO with metadata (Excel attachment or key-value annotations)
-- Cell line has a Cellpose model entry (see Model Configuration below)
-- Environment activated: `source .venv/bin/activate`
+## Before a run
 
----
+- `omero-screen doctor` passes (login, connection; on a laptop, the VPN).
+- The plate is in OMERO with its metadata: channels on the plate, and cell
+  line + condition per well (an Excel attachment or key-value annotations).
+- Ask the user before running: a run writes masks and results to OMERO.
 
-## CLI Reference
-
-```
-omero-screen <plate_id> [plate_id2 ...] [OPTIONS]
-```
-
-| Flag | Default | Description |
-|---|---|---|
-| `--env NAME` | `development` | Load `.env.NAME` config file |
-| `--segmentation` | off | Skip feature extraction — only segment and upload masks |
-| `--inference MODEL...` | none | One or more `.pth` classifier filenames |
-| `--gallery N` | 10 | Gallery grid size N×N for inference output |
-| `--batch N` | 16 | Batch size for classifier inference |
-| `--cp4` | off | Use Cellpose 4 (cpsam) for all cell lines instead of MODEL_DICT entries |
-| `--model NAME` | none | Override all segmentation models with one model (e.g. `cp4:cpsam`, `cp3:cyto3`) |
-| `--benchmark` | off | Write per-image timing JSON to disk |
-
-### Examples
+## The command
 
 ```bash
-# Standard run — development environment
-omero-screen 1821
-
-# Multiple plates at once
-omero-screen 1821 1822 1823
-
-# Production server
-omero-screen 1821 --env production
-
-# Segmentation only (inspect masks before full analysis)
-omero-screen 1821 --segmentation
-
-# Apply a pre-trained classifier
-omero-screen 1821 --inference micronuclei_densenet.pth
-
-# Multiple classifiers
-omero-screen 1821 --inference micronuclei.pth mitotic_index.pth --gallery 15 --batch 32
-
-# Use Cellpose 4 models (better for crowded fields)
-omero-screen 1821 --cp4
-
-# Override model explicitly (e.g. test a specific version)
-omero-screen 1821 --model cp4:cpsam
-
-# Benchmark timing (writes JSON report)
-omero-screen 1821 --benchmark
-
-# HPC (sbatch wrapper)
-./sbatch-omero-screen.py --inference micronuclei_densenet -e omero-screen-infer 1821
+omero-screen <plate_id> [<plate_id> ...] [OPTIONS]
+omero-screen --help          # the current options; check here before using one
 ```
 
----
+The CLI is Click: write option names in full (`--segmentation`, never `--seg`).
+Leave out `--env` unless the user has a developer `.env.<name>` file; an
+installed user's settings come from `~/.config/omero-screen/config.toml`.
 
-## What Happens Step by Step
+The options you will use most:
 
-1. **Connect** to OMERO using credentials from `.env.{ENV}`
-2. **Parse metadata** — Excel attachment takes priority over key-value annotations; Excel deleted after conversion
-3. **Flatfield correction** — check dataset for cached masks; if absent, sample 100 images/channel, generate median masks, upload
-4. **Well/image loop** (`loops.py`) — iterates wells then images; saves per-well CSV for resumability
-5. **Segmentation** (`image_analysis.py`) — Cellpose nucleus model → cell model (cyto2/custom); cytoplasm = cell − nucleus; border cells filtered
-6. **Feature extraction** — `skimage.measure.regionprops_table` per nucleus/cell/cytoplasm mask; all channels
-7. **Cell cycle analysis** (`cellcycle_analysis.py`) — multi-nucleate aggregation → normalise to mode → assign G1/S/G2/Polyploid/SubG1
-8. **QC** (`quality_control.py`) — metrics CSV + figure attached to plate
-9. **Classification** (optional) — batch inference with PyTorch; class gallery PNGs attached
-10. **Results upload** — final CSV attached to plate; per-well intermediates deleted
-
----
-
-## Metadata Format
-
-### Excel file (preferred)
-Upload to the OMERO plate object. Required columns: well ID, cell line, condition. Optional: timepoint, antibody. After parsing, system converts to OMERO annotations and deletes the Excel.
-
-### OMERO key-value annotations (fallback)
-Plate-level channels: `{"DAPI": "0", "EdU": "1", "H3P": "2", "Tub": "3"}`
-Well-level: `{"cell_line": "RPE", "condition": "control", "timepoint": "24h"}`
-
----
-
-## Model Configuration
-
-Models map cell line names to Cellpose model filenames. Default config in `src/omero_screen/__init__.py`. Override with a JSON file:
+| Option | What it does |
+|---|---|
+| `--segmentation` | Segment and upload masks only, no measurements |
+| `--delete` | Delete the plate's stored masks and segment again. Without it, a re-run reuses the masks and only re-measures. Use after changing segmentation settings, or when stored masks are wrong |
+| `--inference NAME [NAME ...]` | Classify cells with classifiers published to OMERO (`omero-screen models publish`), by name, without `.pt`; `--gallery N` sets the example gallery size |
+| `--cp4` / `--model NAME` | Cellpose 4 (cpsam) for every role / one model for every role (`cp4:cpsam`, `cp3:cyto3`, or a custom model name) |
+| `--stitch` | Stitch all fields of a well into one canvas and segment that (timelapse, or objects crossing field borders) |
+| `--track [MODEL]` | Track nuclei over time with Trackastra (needs `--stitch` and a timelapse); `--track-correct` repairs the first pass. Memory is managed automatically; see `omero-screen --help` for `--track-window`, `--track-device` |
+| `--benchmark` | Write per-image timings as JSON |
 
 ```bash
-export OMERO_SCREEN_CONFIG=/path/to/my_config.json
+omero-screen 1821                                   # standard run
+omero-screen 1821 1822 1823                         # several plates
+omero-screen 1821 --segmentation                    # check masks first
+omero-screen 1821 --delete                          # segment again from scratch
+omero-screen 1821 --inference micronuclei           # with a published classifier
+omero-screen 5054 --stitch --track --track-correct  # timelapse, tracked
 ```
 
-```json
-{
-  "MODEL_DICT": {
-    "RPE": "RPE-1_Tub_Hoechst",
-    "HELA": "cp4:cpsam",
-    "NEWCELL": "my_custom_model"
-  }
-}
-```
+## On an HPC cluster
 
-Model name prefixes: `cp4:` = Cellpose 4, `cp3:` = Cellpose 3, no prefix = custom model file in Cellpose models dir.
-
-Built-in Cellpose 4 model: `cp4:cpsam` (recommended for most cell lines)
-
----
-
-## Stitching Configuration
-
-Plate wells can be stitched into a single canvas using the well sample position metadata stored in OMERO. The sample positions determine the well grid *layout* only — the spacing between tiles comes from `overlap_x`/`overlap_y` and `translate_x`/`translate_y`, which must match the acquisition.
-
-These parameters are **objective-dependent**: the same physical overlap covers twice as many pixels at 20x as at 10x. The pipeline selects them automatically from the plate's pixel size (read by `MetadataParser`) against `STITCH_CALIBRATIONS` in `omero_utils.stitching`:
-
-| Objective | Pixel size (µm) | overlap_x / overlap_y | translate_x / translate_y |
-|---|---|---|---|
-| 10x | 1.2 | 7 / 7 | -3 / 3 |
-| 20x | 0.6 | 25 / 26 | -5 / 4 |
-
-The choice is logged at INFO on every stitched run; an unknown pixel size falls back to the 10x values with a warning.
-
-Check a plate, or calibrate a new objective, with the read-only seam diagnostic — a peak at *d* px means `overlap` is short by *d*:
+Never run the pipeline on a login node. Submit it as a job from the user's
+work space (not from inside a source checkout):
 
 ```bash
-uv run python scripts/diagnose_stitch_seams.py <plate_id>
+omero-screen-sbatch <plate_id> [<plate_id> ...] [pipeline options]
+omero-screen-sbatch 1821 --no-submit         # write the job script only, to check it
+omero-screen-sbatch 1821 1822 --stitch --track
+squeue -u $USER
 ```
 
-Override the calibration table with a JSON file (this also disables pixel-size selection):
+One job per plate by default. Job options: `--hours N` (24), `-m/--memory N`
+(32 GB), `--gpu/--no-gpu`, `--class` (partition, `gpu`), `-u/--username`
+(also the e-mail address `<username>@sussex.ac.uk`). The job checks the GPU,
+runs the pipeline, logs to `os<plate>.<pid>.<jobid>.out` in the current
+folder and e-mails at the end. `omero-screen-sbatch -h` lists everything. The
+templates are set up for the Sussex HPC.
 
-```bash
-export OMERO_SCREEN_STITCH_CONFIG=/path/to/my_stitch_config.json
+## What a run does
+
+1. Connects to OMERO and reads the plate metadata (an Excel attachment is
+   converted to annotations).
+2. Flatfield correction: reuses the masks stored with the plate, or builds
+   them from a sample of images and uploads them.
+3. For each well and image (or each stitched well): segments nuclei and cells
+   with Cellpose (cytoplasm = cell − nucleus), measures every channel per
+   compartment.
+4. With an EdU channel: normalises DNA content and EdU, assigns cell-cycle
+   phases.
+5. Quality control, then optional classification (`--inference`), then
+   attaches the results to the plate.
+
+Results attached to the plate in OMERO:
+- `final_data_cc.csv` (or `final_data.csv` without cell cycle): one row per cell
+- quality-control metrics and a QC figure
+- the segmentation masks (a dataset of mask images)
+- classifier galleries, one per class (with `--inference`)
+- a provenance map annotation (namespace `omero-screen/provenance`): version,
+  options, device and models used
+
+Import the results into CellView for analysis: `cellview import plate <id>`.
+
+## Segmentation models
+
+With nothing configured: Cellpose 4 (`cp4:cpsam`) on an NVIDIA GPU, stock
+Cellpose 3 (`nuclei`, `cyto3`) on a Mac or CPU. To use the lab's models:
+`omero-screen models pull hocheggerlab`, then in the user config
+
+```toml
+[segmentation]
+model_set = "hocheggerlab"
+
+[segmentation.models]        # optional: per cell line, over the model set
+RPE = "RPE-1_Tub_Hoechst"
 ```
 
-An example is provided in [omero_screen_stitch_config.json](../../src/data/omero_screen_stitch_config.json)
+Model names: `cp4:` = Cellpose 4, `cp3:` = Cellpose 3, no prefix = a custom
+model file in `~/.cellpose/models`.
 
----
+## Stitching
 
-## Additional CLI Tools
+Tiles are placed by grid arithmetic, so the overlap and offset must match the
+objective. They are chosen automatically from the plate's pixel size: 10x
+(1.2 µm) and 20x (0.6 µm) are calibrated; an unknown pixel size falls back to
+the 10x values with a warning in the log. `--stitch-config FILE` (JSON) fixes
+one setting instead. Duplicated objects along tile seams mean the calibration
+is wrong for this objective: tell the user, don't guess new values.
 
-```bash
-# Aggregate features across images for a plate
-omero-screen-aggregate <plate_id>
+## Cell-cycle phases
 
-# Generate segmentation sample images (QC check before full run)
-seg-samples <plate_id> [--env NAME] [--n-wells N] [--n-images N]
-
-# Test GPU availability
-torch-test
-```
-
----
-
-## Cell Cycle Output
-
-When an `EdU` (or equivalent S-phase marker) channel is present, the pipeline adds:
-- `cell_cycle` column: `G1` | `S` | `G2` | `Polyploid` | `SubG1`
-- `cell_cycle_detailed` column: adds `Mitotic` subdivision within G2
-
-Phase thresholds (default, per normalised integrated DAPI):
-- SubG1: DNA < 0.75
-- G1: DNA < 1.5 AND EdU < threshold
-- S: EdU ≥ threshold
-- G2/M: DNA ≥ 1.5 AND EdU < threshold
-- Polyploid: DNA > 2.5
-
-H3P channel (if present): identifies mitotic cells within G2/M for `cell_cycle_detailed`.
-
----
-
-## Results Location
-
-All results are attached back to the OMERO plate object:
-- `final_data_cc.csv` — single-cell measurements with cell cycle annotations
-- `quality_ctr.csv` + `quality_ctr.png` — QC metrics
-- Segmentation masks dataset — multi-channel TIFFs named `{image_id}_segmentation`
-- Classifier gallery PNGs — one per predicted class (if inference run)
-
-Local intermediate files in working directory are cleaned up after plate completion.
-
----
+`cell_cycle`: `Sub-G1`, `G1`, `S`, `G2/M`, `Polyploid` (`Unassigned` if outside
+every gate). With a mitosis marker (H3P), G2 and `M` are separate.
+`cell_cycle_detailed` also splits `Early S`/`Late S` and polyploid
+(non-)replicating. Gates use `integrated_int_DAPI_norm` (G1 peak = 2) and
+`intensity_mean_EdU_nucleus_norm`.
 
 ## Troubleshooting
 
-| Issue | Cause | Fix |
-|---|---|---|
-| `KeyError: cell_line` | Missing metadata | Check plate has Excel attachment or well annotations |
-| `Model not found: CELLLINE` | Cell line not in MODEL_DICT | Add entry to config JSON; or use `--cp4` flag |
-| Segmentation produces empty masks | Wrong channel index | Verify channel metadata (`{"DAPI": "0"}` etc.) |
-| Pipeline restarts from scratch | No cached per-well CSV | Normal on first run; subsequent runs resume from last well |
-| OOM during Cellpose | Image too large or batch too big | Reduce batch size; check GPU memory with `torch-test` |
+| Problem | Fix |
+|---|---|
+| Can't connect / login incomplete | `omero-screen doctor`; VPN; `omero-screen setup` |
+| `KeyError` on `cell_line` or `condition` | The wells lack metadata: check the Excel attachment or well annotations |
+| Empty or wrong masks | Check the channel annotation on the plate (`DAPI` → index); rerun with `--delete` |
+| A re-run didn't change the segmentation | Masks are reused; add `--delete` |
+| Out of GPU memory | Tracking: `--track-batch-size` lower, `--track-window N`, or `--track-device cpu`; segmentation: run with fewer plates per job |
+| No cell-cycle columns | The plate has no EdU channel (or it is named differently in the channel annotation) |
