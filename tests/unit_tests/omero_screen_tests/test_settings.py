@@ -140,3 +140,24 @@ def test_write_user_config_round_trips(user_config: Path) -> None:
 
 def test_config_dir_follows_the_env_variable() -> None:
     assert settings.config_dir() == Path(os.environ["OMERO_SCREEN_CONFIG_DIR"])
+
+
+def test_password_file_is_owner_only(tmp_path: Path) -> None:
+    pw = settings.write_password_file(tmp_path / "cfg" / "pw", "x")
+    assert pw.stat().st_mode & 0o777 == 0o600
+    assert (tmp_path / "cfg").stat().st_mode & 0o777 == 0o700
+    assert settings.read_password_file(pw) == "x"
+
+
+def test_suggest_work_dir_takes_the_first_existing_match(tmp_path: Path) -> None:
+    (tmp_path / "b" / "me").mkdir(parents=True)
+    profile = {"cluster": {"work_dirs": [
+        f"{tmp_path}/none/{{user}}", f"{tmp_path}/*/{{user}}",
+    ]}}
+    assert settings.suggest_work_dir(profile, "me") == tmp_path / "b" / "me"
+    assert settings.suggest_work_dir({}, "me") is None
+
+
+def test_the_sussex_profile_suggests_lustre() -> None:
+    patterns = settings.load_site("sussex")["cluster"]["work_dirs"]
+    assert patterns == ["/mnt/lustre/users/*/{user}"]

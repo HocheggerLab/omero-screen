@@ -261,12 +261,6 @@ say "Installed $VERSION in $TARGET"
 if [ "${OMERO_SCREEN_NO_SETUP:-0}" != "1" ]; then
     if [ -f "${OMERO_SCREEN_CONFIG_DIR:-$HOME/.config/omero-screen}/config.toml" ]; then
         say "Existing configuration kept (change it with: omero-screen setup)"
-    elif [ "$HEADLESS" = 1 ]; then
-        # No keychain on a headless machine: the password goes in a file.
-        say "Next: put your OMERO password in a file only you can read, then run setup:"
-        say "  mkdir -p ~/.config/omero-screen && chmod 700 ~/.config/omero-screen"
-        say "  (umask 077; read -rs -p 'OMERO password: ' pw; echo; printf '%s' \"\$pw\" > ~/.config/omero-screen/omero-password)"
-        say "  omero-screen setup --password-file ~/.config/omero-screen/omero-password"
     elif (: </dev/tty) 2>/dev/null; then
         "$BIN_DIR/omero-screen" setup </dev/tty || say "Setup did not finish; run: omero-screen setup"
     else

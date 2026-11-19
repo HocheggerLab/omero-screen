@@ -17,11 +17,13 @@ def test_setup_stores_the_password_in_the_keychain_only(
     runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(setup_cli, "_try_login", lambda *a: "lab")
+    monkeypatch.setattr(settings, "on_cluster", lambda: False)
+    monkeypatch.setattr(settings, "keychain_available", lambda: True)
     monkeypatch.delenv("PASSWORD", raising=False)  # set in CI; would win
     result = runner.invoke(
         setup_cli.cli,
         ["setup", "--site", "sussex", "--username", "ab123"],
-        input="s3cret\n",
+        input="s3cret\n\n",  # password, then the default store: keychain
     )
     assert result.exit_code == 0, result.output
     text = settings.user_config_path().read_text()
@@ -221,3 +223,114 @@ def test_self_uninstall_asks_first(
     monkeypatch.setattr(setup_cli.os, "execvpe", lambda *a: ran.append(a))
     result = runner.invoke(setup_cli.cli, ["self", "uninstall"], input="n\n")
     assert result.exit_code != 0 and not ran
+
+
+def _no_keychain(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "keychain_available", lambda: False)
+
+
+def test_setup_without_a_keychain_writes_a_password_file(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup_cli, "_try_login", lambda *a: "lab")
+    monkeypatch.setattr(settings, "on_cluster", lambda: False)
+    monkeypatch.delenv("PASSWORD", raising=False)
+    _no_keychain(monkeypatch)
+    result = runner.invoke(
+        setup_cli.cli,
+        ["setup", "--site", "sussex", "--username", "ab123"],
+        input="s3cret\n",
+    )
+    assert result.exit_code == 0, result.output
+    pw = settings.default_password_file()
+    assert pw.read_text() == "s3cret"
+    assert pw.stat().st_mode & 0o777 == 0o600
+    assert "only you can read it" in result.output
+    assert settings.load().get("omero", "password_file") == str(pw)
+    assert settings.get_password("ab123", "ome2.hpc.sussex.ac.uk") == "s3cret"
+
+
+def test_setup_falls_back_to_a_file_when_the_keychain_fails(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup_cli, "_try_login", lambda *a: "lab")
+    monkeypatch.setattr(settings, "on_cluster", lambda: False)
+
+    def broken(*a: object) -> None:
+        raise settings.ConfigError("no keychain")
+
+    monkeypatch.setattr(settings, "store_password", broken)
+    result = runner.invoke(
+        setup_cli.cli,
+        ["setup", "--site", "sussex", "--username", "ab123",
+         "--password-store", "keychain"],
+        input="s3cret\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert "using a password file instead" in result.output
+    assert settings.default_password_file().read_text() == "s3cret"
+
+
+def test_setup_lets_a_keychain_user_choose_a_file(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup_cli, "_try_login", lambda *a: "lab")
+    monkeypatch.setattr(settings, "on_cluster", lambda: False)
+    monkeypatch.setattr(settings, "keychain_available", lambda: True)
+    result = runner.invoke(
+        setup_cli.cli,
+        ["setup", "--site", "sussex", "--username", "ab123"],
+        input="s3cret\nfile\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.load().get("omero", "password_file")
+
+
+def test_setup_on_a_cluster_asks_for_the_cache_in_the_work_dir(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(setup_cli, "_try_login", lambda *a: "lab")
+    monkeypatch.setattr(settings, "on_cluster", lambda: True)
+    _no_keychain(monkeypatch)
+    work = tmp_path / "lustre" / "grp" / "me"
+    work.mkdir(parents=True)
+    site = tmp_path / "site.toml"
+    site.write_text(
+        '[omero]\nhost = "omero.lab.org"\n[cluster]\n'
+        f'work_dirs = ["{tmp_path}/lustre/*/{{user}}"]\n'
+    )
+    monkeypatch.setattr(setup_cli.getpass, "getuser", lambda: "me")
+    result = runner.invoke(
+        setup_cli.cli,
+        ["setup", "--site", str(site), "--username", "ab123"],
+        input="s3cret\n\n",  # password, then accept the suggested cache
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.load().get("paths", "cache") == str(work / "omero-cache")
+
+
+def test_setup_keeps_settings_it_does_not_ask_about(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup_cli, "_try_login", lambda *a: "lab")
+    monkeypatch.setattr(settings, "on_cluster", lambda: False)
+    _no_keychain(monkeypatch)
+    settings.user_config_path().parent.mkdir(parents=True, exist_ok=True)
+    settings.user_config_path().write_text(
+        'site = "sussex"\n[omero]\nusername = "old"\ngroup = "lab"\n'
+        '[paths]\ncache = "/work/cache"\n'
+        '[segmentation]\nmodel_set = "hocheggerlab"\n'
+        '[stitching.calibrations.10x]\noverlap_x = 8\n'
+    )
+    result = runner.invoke(
+        setup_cli.cli,
+        ["setup", "--site", "sussex", "--username", "ab123"],
+        input="s3cret\n",
+    )
+    assert result.exit_code == 0, result.output
+    cfg = settings.read_user_config()
+    assert cfg["omero"]["username"] == "ab123"
+    assert cfg["omero"]["group"] == "lab"
+    assert cfg["paths"]["cache"] == "/work/cache"
+    assert cfg["segmentation"]["model_set"] == "hocheggerlab"
+    assert cfg["stitching"]["calibrations"]["10x"]["overlap_x"] == 8

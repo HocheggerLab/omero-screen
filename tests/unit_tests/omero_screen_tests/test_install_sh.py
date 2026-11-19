@@ -239,19 +239,6 @@ def test_downloads_get_a_longer_timeout_unless_set(fake: Path) -> None:
     assert _sync_args(fake).endswith("UV_HTTP_TIMEOUT=42")
 
 
-def test_a_headless_install_points_to_a_password_file(fake: Path) -> None:
-    result = _run(fake, OMERO_SCREEN_HEADLESS="1", OMERO_SCREEN_NO_SETUP="0")
-    assert result.returncode == 0, result.stderr
-    assert "setup --password-file" in result.stdout
-    assert (
-        "setup"
-        not in (fake / "omero-screen.log")
-        .read_text()
-        .replace("models pull stock", "")
-        .split()
-    )
-
-
 def test_compiling_gets_a_longer_timeout_unless_set(fake: Path) -> None:
     assert _run(fake).returncode == 0
     assert "UV_COMPILE_BYTECODE_TIMEOUT=600 " in _sync_args(fake)

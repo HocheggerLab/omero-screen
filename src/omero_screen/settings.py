@@ -29,7 +29,9 @@ earlier setup is never read.
 
 from __future__ import annotations
 
+import glob
 import os
+import shutil
 import stat
 import tomllib
 from dataclasses import dataclass, field
@@ -346,6 +348,69 @@ def store_password(username: str, host: str, password: str) -> None:
         ) from err
 
 
+def keychain_available() -> bool:
+    """Whether a usable system keychain backend is installed.
+
+    False on headless machines (an HPC login node), where ``keyring`` falls
+    back to a backend that cannot store anything.
+    """
+    try:
+        import keyring
+        from keyring.backends import chainer, fail
+
+        backend = keyring.get_keyring()
+    except Exception:  # noqa: BLE001 - keyring missing or broken
+        return False
+    if isinstance(backend, fail.Keyring):
+        return False
+    if isinstance(backend, chainer.ChainerBackend):
+        return bool(backend.backends)
+    return True
+
+
+def default_password_file() -> Path:
+    """Where ``setup`` puts the password when it uses a file."""
+    return config_dir() / "omero-password"
+
+
+def write_password_file(path: Path, password: str) -> Path:
+    """Write the password to ``path``, readable only by its owner.
+
+    The folder is created owner-only too; the file is never readable by
+    others, not even briefly.
+    """
+    path = Path(path).expanduser()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        os.write(fd, password.encode())
+    finally:
+        os.close(fd)
+    return path
+
+
+def on_cluster() -> bool:
+    """Whether this machine is part of a SLURM cluster."""
+    return shutil.which("sbatch") is not None or any(
+        key.startswith("SLURM_") for key in os.environ
+    )
+
+
+def suggest_work_dir(profile: dict[str, Any], user: str) -> Path | None:
+    """The user's work directory for large data, from the site profile.
+
+    ``[cluster] work_dirs`` lists glob patterns with ``{user}`` (the login
+    name); the first existing directory wins.
+    """
+    patterns = profile.get("cluster", {}).get("work_dirs", [])
+    for pattern in patterns:
+        for match in sorted(glob.glob(str(pattern).format(user=user))):
+            if Path(match).is_dir():
+                return Path(match)
+    return None
+
+
 def login() -> tuple[str, str, int | None, str | None, str]:
     """``(host, username, port, group, password)`` for an OMERO connection.
 
@@ -384,12 +449,42 @@ def _toml_value(value: Any) -> str:
         return "true" if value else "false"
     if isinstance(value, int | float):
         return str(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(v) for v in value) + "]"
     escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
 
 
+def read_user_config(path: Path | None = None) -> dict[str, Any]:
+    """The user config as written, without the site profile (``{}`` if none)."""
+    path = path or user_config_path()
+    return tomllib.loads(path.read_text()) if path.exists() else {}
+
+
+def _table_lines(name: str, table: dict[str, Any]) -> list[str]:
+    """``[name]`` with its plain keys, then its sub-tables as ``[name.sub]``."""
+    plain = {k: v for k, v in table.items() if not isinstance(v, dict)}
+    lines: list[str] = []
+    if plain:
+        lines += ["", f"[{name}]"]
+        lines += [
+            f"{_toml_key(k)} = {_toml_value(v)}" for k, v in plain.items()
+        ]
+    for key, value in table.items():
+        if isinstance(value, dict):
+            lines += _table_lines(f"{name}.{_toml_key(key)}", value)
+    return lines
+
+
+def _toml_key(key: str) -> str:
+    """A bare TOML key, quoted if it has characters a bare key can't."""
+    if key and all(c.isalnum() or c in "-_" for c in key):
+        return key
+    return _toml_value(key)
+
+
 def write_user_config(data: dict[str, Any], path: Path | None = None) -> Path:
-    """Write a user config of top-level keys and flat tables.
+    """Write the user config: top-level keys, then tables (nested allowed).
 
     Args:
         data: e.g. ``{"site": "sussex", "omero": {"username": "ab123"}}``.
@@ -403,10 +498,9 @@ def write_user_config(data: dict[str, Any], path: Path | None = None) -> Path:
     ]
     for key, value in data.items():
         if not isinstance(value, dict):
-            lines.append(f"{key} = {_toml_value(value)}")
+            lines.append(f"{_toml_key(key)} = {_toml_value(value)}")
     for table, content in data.items():
         if isinstance(content, dict) and content:
-            lines += ["", f"[{table}]"]
-            lines += [f"{k} = {_toml_value(v)}" for k, v in content.items()]
+            lines += _table_lines(_toml_key(table), content)
     path.write_text("\n".join(lines) + "\n")
     return path

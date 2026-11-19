@@ -8,6 +8,7 @@ settings in effect and where each came from, with the password masked.
 
 from __future__ import annotations
 
+import getpass
 import importlib.util
 import os
 import shutil
@@ -51,6 +52,76 @@ def _try_login(
         conn.close()
 
 
+#: How ``setup`` keeps the password.
+PASSWORD_STORES = ("keychain", "file")
+
+
+def _choose_store(requested: str | None) -> str:
+    """Keychain or password file.
+
+    As asked; else, if the machine has a keychain, ask (default keychain);
+    else a file.
+    """
+    if requested:
+        return requested
+    if not settings.keychain_available():
+        return "file"
+    return str(
+        click.prompt(
+            "Keep the password in the system keychain or a file only you "
+            "can read (no keychain prompts)",
+            type=click.Choice(PASSWORD_STORES),
+            default="keychain",
+        )
+    )
+
+
+def _save_password(
+    store: str, username: str, host: str, password: str
+) -> Path | None:
+    """Keep the password; return the password file, if one is used."""
+    if store == "keychain":
+        try:
+            settings.store_password(username, host, password)
+        except settings.ConfigError:
+            click.echo(
+                "No usable keychain here; using a password file instead."
+            )
+        else:
+            click.echo("Password stored in the system keychain.")
+            return None
+    path = settings.write_password_file(
+        settings.default_password_file(), password
+    )
+    click.echo(f"Password saved in {path} (only you can read it).")
+    return path
+
+
+def _choose_cache(
+    requested: Path | None, current: str | None, profile: dict[str, Any]
+) -> str | None:
+    """The image cache folder.
+
+    As asked; on a cluster, ask, suggesting the work directory from the site
+    profile; elsewhere keep the current or default one.
+    """
+    if requested is not None:
+        return str(requested)
+    if not settings.on_cluster():
+        return current
+    work = settings.suggest_work_dir(profile, getpass.getuser())
+    default = current or (
+        str(work / "omero-cache") if work else "~/omero-cache"
+    )
+    return str(
+        click.prompt(
+            "Image cache folder (can grow to tens of GB; on a cluster, use "
+            "your work or scratch space, not home)",
+            default=default,
+        )
+    )
+
+
 @cli.command()
 @click.option(
     "--site",
@@ -64,11 +135,23 @@ def _try_login(
     help="OMERO group to work in (default: your default group).",
 )
 @click.option(
+    "--password-store",
+    type=click.Choice(PASSWORD_STORES),
+    default=None,
+    help="Where to keep the password (default: the keychain if this "
+    "machine has one, else a file only you can read).",
+)
+@click.option(
     "--password-file",
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
-    help="Headless machines: read the password from this chmod-600 file "
-    "instead of the keychain.",
+    help="Use an existing chmod-600 file holding the password.",
+)
+@click.option(
+    "--cache",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Image cache folder (asked on a cluster).",
 )
 @click.option(
     "--no-verify",
@@ -80,15 +163,22 @@ def setup(
     host: str | None,
     username: str | None,
     group: str | None,
+    password_store: str | None,
     password_file: Path | None,
+    cache: Path | None,
     no_verify: bool,
 ) -> None:
-    """Write the user config and store the OMERO password."""
+    """Write the user config and keep the OMERO password.
+
+    Settings already in the user config that setup doesn't ask about are
+    kept.
+    """
+    existing = settings.read_user_config()
     sites = settings.available_sites()
     if site is None:
         site = click.prompt(
             "Site profile",
-            default=sites[0] if sites else "",
+            default=existing.get("site") or (sites[0] if sites else ""),
             show_choices=True,
             type=click.Choice([*sites, "none"]) if sites else str,
         )
@@ -96,8 +186,17 @@ def setup(
     profile = settings.load_site(site) if site else {}
     site_host = profile.get("omero", {}).get("host")
     port = profile.get("omero", {}).get("port")
-    host = host or site_host or click.prompt("OMERO server (host name)")
-    username = username or click.prompt("OMERO user name")
+    old_omero = existing.get("omero", {})
+    host = (
+        host
+        or site_host
+        or click.prompt(
+            "OMERO server (host name)", default=old_omero.get("host")
+        )
+    )
+    username = username or click.prompt(
+        "OMERO user name", default=old_omero.get("username")
+    )
     assert host and username
 
     if password_file is not None:
@@ -110,19 +209,34 @@ def setup(
         default_group = _try_login(host, port, username, password)
         click.echo(f"OK: logged in; your default group is {default_group!r}.")
 
-    omero: dict[str, Any] = {"username": username}
+    if password_file is None:
+        store = _choose_store(password_store)
+        password_file = _save_password(store, username, host, password)
+
+    omero = dict(old_omero)
+    omero["username"] = username
     if not site_host or host != site_host:
         omero["host"] = host
+    else:
+        omero.pop("host", None)
     if group:
         omero["group"] = group
     if password_file is not None:
         omero["password_file"] = str(password_file)
     else:
-        settings.store_password(username, host, password)
-        click.echo("Password stored in the system keychain.")
+        omero.pop("password_file", None)
 
-    data: dict[str, Any] = {"site": site} if site else {}
+    data: dict[str, Any] = {
+        k: v for k, v in existing.items() if k not in ("site", "omero")
+    }
+    if site:
+        data = {"site": site, **data}
     data["omero"] = omero
+    paths = dict(data.get("paths", {}))
+    cache_dir = _choose_cache(cache, paths.get("cache"), profile)
+    if cache_dir:
+        paths["cache"] = cache_dir
+        data["paths"] = paths
     path = settings.write_user_config(data)
     click.echo(f"Wrote {path}. Next: omero-screen doctor")
 

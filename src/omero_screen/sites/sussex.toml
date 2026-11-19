@@ -6,6 +6,12 @@
 host = "ome2.hpc.sussex.ac.uk"
 port = 4064
 
+# Artemis (Sussex HPC): large data such as the image cache belongs in your
+# Lustre work space, not the small, shared NFS home. `omero-screen setup`
+# suggests the first existing match ({user} is your login name).
+[cluster]
+work_dirs = ["/mnt/lustre/users/*/{user}"]
+
 # Stitch calibrations per objective, chosen by the plate's pixel size.
 # 10x: long-standing lab values, confirmed on plate 3868 (no duplicated objects
 # at the seams). 20x: measured on plate 5054 (scripts/diagnose_stitch_seams.py).

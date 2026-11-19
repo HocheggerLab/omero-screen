@@ -92,8 +92,8 @@ on Windows runs on WSL2 anyway, so on Windows OMERO-Screen runs inside WSL2
    [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/)
    and turn on *Settings → Resources → WSL integration* for Ubuntu.
 
-napari opens as a normal window on Windows 11. Without a keychain in WSL, use
-a [password file](#the-configuration-in-detail).
+napari opens as a normal window on Windows 11. WSL has no keychain, so
+`setup` keeps your password in a file only you can read.
 
 ::: {.callout-note}
 The Windows route has not yet been tested end to end. Please report problems
@@ -167,11 +167,18 @@ It asks for:
   microscopes. Choose `sussex` for the Hochegger lab OMERO, or `none` to type
   in a server name;
 - your **OMERO user name** and **password**. The password is checked against
-  the server, then stored in your computer's keychain (macOS Keychain), never
-  in a file.
+  the server, then kept where you choose: your computer's **keychain** (macOS
+  Keychain), or a **password file** only you can read
+  (`~/.config/omero-screen/omero-password`), which avoids macOS asking
+  whether Python may read the keychain. On a machine without a keychain (an
+  HPC cluster, WSL) setup uses the file without asking;
+- on an **HPC cluster**, where to put the **image cache**. It can grow to
+  tens of GB, so setup suggests your work space (on the Sussex HPC, your
+  Lustre folder) rather than your home directory.
 
-Your answers are saved in `~/.config/omero-screen/config.toml`. Run `setup`
-again at any time to change them.
+Your answers are saved in `~/.config/omero-screen/config.toml`; the password
+never is. Run `setup` again at any time to change them: settings it doesn't
+ask about (model sets, paths, stitch overrides) are kept.
 
 ## Check the installation
 
@@ -221,8 +228,10 @@ It sees SLURM there and installs **headless**: everything except the napari
 GUI, which a cluster doesn't need (`doctor` then reports napari as a warning,
 not a failure). Then:
 
-- **Password:** clusters have no keychain, so use a
-  [password file](#the-configuration-in-detail).
+- **Setup:** the installer runs `omero-screen setup` as on a laptop. There
+  is no keychain on a cluster, so it keeps your password in a file only you
+  can read, and it asks where to put the image cache (suggesting your work
+  space, e.g. Lustre, instead of your home directory).
 - **Where to install:** each release takes ~2.3 GB in many small files.
   Keep the install (`OMERO_SCREEN_HOME`) and uv's download cache
   (`UV_CACHE_DIR`, see `uv cache dir`) **on the same filesystem**: uv then
@@ -286,9 +295,9 @@ port, the stitch calibrations of its microscopes, its model sets. `sussex` is
 built in. For another site, write one as a TOML file, set
 `site = "/path/to/your-site.toml"`, and send it to us so it can be included.
 
-On a machine without a keychain (an HPC cluster), or on a Mac if you'd rather
-not have macOS ask whether Python may read the keychain, put the password in
-a file only you can read and name it in the user config (or run
+`setup` writes the password file for you (`--password-store file` chooses it
+without asking). To use a file you made yourself, put the password in a file
+only you can read and name it in the user config (or run
 `omero-screen setup --password-file <file>`, which does both):
 
 ```bash
