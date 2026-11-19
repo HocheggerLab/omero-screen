@@ -13,10 +13,13 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
-def test_setup_stores_the_password_in_the_keychain_only(
+def test_setup_writes_a_password_file_not_the_keychain(
     runner: CliRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import keyring
+
     monkeypatch.setattr(setup_cli, "_try_login", lambda *a: "lab")
+    monkeypatch.setattr(settings, "on_cluster", lambda: False)
     monkeypatch.delenv("PASSWORD", raising=False)  # set in CI; would win
     result = runner.invoke(
         setup_cli.cli,
@@ -27,6 +30,12 @@ def test_setup_stores_the_password_in_the_keychain_only(
     text = settings.user_config_path().read_text()
     assert "s3cret" not in text and 'site = "sussex"' in text
     assert "host" not in text  # the site profile provides it
+    pw = settings.default_password_file()
+    assert pw.read_text() == "s3cret"
+    assert pw.stat().st_mode & 0o777 == 0o600
+    assert settings.load().get("omero", "password_file") == str(pw)
+    account = "ab123@ome2.hpc.sussex.ac.uk"
+    assert keyring.get_password(settings.KEYRING_SERVICE, account) is None
     assert settings.get_password("ab123", "ome2.hpc.sussex.ac.uk") == "s3cret"
 
 
@@ -221,3 +230,68 @@ def test_self_uninstall_asks_first(
     monkeypatch.setattr(setup_cli.os, "execvpe", lambda *a: ran.append(a))
     result = runner.invoke(setup_cli.cli, ["self", "uninstall"], input="n\n")
     assert result.exit_code != 0 and not ran
+
+
+def test_setup_on_a_cluster_asks_for_the_cache_in_the_work_dir(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(setup_cli, "_try_login", lambda *a: "lab")
+    monkeypatch.setattr(settings, "on_cluster", lambda: True)
+    work = tmp_path / "lustre" / "grp" / "me"
+    work.mkdir(parents=True)
+    site = tmp_path / "site.toml"
+    site.write_text(
+        '[omero]\nhost = "omero.lab.org"\n[cluster]\n'
+        f'work_dirs = ["{tmp_path}/lustre/*/{{user}}"]\n'
+    )
+    monkeypatch.setattr(setup_cli.getpass, "getuser", lambda: "me")
+    result = runner.invoke(
+        setup_cli.cli,
+        ["setup", "--site", str(site), "--username", "ab123"],
+        input="s3cret\n\n",  # password, then accept the suggested cache
+    )
+    assert result.exit_code == 0, result.output
+    assert settings.load().get("paths", "cache") == str(work / "omero-cache")
+
+
+def test_setup_keeps_settings_it_does_not_ask_about(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(setup_cli, "_try_login", lambda *a: "lab")
+    monkeypatch.setattr(settings, "on_cluster", lambda: False)
+    settings.user_config_path().parent.mkdir(parents=True, exist_ok=True)
+    settings.user_config_path().write_text(
+        'site = "sussex"\n[omero]\nusername = "old"\ngroup = "lab"\n'
+        '[paths]\ncache = "/work/cache"\n'
+        '[segmentation]\nmodel_set = "hocheggerlab"\n'
+        '[stitching.calibrations.10x]\noverlap_x = 8\n'
+    )
+    result = runner.invoke(
+        setup_cli.cli,
+        ["setup", "--site", "sussex", "--username", "ab123"],
+        input="s3cret\n",
+    )
+    assert result.exit_code == 0, result.output
+    cfg = settings.read_user_config()
+    assert cfg["omero"]["username"] == "ab123"
+    assert cfg["omero"]["group"] == "lab"
+    assert cfg["paths"]["cache"] == "/work/cache"
+    assert cfg["segmentation"]["model_set"] == "hocheggerlab"
+    assert cfg["stitching"]["calibrations"]["10x"]["overlap_x"] == 8
+
+
+def test_doctor_warns_about_a_password_left_in_the_keychain(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import keyring
+
+    # CI sets HOST/USERNAME/PASSWORD, which win over any config: set our own.
+    monkeypatch.delenv("PASSWORD", raising=False)
+    monkeypatch.setenv("HOST", "ome2.hpc.sussex.ac.uk")
+    monkeypatch.setenv("USERNAME", "ab123")
+    keyring.set_password(
+        settings.KEYRING_SERVICE, "ab123@ome2.hpc.sussex.ac.uk", "old"
+    )
+    result = runner.invoke(setup_cli.cli, ["doctor", "--offline"])
+    assert "[WARN] Password: in the system keychain" in result.output
+    assert "moves it to a file" in result.output

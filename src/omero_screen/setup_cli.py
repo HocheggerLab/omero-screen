@@ -1,13 +1,14 @@
 """``omero-screen setup | doctor | config show``: configure and check an install.
 
-``setup`` writes the user config (site profile, OMERO user, group) and stores
-the password in the system keychain. ``doctor`` checks every piece a user
+``setup`` writes the user config (site profile, OMERO user, group) and the
+password to a file only the user can read. ``doctor`` checks every piece a user
 needs and says how to fix what is missing. ``config show`` prints the
 settings in effect and where each came from, with the password masked.
 """
 
 from __future__ import annotations
 
+import getpass
 import importlib.util
 import os
 import shutil
@@ -51,6 +52,40 @@ def _try_login(
         conn.close()
 
 
+def _save_password(password: str) -> Path:
+    """Write the password to the default password file (owner-only)."""
+    path = settings.write_password_file(
+        settings.default_password_file(), password
+    )
+    click.echo(f"Password saved in {path} (only you can read it).")
+    return path
+
+
+def _choose_cache(
+    requested: Path | None, current: str | None, profile: dict[str, Any]
+) -> str | None:
+    """The image cache folder.
+
+    As asked; on a cluster, ask, suggesting the work directory from the site
+    profile; elsewhere keep the current or default one.
+    """
+    if requested is not None:
+        return str(requested)
+    if not settings.on_cluster():
+        return current
+    work = settings.suggest_work_dir(profile, getpass.getuser())
+    default = current or (
+        str(work / "omero-cache") if work else "~/omero-cache"
+    )
+    return str(
+        click.prompt(
+            "Image cache folder (can grow to tens of GB; on a cluster, use "
+            "your work or scratch space, not home)",
+            default=default,
+        )
+    )
+
+
 @cli.command()
 @click.option(
     "--site",
@@ -67,8 +102,13 @@ def _try_login(
     "--password-file",
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
-    help="Headless machines: read the password from this chmod-600 file "
-    "instead of the keychain.",
+    help="Use an existing chmod-600 file holding the password.",
+)
+@click.option(
+    "--cache",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="Image cache folder (asked on a cluster).",
 )
 @click.option(
     "--no-verify",
@@ -81,14 +121,20 @@ def setup(
     username: str | None,
     group: str | None,
     password_file: Path | None,
+    cache: Path | None,
     no_verify: bool,
 ) -> None:
-    """Write the user config and store the OMERO password."""
+    """Write the user config and the OMERO password file.
+
+    Settings already in the user config that setup doesn't ask about are
+    kept.
+    """
+    existing = settings.read_user_config()
     sites = settings.available_sites()
     if site is None:
         site = click.prompt(
             "Site profile",
-            default=sites[0] if sites else "",
+            default=existing.get("site") or (sites[0] if sites else ""),
             show_choices=True,
             type=click.Choice([*sites, "none"]) if sites else str,
         )
@@ -96,8 +142,17 @@ def setup(
     profile = settings.load_site(site) if site else {}
     site_host = profile.get("omero", {}).get("host")
     port = profile.get("omero", {}).get("port")
-    host = host or site_host or click.prompt("OMERO server (host name)")
-    username = username or click.prompt("OMERO user name")
+    old_omero = existing.get("omero", {})
+    host = (
+        host
+        or site_host
+        or click.prompt(
+            "OMERO server (host name)", default=old_omero.get("host")
+        )
+    )
+    username = username or click.prompt(
+        "OMERO user name", default=old_omero.get("username")
+    )
     assert host and username
 
     if password_file is not None:
@@ -110,19 +165,30 @@ def setup(
         default_group = _try_login(host, port, username, password)
         click.echo(f"OK: logged in; your default group is {default_group!r}.")
 
-    omero: dict[str, Any] = {"username": username}
+    if password_file is None:
+        password_file = _save_password(password)
+
+    omero = dict(old_omero)
+    omero["username"] = username
     if not site_host or host != site_host:
         omero["host"] = host
+    else:
+        omero.pop("host", None)
     if group:
         omero["group"] = group
-    if password_file is not None:
-        omero["password_file"] = str(password_file)
-    else:
-        settings.store_password(username, host, password)
-        click.echo("Password stored in the system keychain.")
+    omero["password_file"] = str(password_file)
 
-    data: dict[str, Any] = {"site": site} if site else {}
+    data: dict[str, Any] = {
+        k: v for k, v in existing.items() if k not in ("site", "omero")
+    }
+    if site:
+        data = {"site": site, **data}
     data["omero"] = omero
+    paths = dict(data.get("paths", {}))
+    cache_dir = _choose_cache(cache, paths.get("cache"), profile)
+    if cache_dir:
+        paths["cache"] = cache_dir
+        data["paths"] = paths
     path = settings.write_user_config(data)
     click.echo(f"Wrote {path}. Next: omero-screen doctor")
 
@@ -199,6 +265,17 @@ def _check_login(connect: bool) -> list[Check]:
             f"{username}@{host}" + (f":{port}" if port else ""),
         )
     ]
+    if settings.password_source(username, host) == settings.LEGACY_KEYCHAIN:
+        checks.append(
+            Check(
+                "Password",
+                False,
+                "in the system keychain (from an older setup)",
+                "Run: omero-screen setup (moves it to a file; no more "
+                "keychain prompts)",
+                required=False,
+            )
+        )
     if not connect:
         return checks
     from omero.gateway import BlitzGateway
@@ -249,8 +326,9 @@ def _check_napari() -> Check:
     return Check(
         "napari and Qt",
         ok,
-        "importable" if ok else "missing",
-        "Install the GUI group (included by the install script).",
+        "importable" if ok else "missing (a headless install has no GUI)",
+        "Only needed for the napari GUI: install with OMERO_SCREEN_HEADLESS=0.",
+        required=False,
     )
 
 
@@ -632,7 +710,7 @@ def self_update(version: str | None, check: bool) -> None:
 @click.option(
     "--purge",
     is_flag=True,
-    help="Also delete the settings and the password in the keychain.",
+    help="Also delete the settings and the password file.",
 )
 @click.option("--yes", "-y", is_flag=True, help="Do not ask to confirm.")
 def self_uninstall(purge: bool, yes: bool) -> None:
@@ -644,7 +722,7 @@ def self_uninstall(purge: bool, yes: bool) -> None:
     found = _require_install()
     what = f"omero-screen in {found.home} and its commands in {found.bin_dir}"
     if purge:
-        what += f", your settings in {settings.config_dir()} and the keychain password"
+        what += f", your settings in {settings.config_dir()} and your password"
     if not yes:
         click.confirm(f"Remove {what}?", abort=True)
     script = found.installer

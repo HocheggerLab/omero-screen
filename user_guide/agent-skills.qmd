@@ -136,8 +136,8 @@ its phase.
 
 - **The agent asks before changing OMERO**: running the pipeline, publishing a
   classifier, deleting anything. It reads and plots without asking.
-- **Your password never goes into the chat.** `omero-screen setup` stores it
-  in your keychain.
+- **Your password never goes into the chat.** `omero-screen setup` saves it
+  in a file only you can read.
 - **The agent works on your computer.** napari opens windows on your screen,
   and OMERO is reached over your network, so use an agent that runs locally
   (Claude Code, the Code tab of the Claude desktop app, or Pi).

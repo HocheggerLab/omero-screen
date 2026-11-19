@@ -2,28 +2,36 @@
 title: "Running on a SLURM cluster"
 ---
 
-`bin/sbatch_omero_screen.py` writes a SLURM job script that runs
-`omero-screen` and submits it with `sbatch`. It is set up for the Sussex HPC
-(job classes, GPU nodes); other clusters will need its template adjusted.
+`omero-screen-sbatch` (the script `bin/sbatch_omero_screen.py`) writes a
+SLURM job script that runs `omero-screen` and submits it with `sbatch`. It is
+set up for the Sussex HPC (job classes, GPU nodes, `@sussex.ac.uk` e-mail);
+other clusters will need its template adjusted.
 
-::: {.callout-note}
-The submitter needs a source checkout: run it from the checkout's `bin/`
-folder, and create a `.env` file at the checkout root (an empty one will do if
-you configured with `omero-screen setup`). An `omero-screen submit` command
-that works from the normal install is in preparation
+It works from the installed release and from a source checkout alike, and
+from any folder: the job runs the programs beside the script with the same
+Python that submitted it. Submit from your work space: the job script and its
+`.out` log are written there. If you also have a source checkout, don't submit
+the release from inside it, or the job picks up the checkout's `.env` files.
+
+```bash
+cd /mnt/lustre/users/<group>/$USER        # your work space
+omero-screen-sbatch 12345 67890 --stitch --track
+```
+
+From a source checkout, run it with the checkout's Python
+(`uv run python bin/sbatch_omero_screen.py …`); after a `git pull`, run
+`uv sync` before submitting, since the job no longer syncs on its own. No
+`.env` file is needed unless you pass `--env` (then `.env.<name>` at the
+omero-screen root is required). An `omero-screen submit` command for any
+SLURM cluster is in preparation
 ([#92](https://github.com/HocheggerLab/omero-screen/issues/92)). For
 installing on the cluster, see
 [On an HPC cluster](installation.qmd#on-an-hpc-cluster).
-:::
 
 ::: {.callout-note}
 This is a `bin/` utility and still uses argparse, unlike the installed
 commands. It keeps argparse conventions, including abbreviated options.
 :::
-
-```bash
-python bin/sbatch_omero_screen.py 12345 67890 --env production --stitch --track
-```
 
 By default it submits one job per plate ID.
 

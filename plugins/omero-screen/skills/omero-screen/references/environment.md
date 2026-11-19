@@ -27,7 +27,7 @@ Update: `omero-screen self update [--check] [--version X.Y.Z]` (or rerun the
 line); keeps the current and previous release, removes older ones. Uninstall:
 `omero-screen self uninstall [--purge]`, or `… install.sh | sh -s -- --uninstall`
 when the command is broken. Only links into the install are removed; `--purge`
-adds the settings and keychain password; CellView DB, image cache and Cellpose
+adds the settings and password file; CellView DB, image cache and Cellpose
 models are never deleted.
 
 **Developers:**
@@ -48,7 +48,7 @@ uv only, never pip: zeroc-ice comes from the lab's wheel index
 ## Configure and check
 
 ```bash
-omero-screen setup         # site profile, OMERO user, group; password -> keychain
+omero-screen setup         # site profile, OMERO user, group, cache (cluster); password -> owner-only file
 omero-screen doctor        # versions, ice, config, login + connection, CellView, napari, device, disk
 omero-screen config show   # effective settings and where each came from (password masked)
 ```
@@ -93,9 +93,11 @@ username = "ab123"
 translate_x/y; chosen by pixel size), `[segmentation.model_sets.<name>]`
 (models, sha256, download url).
 
-**Password:** never in a config file. Looked up as `PASSWORD` env var, then the
-system keychain (service `omero-screen`, account `user@host`), then
-`[omero] password_file`.
+**Password:** never in a config file. `setup` writes it to
+`~/.config/omero-screen/omero-password` (0600) and records it as
+`[omero] password_file`. Looked up as `PASSWORD` env var, then the password file,
+then (setups made before the file only) the system keychain (service
+`omero-screen`, account `user@host`); `doctor` warns about the keychain case.
 
 **Developer `.env` files** (`.env.development`, `.env.production` with
 `ENV=production`, `.env.e2etest`) at the repo root still work and take

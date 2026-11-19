@@ -18,16 +18,18 @@ Values already in the environment are never replaced, so precedence is, from
 lowest to highest: built-in defaults < site profile < user config < ``.env``
 file < environment variables < command-line flags.
 
-The password is never written to either file. It is looked up when a
-connection is made, in this order: the ``PASSWORD`` environment variable, the
-system keychain (``keyring``, macOS Keychain on a Mac), then a password file
-readable only by its owner (``[omero] password_file``, for headless machines
-such as an HPC cluster).
+The password is never written to either TOML file. ``setup`` keeps it in a
+password file readable only by its owner (``[omero] password_file``). It is
+looked up when a connection is made, in this order: the ``PASSWORD``
+environment variable, the password file, then (only for setups made before
+the password file, until the user runs ``setup`` again) the system keychain.
 """
 
 from __future__ import annotations
 
+import glob
 import os
+import shutil
 import stat
 import tomllib
 from dataclasses import dataclass, field
@@ -35,8 +37,11 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-#: Keychain service name under which passwords are stored.
+#: Keychain service name under which older setups stored the password.
 KEYRING_SERVICE = "omero-screen"
+
+#: :func:`password_source` for a password still in the keychain.
+LEGACY_KEYCHAIN = "system keychain (from an older setup)"
 
 #: TOML key -> environment variable it sets.
 ENV_KEYS: dict[tuple[str, str], str] = {
@@ -212,12 +217,28 @@ def _keyring_account(username: str, host: str) -> str:
     return f"{username}@{host}"
 
 
+def _password_file(settings: Settings | None = None) -> Path | None:
+    """The configured password file, if it exists."""
+    settings = settings if settings is not None else load()
+    if pw_file := settings.get("omero", "password_file"):
+        path = Path(str(pw_file)).expanduser()
+        if path.exists():
+            return path
+    return None
+
+
 def get_password(
     username: str, host: str, settings: Settings | None = None
 ) -> str | None:
-    """The OMERO password: environment, keychain, then password file."""
+    """The OMERO password: environment, password file, then keychain.
+
+    The keychain is only read for setups made before the password file;
+    reading it can prompt (macOS asks whether Python may read the entry).
+    """
     if password := os.environ.get("PASSWORD"):
         return password
+    if path := _password_file(settings):
+        return read_password_file(path)
     try:
         import keyring
 
@@ -228,11 +249,6 @@ def get_password(
             return str(stored)
     except Exception:  # noqa: BLE001 - no usable keychain backend
         pass
-    settings = settings if settings is not None else load()
-    if pw_file := settings.get("omero", "password_file"):
-        path = Path(str(pw_file)).expanduser()
-        if path.exists():
-            return read_password_file(path)
     return None
 
 
@@ -256,17 +272,19 @@ def password_source(username: str | None, host: str | None) -> str:
         return "PASSWORD environment variable"
     if not (username and host):
         return "not looked up (no user name or host)"
+    if path := _password_file():
+        return f"password file {path}"
     try:
         import keyring
 
         if keyring.get_password(
             KEYRING_SERVICE, _keyring_account(username, host)
         ):
-            return "system keychain"
+            return LEGACY_KEYCHAIN
     except Exception:  # noqa: BLE001
         pass
     if pw_file := load().get("omero", "password_file"):
-        return f"password file {pw_file}"
+        return f"not found: password file {pw_file} is missing"
     return "not found: run `omero-screen setup`"
 
 
@@ -309,25 +327,47 @@ def _label(source: str) -> str:
     )
 
 
-def store_password(username: str, host: str, password: str) -> None:
-    """Save the password in the system keychain.
+def default_password_file() -> Path:
+    """Where ``setup`` puts the password when it uses a file."""
+    return config_dir() / "omero-password"
 
-    Raises:
-        ConfigError: If no keychain is available (e.g. a headless server);
-            set ``[omero] password_file`` instead.
+
+def write_password_file(path: Path, password: str) -> Path:
+    """Write the password to ``path``, readable only by its owner.
+
+    The folder is created owner-only too; the file is never readable by
+    others, not even briefly.
     """
+    path = Path(path).expanduser()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
-        import keyring
+        os.fchmod(fd, 0o600)
+        os.write(fd, password.encode())
+    finally:
+        os.close(fd)
+    return path
 
-        keyring.set_password(
-            KEYRING_SERVICE, _keyring_account(username, host), password
-        )
-    except Exception as err:  # noqa: BLE001
-        raise ConfigError(
-            f"No system keychain available ({err}). On a headless machine, "
-            "put the password in a file readable only by you (chmod 600) and "
-            "set [omero] password_file in the user config."
-        ) from err
+
+def on_cluster() -> bool:
+    """Whether this machine is part of a SLURM cluster."""
+    return shutil.which("sbatch") is not None or any(
+        key.startswith("SLURM_") for key in os.environ
+    )
+
+
+def suggest_work_dir(profile: dict[str, Any], user: str) -> Path | None:
+    """The user's work directory for large data, from the site profile.
+
+    ``[cluster] work_dirs`` lists glob patterns with ``{user}`` (the login
+    name); the first existing directory wins.
+    """
+    patterns = profile.get("cluster", {}).get("work_dirs", [])
+    for pattern in patterns:
+        for match in sorted(glob.glob(str(pattern).format(user=user))):
+            if Path(match).is_dir():
+                return Path(match)
+    return None
 
 
 def login() -> tuple[str, str, int | None, str | None, str]:
@@ -368,12 +408,42 @@ def _toml_value(value: Any) -> str:
         return "true" if value else "false"
     if isinstance(value, int | float):
         return str(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(v) for v in value) + "]"
     escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
 
 
+def read_user_config(path: Path | None = None) -> dict[str, Any]:
+    """The user config as written, without the site profile (``{}`` if none)."""
+    path = path or user_config_path()
+    return tomllib.loads(path.read_text()) if path.exists() else {}
+
+
+def _table_lines(name: str, table: dict[str, Any]) -> list[str]:
+    """``[name]`` with its plain keys, then its sub-tables as ``[name.sub]``."""
+    plain = {k: v for k, v in table.items() if not isinstance(v, dict)}
+    lines: list[str] = []
+    if plain:
+        lines += ["", f"[{name}]"]
+        lines += [
+            f"{_toml_key(k)} = {_toml_value(v)}" for k, v in plain.items()
+        ]
+    for key, value in table.items():
+        if isinstance(value, dict):
+            lines += _table_lines(f"{name}.{_toml_key(key)}", value)
+    return lines
+
+
+def _toml_key(key: str) -> str:
+    """A bare TOML key, quoted if it has characters a bare key can't."""
+    if key and all(c.isalnum() or c in "-_" for c in key):
+        return key
+    return _toml_value(key)
+
+
 def write_user_config(data: dict[str, Any], path: Path | None = None) -> Path:
-    """Write a user config of top-level keys and flat tables.
+    """Write the user config: top-level keys, then tables (nested allowed).
 
     Args:
         data: e.g. ``{"site": "sussex", "omero": {"username": "ab123"}}``.
@@ -387,10 +457,9 @@ def write_user_config(data: dict[str, Any], path: Path | None = None) -> Path:
     ]
     for key, value in data.items():
         if not isinstance(value, dict):
-            lines.append(f"{key} = {_toml_value(value)}")
+            lines.append(f"{_toml_key(key)} = {_toml_value(value)}")
     for table, content in data.items():
         if isinstance(content, dict) and content:
-            lines += ["", f"[{table}]"]
-            lines += [f"{k} = {_toml_value(v)}" for k, v in content.items()]
+            lines += _table_lines(_toml_key(table), content)
     path.write_text("\n".join(lines) + "\n")
     return path

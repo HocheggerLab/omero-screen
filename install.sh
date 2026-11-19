@@ -10,6 +10,15 @@
 #   OMERO_SCREEN_HOME      install location (default: ~/.local/share/omero-screen)
 #   OMERO_SCREEN_BIN       where commands are linked (default: uv's tool bin dir)
 #   OMERO_SCREEN_NO_SETUP  set to 1 to skip `omero-screen setup` at the end
+#   OMERO_SCREEN_HEADLESS  1: no napari GUI; 0: with it. Default: headless on
+#                          a cluster (SLURM present) or with glibc < 2.34
+#                          (too old for the Qt wheels), else with the GUI. An
+#                          update keeps the choice of the install it replaces.
+#   UV_HTTP_TIMEOUT        download timeout in seconds (default here: 300; a
+#                          cluster proxy can be too slow for uv's own 30)
+#   UV_COMPILE_BYTECODE_TIMEOUT  per-file compile timeout in seconds (default
+#                          here: 600; uv's own 60 is too short on a busy
+#                          cluster filesystem)
 #
 # Running it again updates the install (or `omero-screen self update`); your
 # settings (~/.config/omero-screen) and data are kept. The previous release is
@@ -17,14 +26,14 @@
 #
 # Uninstall (or `omero-screen self uninstall`):
 #   curl -LsSf https://raw.githubusercontent.com/HocheggerLab/omero-screen/main/install.sh | sh -s -- --uninstall
-# --purge also deletes the settings and the keychain password. Your CellView
+# --purge also deletes the settings and the password file. Your CellView
 # database, image cache and Cellpose models are never deleted.
 set -eu
 
 REPO="HocheggerLab/omero-screen"
 HOME_DIR="${OMERO_SCREEN_HOME:-$HOME/.local/share/omero-screen}"
 # Commands linked onto the PATH.
-COMMANDS="omero-screen omero-screen-export omero-screen-images omero-train cellview cellclass cellclass-train cellclass-dataset cellclass-extract napari"
+COMMANDS="omero-screen omero-screen-export omero-screen-sbatch omero-screen-images omero-train cellview cellclass cellclass-train cellclass-dataset cellclass-extract napari"
 
 say() { printf '%s\n' "==> $*"; }
 die() { printf '%s\n' "error: $*" >&2; exit 1; }
@@ -41,7 +50,7 @@ done
 [ "$PURGE" = 0 ] || [ "$UNINSTALL" = 1 ] || die "--purge goes with --uninstall"
 
 # Remove the install, the commands linked to it and, with --purge, the
-# settings and the keychain password. User data stays.
+# settings and the password file (and an old keychain entry). User data stays.
 uninstall() {
     [ -f "$HOME_DIR/install.env" ] || [ -L "$HOME_DIR/current" ] \
         || die "no omero-screen install in $HOME_DIR (set OMERO_SCREEN_HOME if it is elsewhere)"
@@ -69,7 +78,7 @@ uninstall() {
         elif command -v secret-tool >/dev/null 2>&1; then
             secret-tool clear service omero-screen 2>/dev/null || true
         fi
-        say "Removed your settings and the keychain password"
+        say "Removed your settings and password"
     else
         say "Kept your settings (~/.config/omero-screen); --purge removes them"
     fi
@@ -89,6 +98,52 @@ esac
 [ "$UNINSTALL" = 0 ] || uninstall
 command -v curl >/dev/null 2>&1 || die "curl is required"
 command -v tar >/dev/null 2>&1 || die "tar is required"
+
+# Large wheels (torch, Qt) can take longer than uv's default 30 s through a
+# proxy; the user's own value wins.
+UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}"
+export UV_HTTP_TIMEOUT
+# Compiling one file can stall past uv's 60 s on a slow shared filesystem
+# (seen on Lustre).
+UV_COMPILE_BYTECODE_TIMEOUT="${UV_COMPILE_BYTECODE_TIMEOUT:-600}"
+export UV_COMPILE_BYTECODE_TIMEOUT
+
+# glibc version as MAJOR*100+MINOR (0 if unknown, e.g. macOS or musl).
+glibc_version() {
+    v=$(getconf GNU_LIBC_VERSION 2>/dev/null | sed -n 's/^glibc \([0-9]*\)\.\([0-9]*\).*/\1 \2/p')
+    [ -n "$v" ] || { echo 0; return; }
+    set -- $v
+    echo $(( $1 * 100 + $2 ))
+}
+
+# Headless (no napari GUI): explicit choice, else the previous install's,
+# else on a cluster or where the Qt wheels cannot run.
+if [ -n "${OMERO_SCREEN_HEADLESS:-}" ]; then
+    HEADLESS="$OMERO_SCREEN_HEADLESS"
+    HEADLESS_WHY="OMERO_SCREEN_HEADLESS=$HEADLESS"
+elif [ -f "$HOME_DIR/install.env" ] && grep -q "^INSTALLED_HEADLESS=" "$HOME_DIR/install.env"; then
+    HEADLESS=$(sed -n "s/^INSTALLED_HEADLESS='\{0,1\}\([01]\)'\{0,1\}$/\1/p" "$HOME_DIR/install.env")
+    HEADLESS_WHY="as the existing install"
+elif command -v sbatch >/dev/null 2>&1 || env | grep -q '^SLURM_'; then
+    HEADLESS=1
+    HEADLESS_WHY="SLURM cluster"
+else
+    GLIBC=$(glibc_version)
+    if [ "$GLIBC" -gt 0 ] && [ "$GLIBC" -lt 234 ]; then
+        HEADLESS=1
+        HEADLESS_WHY="glibc older than 2.34"
+    else
+        HEADLESS=0
+    fi
+fi
+case "$HEADLESS" in 0|1) ;; *) die "OMERO_SCREEN_HEADLESS must be 0 or 1" ;; esac
+if [ "$HEADLESS" = 1 ]; then
+    say "Headless install, without the napari GUI ($HEADLESS_WHY); OMERO_SCREEN_HEADLESS=0 adds it"
+    COMMANDS=$(printf '%s\n' $COMMANDS | grep -vx napari | tr '\n' ' ')
+    UV_GROUPS=""
+else
+    UV_GROUPS="--group gui"
+fi
 
 # 1. uv (installs Python as needed)
 if ! command -v uv >/dev/null 2>&1; then
@@ -133,13 +188,26 @@ if [ "${FETCH:-0}" = 1 ] || [ ! -f "$TARGET/uv.lock" ]; then
     tar -xzf "$TMP/release.tar.gz" -C "$TMP/src" --strip-components 1 \
         || die "the download of $VERSION is damaged; run the installer again"
     [ -f "$TMP/src/uv.lock" ] || die "the download of $VERSION is incomplete; run the installer again"
+    # A branch is fetched again on every run: keep its environment, so uv
+    # only updates what changed instead of reinstalling and recompiling
+    # everything (the path stays the same, so the venv stays valid).
+    if [ -d "$TARGET/.venv" ]; then mv "$TARGET/.venv" "$TMP/src/.venv"; fi
     rm -rf "$TARGET"
     mv "$TMP/src" "$TARGET"
 fi
 
-# 3. Install exactly the locked versions, with the napari GUI, without dev tools
+# 3. Install exactly the locked versions (with the napari GUI unless
+# headless), without dev tools
 say "Installing packages (a few minutes the first time)"
-(cd "$TARGET" && uv sync --frozen --no-default-groups --group gui --compile-bytecode)
+# shellcheck disable=SC2086  # UV_GROUPS is empty or two words
+(cd "$TARGET" && uv sync --frozen --no-default-groups $UV_GROUPS) \
+    || die "installing the packages failed (see above); run the installer again: it continues where it stopped"
+# Compile separately, so the user knows what the silent wait is. Same
+# options as above: this sync changes nothing and only compiles.
+say "Compiling Python files for a faster start (quiet; minutes on a laptop, up to half an hour on a busy cluster filesystem)"
+# shellcheck disable=SC2086
+(cd "$TARGET" && uv sync --frozen --no-default-groups $UV_GROUPS --compile-bytecode) \
+    || die "compiling failed (see above); run the installer again: the packages stay installed"
 PREVIOUS=$(readlink "$HOME_DIR/current" 2>/dev/null || true)
 ln -sfn "$TARGET" "$HOME_DIR/current"
 
@@ -181,6 +249,7 @@ cat > "$HOME_DIR/install.env" <<EOF
 INSTALLED_VERSION='$VERSION'
 INSTALLED_BIN_DIR='$BIN_DIR'
 INSTALLED_COMMANDS='$COMMANDS'
+INSTALLED_HEADLESS='$HEADLESS'
 EOF
 say "Installed $VERSION in $TARGET"
 

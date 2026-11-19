@@ -19,7 +19,8 @@ This skill covers all user-facing workflows in the **omero-screen** monorepo: a 
   with `uv run` from it.
 
 Settings live in `~/.config/omero-screen/config.toml` (written by
-`omero-screen setup`); the password is in the system keychain.
+`omero-screen setup`); the password is in `~/.config/omero-screen/omero-password`
+(owner-only; never read or print it).
 
 ---
 
@@ -106,7 +107,7 @@ df, vars = cellview_load_data(experiment="palb_washout")    # by experiment name
 
 ### Setup and checks
 ```bash
-omero-screen setup         # server, user name, password (keychain)
+omero-screen setup         # server, user name, password (owner-only file)
 omero-screen doctor        # check everything; says how to fix failures
 omero-screen config show   # settings in effect and where each came from
 omero-screen --version

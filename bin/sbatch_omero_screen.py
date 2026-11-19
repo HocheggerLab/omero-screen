@@ -5,7 +5,15 @@ import argparse
 import getpass
 import inspect
 import os
+import shlex
 import subprocess
+import sys
+from pathlib import Path
+
+#: This folder (``bin/``) and the omero-screen root above it, in a source
+#: checkout and in an install made by ``install.sh`` alike.
+BIN = Path(__file__).resolve().parent
+ROOT = BIN.parent
 
 
 def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
@@ -18,24 +26,26 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
     Returns:
         The name of the script file
     """
-    # Validate installation
-    omero_screen = "omero-screen"
-    omero_screen_prog = "run_omero_screen.py"
-    send_mail = "send_mail.py"
-    torch_test = "torch_test.py"
+    # The programs beside this script, run by the Python that runs this
+    # script: the checkout's venv for a checkout, the install's for an
+    # install. Works from any folder.
+    python = shlex.quote(sys.executable)
+    progs = {}
+    for name in ("run_omero_screen.py", "send_mail.py", "torch_test.py"):
+        path = BIN / name
+        if not path.is_file():
+            raise Exception(f"Missing program: {path}")
+        progs[name] = shlex.quote(str(path))
+    omero_screen_prog = f"{python} {progs['run_omero_screen.py']}"
+    send_mail = f"{python} {progs['send_mail.py']}"
+    torch_test = f"{python} {progs['torch_test.py']}"
 
-    if not os.path.isfile(omero_screen_prog):
-        raise Exception(f"Missing program: {omero_screen_prog}")
-    if not os.path.isfile(send_mail):
-        raise Exception(f"Missing program: {send_mail}")
-    parent_dir = os.path.abspath(os.path.join(os.getcwd(), os.pardir))
-    if omero_screen != os.path.basename(parent_dir):
-        raise Exception(f"Not within an '{omero_screen}' installation")
-
-    # Check for an environment file
-    env_file = f"../.env.{args.env}" if args.env else "../.env"
-    if not os.path.exists(env_file):
-        raise Exception(f"Missing env file: {env_file}")
+    # A .env file is only needed if one is asked for; otherwise the user
+    # config (omero-screen setup) supplies the settings (#86).
+    if args.env:
+        env_file = ROOT / f".env.{args.env}"
+        if not env_file.exists():
+            raise Exception(f"Missing env file: {env_file}")
 
     # Job name uses first plate ID and PID to avoid script name clashes
     pid = os.getpid()
@@ -134,7 +144,7 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
         {comment}$@
       }}
       set -e
-      export PYTHONPATH=$(cd ../ && pwd)
+      export PYTHONPATH={shlex.quote(str(ROOT))}
       msg PYTHONPATH=$PYTHONPATH
       """
             ),
@@ -146,11 +156,11 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
                 inspect.cleandoc(
                     """
         set +e
-        runcmd uv run python {torch_test}
+        runcmd {torch_test}
         code=$?
         if [ $code -ne 0 ]; then
           msg Torch test exit code: $code
-          uv run python {send_mail} -m "{msg}" -s "{subject}" {username}@sussex.ac.uk
+          {send_mail} -m "{msg}" -s "{subject}" {username}@sussex.ac.uk
           exit $code
         fi
         set -e
@@ -166,7 +176,7 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
             )
         for plate_id in set(plate_ids):
             print(
-                f"runcmd uv run python {omero_screen_prog} {plate_id} {prog_options}",
+                f"runcmd {omero_screen_prog} {plate_id} {prog_options}",
                 file=f,
             )
         # E-mail the user when the job has finished.
@@ -178,7 +188,7 @@ def _create_job_script(args: argparse.Namespace, plate_ids: list[int]) -> str:
           """
         print(f"msg Sending result e-mail using {send_mail}", file=f)
         print(
-            f"python {send_mail} -m '{msg}' -s '{subject}' "
+            f"{send_mail} -m '{msg}' -s '{subject}' "
             f"{args.username}@sussex.ac.uk",
             file=f,
         )
@@ -391,7 +401,8 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Submit one SLURM job per plate (or one for all of them)."""
     args = _parse_args()
 
     plate_batches = [[x] for x in args.ID] if args.multi_submit else [args.ID]
@@ -410,3 +421,7 @@ if __name__ == "__main__":
                     text=True,
                 ).stdout
             )
+
+
+if __name__ == "__main__":
+    main()
