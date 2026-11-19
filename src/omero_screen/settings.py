@@ -19,10 +19,12 @@ lowest to highest: built-in defaults < site profile < user config < ``.env``
 file < environment variables < command-line flags.
 
 The password is never written to either file. It is looked up when a
-connection is made, in this order: the ``PASSWORD`` environment variable, the
-system keychain (``keyring``, macOS Keychain on a Mac), then a password file
-readable only by its owner (``[omero] password_file``, for headless machines
-such as an HPC cluster).
+connection is made, in this order: the ``PASSWORD`` environment variable, a
+password file readable only by its owner (``[omero] password_file``, for
+headless machines such as an HPC cluster, or to avoid keychain prompts), then
+the system keychain (``keyring``, macOS Keychain on a Mac). A configured
+password file wins over the keychain, so a keychain entry left over from an
+earlier setup is never read.
 """
 
 from __future__ import annotations
@@ -212,12 +214,29 @@ def _keyring_account(username: str, host: str) -> str:
     return f"{username}@{host}"
 
 
+def _password_file(settings: Settings | None = None) -> Path | None:
+    """The configured password file, if it exists."""
+    settings = settings if settings is not None else load()
+    if pw_file := settings.get("omero", "password_file"):
+        path = Path(str(pw_file)).expanduser()
+        if path.exists():
+            return path
+    return None
+
+
 def get_password(
     username: str, host: str, settings: Settings | None = None
 ) -> str | None:
-    """The OMERO password: environment, keychain, then password file."""
+    """The OMERO password: environment, password file, then keychain.
+
+    The password file comes before the keychain: configuring one is an
+    explicit choice, and reading the keychain can prompt (macOS asks whether
+    Python may read the entry).
+    """
     if password := os.environ.get("PASSWORD"):
         return password
+    if path := _password_file(settings):
+        return read_password_file(path)
     try:
         import keyring
 
@@ -228,11 +247,6 @@ def get_password(
             return str(stored)
     except Exception:  # noqa: BLE001 - no usable keychain backend
         pass
-    settings = settings if settings is not None else load()
-    if pw_file := settings.get("omero", "password_file"):
-        path = Path(str(pw_file)).expanduser()
-        if path.exists():
-            return read_password_file(path)
     return None
 
 
@@ -256,6 +270,8 @@ def password_source(username: str | None, host: str | None) -> str:
         return "PASSWORD environment variable"
     if not (username and host):
         return "not looked up (no user name or host)"
+    if path := _password_file():
+        return f"password file {path}"
     try:
         import keyring
 
@@ -266,7 +282,7 @@ def password_source(username: str | None, host: str | None) -> str:
     except Exception:  # noqa: BLE001
         pass
     if pw_file := load().get("omero", "password_file"):
-        return f"password file {pw_file}"
+        return f"not found: password file {pw_file} is missing"
     return "not found: run `omero-screen setup`"
 
 

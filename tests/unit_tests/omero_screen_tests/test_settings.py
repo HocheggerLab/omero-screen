@@ -73,23 +73,38 @@ def test_describe_names_the_source(user_config: Path) -> None:
     assert rows["USERNAME"] == "environment / .env"
 
 
-def test_password_from_env_then_keychain_then_file(
+def test_password_from_env_then_file_then_keychain(
     tmp_path: Path, user_config: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("PASSWORD", raising=False)
     assert settings.get_password("ab123", "h") is None
 
-    pw = _write(tmp_path / "pw", "from-file\n")
-    pw.chmod(0o600)
-    _write(user_config, f'[omero]\npassword_file = "{pw}"\n')
-    assert settings.get_password("ab123", "h") == "from-file"
-
     settings.store_password("ab123", "h", "from-keychain")
     assert settings.get_password("ab123", "h") == "from-keychain"
     assert settings.password_source("ab123", "h") == "system keychain"
 
+    # A configured password file wins over a (left-over) keychain entry.
+    pw = _write(tmp_path / "pw", "from-file\n")
+    pw.chmod(0o600)
+    _write(user_config, f'[omero]\npassword_file = "{pw}"\n')
+    assert settings.get_password("ab123", "h") == "from-file"
+    assert settings.password_source("ab123", "h") == f"password file {pw}"
+
     monkeypatch.setenv("PASSWORD", "from-env")
     assert settings.get_password("ab123", "h") == "from-env"
+
+
+def test_a_missing_password_file_falls_back_to_the_keychain(
+    tmp_path: Path, user_config: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("PASSWORD", raising=False)
+    gone = tmp_path / "gone"
+    _write(user_config, f'[omero]\npassword_file = "{gone}"\n')
+    assert settings.password_source("ab123", "h") == (
+        f"not found: password file {gone} is missing"
+    )
+    settings.store_password("ab123", "h", "from-keychain")
+    assert settings.get_password("ab123", "h") == "from-keychain"
 
 
 def test_password_file_readable_by_others_is_refused(tmp_path: Path) -> None:

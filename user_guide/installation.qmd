@@ -275,8 +275,10 @@ port, the stitch calibrations of its microscopes, its model sets. `sussex` is
 built in. For another site, write one as a TOML file, set
 `site = "/path/to/your-site.toml"`, and send it to us so it can be included.
 
-On a machine without a keychain (an HPC cluster), put the password in a file
-only you can read and name it in the user config:
+On a machine without a keychain (an HPC cluster), or on a Mac if you'd rather
+not have macOS ask whether Python may read the keychain, put the password in
+a file only you can read and name it in the user config (or run
+`omero-screen setup --password-file <file>`, which does both):
 
 ```bash
 umask 077 && echo 'your-password' > ~/.omero-password
@@ -287,7 +289,9 @@ umask 077 && echo 'your-password' > ~/.omero-password
 password_file = "~/.omero-password"
 ```
 
-The `PASSWORD` environment variable works too, and takes precedence.
+A configured password file is used before the keychain, so a keychain entry
+left over from an earlier setup is ignored. The `PASSWORD` environment
+variable works too, and takes precedence over both.
 
 ## Working in another user's screens
 
