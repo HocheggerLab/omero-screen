@@ -19,13 +19,61 @@ downloading.
 
 ## Quick install (macOS and Linux)
 
-Open **Terminal** and paste:
+Allow about ten minutes, most of it downloading. You need your OMERO user
+name and password, and, if your OMERO server is only reachable on the
+institute network, the VPN.
+
+**1. Run the installer.** Open **Terminal** and paste:
 
 ```bash
 curl -LsSf https://raw.githubusercontent.com/HocheggerLab/omero-screen/main/install.sh | sh
 ```
 
-The installer:
+It prints what it does, step by step:
+
+```text
+==> Downloading omero-screen-v<version>
+==> Installing packages (a few minutes the first time)
+Installed … packages in …
+==> Compiling Python files for a faster start (quiet; minutes on a laptop, …)
+==> Installed omero-screen-v<version> in ~/.local/share/omero-screen/…
+fetched nucleitorch_0 …          (the stock Cellpose models)
+```
+
+The compile step prints nothing until it is done; let it run. If a download
+fails (`could not download …`, `network timeout`), check the network (VPN,
+proxy) and run the same line again: it continues where it stopped.
+
+**2. Answer the setup questions.** The installer then runs
+`omero-screen setup`:
+
+```text
+Site profile (sussex, none) [sussex]:              ← Enter for the Hochegger lab OMERO
+OMERO user name: ab123
+OMERO password:                                     ← typed blind
+Checking the login to ome2.hpc.sussex.ac.uk ...
+OK: logged in; your default group is '<your group>'.
+Password saved in ~/.config/omero-screen/omero-password (only you can read it).
+Wrote ~/.config/omero-screen/config.toml. Next: omero-screen doctor
+```
+
+A failed login is almost always the VPN or a typo; run `omero-screen setup`
+again. See [Set up your OMERO login](#set-up-your-omero-login) for details.
+
+**3. Read the check.** The installer ends with `omero-screen doctor`. Every
+line should say `OK`; `WARN` lines are advice, not failures. Each problem
+comes with a `fix:` line.
+
+**4. Open a new Terminal window** if the installer said it updated your
+`PATH`, then check the command is found:
+
+```bash
+omero-screen --version
+```
+
+You are ready for [your first plate](first-plate.qmd).
+
+### What the installer does
 
 1. installs [uv](https://docs.astral.sh/uv/), which brings its own Python, if
    it is missing;
@@ -34,17 +82,11 @@ The installer:
    library, into `~/.local/share/omero-screen`;
 3. puts the commands (`omero-screen`, `cellview`, `cellclass`, `napari`, …) in
    uv's command directory (normally `~/.local/bin`) and adds that directory to
-   your shell `PATH` automatically if needed;
+   your shell `PATH` automatically if needed (you do not need to edit `.zshrc`
+   yourself);
 4. downloads the stock Cellpose segmentation models, so a network problem
    shows up now rather than in the middle of your first plate;
-5. runs `omero-screen setup` and `omero-screen doctor` (below).
-
-If the installer says it updated your `PATH`, open a new Terminal window once
-before running the commands. You do not need to edit `.zshrc` or another shell
-file manually.
-
-If the download fails (`could not download …`), check the network (VPN,
-proxy) and run the same line again; it picks up where it stopped.
+5. runs `omero-screen setup` and `omero-screen doctor`.
 
 ### Installer options
 
@@ -220,39 +262,136 @@ with `OMERO_SCREEN_USE_GPU=0`.
 
 ## On an HPC cluster
 
-Run the [quick install](#quick-install-macos-and-linux) on a **login node**.
-It sees SLURM there and installs **headless**: everything except the napari
-GUI, which a cluster doesn't need (`doctor` then reports napari as a warning,
-not a failure). Then:
+On a cluster you install once on a **login node**, and every analysis runs as
+a **SLURM job** on a GPU node: never run the pipeline on the login node. The
+steps below use the Sussex HPC (Artemis) as the example; on another cluster
+the folder names differ.
 
-- **Setup:** the installer runs `omero-screen setup` as on a laptop. On a
-  cluster it also asks where to put the image cache, suggesting your work
-  space (e.g. Lustre) instead of your home directory.
-- **Where to install:** each release takes ~2.3 GB in many small files.
-  Keep the install (`OMERO_SCREEN_HOME`) and uv's download cache
-  (`UV_CACHE_DIR`, see `uv cache dir`) **on the same filesystem**: uv then
-  hardlinks files from the cache instead of copying them. If they differ, uv
-  warns `Failed to hardlink files` and copies everything, which on a busy
-  shared filesystem can take an hour. On Artemis, home is on a slow, shared
-  NFS and uv's cache is often on Lustre; installing beside the cache took
-  under 2 minutes instead of 45:
-  ```bash
-  export OMERO_SCREEN_HOME=/mnt/lustre/users/<group>/$USER/omero-screen-install
-  ```
-  Put it in `~/.bashrc` so updates use the same place. Don't point it at a
-  source checkout.
-- **Models:** fetch them on the login node once, so jobs don't download them
-  in parallel: `omero-screen models pull stock`, and
-  `omero-screen models pull hocheggerlab` for the lab's models. Cellpose 4
-  (`cpsam`) downloads on first use.
-- **CUDA:** the PyTorch build installed needs an NVIDIA driver for CUDA 12
-  (driver 525 or newer).
+**1. Log in to a login node** and find your two storage areas: your home
+directory (small, often a slow shared NFS) and your work space for large data
+(on Artemis, Lustre: `/mnt/lustre/users/<group>/$USER`).
 
-An `omero-screen submit` command that writes and submits SLURM jobs from the
-install is in preparation
-([#92](https://github.com/HocheggerLab/omero-screen/issues/92)). Until then,
-jobs are submitted from a source checkout as described in
+**2. Choose where the software goes.** It is ~2.3 GB in tens of thousands of
+small files. Put it on the **same filesystem as uv's download cache**:
+uv then hardlinks files from the cache instead of copying them.
+
+```bash
+uv cache dir          # without uv yet: it will be ~/.cache/uv
+```
+
+Put both in your work space and make it permanent. If `uv cache dir` already
+points into your work space, keep it and only set `OMERO_SCREEN_HOME`:
+
+```bash
+W=/mnt/lustre/users/<group>/$USER                    # your work space
+echo "export UV_CACHE_DIR=$W/.cache/uv" >> ~/.bashrc
+echo "export OMERO_SCREEN_HOME=$W/omero-screen-install" >> ~/.bashrc
+source ~/.bashrc
+```
+
+Don't point `OMERO_SCREEN_HOME` at a source checkout. If install and cache are
+on different filesystems, uv warns `Failed to hardlink files` and copies
+everything: on Artemis that took 45 minutes instead of under 2.
+
+**3. Run the installer** on the login node:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/HocheggerLab/omero-screen/main/install.sh | sh
+```
+
+It sees SLURM and installs **headless**: everything except the napari GUI,
+which a cluster doesn't need:
+
+```text
+==> Headless install, without the napari GUI (SLURM cluster); OMERO_SCREEN_HEADLESS=0 adds it
+==> Installing packages (a few minutes the first time)
+Installed 222 packages in 1m 46s
+==> Compiling Python files for a faster start (quiet; … up to half an hour on a busy cluster filesystem)
+Bytecode compiled 16650 files in 15m 14s
+```
+
+The compile is slow on a cluster filesystem (every file is a round trip to a
+shared server) but saves every job from doing it. If it stops with a timeout,
+run the same line again: installed packages are kept.
+
+**4. Answer the setup questions**, as on a laptop, plus one:
+
+```text
+Site profile (sussex, none) [sussex]:
+OMERO user name: ab123
+OMERO password:
+OK: logged in; your default group is '<your group>'.
+Password saved in ~/.config/omero-screen/omero-password (only you can read it).
+Image cache folder (can grow to tens of GB; …) [/mnt/lustre/users/<group>/ab123/omero-cache]:
+```
+
+Accept the suggested image cache in your work space: downloaded images can
+grow to tens of GB and do not belong in home.
+
+**5. Read the check.** `doctor` should report `OK` everywhere except
+`napari and Qt` (a warning on a headless install) and the compute device,
+which is `CPU only` on a login node; the GPU is checked in step 7.
+
+**6. Fetch the models once, on the login node,** so that parallel jobs don't
+all download them at the same time. The stock models came with the
+installer; for the lab's own models:
+
+```bash
+omero-screen models pull hocheggerlab
+```
+
+and set `model_set = "hocheggerlab"` under `[segmentation]` in
+`~/.config/omero-screen/config.toml`. On a GPU node with no model set, the
+default is Cellpose 4 (`cpsam`), which downloads on first use (1.2 GB).
+
+**7. Test a GPU node** with a 10-minute job that only runs the check:
+
+```bash
+cd /mnt/lustre/users/<group>/$USER
+sbatch -p gpu --gres=gpu:1 --mem=8G --time=00:10:00 -o doctor-%j.out \
+  --wrap "$(command -v omero-screen) doctor"
+squeue -u $USER                  # wait until the job has gone
+cat doctor-*.out
+```
+
+Look for `Compute device: CUDA …` and `OMERO connection: connected`. The
+PyTorch build needs an NVIDIA driver for CUDA 12 (driver 525 or newer).
+
+**8. Submit plates** from your work space with `omero-screen-sbatch`:
+
+```bash
+cd /mnt/lustre/users/<group>/$USER
+omero-screen-sbatch 12345 --no-submit     # writes the job script only: check it
+omero-screen-sbatch 12345                 # submit; one job per plate
+omero-screen-sbatch 12345 67890 --stitch --track
+squeue -u $USER
+```
+
+Each job checks the GPU first, runs the pipeline with the options you gave,
+logs to `os<plate>.<pid>.<jobid>.out` in that folder, and e-mails
+`<your login>@sussex.ac.uk` when it ends (`-u` changes the login). Job options (memory, hours, partition) are in
 [Running on a SLURM cluster](hpc.qmd).
+
+**9. Update** on the login node, as anywhere else:
+
+```bash
+omero-screen self update
+```
+
+The install stays where `OMERO_SCREEN_HOME` put it. Jobs that are already
+queued keep the release they were submitted with until it is removed (the
+previous release is kept, so wait for running jobs before updating twice).
+
+### When something goes wrong on the cluster
+
+| You see | Meaning | Do |
+|---|---|---|
+| `Failed to hardlink files; falling back to full copy` | install and uv's cache on different filesystems | install beside the cache (step 2) |
+| `Failed to download … network timeout` | the proxy was slow | run the install line again (the installer already allows 300 s) |
+| `Bytecode timed out` | the filesystem stalled on one file | run the install line again |
+| The installer seems stuck after `Installed … packages` | it is compiling, quietly | wait; `top -u $USER` shows `python` working |
+| `Compute device: CPU only` in a job | the job did not get a GPU | ask for one: `-p gpu --gres=gpu:1` |
+| `OMERO login incomplete` in a job | no user config for this account | run `omero-screen setup` on the login node |
 
 ## The configuration in detail
 
