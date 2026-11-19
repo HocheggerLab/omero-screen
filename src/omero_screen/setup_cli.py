@@ -321,6 +321,19 @@ def _check_cellview() -> Check:
     )
 
 
+def _check_training() -> Check:
+    ok = _module("cellclass") and _module("wandb")
+    missing = [m for m in ("cellclass", "wandb") if not _module(m)]
+    return Check(
+        "Classifier training (cellclass, W&B)",
+        ok,
+        "importable" if ok else f"missing: {', '.join(missing)}",
+        "Only needed to train classifiers: install again without "
+        "--no-training.",
+        required=False,
+    )
+
+
 def _check_napari() -> Check:
     ok = _module("napari") and _module("qtpy")
     return Check(
@@ -410,6 +423,7 @@ def doctor(offline: bool) -> None:
         lambda: _check_login(connect=not offline),
         _check_cellview,
         _check_napari,
+        _check_training,
         _check_device,
         _check_cache,
         _check_models,
