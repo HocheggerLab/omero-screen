@@ -23,7 +23,9 @@ dependencies = [
     "tqdm>=4.67.1",
     "matplotlib>=3.10.1",
     "numpy>=1.26.4",
-    "torch>=2.7.0",
+    # Capped below 2.11: later torch wheels on PyPI target CUDA 13 (driver >= 580);
+    # the Artemis GPU nodes run driver 560 (CUDA 12.6). Raise with the driver.
+    "torch>=2.10,<2.11",
     "seaborn>=0.13.2",
     "duckdb>=1.2.2",
     "cellview",
