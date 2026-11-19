@@ -33,7 +33,7 @@ set -eu
 REPO="HocheggerLab/omero-screen"
 HOME_DIR="${OMERO_SCREEN_HOME:-$HOME/.local/share/omero-screen}"
 # Commands linked onto the PATH.
-COMMANDS="omero-screen omero-screen-export omero-screen-images omero-train cellview cellclass cellclass-train cellclass-dataset cellclass-extract napari"
+COMMANDS="omero-screen omero-screen-export omero-screen-sbatch omero-screen-images omero-train cellview cellclass cellclass-train cellclass-dataset cellclass-extract napari"
 
 say() { printf '%s\n' "==> $*"; }
 die() { printf '%s\n' "error: $*" >&2; exit 1; }
