@@ -7,13 +7,32 @@ resources:
   - assets/showcase-poster.jpg
 ---
 
+```{=html}
+<script>
+/* Right-hand sidebar order. Great Docs generates AI / Agents, Developers,
+   Community and Meta as one margin block; ours (Start here, Applications)
+   is a second. Once Quarto has placed both, move all sections into the
+   first block in this order and drop the emptied second block. */
+document.addEventListener("DOMContentLoaded", () => {
+  const order = ["start-here", "ai-agents", "applications", "meta",
+                 "community", "developers"];
+  const sections = order.map((id) => document.getElementById(id));
+  if (sections.some((s) => !s)) return;   // a block is missing: leave as is
+  const target = sections[1].parentElement;  // inside the generated block
+  const ours = sections[0].closest(".column-margin");
+  sections.forEach((s) => target.appendChild(s));
+  if (ours && !ours.querySelector("section")) ours.remove();
+});
+</script>
+```
+
 ::: {.column-margin}
-#### Start here
+### Start here
 
-[Analyse your first plate](user-guide/first-plate.html)<br>
 [Install & configure](user-guide/installation.html)<br>
+[Analyse your first plate](user-guide/first-plate.html)<br>
 
-#### Applications
+### Applications
 
 [Core pipeline](reference/index.html)<br>
 [CellView database](cellview/)<br>
