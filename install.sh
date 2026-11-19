@@ -16,6 +16,9 @@
 #                          update keeps the choice of the install it replaces.
 #   UV_HTTP_TIMEOUT        download timeout in seconds (default here: 300; a
 #                          cluster proxy can be too slow for uv's own 30)
+#   UV_COMPILE_BYTECODE_TIMEOUT  per-file compile timeout in seconds (default
+#                          here: 600; uv's own 60 is too short on a busy
+#                          cluster filesystem)
 #
 # Running it again updates the install (or `omero-screen self update`); your
 # settings (~/.config/omero-screen) and data are kept. The previous release is
@@ -100,6 +103,10 @@ command -v tar >/dev/null 2>&1 || die "tar is required"
 # proxy; the user's own value wins.
 UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}"
 export UV_HTTP_TIMEOUT
+# Compiling one file can stall past uv's 60 s on a slow shared filesystem
+# (seen on Lustre).
+UV_COMPILE_BYTECODE_TIMEOUT="${UV_COMPILE_BYTECODE_TIMEOUT:-600}"
+export UV_COMPILE_BYTECODE_TIMEOUT
 
 # glibc version as MAJOR*100+MINOR (0 if unknown, e.g. macOS or musl).
 glibc_version() {

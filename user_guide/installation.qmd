@@ -60,6 +60,7 @@ Set these as environment variables before `sh`, for example
 | `OMERO_SCREEN_BRANCH` | install a branch instead of a release (for testing changes) |
 | `OMERO_SCREEN_HEADLESS` | `1`: install without the napari GUI; `0`: with it. By default the install is headless on an HPC cluster (SLURM present) or with glibc older than 2.34, and has the GUI elsewhere. An update keeps the choice of the install it replaces |
 | `UV_HTTP_TIMEOUT` | download timeout in seconds; the installer uses 300 unless you set it (uv's own 30 s is too short behind some proxies) |
+| `UV_COMPILE_BYTECODE_TIMEOUT` | per-file compile timeout in seconds; the installer uses 600 unless you set it (uv's own 60 s is too short on a busy cluster filesystem) |
 
 ### What goes where
 
@@ -222,9 +223,19 @@ not a failure). Then:
 
 - **Password:** clusters have no keychain, so use a
   [password file](#the-configuration-in-detail).
-- **Space:** each release takes ~2.3 GB. If your home directory is small, set
-  `OMERO_SCREEN_HOME` (and `UV_CACHE_DIR`, uv's download cache) to a project
-  directory.
+- **Where to install:** each release takes ~2.3 GB in many small files.
+  Keep the install (`OMERO_SCREEN_HOME`) and uv's download cache
+  (`UV_CACHE_DIR`, see `uv cache dir`) **on the same filesystem**: uv then
+  hardlinks files from the cache instead of copying them. If they differ, uv
+  warns `Failed to hardlink files` and copies everything, which on a busy
+  shared filesystem can take an hour. On Artemis, home is on a slow, shared
+  NFS and uv's cache is often on Lustre; installing beside the cache took
+  under 2 minutes instead of 45:
+  ```bash
+  export OMERO_SCREEN_HOME=/mnt/lustre/users/<group>/$USER/omero-screen-install
+  ```
+  Put it in `~/.bashrc` so updates use the same place. Don't point it at a
+  source checkout.
 - **Models:** fetch them on the login node once, so jobs don't download them
   in parallel: `omero-screen models pull stock`, and
   `omero-screen models pull hocheggerlab` for the lab's models. Cellpose 4

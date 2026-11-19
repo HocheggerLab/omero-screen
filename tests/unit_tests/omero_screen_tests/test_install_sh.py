@@ -36,7 +36,7 @@ UV = """#!/bin/sh
 case "$1" in
     tool) [ "$2" = dir ] && printf '%s\\n' "$FAKE/bin" ;;
     sync)
-        echo "$* UV_HTTP_TIMEOUT=$UV_HTTP_TIMEOUT" >> "$FAKE/uv.log"
+        echo "$* UV_COMPILE_BYTECODE_TIMEOUT=$UV_COMPILE_BYTECODE_TIMEOUT UV_HTTP_TIMEOUT=$UV_HTTP_TIMEOUT" >> "$FAKE/uv.log"
         mkdir -p .venv/bin
         printf '#!/bin/sh\\necho "$@" >> "%s/omero-screen.log"\\n' "$FAKE" > .venv/bin/omero-screen
         chmod +x .venv/bin/omero-screen
@@ -250,3 +250,10 @@ def test_a_headless_install_points_to_a_password_file(fake: Path) -> None:
         .replace("models pull stock", "")
         .split()
     )
+
+
+def test_compiling_gets_a_longer_timeout_unless_set(fake: Path) -> None:
+    assert _run(fake).returncode == 0
+    assert "UV_COMPILE_BYTECODE_TIMEOUT=600 " in _sync_args(fake)
+    assert _run(fake, UV_COMPILE_BYTECODE_TIMEOUT="99").returncode == 0
+    assert "UV_COMPILE_BYTECODE_TIMEOUT=99 " in _sync_args(fake)
