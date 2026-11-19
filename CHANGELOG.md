@@ -1,3 +1,9 @@
+## omero-screen-v0.10.8 (2026-11-19)
+
+### Fix
+
+- **install**: headless HPC install, password file, omero-screen-sbatch from the install (#108)
+
 ## omero-screen-v0.10.7 (2026-11-19)
 
 ### Fix
