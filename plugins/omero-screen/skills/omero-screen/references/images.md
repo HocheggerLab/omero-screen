@@ -64,12 +64,13 @@ one makes a point. State the point next to each image.
 The CLI is designed to be explored from its own output. Work in this order:
 
 1. **Discover the commands and options.** `omero-screen-images --help`, then
-   `omero-screen-images <command> --help`. `--env <name>` goes **before** the
-   command (it is a group option).
+   `omero-screen-images <command> --help`. Settings come from the user's
+   config; leave out `--env` (developer `.env` files only; it goes before the
+   command).
 2. **Discover the plate.** The quickest inventory is a cheap overview:
 
    ```bash
-   omero-screen-images --env production well 5108 --wells All \
+   omero-screen-images well 5108 --wells All \
        --size 400 --out /tmp/inv --json
    ```
 
@@ -104,12 +105,12 @@ well's `reason` / the run's `error`); 2 = usage error (bad option or name).
 
 ```bash
 # Gallery of one classifier class, seeded
-omero-screen-images --env production gallery 5108 --wells G5 \
+omero-screen-images gallery 5108 --wells G5 \
     --classifier-column classifier_nuclei4 --class micronuclei \
     --channels DAPI --grid 5x5 --seed 1 --out qc/mn --json
 
 # Matching control gallery, same limits as the first call's manifest
-omero-screen-images --env production gallery 5108 --wells E2 \
+omero-screen-images gallery 5108 --wells E2 \
     --classifier-column classifier_nuclei4 --class normal \
     --channels DAPI --grid 5x5 --seed 1 --limits DAPI=422:17676 --out qc/ctrl --json
 
@@ -117,7 +118,7 @@ omero-screen-images --env production gallery 5108 --wells E2 \
 omero-screen-images gallery 5108 --cells gate.csv --channels DAPI,EdU --json
 
 # Whole-well overviews, shared limits
-omero-screen-images --env production well 5108 --wells E2,G5 \
+omero-screen-images well 5108 --wells E2,G5 \
     --layers DAPI,Tub --json
 
 # Close-up with nuclei outlines
@@ -126,7 +127,7 @@ omero-screen-images well 5108 --wells G5 --layers DAPI,nuclei_masks \
 
 # The final set as a plan (plate_id,well,render; render = well | gallery |
 # gallery:<class>)
-omero-screen-images --env production batch plan.csv --channels DAPI \
+omero-screen-images batch plan.csv --channels DAPI \
     --classifier-column classifier_nuclei4 --out qc/ --json
 ```
 
@@ -145,21 +146,17 @@ Overviews need only pixels.
 
 **Check what is cached:** a plate has a zarr cache if
 `<cache>/zarr/plate_<id>.zarr` exists. `<cache>` is `OMERO_SCREEN_CACHE_PATH`
-(default `~/.cache/omero_screen`). The quickest check is to run the inventory
+(default `~/omero-cache`; `omero-screen config show` shows it). The quickest check is to run the inventory
 (`well --wells All --size 400`): the manifest's `source` is `zarr` or
 `fields`, and a stitched plate without a cache fails with a message saying so.
 
 **Build the zarr cache** (stitched plates; downloads from OMERO, can take a
 while for a full plate):
 
-```bash
-uv run python scripts/zarr_cache_build.py <plate_id>              # all wells
-uv run python scripts/zarr_cache_build.py <plate_id> G5 E2        # only these
-```
-
-or in napari: welldata widget → Plate Info → **Cache Plate**. Build only the
-wells you need when the plate is large; the zarr cache is size-capped and
-evicts least-recently-used plates.
+in napari: WellData widget → Plate Info → **Cache Plate** (tell the user
+where to click). Build only the wells you need when the plate is large; the
+zarr cache is size-capped and evicts least-recently-used plates. A headless
+install has no napari, so build the cache on a machine with the GUI.
 
 **Per-field downloads** are kept in the image disk cache (~20 GB, least
 recently used evicted first), so a second run is fast. A large per-field run

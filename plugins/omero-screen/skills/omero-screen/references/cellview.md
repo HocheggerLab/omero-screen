@@ -2,8 +2,13 @@
 
 CellView is the DuckDB-backed local database for organising single-cell IF measurements from omero-screen plates.
 
-Package: `packages/cellview/`
-Default DB location: `~/.cellview/cellview.duckdb`
+Default database: `~/.cellview/cellview.duckdb`; change it with
+`[paths] cellview_db = "…"` in `~/.config/omero-screen/config.toml`, or
+`cellview --db PATH <command>` for one command.
+
+**Ask the user before** `cellview delete`, `cellview clean` and the `curate`
+commands: they change the database. Reading and importing are fine after
+saying what you'll do.
 
 ---
 
@@ -183,16 +188,6 @@ projects
 
 ---
 
-## Environment Variables
-
-```bash
-# Set in .env file
-DATABASE_PATH=~/.cellview/cellview.duckdb
-TEST_DATABASE=false    # true → uses a separate test database
-```
-
----
-
 ## Typical Analysis Session
 
 ```python
@@ -207,15 +202,11 @@ print(df["cell_line"].unique())
 print(df["condition"].unique())
 print(df["cell_cycle"].value_counts())
 
-# 3. Filter and plot
-df_rpe = df[df["cell_line"] == "RPE"]
-
+# 3. Plot with omero-screen-plots (see references/plotting.md)
 from omero_screen_plots import combplot_cellcycle
-fig, axes = combplot_cellcycle(
-    df=df_rpe,
-    conditions=df_rpe["condition"].unique().tolist(),
-    save=True
-)
+conditions = ["control", "palbo_100nM", "palbo_1uM"]   # from step 2, in plot order
+fig, axes = combplot_cellcycle(df, conditions, selector_val="RPE",
+                               save=True, path="figures")
 ```
 
 Or use the CLI explore command to get a ready-made notebook:
@@ -232,6 +223,6 @@ cellview explore 12345 --template cellcycle
 |---|---|
 | `plate not found` | Plate not yet imported — run `cellview import csv` or `cellview import plate` |
 | Interactive prompts don't appear | Add `--interactive` flag to `import plate` or `import screen` |
-| DB at wrong path | Pass `--db /correct/path.duckdb` or set `DATABASE_PATH` in `.env` |
+| DB at wrong path | `omero-screen config show` shows `DATABASE_PATH` and where it comes from; set `[paths] cellview_db` |
 | `cellview clean` removes too much | Run `cellview plate <id>` first to verify what is orphaned |
 | Export produces no output | Check that the plate has measurements — `cellview plate <id>` to inspect |

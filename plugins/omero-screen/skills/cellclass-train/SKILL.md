@@ -1,6 +1,6 @@
 ---
 name: cellclass-train
-description: Train a cellclass CNN classifier end-to-end from collected labelled crops — build the .npz dataset, run the standard architecture/hyperparameter sweep, pull W&B (or local) metrics, generate a deterministic Jupyter report notebook (fixed A–E panels, vector PDFs), and extract the best model to TorchScript. Use when the user wants to train, sweep, or evaluate a cell-feature classifier from labelled crops (cellclass / omero-screen). Runtime-agnostic — runs wherever Claude Code is running (laptop or GPU box); contains NO SSH/remote orchestration.
+description: Train and evaluate a cellclass CNN classifier from labelled cell crops collected in napari - build the .npz dataset, run the lab's standard six-run sweep, collect metrics (W&B or local checkpoints), write the fixed A–E report notebook with vector PDFs, extract the best model to TorchScript and, after asking, publish it to OMERO for `omero-screen --inference`. Use for "train a classifier on the cells I collected", "how good is my model", "compare the training runs", "extract the best model". Runs on the machine Claude Code runs on (laptop or GPU node); no SSH. Not for collecting crops or classifying plates - use the omero-screen skill for those.
 ---
 
 # cellclass-train
@@ -9,16 +9,16 @@ Executable runbook for the **cellclass** classifier training pipeline. Drives a 
 
 **This skill runs in-place.** It does not SSH anywhere. If training must happen on a GPU box, the user opens a Claude Code session *on that box* and runs this skill there. Device is auto-detected, never hardcoded.
 
-**How to run the commands.** The examples use `uv run`, which works in a
-developer checkout of omero-screen. In a user install (`install.sh`) there is no
-checkout: drop `uv run` from `cellclass …` (the command is on the `PATH`), and
-replace `uv run python` with `~/.local/share/omero-screen/current/.venv/bin/python`.
-`<skill_dir>` is the directory of this SKILL.md. When the model is extracted,
-publish it with `omero-screen models publish <name>.pt` so the pipeline can use
-it (`omero-screen <plate> --inference <name>`); ask the user first, since it
-writes to OMERO.
+**How to run the commands.** On an installed release, `cellclass` is on the
+`PATH`; use it directly, and run Python scripts with the install's own Python,
+`$PY` (set in Step 0). In a developer checkout, prefix `cellclass` with
+`uv run` and use `uv run python` as `$PY`. `<skill_dir>` is the directory of
+this SKILL.md.
 
-**Background reference:** the conceptual pipeline (stages, internals) is documented in the Obsidian vault note `CellClass training pipeline` under `[[&CellClass]]`. The CLI lives in the `cellclass` package of the omero-screen workspace; the unified `cellclass` command is available in any environment that has the workspace installed. Legacy `cellclass-*` executables remain compatibility aliases.
+**Safety rules.** Ask before anything that writes to OMERO, CellView or the
+user's install; here that is `omero-screen models publish`. Never ask for,
+read or print the password, `~/.config/omero-screen/`, `.env*` files or
+`~/.netrc` (it holds the W&B key). The user enters the W&B key themselves.
 
 ---
 
@@ -42,20 +42,28 @@ Read `references/standard-sweep.md` for the architecture/hyperparameter standard
 Work out the working directory (where the crops / `.npz` live) and confirm the environment.
 
 ```bash
-# device auto-detect — use the printed value as -d below
-uv run python -c "import torch;print('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')"
+command -v cellclass || echo "no cellclass"
+PY="$(dirname "$(readlink -f "$(command -v cellclass)")")/python"   # the install's Python
+"$PY" -c "import wandb" && echo "wandb ok"
+# device auto-detect: use the printed value as -d below
+"$PY" -c "import torch;print('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')"
 ```
+
+- **No `cellclass`, or no `wandb`:** the install was made with
+  `--no-training`. Tell the user to reinstall without it (the install line
+  from the docs, run again); nothing to do from inside Python.
 
 - **device == cuda** → keep `--cudnn-benchmark --pin-memory --num-workers 4` in the sweep.
 - **device == mps / cpu** → **drop** `--cudnn-benchmark` and `--pin-memory` (CUDA-only; they warn and no-op). `mps` = Apple Metal GPU; `cpu` = slow, smoke-tests only.
 
 **W&B auth check (non-interactive — never automate the key):**
 ```bash
-uv run python -c "import wandb;print('wandb entity:', wandb.Api().default_entity)" 2>&1 | tail -1
+"$PY" -c "import wandb;print('wandb entity:', wandb.Api().default_entity)" 2>&1 | tail -1
 ```
 - Prints an entity → authed, proceed.
 - Errors / no entity → tell the user to run `wandb login` in *this* terminal (key from https://wandb.ai/authorize). Do **not** attempt to enter the key for them. Alternatively run the sweep with `WANDB_MODE=offline` (sync later) — training still works; live dashboards don't.
 - **Project creation is automatic** — the first `wandb.init(project=...)` creates the project under the default entity. Nothing to pre-create.
+- **A team workspace:** if the user names one (e.g. the lab's), pass `--entity <team>` on every training line and to `build_report.py`.
 
 ---
 
@@ -64,9 +72,9 @@ uv run python -c "import wandb;print('wandb entity:', wandb.Api().default_entity
 Crops are a directory of `.npy` files (each a pickled dict of image/mask lists + `target` labels), optionally with a napari `metadata.json` carrying `channels` under `user_data`.
 
 ```bash
-uv run cellclass dataset <crops_dir> --name <name> --channels <CH1> [<CH2> ...]
+cellclass dataset <crops_dir> --name <name>
 ```
-- Pass `--channels` explicitly (`cellclass dataset` may not parse napari's nested `user_data.channels`). One channel → `c1` models; two → `c2`, etc.
+- Channels come from napari's `metadata.json` (`user_data.channels`); pass `--channels <CH1> [<CH2> ...]` only to override them, or when there is no `metadata.json`. One channel → `c1` models; two → `c2`, etc.
 - `.npz` is written to `--out` (default = crops dir): `<crops_dir>/<name>.npz`.
 
 **Parse the printed class balance.** It lists per-class counts and fractions. If the max:min class ratio is roughly ≥ 3:1, **recommend `--loss-weights`** in the sweep (focal loss is on by default; inverse-frequency weighting handles the imbalance). Note any large `ignored class` count (unassigned crops) for the user.
@@ -78,12 +86,12 @@ uv run cellclass dataset <crops_dir> --name <name> --channels <CH1> [<CH2> ...]
 Generate `train.txt` from the standard in `references/standard-sweep.md`, substituting: dataset `.npz` path (relative to the dir where `batch.sh` will run), detected device, and a **per-sweep W&B project** (`--project <name>`) on every line so the sweep's runs land in their own project. Use a descriptive name, e.g. `cellclass-<dataset>`. W&B auto-creates the project on the first run.
 
 ```bash
-uv run cellclass batch <crops_dir>/train.txt --script batch.sh   # writes batch.sh, one training run per line
-bash batch.sh                                                     # run the sweep
+cellclass batch <crops_dir>/train.txt --script batch.sh   # writes batch.sh, one training run per line
+bash batch.sh                                              # run the sweep
 ```
 - `cellclass batch` derives per-run output names `<npz>.{N}.pt` / `<npz>.{N}.json` (best checkpoint → `.pt.best`).
-- **Re-runs collide:** `cellclass train --existing` defaults to `error`, so a second sweep over the same names fails. Remove prior `*.npz.*.pt*` / `*.npz.*.json` (or use a fresh group) before re-running.
-- **Long runs:** if on a remote box, advise the user to launch `bash batch.sh` inside `tmux` so it survives SSH drops (the user manages the SSH/tmux session — this skill does not).
+- **Re-runs collide:** `cellclass train --existing` defaults to `error`, so a second sweep over the same names fails. Remove prior `*.npz.*.pt*` / `*.npz.*.json` (ask first), or write the new sweep to a fresh `--project`, before re-running.
+- **Long runs:** on a remote machine, advise the user to start `bash batch.sh` inside `tmux` so it survives a dropped connection (the user manages SSH/tmux; this skill does not). On an HPC cluster, run the sweep inside a GPU job (`sbatch -p gpu --gres=gpu:1 … --wrap "bash batch.sh"`), never on the login node.
 - Use `--dry-run` first to preview, or `--background` to fan out runs as background processes.
 
 ---
@@ -98,13 +106,13 @@ After the sweep, gather results. Follow `references/wandb-pull.md`:
 
 ## Step 4 — Build the report notebook
 
-Generate the standard **A–E panel report** with `assets/build_report.py`. Unlike the interactive marimo notebook, this emits the *same* static, re-runnable Jupyter notebook every time, with figures saved as Illustrator-friendly **vector** PDFs (the confusion-matrix heatmap is drawn as rectangles, not a rasterised image — which Illustrator garbles). It also folds in the Step 3 pull. **Run it from the project env** (needs `cellclass` on PATH, plus nbformat/wandb/pandas/numpy/pillow):
+Generate the standard **A–E panel report** with `assets/build_report.py`. It emits the *same* static, re-runnable Jupyter notebook every time, with figures saved as Illustrator-friendly **vector** PDFs (the confusion-matrix heatmap is drawn as rectangles, not a rasterised image — which Illustrator garbles). It also folds in the Step 3 pull. **Run it with the install's Python** (`$PY`; it needs `cellclass` on the PATH, plus nbformat/jupyter/wandb, all in the install):
 
 ```bash
-uv run python <skill_dir>/assets/build_report.py <npz> \
+"$PY" <skill_dir>/assets/build_report.py <npz> \
     --best <npz>.{N}.pt.best --model <arch> \      # winner checkpoint + its architecture
     --project cellclass-<dataset> \                # or: --runs-dir <dir> for offline (local checkpoints)
-    --device <DEV> --execute
+    --device <DEV> --execute                       # add --entity <team> for a team workspace
 # optional Panel C overlay (e.g. loss-weighted vs not):
 #   --compare <npz>.{M}.pt.best --compare-model <arch> --compare-label "loss weights"
 ```
@@ -116,7 +124,7 @@ Panels (fixed order): **A** training curves of the top runs (W&B only) · **B** 
 Notes:
 - `--best` may be a training checkpoint (`.pt.best` + `--model <arch>`) or an already-extracted scripted model (`.pt` with sidecar `.json`, omit `--model`).
 - The notebook reads only the local CSVs/assets, so it re-runs offline and edits cleanly in Jupyter. Delete `confusion-matrix.csv` to force a recompute.
-- *Optional interactive alternative:* `uv run --with marimo marimo edit <skill_dir>/assets/training_runs.py` for ad-hoc run exploration (overlaid curves, best-F1 bar chart, summary table; `wandb`/`local` source toggle).
+- *Optional, developer checkout only:* `uv run --with marimo marimo edit <skill_dir>/assets/training_runs.py` for ad-hoc run exploration (overlaid curves, best-F1 bar chart, summary table).
 
 ---
 
@@ -124,11 +132,11 @@ Notes:
 
 Pick the run with the highest **test F1** (fall back to val F1 if no test split). Extract its settings JSON to TorchScript:
 ```bash
-uv run cellclass extract <npz>.{N}.json --save
+cellclass extract <npz>.{N}.json --save
 ```
-Produces `<model>_c<channels>_l<labels>.pt` (TorchScript) + a `.json` metadata sidecar (`labels`, `model`, `channels`, `input_shape`, metrics). Publish it to OMERO with `omero-screen models publish <model>.pt` (uploads the `.pt` and its `.json`); the pipeline then uses it by name, without `.pt`: `omero-screen <plate> --inference <model>`.
+Produces `<model>_c<channels>_l<labels>.pt` (TorchScript) + a `.json` metadata sidecar (`labels`, `model`, `channels`, `input_shape`, metrics). **Report:** summary table (model × lr → val/test F1), the winning run, and the extracted model path.
 
-**Report:** summary table (model × lr → val/test F1), the winning run, and the extracted model path. Offer inference wiring as an explicit optional follow-up — do not run it unprompted.
+Then offer, and only after the user agrees, to publish it to OMERO: `omero-screen models publish <model>.pt` (uploads the `.pt` and its `.json`). The pipeline then uses it by name, without `.pt`: `omero-screen <plate> --inference <model>`. Running that on plates is the omero-screen skill's job; don't start it unprompted.
 
 ---
 

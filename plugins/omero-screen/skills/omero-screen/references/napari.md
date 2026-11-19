@@ -1,167 +1,81 @@
-# Napari Widgets — omero-screen-napari
+# napari: browse plates, review segmentation, collect training crops
 
-Interactive Napari plugin for browsing OMERO data, reviewing segmentation, generating training data, and applying classifiers.
+napari is a window on the user's screen. Start it for them, then tell them
+exactly which menu to open and what to click; you can't see the window.
 
-Package: `packages/omero-screen-napari/`
+```bash
+napari &
+```
+
+The widgets are under **Plugins → omero-screen-napari**. They log in to OMERO
+with the user's settings from `omero-screen setup`; if a widget can't connect,
+run `omero-screen doctor`.
+
+A headless install (on an HPC cluster) has no napari. To add it, reinstall
+with `OMERO_SCREEN_HEADLESS=0` (installer option).
 
 ---
 
-## Launch
-
-```bash
-source .venv/bin/activate
-napari
-```
-
-Open the plugin: **Plugins → omero-screen-napari**
-
-The plugin connects to OMERO using credentials from the active `.env` file. Ensure the correct environment is set before launching:
-
-```bash
-ENV=production napari
-```
-
----
-
-## Widgets Overview
+## Widgets
 
 | Widget | Purpose |
 |---|---|
-| **WellData** | Browse and display images from an OMERO plate well |
-| **Gallery** | Display cell crop galleries for visual QC and review |
-| **Training** | Manually label cells to generate classifier training data |
-| **Setup Training** | Create a new classifier and configure crop settings |
-| **Classifier Selector** | Select a trained classifier; view class distribution stats |
-| **Session Manager** | Browse, load, and delete training sessions |
-| **Direct Load** | Load crops from OMERO directly without a gallery pre-step |
-| **Aligned Plate** | View aligned plate layout |
+| **WellData** | Load and show the images of a plate well, with masks |
+| **Gallery** | A grid of random cell crops, for quick QC |
+| **Setup Training** | Create a classifier: classes, crop size, channels |
+| **Training** | Label cell crops with the number keys |
+| **Classifier Selector** | Pick a classifier; shows crops per class |
+| **Session Manager** | Resume, review or delete labelling sessions |
+| **Direct Load** | Load crops from OMERO without the gallery step |
 
----
+## Browse a well
 
-## Workflow: Browse Images
+1. **WellData**: enter the plate ID and a well (`C3`), click **Load Well**.
+2. Each channel is a layer; toggle and adjust contrast in the layer list.
+3. **Show Masks** overlays the nucleus and cell masks from OMERO.
 
-**WellData widget:**
-1. Enter plate ID (OMERO plate object ID)
-2. Enter well coordinates (e.g. `C3`, `B2`)
-3. Click **Load Well**
-4. Images display in the napari viewer with separate layers per channel
-5. Navigate images with the widget controls or viewer timeline
+To check segmentation: nuclei not merged or split, cell borders right, border
+cells excluded. If it's poor, the fix is a different Cellpose model and a
+rerun with `--delete` (see `references/pipeline.md`).
 
-**Display options:**
-- Toggle channels on/off in napari layers panel
-- Adjust LUT (lookup table) and contrast per channel
-- Overlay segmentation masks: click **Show Masks** to load from OMERO
+For figure-quality images without napari (galleries, well overviews), use
+`omero-screen-images` instead (`references/images.md`).
 
----
+## Collect training crops
 
-## Workflow: Review Segmentation Quality
+1. **Setup Training**: new classifier, class names, crop size, channels.
+2. **Training**: choose the classifier, load an image, press the number key
+   for each crop's class.
+3. **Session Manager**: resume later; deleting a session warns if another
+   session shares its file.
 
-1. Load a well via WellData widget
-2. Click **Show Masks** to overlay nucleus and cell masks
-3. Check:
-   - Nuclei are correctly segmented (not merged, not split)
-   - Cell borders are accurate
-   - Border cells are excluded
-4. If quality is poor: adjust Cellpose model in config and re-run pipeline
+Crops are saved as `.npy` files with a `metadata.json` in the classifier's
+folder. Then train with the `cellclass-train` skill.
 
----
+Two settings users ask about:
+- **Isolate the target cell** (`no_background`, on by default): neighbouring
+  cells are blanked in each crop. Turn it off only when the context matters
+  for the class.
+- **Two-channel crops look yellow**: that's red + green; check the channel
+  choice in Setup Training.
 
-## Workflow: View Cell Gallery
+## The training database
 
-**Gallery widget:**
-1. Select plate and well
-2. Set gallery grid size (rows × columns)
-3. Click **Generate Gallery** — displays a grid of randomly selected cell crops
-4. Gallery shows all channels as composite RGB
-
-Use this for:
-- Quick QC of segmentation quality across many cells
-- Identifying potential training examples (phenotypes present in the data)
-
----
-
-## Workflow: Generate Training Data
-
-See `references/classifier-training.md` for the full end-to-end workflow. Summary:
-
-1. **Setup Training widget** → create classifier, set classes and crop size
-2. **Training widget** → select classifier, load image, label crops with number keys
-3. **Session Manager** → track progress, resume sessions, manage storage
-
-### Critical behaviours to know
-
-**`no_background` (label isolation):** When enabled, only the target cell's label is shown in the crop — neighbouring cells are erased. Enabled by default. Disable for images where cell context matters.
-
-**Channel mapping:** Crops use the channels configured in Setup Training. For 2-channel images, channels map to R+G (not R+G+B). If crops look yellow, check channel configuration.
-
-**`RandomImageParser` classifier flag:**
-- `classifier=True` → populates `selected_crops` (needed for saving)
-- `classifier=False` → gallery display only, `selected_crops` is empty
-- The training widget always uses `classifier=True`
-
----
-
-## Workflow: Apply a Trained Classifier in Napari
-
-**Classifier Selector widget:**
-1. Dropdown lists all classifiers in the trainingdata DB
-2. Shows class distribution stats (how many crops per class)
-3. Select a classifier → applies to current well display
-4. Cells coloured by predicted class in the viewer
-
-This is for visual review; for bulk classification at scale use `omero-screen --inference model.pth`.
-
----
-
-## Session Management
-
-**Session Manager widget:**
-- Lists all training sessions grouped by classifier
-- Shows: plate ID, well, image, number of annotated cells, creation date
-- **Load session** → resumes labelling from where you left off
-- **Delete session** → removes session + NPY file (warns if other sessions share the file)
-
-### Session file format
-Training crops are saved as `.npy` files:
-```
-{plate_id}_{well}_{image_input}_{timepoint}.npy
-```
-
-Session metadata JSON is stored alongside and contains: channel configuration, crop size, `no_background` setting, class labels.
-
----
-
-## Database CLI (trainingdata DB)
-
-The napari plugin stores annotations in a SQLite database. Manage it via:
+The labels live in a local database, managed with `omero-train`:
 
 ```bash
-# List all classifiers
-omero-train list classifiers
-
-# List sessions for a classifier
-omero-train list sessions --classifier micronuclei_v1
-
-# Show class distribution
-omero-train stats --classifier micronuclei_v1
-
-# Export training data to NPY files for training
-omero-train export --classifier micronuclei_v1 --output /path/to/output/
-
-# Delete a classifier and all its sessions
-omero-train delete --classifier old_classifier_v1
+omero-train list                         # classifiers with summary stats
+omero-train stats micronuclei_v1         # crops per class
+omero-train export micronuclei_v1 --format csv   # --plate/--well to filter
+omero-train delete micronuclei_v1        # asks to confirm; ask the user first
 ```
 
----
+`omero-train <command> --help` shows the options.
 
 ## Troubleshooting
 
-| Issue | Fix |
+| Problem | Fix |
 |---|---|
-| Plugin not listed in Plugins menu | Ensure napari plugin is installed: `uv pip install -e packages/omero-screen-napari` |
-| OMERO connection fails | Check `.env` credentials; verify OMERO server running |
-| Crops appear yellow (2-channel) | Channel mapping issue — check Setup Training channel selection matches image channels |
-| `no_background` not working | Known pattern — target cell label must be looked up at centroid; check `gallery_api.py` |
-| Session won't load | `image_input` in filename may not match stored session ID — check `session_utils.py` |
-| Keybinding already in use warning | Expected on widget re-instantiation — uses `overwrite=True`, warning is benign |
-| Duplicate annotation count | `cell_index` collisions — should use sequential enumerate index, not `np.max(label_mask)` |
+| No omero-screen-napari in the Plugins menu | Headless install (see above), or napari from another environment: start the `napari` that `install.sh` linked (`command -v napari`) |
+| Widget can't connect to OMERO | `omero-screen doctor`; VPN |
+| "Keybinding already in use" warning | Harmless when a widget is opened again |

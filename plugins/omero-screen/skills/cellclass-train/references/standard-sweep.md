@@ -47,6 +47,6 @@ Substitute `<NPZ>` (path relative to where `batch.sh` runs), `<PROJECT>` (per-sw
 ## When to deviate
 
 - **Balanced classes (< ~3:1):** `--loss-weights` can be dropped.
-- **More channels / higher-res crops:** larger nets (densenet161/201, efficientnetb4) may pay off; revisit batch size for VRAM (32 GB on the RTX5090).
+- **More channels / higher-res crops:** larger nets (densenet161/201, efficientnetb4) may pay off; revisit batch size for the GPU's memory.
 - **Quick local smoke test (mps/cpu):** add `--size 500 --epochs 20` to one line to confirm the dataset loads and a model fits before committing to the full sweep.
 - **VRAM pressure:** lower `--batch-size`; efficientnet `*s` frozen variants are the lightest accurate option.
