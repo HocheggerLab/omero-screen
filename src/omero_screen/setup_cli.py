@@ -1,7 +1,7 @@
 """``omero-screen setup | doctor | config show``: configure and check an install.
 
-``setup`` writes the user config (site profile, OMERO user, group) and stores
-the password in the system keychain. ``doctor`` checks every piece a user
+``setup`` writes the user config (site profile, OMERO user, group) and the
+password to a file only the user can read. ``doctor`` checks every piece a user
 needs and says how to fix what is missing. ``config show`` prints the
 settings in effect and where each came from, with the password masked.
 """
@@ -52,44 +52,8 @@ def _try_login(
         conn.close()
 
 
-#: How ``setup`` keeps the password.
-PASSWORD_STORES = ("keychain", "file")
-
-
-def _choose_store(requested: str | None) -> str:
-    """Keychain or password file.
-
-    As asked; else, if the machine has a keychain, ask (default keychain);
-    else a file.
-    """
-    if requested:
-        return requested
-    if not settings.keychain_available():
-        return "file"
-    return str(
-        click.prompt(
-            "Keep the password in the system keychain or a file only you "
-            "can read (no keychain prompts)",
-            type=click.Choice(PASSWORD_STORES),
-            default="keychain",
-        )
-    )
-
-
-def _save_password(
-    store: str, username: str, host: str, password: str
-) -> Path | None:
-    """Keep the password; return the password file, if one is used."""
-    if store == "keychain":
-        try:
-            settings.store_password(username, host, password)
-        except settings.ConfigError:
-            click.echo(
-                "No usable keychain here; using a password file instead."
-            )
-        else:
-            click.echo("Password stored in the system keychain.")
-            return None
+def _save_password(password: str) -> Path:
+    """Write the password to the default password file (owner-only)."""
     path = settings.write_password_file(
         settings.default_password_file(), password
     )
@@ -135,13 +99,6 @@ def _choose_cache(
     help="OMERO group to work in (default: your default group).",
 )
 @click.option(
-    "--password-store",
-    type=click.Choice(PASSWORD_STORES),
-    default=None,
-    help="Where to keep the password (default: the keychain if this "
-    "machine has one, else a file only you can read).",
-)
-@click.option(
     "--password-file",
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
@@ -163,12 +120,11 @@ def setup(
     host: str | None,
     username: str | None,
     group: str | None,
-    password_store: str | None,
     password_file: Path | None,
     cache: Path | None,
     no_verify: bool,
 ) -> None:
-    """Write the user config and keep the OMERO password.
+    """Write the user config and the OMERO password file.
 
     Settings already in the user config that setup doesn't ask about are
     kept.
@@ -210,8 +166,7 @@ def setup(
         click.echo(f"OK: logged in; your default group is {default_group!r}.")
 
     if password_file is None:
-        store = _choose_store(password_store)
-        password_file = _save_password(store, username, host, password)
+        password_file = _save_password(password)
 
     omero = dict(old_omero)
     omero["username"] = username
@@ -221,10 +176,7 @@ def setup(
         omero.pop("host", None)
     if group:
         omero["group"] = group
-    if password_file is not None:
-        omero["password_file"] = str(password_file)
-    else:
-        omero.pop("password_file", None)
+    omero["password_file"] = str(password_file)
 
     data: dict[str, Any] = {
         k: v for k, v in existing.items() if k not in ("site", "omero")
@@ -313,6 +265,17 @@ def _check_login(connect: bool) -> list[Check]:
             f"{username}@{host}" + (f":{port}" if port else ""),
         )
     ]
+    if settings.password_source(username, host) == settings.LEGACY_KEYCHAIN:
+        checks.append(
+            Check(
+                "Password",
+                False,
+                "in the system keychain (from an older setup)",
+                "Run: omero-screen setup (moves it to a file; no more "
+                "keychain prompts)",
+                required=False,
+            )
+        )
     if not connect:
         return checks
     from omero.gateway import BlitzGateway
@@ -747,7 +710,7 @@ def self_update(version: str | None, check: bool) -> None:
 @click.option(
     "--purge",
     is_flag=True,
-    help="Also delete the settings and the password in the keychain.",
+    help="Also delete the settings and the password file.",
 )
 @click.option("--yes", "-y", is_flag=True, help="Do not ask to confirm.")
 def self_uninstall(purge: bool, yes: bool) -> None:
@@ -759,7 +722,7 @@ def self_uninstall(purge: bool, yes: bool) -> None:
     found = _require_install()
     what = f"omero-screen in {found.home} and its commands in {found.bin_dir}"
     if purge:
-        what += f", your settings in {settings.config_dir()} and the keychain password"
+        what += f", your settings in {settings.config_dir()} and your password"
     if not yes:
         click.confirm(f"Remove {what}?", abort=True)
     script = found.installer

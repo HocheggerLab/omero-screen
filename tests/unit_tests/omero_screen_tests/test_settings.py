@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 
+import keyring
 import pytest
 
 from omero_screen import settings
@@ -79,9 +80,9 @@ def test_password_from_env_then_file_then_keychain(
     monkeypatch.delenv("PASSWORD", raising=False)
     assert settings.get_password("ab123", "h") is None
 
-    settings.store_password("ab123", "h", "from-keychain")
+    keyring.set_password(settings.KEYRING_SERVICE, "ab123@h", "from-keychain")
     assert settings.get_password("ab123", "h") == "from-keychain"
-    assert settings.password_source("ab123", "h") == "system keychain"
+    assert settings.password_source("ab123", "h") == settings.LEGACY_KEYCHAIN
 
     # A configured password file wins over a (left-over) keychain entry.
     pw = _write(tmp_path / "pw", "from-file\n")
@@ -103,7 +104,7 @@ def test_a_missing_password_file_falls_back_to_the_keychain(
     assert settings.password_source("ab123", "h") == (
         f"not found: password file {gone} is missing"
     )
-    settings.store_password("ab123", "h", "from-keychain")
+    keyring.set_password(settings.KEYRING_SERVICE, "ab123@h", "from-keychain")
     assert settings.get_password("ab123", "h") == "from-keychain"
 
 

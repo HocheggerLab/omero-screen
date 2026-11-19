@@ -18,13 +18,11 @@ Values already in the environment are never replaced, so precedence is, from
 lowest to highest: built-in defaults < site profile < user config < ``.env``
 file < environment variables < command-line flags.
 
-The password is never written to either file. It is looked up when a
-connection is made, in this order: the ``PASSWORD`` environment variable, a
-password file readable only by its owner (``[omero] password_file``, for
-headless machines such as an HPC cluster, or to avoid keychain prompts), then
-the system keychain (``keyring``, macOS Keychain on a Mac). A configured
-password file wins over the keychain, so a keychain entry left over from an
-earlier setup is never read.
+The password is never written to either TOML file. ``setup`` keeps it in a
+password file readable only by its owner (``[omero] password_file``). It is
+looked up when a connection is made, in this order: the ``PASSWORD``
+environment variable, the password file, then (only for setups made before
+the password file, until the user runs ``setup`` again) the system keychain.
 """
 
 from __future__ import annotations
@@ -39,8 +37,11 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-#: Keychain service name under which passwords are stored.
+#: Keychain service name under which older setups stored the password.
 KEYRING_SERVICE = "omero-screen"
+
+#: :func:`password_source` for a password still in the keychain.
+LEGACY_KEYCHAIN = "system keychain (from an older setup)"
 
 #: TOML key -> environment variable it sets.
 ENV_KEYS: dict[tuple[str, str], str] = {
@@ -231,9 +232,8 @@ def get_password(
 ) -> str | None:
     """The OMERO password: environment, password file, then keychain.
 
-    The password file comes before the keychain: configuring one is an
-    explicit choice, and reading the keychain can prompt (macOS asks whether
-    Python may read the entry).
+    The keychain is only read for setups made before the password file;
+    reading it can prompt (macOS asks whether Python may read the entry).
     """
     if password := os.environ.get("PASSWORD"):
         return password
@@ -280,7 +280,7 @@ def password_source(username: str | None, host: str | None) -> str:
         if keyring.get_password(
             KEYRING_SERVICE, _keyring_account(username, host)
         ):
-            return "system keychain"
+            return LEGACY_KEYCHAIN
     except Exception:  # noqa: BLE001
         pass
     if pw_file := load().get("omero", "password_file"):
@@ -325,47 +325,6 @@ def _label(source: str) -> str:
     return {"user": "user config", "": "environment / .env"}.get(
         source, source
     )
-
-
-def store_password(username: str, host: str, password: str) -> None:
-    """Save the password in the system keychain.
-
-    Raises:
-        ConfigError: If no keychain is available (e.g. a headless server);
-            set ``[omero] password_file`` instead.
-    """
-    try:
-        import keyring
-
-        keyring.set_password(
-            KEYRING_SERVICE, _keyring_account(username, host), password
-        )
-    except Exception as err:  # noqa: BLE001
-        raise ConfigError(
-            f"No system keychain available ({err}). On a headless machine, "
-            "put the password in a file readable only by you (chmod 600) and "
-            "set [omero] password_file in the user config."
-        ) from err
-
-
-def keychain_available() -> bool:
-    """Whether a usable system keychain backend is installed.
-
-    False on headless machines (an HPC login node), where ``keyring`` falls
-    back to a backend that cannot store anything.
-    """
-    try:
-        import keyring
-        from keyring.backends import chainer, fail
-
-        backend = keyring.get_keyring()
-    except Exception:  # noqa: BLE001 - keyring missing or broken
-        return False
-    if isinstance(backend, fail.Keyring):
-        return False
-    if isinstance(backend, chainer.ChainerBackend):
-        return bool(backend.backends)
-    return True
 
 
 def default_password_file() -> Path:

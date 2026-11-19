@@ -93,7 +93,7 @@ will ask when it needs a plate number or a channel name.
   without asking.
 - **Your password is never in the chat.** If Claude says your login is missing,
   run `omero-screen setup` in Terminal yourself; it asks for the password there
-  and keeps it in your keychain.
+  and saves it in a file only you can read.
 - **When something fails**, ask Claude to run the check again. A failed
   connection is almost always the VPN.
 - **Segmentation on a Mac** uses the standard Cellpose 3 models, which work for

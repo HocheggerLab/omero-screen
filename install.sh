@@ -26,7 +26,7 @@
 #
 # Uninstall (or `omero-screen self uninstall`):
 #   curl -LsSf https://raw.githubusercontent.com/HocheggerLab/omero-screen/main/install.sh | sh -s -- --uninstall
-# --purge also deletes the settings and the keychain password. Your CellView
+# --purge also deletes the settings and the password file. Your CellView
 # database, image cache and Cellpose models are never deleted.
 set -eu
 
@@ -50,7 +50,7 @@ done
 [ "$PURGE" = 0 ] || [ "$UNINSTALL" = 1 ] || die "--purge goes with --uninstall"
 
 # Remove the install, the commands linked to it and, with --purge, the
-# settings and the keychain password. User data stays.
+# settings and the password file (and an old keychain entry). User data stays.
 uninstall() {
     [ -f "$HOME_DIR/install.env" ] || [ -L "$HOME_DIR/current" ] \
         || die "no omero-screen install in $HOME_DIR (set OMERO_SCREEN_HOME if it is elsewhere)"
@@ -78,7 +78,7 @@ uninstall() {
         elif command -v secret-tool >/dev/null 2>&1; then
             secret-tool clear service omero-screen 2>/dev/null || true
         fi
-        say "Removed your settings and the keychain password"
+        say "Removed your settings and password"
     else
         say "Kept your settings (~/.config/omero-screen); --purge removes them"
     fi

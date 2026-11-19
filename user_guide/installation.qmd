@@ -69,7 +69,7 @@ Set these as environment variables before `sh`, for example
 | The software: one folder per release, each with its own Python environment | `~/.local/share/omero-screen/<release>`, with `current` pointing at the one in use | ~2.3 GB per release, two kept |
 | The commands | `~/.local/bin` (links into `current`) | — |
 | Your settings | `~/.config/omero-screen/config.toml` | — |
-| Your password | the system keychain (or a password file, see below) | — |
+| Your password | `~/.config/omero-screen/omero-password`, readable only by you | — |
 | Cellpose models | `~/.cellpose/models` | 25 MB per Cellpose 3 model; 1.2 GB for Cellpose 4 (`cpsam`) |
 | Downloaded images | `~/omero-cache` | grows with use |
 | CellView database | `~/.cellview/cellview.duckdb` | grows with use |
@@ -92,8 +92,7 @@ on Windows runs on WSL2 anyway, so on Windows OMERO-Screen runs inside WSL2
    [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/)
    and turn on *Settings → Resources → WSL integration* for Ubuntu.
 
-napari opens as a normal window on Windows 11. WSL has no keychain, so
-`setup` keeps your password in a file only you can read.
+napari opens as a normal window on Windows 11.
 
 ::: {.callout-note}
 The Windows route has not yet been tested end to end. Please report problems
@@ -127,7 +126,7 @@ omero-screen self update --version 0.8.27
 
 ```bash
 omero-screen self uninstall           # remove the software and its commands
-omero-screen self uninstall --purge   # also your settings and keychain password
+omero-screen self uninstall --purge   # also your settings and password file
 ```
 
 What each operation does with the things listed in
@@ -139,7 +138,7 @@ What each operation does with the things listed in
 | Previous release | kept for rollback; older ones removed | removed | removed |
 | Commands in `~/.local/bin` | relinked | removed (only ours) | removed (only ours) |
 | Settings (`config.toml`) | kept | kept | **removed** |
-| Keychain password | kept | kept | **removed** |
+| Password file (and a keychain entry from an older setup) | kept | kept | **removed** |
 | Cellpose models, image cache, CellView database | kept | kept, listed | kept, listed |
 | uv and its cache | kept | kept | kept |
 
@@ -167,11 +166,9 @@ It asks for:
   microscopes. Choose `sussex` for the Hochegger lab OMERO, or `none` to type
   in a server name;
 - your **OMERO user name** and **password**. The password is checked against
-  the server, then kept where you choose: your computer's **keychain** (macOS
-  Keychain), or a **password file** only you can read
-  (`~/.config/omero-screen/omero-password`), which avoids macOS asking
-  whether Python may read the keychain. On a machine without a keychain (an
-  HPC cluster, WSL) setup uses the file without asking;
+  the server, then saved in `~/.config/omero-screen/omero-password`, a file
+  only you can read. The same on every machine (Mac, Linux, WSL, an HPC
+  cluster), and nothing asks for it again;
 - on an **HPC cluster**, where to put the **image cache**. It can grow to
   tens of GB, so setup suggests your work space (on the Sussex HPC, your
   Lustre folder) rather than your home directory.
@@ -228,10 +225,9 @@ It sees SLURM there and installs **headless**: everything except the napari
 GUI, which a cluster doesn't need (`doctor` then reports napari as a warning,
 not a failure). Then:
 
-- **Setup:** the installer runs `omero-screen setup` as on a laptop. There
-  is no keychain on a cluster, so it keeps your password in a file only you
-  can read, and it asks where to put the image cache (suggesting your work
-  space, e.g. Lustre, instead of your home directory).
+- **Setup:** the installer runs `omero-screen setup` as on a laptop. On a
+  cluster it also asks where to put the image cache, suggesting your work
+  space (e.g. Lustre) instead of your home directory.
 - **Where to install:** each release takes ~2.3 GB in many small files.
   Keep the install (`OMERO_SCREEN_HOME`) and uv's download cache
   (`UV_CACHE_DIR`, see `uv cache dir`) **on the same filesystem**: uv then
@@ -295,10 +291,9 @@ port, the stitch calibrations of its microscopes, its model sets. `sussex` is
 built in. For another site, write one as a TOML file, set
 `site = "/path/to/your-site.toml"`, and send it to us so it can be included.
 
-`setup` writes the password file for you (`--password-store file` chooses it
-without asking). To use a file you made yourself, put the password in a file
-only you can read and name it in the user config (or run
-`omero-screen setup --password-file <file>`, which does both):
+`setup` writes the password file for you. To use a file you made yourself
+instead, put the password in a file only you can read and name it in the user
+config (or run `omero-screen setup --password-file <file>`, which does both):
 
 ```bash
 umask 077 && echo 'your-password' > ~/.omero-password
@@ -309,9 +304,12 @@ umask 077 && echo 'your-password' > ~/.omero-password
 password_file = "~/.omero-password"
 ```
 
-A configured password file is used before the keychain, so a keychain entry
-left over from an earlier setup is ignored. The `PASSWORD` environment
-variable works too, and takes precedence over both.
+The `PASSWORD` environment variable works too, and takes precedence.
+
+Setups made before the password file kept the password in the system
+keychain. It is still read until you run `omero-screen setup` again, and
+`doctor` warns about it; after that you can delete the old entry with
+`security delete-generic-password -s omero-screen` (macOS).
 
 ## Working in another user's screens
 
@@ -359,7 +357,7 @@ development. They use separate Python environments: inside the checkout,
 development code; elsewhere, `omero-screen` runs the release. Check which one
 you have with `omero-screen --version`.
 
-They share your settings, keychain password, Cellpose models, image cache and
+They share your settings, password file, Cellpose models, image cache and
 CellView database. Two things to watch:
 
 - **`.env` files.** Any `omero-screen` command reads the `.env.{ENV}` file
