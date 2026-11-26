@@ -3,7 +3,6 @@
 import numpy as np
 import pandas as pd
 import pytest
-
 from omero_screen_napari.review.filmstrip import composite, render_filmstrip
 from omero_screen_napari.review.follow import follow, match_channels
 
@@ -34,7 +33,7 @@ def _movie():
 
 
 def test_match_channels_prefix_and_default_skips_brightfield() -> None:
-    """spyDNA matches spyDNA_nucleus; the default leaves brightfield out."""
+    """SpyDNA matches spyDNA_nucleus; the default leaves brightfield out."""
     names = ["geminin", "pip", "spyDNA_nucleus", "bf_cell"]
     assert match_channels(names, ["spyDNA", "PIP"]) == [2, 1]
     assert match_channels(names, None) == [0, 1, 2]
@@ -61,8 +60,38 @@ def test_filmstrip_renders_tiles_and_trace() -> None:
     image, nuclei, path = _movie()
     cell = follow(image, nuclei, ["spyDNA", "pip", "geminin"], path, size=32)
     rgb = composite(cell, 0)
-    assert rgb.shape == (32, 32, 3) and 0 <= rgb.min() and rgb.max() <= 1
+    assert rgb.shape == (32, 32, 3) and rgb.min() >= 0 and rgb.max() <= 1
     fig = render_filmstrip(
         cell, title="test", columns=4, events=[{"kind": "mitosis", "frame": 3}]
     )
     assert len(fig.axes) == 5
+
+
+def test_dask_crops_leave_global_callbacks_alone() -> None:
+    """Filmstrip crops must not swap dask's global callbacks (napari's cache).
+
+    A default compute removes the active callbacks for its duration; when
+    napari's slicer computes at the same time, the shared cache fails with a
+    KeyError. The crop reader computes with an explicit empty list instead.
+    """
+    da = pytest.importorskip("dask.array")
+    from dask.callbacks import Callback
+    from omero_screen_napari.review.follow import _window
+
+    seen: list[object] = []
+
+    class Spy(Callback):
+        def _start(self, dsk: object) -> None:
+            seen.append(dsk)
+
+    arr = da.from_array(
+        np.arange(4 * 8 * 8).reshape(4, 8, 8), chunks=(1, 4, 4)
+    )
+    with Spy() as spy:
+        out = _window(arr, 2, 4, 4, 2)
+        assert spy._callback in Callback.active
+    assert out.shape == (4, 4)
+    assert (out == np.arange(4 * 8 * 8).reshape(4, 8, 8)[2, 2:6, 2:6]).all()
+    assert (
+        not seen
+    )  # computed without running (or swapping) the active callbacks

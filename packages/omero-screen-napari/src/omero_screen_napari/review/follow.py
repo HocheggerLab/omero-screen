@@ -78,6 +78,21 @@ def match_channels(
     return out
 
 
+def _materialise(block: Any) -> np.ndarray:
+    """A numpy/zarr/dask slice as numpy, safe off the GUI thread.
+
+    ``np.asarray`` on a dask array computes with the default
+    ``callbacks=None``, which swaps dask's global callbacks out and back in.
+    napari's dask cache is one of them, so the filmstrip (MCP thread) and
+    napari's slicing computing at once corrupt the cache and one of them fails
+    with ``KeyError: 'finalize-hlgfinalizecompute-…'``. An explicit empty list
+    leaves the global callbacks alone (as :func:`cell_outline.read_window`).
+    """
+    if hasattr(block, "dask"):
+        return np.asarray(block.compute(scheduler="synchronous", callbacks=[]))
+    return np.asarray(block)
+
+
 def _window(
     arr: Any, t: int, cy: int, cx: int, half: int, channel: int | None = None
 ) -> np.ndarray:
@@ -91,13 +106,13 @@ def _window(
         min(x1, width),
     )
     if channel is None:
-        block = (
-            np.asarray(arr[t, sy0:sy1, sx0:sx1])
+        block = _materialise(
+            arr[t, sy0:sy1, sx0:sx1]
             if arr.ndim == 3
-            else np.asarray(arr[t, 0, sy0:sy1, sx0:sx1])
+            else arr[t, 0, sy0:sy1, sx0:sx1]
         )
     else:
-        block = np.asarray(arr[t, channel, sy0:sy1, sx0:sx1])
+        block = _materialise(arr[t, channel, sy0:sy1, sx0:sx1])
     out = np.zeros((2 * half, 2 * half), dtype=block.dtype)
     out[
         sy0 - y0 : sy0 - y0 + block.shape[0],
