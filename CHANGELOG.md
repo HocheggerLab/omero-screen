@@ -1,3 +1,9 @@
+## omero-screen-v0.10.10 (2026-11-26)
+
+### Fix
+
+- **napari**: Track Review filmstrip dask race with napari's cache; marker only on gap frames (#115)
+
 ## omero-screen-v0.10.9 (2026-11-19)
 
 ### Fix
