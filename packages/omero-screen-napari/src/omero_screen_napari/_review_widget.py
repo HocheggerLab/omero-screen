@@ -29,7 +29,8 @@ Layers:
 
 * ``review past`` / ``review ahead``: the cell's track with its mother and
   daughters, *N* frames back (cyan) and ahead (magenta) of the current frame;
-* ``review marker``: a ring on the cell, a cross where it has no mask;
+* ``review marker``: a cross where the cell has no mask (elsewhere the
+  ``review cell`` outline shows it);
 * ``review cell``: an outline of the cell's own nucleus;
 * ``review candidates``: numbered nuclei that could continue the cell;
 * ``review proposal``: where a pending agent proposal points;
@@ -767,19 +768,26 @@ class TrackReviewWidget(QWidget):
             n = self.reach.value()
             self._add_tracks(data, graph, PAST_LAYER, "cyan", n, 0, 4)
             self._add_tracks(data, graph, AHEAD_LAYER, "magenta", 0, n, 4)
-        coords = np.array([[t, y, x] for t, y, x, _ in pts], dtype=float)
-        gap = np.array([lab == 0 for *_, lab in pts])
-        marker = self.viewer.add_points(  # ty: ignore[unresolved-attribute]
-            coords,
-            name=MARKER_LAYER,
-            scale=scale,
-            size=np.where(gap, 18, 40) * self._pixel_size,
-            symbol=["cross" if g else "ring" for g in gap],
-            face_color=["magenta" if g else "yellow" for g in gap],
-            border_width=0,
-            projection_mode="none",
+        # Only frames without a mask get a marker: elsewhere the nucleus
+        # outline (``review cell``) already shows the cell, and a ring on
+        # every frame cost a points layer the length of the track per load.
+        gaps = np.array(
+            [[t, y, x] for t, y, x, lab in pts if lab == 0], dtype=float
         )
-        hold_until_loaded(self.viewer, marker)
+        if len(gaps):
+            marker = (
+                self.viewer.add_points(  # ty: ignore[unresolved-attribute]
+                    gaps,
+                    name=MARKER_LAYER,
+                    scale=scale,
+                    size=18 * self._pixel_size,
+                    symbol="cross",
+                    face_color="magenta",
+                    border_width=0,
+                    projection_mode="none",
+                )
+            )
+            hold_until_loaded(self.viewer, marker)
         self._cell_at = {t: (lab, y, x) for t, y, x, lab in pts if lab}
         self._cell_patches = self._patches(pts)
         if self._nuclei is not None or self._cell_patches:
